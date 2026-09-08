@@ -142,6 +142,34 @@ The routing-parity work that closed v3 changes a handful of numbers and rejects 
 
 - **MATLAB list and batched forms now honour `method`, `truncationSigmas`, and `kernelPrecision`.** A call in list or batched form that passed these keywords and relied on their being ignored will now route as the keywords say — a forced `'mobius'` or `'centres'` is applied to every entry, and a per-call `truncationSigmas` governs every entry. Remove the keyword, or pass `'auto'`, to keep the earlier behaviour.
 
+### The pre-MAET operators return one pre-MAET (breaking)
+
+`differenceEvents`, `bindEvents`, `translateAttributes`, `transformAttributes`, `weightEvents`, `readPreMaet` and `eventsFromScore` returned the three parts of a pre-MAET as separate outputs. They now return the whole pre-MAET as one object — a MATLAB struct with the fields `pAttr`, `wAttr` and `specs`, a Python dict with the keys `p_attr`, `w_attr` and `specs` — since the parts always travel together and always describe the same pre-MAET. `translateAttributes` returns `[pm, sweep]`, the sweep struct unchanged.
+
+Call sites that want the parts wrap the call in `unpackPreMaet` / `unpack_pre_maet`:
+
+```matlab
+[pD, wD, sD] = differenceEvents(pAttr, w, [1 0]);                    % before
+[pD, wD, sD] = unpackPreMaet(differenceEvents(pAttr, w, [1 0]));     % now
+```
+
+```python
+pD, wD, sD = mpt.difference_events(p_attr, w, [1, 0])                        # before
+pD, wD, sD = mpt.unpack_pre_maet(mpt.difference_events(p_attr, w, [1, 0]))   # now
+```
+
+Call sites that pass the result straight on are shorter than before, since the pre-MAET goes in whole and the specs no longer have to be threaded by hand:
+
+```matlab
+pm  = preMaet(pAttr, w);
+pm2 = differenceEvents(bindEvents(pm, [2 2]), [1 1]);
+dens = buildExpTens(pm2, 'sigma', [0.5 0.25], 'isPer', [true false], 'period', [12 0]);
+```
+
+`windowedSimilarity` and `windowedEntropy` gain the pre-MAET form too, taking two pre-MAETs and one respectively in place of their operands and their five positional geometry vectors; their positional form is unchanged.
+
+The loose triple still works as input everywhere it did: `differenceEvents(pAttr, wAttr, [1 0], 'specs', specs)` is the same call as `differenceEvents(pm, [1 0])`. The weights argument is now named `wAttr` in the signatures that name `pAttr`, which matters only for a Python call that passed it by keyword as `w=`. The bare-array form of `transformAttributes` is unchanged: an array in, the transformed array out. See User Guide §3.7.12.
+
 ### `convertPitch` / `convert_pitch` replaced by `transformAttributes` / `transform_attributes`
 
 The pitch and frequency conversions are now one case of the new elementwise preprocessing primitive `transformAttributes`, and the old names are removed. The replacement is mechanical:
@@ -156,7 +184,7 @@ p = mpt.convert_pitch(f, 'hz', 'cents')                     # v2.0
 p = mpt.transform_attributes(f, None, ('hz', 'cents'))      # v3.0
 ```
 
-The seven scales and their formulas are unchanged, so converted values are bit-identical. The same function applies logarithmic and other transforms to attributes of the `(pAttr, w, specs)` carrier, adds the `'octave'` pitch scale, and refuses out-of-domain values (a zero under `'log'`, a negative under `'power'`) with a message giving the remedies; see User Guide §3.7.5.
+The seven scales and their formulas are unchanged, so converted values are bit-identical. The same function applies logarithmic and other transforms to a pre-MAET's attributes, adds the `'octave'` pitch scale, and refuses out-of-domain values (a zero under `'log'`, a negative under `'power'`) with a message giving the remedies; see User Guide §3.7.5.
 
 ### Default kernel truncation (numerical change)
 

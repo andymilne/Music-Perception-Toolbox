@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import weight_events
+from mpt import weight_events, unpack_pre_maet
 from mpt._tensor._mobius_inner import _ma_per_attr_inner_matrix
 
 
@@ -281,17 +281,17 @@ def test_weight_events_default_inf_resolves_to_accuracy_floor():
     prev = mpt.get_default('truncation_sigmas')
     try:
         mpt.set_default(truncation_sigmas=float('inf'))
-        _, w_out_inf, _ = weight_events(
+        _, w_out_inf, _ = unpack_pre_maet(weight_events(
             p_attr, w_init, input_attr=1, target_attr=0,
             centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
             drop_input_attr=True,
-        )
+        ))
         mpt.set_default(truncation_sigmas=accuracy_floor_sigmas())
-        _, w_out_floor, _ = weight_events(
+        _, w_out_floor, _ = unpack_pre_maet(weight_events(
             p_attr, w_init, input_attr=1, target_attr=0,
             centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
             drop_input_attr=True,
-        )
+        ))
     finally:
         mpt.set_default(truncation_sigmas=prev)
     # Contract: inf resolves to the accuracy-floor width, so both
@@ -309,11 +309,11 @@ def test_weight_events_truncation_gaussian():
     """Pure Gaussian (shape=0): factor is exactly 0 where |delta| > k*width."""
     p_attr, w_init, groups, times = _make_we_inputs(N=21)
     mpt.set_default(truncation_sigmas=3.0)
-    _, w_out, _ = weight_events(
+    _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
         drop_input_attr=True,
-    )
+    ))
     factor = w_out[0][0]
     delta = times[0]
     outside = np.abs(delta) > 3.0
@@ -335,11 +335,11 @@ def test_weight_events_truncation_rectangle():
     width = 1.0
     k = 1.0   # truncation cutoff at 1*width, rectangle support at sqrt(3) ~= 1.73*width
     mpt.set_default(truncation_sigmas=k)
-    _, w_out, _ = weight_events(
+    _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=width, shape=1.0, is_per=False, period=0.0,
         drop_input_attr=True,
-    )
+    ))
     factor = w_out[0][0]
     delta = times[0]
     outside_cutoff = np.abs(delta) > k * width
@@ -353,17 +353,17 @@ def test_weight_events_truncation_general_shape():
     p_attr, w_init, groups, times = _make_we_inputs(N=41)
     width, gamma, k = 1.0, 0.5, 3.0
     mpt.set_default(truncation_sigmas=float('inf'))
-    _, w_ref, _ = weight_events(
+    _, w_ref, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=width, shape=gamma, is_per=False, period=0.0,
         drop_input_attr=True,
-    )
+    ))
     mpt.set_default(truncation_sigmas=k)
-    _, w_trunc, _ = weight_events(
+    _, w_trunc, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=width, shape=gamma, is_per=False, period=0.0,
         drop_input_attr=True,
-    )
+    ))
     delta = times[0]
     outside = np.abs(delta) > k * width
     inside = ~outside
@@ -384,12 +384,12 @@ def test_weight_events_truncation_periodic_after_wrap():
     w_init = [np.ones((1, 3)), np.ones((1, 3))]
     groups = [0, 1]
     mpt.set_default(truncation_sigmas=3.0)
-    _, w_out, _ = weight_events(
+    _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=1.0, shape=0.0,
         is_per=True, period=10.0,
         drop_input_attr=True,
-    )
+    ))
     factor = w_out[0][0]
 
 
@@ -581,13 +581,13 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
     old = mpt.get_default('truncation_sigmas')
     try:
         mpt.set_default(truncation_sigmas=2.0)
-        _, w, _ = mpt.weight_events(
+        _, w, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=1,
             centre=5.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
     finally:
         mpt.set_default(truncation_sigmas=old)
 
@@ -686,13 +686,13 @@ def test_eval_ma_auto_prune_propagates_via_entropy_exp_tens():
     old = mpt.get_default('truncation_sigmas')
     try:
         mpt.set_default(truncation_sigmas=2.0)
-        _, w, _ = mpt.weight_events(
+        _, w, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=1,
             centre=5.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
     finally:
         mpt.set_default(truncation_sigmas=old)
 

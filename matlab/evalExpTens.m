@@ -1,21 +1,32 @@
 function vals = evalExpTens(varargin)
 %EVALEXPTENS Evaluate an r-ad expectation tensor density at query points.
 %
-%   vals = evalExpTens(dens, X):
-%   vals = evalExpTens(dens, X, normalize):
-%   vals = evalExpTens(dens, X, ..., 'verbose', false):
-%   Evaluates the density using a precomputed struct from buildExpTens.
+%   Input forms, in the order to reach for them: a single multiset;
+%   a pre-MAET, the canonical entry for everything else; a density
+%   built by buildExpTens; then the raw positional multi-attribute,
+%   list, and batched forms.
 %
 %   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X):
 %   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X, normalize):
 %   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X, ..., 'verbose', false):
 %   Evaluates the density from raw arguments (builds tuples internally).
 %
-%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X):
-%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X, normalize):
-%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X, ..., 'verbose', false):
+%   vals = evalExpTens(pm, X):
+%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildExpTens
+%   needs, so it stands wherever a density does: it is built internally
+%   and evaluated at X.
+%
+%   vals = evalExpTens(dens, X):
+%   vals = evalExpTens(dens, X, normalize):
+%   vals = evalExpTens(dens, X, ..., 'verbose', false):
+%   Evaluates the density using a precomputed struct from buildExpTens.
+%
+%   vals = evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X):
+%   vals = evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, normalize):
+%   vals = evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, ..., 'verbose', false):
 %   Raw multi-attribute mode. pAttr is a 1-by-A cell of K_a-by-N
-%   attribute matrices (the same shape one would pass to buildExpTens);
+%   attribute matrices and wAttr the matching per-attribute weights
+%   (the same shapes one would pass to buildExpTens);
 %   sigma, r, isRel, isPer, periods are per-attribute vectors.
 %   the per-attribute group assignment ([], length-A index vector, or
 %   1-by-G cell of index lists). Builds a MaetDensity internally and
@@ -40,9 +51,9 @@ function vals = evalExpTens(varargin)
 %
 %   Multiset-argument shapes (pick one of three):
 %     p      — Vector of length K. single multiset raw form (single multiset,
-%              single-attribute).
+%              single multiset).
 %     P      — nRows-by-K matrix, both dimensions > 1. BATCHED-RAW
-%              form (rows are independent single-attribute-style multisets,
+%              form (rows are independent single multisets,
 %              processed in lockstep; returns an nRows-by-nQ matrix
 %              with one row per multiset).
 %     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
@@ -87,9 +98,11 @@ function vals = evalExpTens(varargin)
 %                   p     vector of length K       (single multiset raw)
 %                   P     nRows-by-K matrix        (BATCHED-RAW)
 %                   pAttr 1-by-A cell of K_a-by-N  (MA raw)
-%     w / W     — Weights paired with the corresponding p / P / pAttr.
-%                 w is a vector (single multiset raw and MA raw); W is an nRows-by-K
-%                 matrix (BATCHED-RAW). Pass [] for uniform weights.
+%     w / W / wAttr
+%               — Weights paired with the corresponding p / P / pAttr.
+%                 w is a vector (single multiset raw); W is an nRows-by-K
+%                 matrix (BATCHED-RAW); wAttr is the per-attribute
+%                 container (MA raw). Pass [] for uniform weights.
 %     sigma     — Gaussian bandwidth. Scalar for single multiset raw and BATCHED-RAW;
 %                 length-G vector (one per group) for MA raw.
 %     r         — Tuple size (positive integer; r >= 2 if isRel == true).
@@ -198,6 +211,10 @@ function vals = evalExpTens(varargin)
 % internal.kernelChunkBytesResolved('pinForCall') separately.
 guard = internal.callGuard(); %#ok<NASGU>
 
+% A whole pre-MAET stands wherever a density does, and a cell of them
+% wherever a cell of densities does.
+varargin = internal.buildPreMaetArgs(varargin);
+
 verbose = true;  % default
 method = 'auto';  % 'auto' | 'centres' | 'mobius'
 truncationSigmas = [];   % []: use mptDefaults at the helper level
@@ -305,7 +322,7 @@ firstArg = varargin{1};
 
 USAGE_MSG = ['Usage: evalExpTens(dens, X [, normalize]) or ' ...
     'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]) or ' ...
-    'evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X [, normalize]).\n' ...
+    'evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X [, normalize]).\n' ...
     'normalize must be ''none'', ''gaussian'', or ''pdf''.'];
 
 % --- 1. Struct first operand: precomputed density ---

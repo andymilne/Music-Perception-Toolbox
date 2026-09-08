@@ -313,8 +313,8 @@ def test_offsets_shape_is_validated():
 
 def _tagged(p_y, off):
     A = len(p_y)
-    entries, _, _ = mpt.translate_attributes(
-        p_y, None, [off[a].reshape(1, -1) for a in range(A)])
+    entries, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(
+        p_y, None, [off[a].reshape(1, -1) for a in range(A)]))
     return entries
 
 
@@ -331,7 +331,7 @@ def test_translate_attributes_tags_its_sweep():
 def test_single_translation_is_untagged():
     """``M = 1`` returns a value-list, as before, with nothing attached."""
     p_y = [np.zeros((2, 3))]
-    out, _, _ = mpt.translate_attributes(p_y, None, [2.0])
+    out, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(p_y, None, [2.0]))
     assert not isinstance(out, mpt.TranslatedSweep)
     assert isinstance(out, list) and isinstance(out[0], np.ndarray)
 
@@ -399,9 +399,9 @@ def test_relative_no_op_column_still_agrees():
     off = _offsets(2, swept=(0, 1))
     args = ([0.9] * 2, [3] * 2, [0, 1], [0] * 2, [None] * 2, [1] * 2)
     with pytest.warns(mpt.TranslateAttributesNoOpWarning):
-        tagged, _, _ = mpt.translate_attributes(
+        tagged, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(
             p_y, None, [off[a].reshape(1, -1) for a in range(2)],
-            specs=[{"rel": False}, {"rel": True}])
+            specs=[{"rel": False}, {"rel": True}]))
     kw = dict(truncation_sigmas=np.inf, verbose=False)
     fast = cos_sim_exp_tens(p_x, None, tagged, None, *args, **kw)
     slow = cos_sim_exp_tens(p_x, None, list(tagged), None, *args, **kw)

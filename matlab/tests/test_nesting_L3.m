@@ -169,8 +169,8 @@ results{end,2}   = throwsErrorWithId( ...
 % tag columns and appending a new outermost grouping level; r/sym/rel
 % extend by the bound outer level.
 pf = {[0 2 4 5 7 9]};                        % flat, K=1, N=6
-[p1, w1, s1] = bindEvents(pf, [], 2);        % -> L=2
-[p2, w2, s2] = bindEvents(p1, w1, 2, 'specs', s1);   % -> L=3
+[p1, w1, s1] = unpackPreMaet(bindEvents(pf, [], 2));        % -> L=2
+[p2, w2, s2] = unpackPreMaet(bindEvents(p1, w1, 2, 'specs', s1));   % -> L=3
 sp = s2{1};
 results{end+1,1} = 'L3 bind: deepened tags is (4,2)';
 results{end,2}   = isequal(size(sp.tags), [4 2]);
@@ -187,7 +187,7 @@ results{end,2}   = dB.dim == 4;
 results{end+1,1} = 'L3 bind: deepened cosine self-match = 1';
 results{end,2}   = abs(cosSimExpTens(dB, dB, 'verbose', false) - 1) < 1e-9;
 
-[p2r, w2r, s2r] = bindEvents(p1, w1, 2, 'specs', s1, 'relOuter', true);
+[p2r, w2r, s2r] = unpackPreMaet(bindEvents(p1, w1, 2, 'specs', s1, 'relOuter', true));
 dR  = buildExpTens(p2r, w2r, 'specs', s2r, bkw{:});
 dRT = buildExpTens({p2r{1} + 5}, w2r, 'specs', s2r, bkw{:});
 results{end+1,1} = 'L3 bind: relOuter deepen -> rel [0 0 1], outer dim 3';

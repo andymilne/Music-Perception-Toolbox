@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from mpt import (
+    unpack_pre_maet,
     add_spectra, bind_events,
     windowed_similarity, windowed_entropy,
     weight_events, translate_attributes, build_exp_tens,
@@ -36,8 +37,8 @@ def _triple(spectral):
         pitch_attr, w_attr = pp.reshape(N, Kp).T, wp.reshape(N, Kp).T
     else:
         pitch_attr, w_attr = pit.reshape(1, N), None
-    pb, wb, sb = bind_events([pitch_attr, on.reshape(1, N)], [w_attr, None],
-                             [4, 1], step=1, rel_outer=True)
+    pb, wb, sb = unpack_pre_maet(bind_events([pitch_attr, on.reshape(1, N)], [w_attr, None],
+                             [4, 1], step=1, rel_outer=True))
     return pb, wb, sb
 
 
@@ -48,14 +49,14 @@ def _ref_locked(ctx, w_ctx, qry, w_qry, specs, centres, q_ext):
     mu_q = float(np.nanmean(np.asarray(qry[AXIS], dtype=float)))
     out = np.empty(len(centres))
     for i, c in enumerate(centres):
-        pc, wc, sc = weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
+        pc, wc, sc = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=q_ext, is_per=False, period=0.0,
-                                   drop_input_attr=False, specs=specs)
+                                   drop_input_attr=False, specs=specs))
         dc = build_exp_tens(pc, wc, sigma=sigma, is_per=is_per, period=period,
                             specs=sc, verbose=False)
         offs = [None, None]
         offs[AXIS] = np.array([[c - mu_q]], dtype=float)
-        pq, wq, sq = translate_attributes(qry, w_qry, offs, specs=specs)
+        pq, wq, sq = unpack_pre_maet(translate_attributes(qry, w_qry, offs, specs=specs))
         dq = build_exp_tens(pq, wq, sigma=sigma, is_per=is_per, period=period,
                             specs=sq, verbose=False)
         out[i] = float(cos_sim_exp_tens(dc, dq, normalize="oneSidedDenom",
@@ -122,9 +123,9 @@ def test_entropy_nested_matches_handbuilt():
 
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
-        pw, ww, sw = weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
+        pw, ww, sw = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=width, is_per=False, period=0.0,
-                                   drop_input_attr=False, specs=specs)
+                                   drop_input_attr=False, specs=specs))
         dens = build_exp_tens(pw, ww, sigma=sigma, is_per=is_per,
                               period=period, specs=sw, verbose=False)
         ref[i] = entropy_exp_tens(dens, method="renyi2", verbose=False)
@@ -174,8 +175,8 @@ def test_similarity_empty_window_scores_zero(spectral):
         pitch_attr, w_attr = pp.reshape(N, Kp).T, wp.reshape(N, Kp).T
     else:
         pitch_attr, w_attr = pit.reshape(1, N), None
-    ctx, w_ctx, specs = bind_events([pitch_attr, on.reshape(1, N)], [w_attr, None],
-                                    [4, 1], step=1, rel_outer=True)
+    ctx, w_ctx, specs = unpack_pre_maet(bind_events([pitch_attr, on.reshape(1, N)], [w_attr, None],
+                                    [4, 1], step=1, rel_outer=True))
     qry = [ctx[0][:, 0:1], ctx[1][:, 0:1]]
     w_qry = [w_ctx[0][:, 0:1] if w_ctx[0] is not None else None, None]
     centres = np.array([0.0, 20.0, 40.0])               # 20.0 falls in the rest

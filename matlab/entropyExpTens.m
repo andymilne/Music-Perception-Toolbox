@@ -49,17 +49,22 @@ function H = entropyExpTens(varargin)
 %   Both methods accept the input forms below. Forms marked
 %   "Shannon-only" raise an informative error under method='renyi2'.
 %
-%   Input forms (both methods):
+%   Input forms (both methods), in the order to reach for them: a
+%   single multiset; a pre-MAET, the canonical entry for everything
+%   else; a density built by buildExpTens; then the raw positional
+%   multi-attribute form.
+%
 %
 %     H = ENTROPYEXPTENS(p, w, sigma, r, isRel, isPer, period)
-%       Single-attribute raw form. Builds the density from the
+%       Single-multiset raw form. Builds the density from the
 %       weighted multiset (p, w), where p represents pitches or
 %       positions.
 %
-%     H = ENTROPYEXPTENS(pAttr, w, sigmaVec, rVec, ...
-%                        isRelVec, isPerVec, periodVec)
-%       Multi-attribute raw form. pAttr is a cell of per-attribute
-%       matrices; per-attribute parameters as in buildExpTens.
+%     H = ENTROPYEXPTENS(PM)
+%       Pre-MAET form. A pre-MAET (preMaet) holds everything
+%       buildExpTens needs, so it stands wherever a density does: it is
+%       built internally and no further positional arguments are
+%       required.
 %
 %     H = ENTROPYEXPTENS(T)
 %       Pre-built density form. T is a struct as returned by
@@ -67,6 +72,12 @@ function H = entropyExpTens(varargin)
 %       MaetDensity (A = N = 1) -> single-multiset path, a general
 %       'MaetDensity' -> MA. When a struct is passed, no further
 %       positional arguments are required.
+%
+%     H = ENTROPYEXPTENS(pAttr, wAttr, sigmaVec, rVec, ...
+%                        isRelVec, isPerVec, periodVec)
+%       Multi-attribute raw form. pAttr is a cell of per-attribute
+%       matrices and wAttr the matching per-attribute weights;
+%       per-attribute parameters as in buildExpTens.
 %
 %   Input forms (Shannon-only):
 %
@@ -92,9 +103,9 @@ function H = entropyExpTens(varargin)
 %
 %   Multiset-argument shapes (pick one of three):
 %     p      — Vector of length K. single multiset raw form (single multiset,
-%              single-attribute).
+%              single multiset).
 %     P      — nRows-by-K matrix, both dimensions > 1. BATCHED-RAW
-%              form (rows are independent single-attribute-style multisets,
+%              form (rows are independent single multisets,
 %              processed in lockstep; returns an nRows-by-1 column
 %              vector of per-row entropies).
 %     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
@@ -107,7 +118,7 @@ function H = entropyExpTens(varargin)
 %       p       — Pitch or position values (vector of length K) for
 %                 the single multiset raw form. The corresponding BATCHED-RAW form
 %                 takes P (nRows-by-K matrix; each row is one
-%                 single-attribute-style multiset).
+%                 single multiset).
 %       w       — Weights. For single multiset raw: vector of length K, or [] for
 %                 uniform. For BATCHED-RAW: nRows-by-K matrix, or [].
 %                 (In the docstring above, this is denoted W when paired
@@ -120,7 +131,7 @@ function H = entropyExpTens(varargin)
 %
 %   Inputs (MA raw path)
 %       pAttr     — 1 x A cell array of K_a x N matrices.
-%       w         - Weights. []/scalar/1 x A cell; see buildExpTens.
+%       wAttr     - Weights. []/scalar/1 x A cell; see buildExpTens.
 %       sigmaVec  - 1 x A per-attribute Gaussian widths.
 %       rVec      - 1 x A per-attribute tuple sizes.
 %       isRelVec  - 1 x A per-attribute relative flags.
@@ -203,10 +214,14 @@ function H = entropyExpTens(varargin)
 %                          'xMin', -0.5, 'xMax', 1.5, ...
 %                          'nPointsPerDim', 80);
 %
-%   See also BUILDEXPTENS, EVALEXPTENS, COSSIMEXPTENS.
+%   See also PREMAET, BUILDEXPTENS, EVALEXPTENS, COSSIMEXPTENS.
 
 % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
 guard = internal.callGuard(); %#ok<NASGU>
+
+% A whole pre-MAET stands wherever a density does, and a cell of them
+% wherever a cell of densities does.
+varargin = internal.buildPreMaetArgs(varargin);
 
 % Detect the legacy 'normalize' kwarg (removed in v3). We scan
 % varargin directly *before* invoking localParseNVPairs (which would
@@ -308,7 +323,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
 %
 %   Shannon entropy of the density evaluated on a Cartesian-product
 %   grid; supports the full input surface (precomputed density struct,
-%   list of densities, MA raw args, single multiset raw args, single-attribute batched 2-D
+%   list of densities, MA raw args, single multiset raw args, single-multiset batched 2-D
 %   matrix).
 
     nPos = numel(posArgs);
@@ -375,7 +390,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             if nPos ~= 7
                 error('entropyExpTens:wrongArgCountMA', ...
                       ['Multi-attribute raw call expects 7 or 8 positional ' ...
-                       'arguments (pAttr, w, sigmaVec, rVec, ' ...
+                       'arguments (pAttr, wAttr, sigmaVec, rVec, ' ...
                        'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], ...
                       nPos);
             end
@@ -417,7 +432,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         % single multiset raw: numeric vector or scalar.
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountSingleMultiset', ...
-                  ['Single-attribute raw call expects 7 or 8 positional ' ...
+                  ['Single-multiset raw call expects 7 or 8 positional ' ...
                    'arguments (p, w, sigma, r, isRel, isPer, period' ...
                    '[, isSym]); got %d.'], nPos);
         end
@@ -457,7 +472,7 @@ end
 
 
 % =========================================================================
-%  localEntropySingleMultiset — single-attribute Shannon entropy
+%  localEntropySingleMultiset — single-multiset Shannon entropy
 % =========================================================================
 
 function H = localEntropySingleMultiset(maet, nvArgs)
@@ -1571,7 +1586,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountMA', ...
                 ['Multi-attribute raw call expects 7 or 8 positional ' ...
-                 'arguments (pAttr, w, sigmaVec, rVec, ' ...
+                 'arguments (pAttr, wAttr, sigmaVec, rVec, ' ...
                  'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], nPos);
         end
         symArgs = localSymArgs(nvArgs);
@@ -1583,7 +1598,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         % single multiset raw args.
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountSingleMultiset', ...
-                ['Single-attribute raw call expects 7 or 8 positional ' ...
+                ['Single-multiset raw call expects 7 or 8 positional ' ...
                  'arguments (p, w, sigma, r, isRel, isPer, period' ...
                  '[, isSym]); got %d.'], nPos);
         end
@@ -1910,7 +1925,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     end
     if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1
         error('entropyExpTens:renyi2BatchedNotSupported', ...
-            ['method=''renyi2'' does not yet support raw single-attribute batched ' ...
+            ['method=''renyi2'' does not yet support raw single-multiset batched ' ...
              '(2-D) input. Pass each chord row individually, or ' ...
              'pre-build a density struct.']);
     end
@@ -1941,7 +1956,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountMA', ...
                 ['Multi-attribute raw call expects 7 or 8 positional ' ...
-                 'arguments (pAttr, w, sigmaVec, rVec, ' ...
+                 'arguments (pAttr, wAttr, sigmaVec, rVec, ' ...
                  'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], nPos);
         end
         symArgs = localSymArgs(nvArgs);
@@ -1957,7 +1972,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     % --- single multiset raw args ---
     if nPos ~= 7
         error('entropyExpTens:wrongArgCountSingleMultiset', ...
-            ['Single-attribute raw call expects 7 or 8 positional arguments ' ...
+            ['Single-multiset raw call expects 7 or 8 positional arguments ' ...
              '(p, w, sigma, r, isRel, isPer, period[, isSym]); got %d.'], nPos);
     end
     p      = posArgs{1};

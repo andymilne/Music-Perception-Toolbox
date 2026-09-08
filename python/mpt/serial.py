@@ -29,6 +29,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.special import erf as _erf
 
+from ._tensor.premaet import unpack_pre_maet
 from .tensor import difference_events
 
 
@@ -142,12 +143,12 @@ def continuity(
     #     exactly. ---
     seq_row = seq.reshape(1, -1)
     if w_vec is None:
-        p_diff, _, _ = difference_events([seq_row], None, [1])
+        p_diff, _, _ = unpack_pre_maet(difference_events([seq_row], None, [1]))
         diff_weights = None
     else:
-        p_diff, w_diff, _ = difference_events(
+        p_diff, w_diff, _ = unpack_pre_maet(difference_events(
             [seq_row], [w_vec.reshape(1, -1)], [1]
-        )
+        ))
         diff_weights = np.asarray(w_diff[0]).reshape(-1)
 
     ctx_intervals = np.asarray(p_diff[0]).reshape(-1)

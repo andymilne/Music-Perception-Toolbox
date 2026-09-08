@@ -118,13 +118,13 @@ treatments = {'excise', 'prolong', 'count'};
 fprintf('=== 2. The reference melody under each treatment ===\n\n');
 for t = 1:numel(treatments)
     ev = makeEvents(pitchesRef, onsetsRef, treatments{t});
-    fprintf('  %s: %d events\n', treatments{t}, numel(ev.sign));
+    fprintf('  %s: %d events\n', treatments{t}, numel(ev.steps));
     fprintf('    step sign  :');
-    for i = 1:numel(ev.sign)
-        if ev.sign(i) > 0, fprintf('  +'); else, fprintf('  -'); end
+    for i = 1:numel(ev.steps)
+        if ev.steps(i) > 0, fprintf('  +'); else, fprintf('  -'); end
     end
     fprintf('\n    |step|     :');
-    fprintf('  %.0f', exp(ev.logmag));
+    fprintf('  %.0f', abs(ev.steps));
     fprintf('\n    IOI (beats):');
     fprintf('  %.0f', ev.ioi);
     fprintf('\n');
@@ -256,13 +256,13 @@ function ev = makeEvents(pitches, onsets, treatment)
     switch treatment
         case {'prolong', 'count'}
             [pitches, onsets, counts] = gatherRepetitions(pitches, onsets);
-            [pDiff, ~, ~] = differenceEvents( ...
-                {pitches, onsets, counts}, [], [1, 1, 0]);
+            [pDiff, ~, ~] = unpackPreMaet(differenceEvents( ...
+                {pitches, onsets, counts}, [], [1, 1, 0]));
             steps = pDiff{1};
             iois = pDiff{2};
             counts = pDiff{3};
         case 'excise'
-            [pDiff, ~, ~] = differenceEvents({pitches, onsets}, [], [1, 1]);
+            [pDiff, ~, ~] = unpackPreMaet(differenceEvents({pitches, onsets}, [], [1, 1]));
             steps = pDiff{1};
             iois = pDiff{2};
             keep = abs(steps) > 1e-9;
@@ -274,9 +274,7 @@ function ev = makeEvents(pitches, onsets, treatment)
                 'unknown treatment ''%s''', treatment);
     end
     ev = struct();
-    ev.sign = 0.5 * ones(size(steps));
-    ev.sign(steps <= 0) = -0.5;
-    ev.logmag = log(abs(steps));
+    ev.steps = steps;
     ev.ioi = iois;
     if strcmp(treatment, 'count')
         ev.count = counts;
@@ -284,31 +282,51 @@ function ev = makeEvents(pitches, onsets, treatment)
 end
 
 function dens = buildDensity(ev, logIoi, sigmaSign, sigmaLogmag, ...
-    sigmaIoiBeats, sigmaLogioi, sigmaCount)
+    sigmaIoiBeats, sigmaLogioi, sigmaCount, showInput)
 %BUILDDENSITY  One bound super-event: the whole event sequence as one
-%   tuple. Attributes: sign, log step magnitude, inter-onset interval,
-%   and (when present) count. The log-magnitude tuple is read relative
+%   tuple. Attributes: log step magnitude, sign, inter-onset interval,
+%   and (when present) count. One transformAttributes call takes the log
+%   of the signed step and, with 'sign' true, inserts the sign attribute
+%   right after it at the 2-point simplex's vertices, {-1/2, 0, +1/2};
+%   the same call takes the log of the
+%   intervals where logIoi. The log-magnitude tuple is read relative
 %   ('relOuter'), quotienting a common shift -- a uniform scaling of
-%   the pitch steps. With logIoi, the intervals are taken to logarithms
-%   and read relative too, quotienting a tempo change; in beats they
-%   are read absolute, so tempo differences count.
+%   the pitch steps. With logIoi, the intervals are read relative too,
+%   quotienting a tempo change; in beats they are read absolute, so
+%   tempo differences count.
     if logIoi
-        ioi = log(ev.ioi);
+        ioiTransform = 'log';
         sigmaIoi = sigmaLogioi;
     else
-        ioi = ev.ioi;
+        ioiTransform = [];
         sigmaIoi = sigmaIoiBeats;
     end
-    pAttr = {ev.sign, ev.logmag, ioi};
-    rel = [false, true, logIoi];
-    sig = [sigmaSign, sigmaLogmag, sigmaIoi];
+    pmStep = transformAttributes({ev.steps, ev.ioi}, [], ...
+        {'log', ioiTransform}, 'sign', [true, false]);
+    pAttr = pmStep.pAttr;                  % {log magnitude, sign, ioi}
+    rel = [true, false, logIoi];
+    sig = [sigmaLogmag, sigmaSign, sigmaIoi];
     if isfield(ev, 'count')
         pAttr{end + 1} = ev.count;
         rel(end + 1) = false;
         sig(end + 1) = sigmaCount;
     end
-    L = numel(ev.sign);
-    [pB, wB, spB] = bindEvents(pAttr, [], L, 'relOuter', rel);
+    L = numel(ev.steps);
+    [pB, wB, spB] = unpackPreMaet(bindEvents(pAttr, [], L, 'relOuter', rel));
+    if nargin >= 8 && showInput
+        if logIoi
+            ioiName = 'log IOI';
+        else
+            ioiName = 'IOI';
+        end
+        names = {'log magnitude', 'sign', ioiName};
+        if numel(sig) > 3
+            names{end + 1} = 'count';
+        end
+        showPreMaet(pB, wB, spB, 'names', names, 'sigma', sig, ...
+            'isPer', false(1, numel(sig)), 'maxElements', 6);
+        fprintf('\n');
+    end
     dens = buildExpTens(pB, wB, 'specs', spB, 'sigma', sig, ...
         'isPer', false(1, numel(sig)), 'period', zeros(1, numel(sig)), ...
         'verbose', false);
@@ -325,7 +343,7 @@ function similarityTable(logIoi, treatments, pitchesRef, onsetsRef, ...
         refDens{t} = buildDensity( ...
             makeEvents(pitchesRef, onsetsRef, treatments{t}), logIoi, ...
             sigmaSign, sigmaLogmag, sigmaIoiBeats, sigmaLogioi, ...
-            sigmaCount);
+            sigmaCount, t == 1);
     end
     fprintf('  %-12s', 'variant');
     fprintf('%10s', treatments{:});

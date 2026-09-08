@@ -29,6 +29,8 @@ from itertools import combinations, permutations
 from math import factorial
 
 import numpy as np
+
+from .premaet import is_pre_maet
 from scipy.special import comb as _comb
 
 from .._utils import validate_weights
@@ -40,6 +42,136 @@ from .density import (
     _nchoosek_indices,
     _normalise_weights_ma,
 )
+
+
+#: British/camelCase spellings accepted in a spec alongside the canonical
+#: keys, so that a spec written for either language reads in both.
+_ALIASES = {"sigma": "sigma", "is_per": "isPer", "period": "period"}
+
+
+def _is_na(v):
+    """True for the NA marker: ``None``, or a scalar NaN."""
+    if v is None:
+        return True
+    try:
+        arr = np.asarray(v, dtype=float)
+    except (TypeError, ValueError):
+        return False
+    return arr.ndim == 0 and bool(np.isnan(arr))
+
+
+def _resolve_kernel_param(given, from_specs, what, names, A, default=None):
+    """One kernel parameter per attribute, from the keyword or the specs.
+
+    A supplied keyword wins for every attribute; otherwise the specs are
+    read. The keyword may also be *selective* --- a length-A list whose
+    ``None`` entries keep what the spec carries --- which is what lets a
+    sweep name the one attribute it varies and leave the rest to the
+    pre-MAET. An entry that is NA (a preprocessing step could not carry
+    it forward) or absent from both is an error naming the attribute,
+    since the tensor cannot be built without it --- the pre-MAET is
+    complete at the boundary even where the pre-MAET was not.
+    """
+    if given is not None:
+        if not _is_selective(given, A):
+            return given
+        out = list(from_specs)
+        for a in range(A):
+            if given[a] is not None:
+                out[a] = given[a]
+    else:
+        out = list(from_specs)
+    for a in range(A):
+        if not _is_na(out[a]):
+            continue
+        if default is not None:
+            out[a] = default
+            continue
+        who = f"'{names[a]}'" if names[a] else f"{a}"
+        if out[a] is None:
+            raise ValueError(
+                f"No {what} for attribute {who}: give it in the spec "
+                f"(specs[{a}]['{what}']) or pass {what}= to "
+                f"build_exp_tens.")
+        raise ValueError(
+            f"{what} for attribute {who} is NA: a preprocessing step "
+            f"could not carry it forward, so it must be supplied again "
+            f"--- set specs[{a}]['{what}'] or pass {what}= to "
+            f"build_exp_tens.")
+    return out
+
+
+def _override_specs(specs, r, rel, sym, A):
+    """Apply the r / rel / sym keyword overrides to a specs list.
+
+    The kernel parameters sigma, is_per, and period are resolved after the
+    specs are read, so a keyword can override them there. The tuple size
+    and the [rel] and [sym] flags are read out of the specs themselves, so
+    an override has to be written into the specs first. A supplied keyword
+    wins for every attribute, exactly as it does for the kernel
+    parameters, which is what lets a sweep over any of the six per-
+    attribute parameters stay a single call.
+
+    An override may be *selective*: a length-A list whose ``None``
+    entries keep what the spec carries, so a sweep names only the
+    attribute it varies.
+
+    Level-structured geometry is excluded: on a nested attribute r, rel,
+    and sym are per-level vectors whose meaning depends on the nesting, so
+    a scalar override has no unambiguous reading and the spec is the place
+    to change them.
+    """
+    if r is None and rel is None and sym is None:
+        return specs
+    out = list(specs)
+    for name, value, cast in (("r", r, int), ("rel", rel, bool),
+                              ("sym", sym, bool)):
+        if value is None:
+            continue
+        vals = _bcast_override(value, A, name)
+        for a in range(A):
+            if vals[a] is None:          # selective: keep the spec's
+                continue
+            spec = out[a]
+            if not isinstance(spec, dict):
+                raise TypeError(
+                    f"build_exp_tens: {name}= needs specs entries to be "
+                    f"dicts; attribute {a} is {type(spec).__name__}.")
+            if "tags" in spec:
+                raise ValueError(
+                    f"build_exp_tens: {name}= cannot override a nested "
+                    f"attribute (attribute {a}); on a nested attribute "
+                    f"{name} is per-level, so set it in the spec.")
+            spec = dict(spec)
+            spec[name] = cast(vals[a])
+            out[a] = spec
+    return out
+
+
+def _is_selective(value, A):
+    """True for a length-A list/tuple with at least one ``None`` entry.
+
+    The selective form of an override: the named attributes are set and
+    the rest keep what the spec carries. A plain sequence of values (no
+    ``None``) is the full form and overrides every attribute; an ndarray
+    is never selective, since it cannot hold ``None``.
+    """
+    if isinstance(value, np.ndarray) or not isinstance(value, (list, tuple)):
+        return False
+    return len(value) == A and any(v is None for v in value)
+
+
+def _bcast_override(value, A, name):
+    if _is_selective(value, A):
+        return list(value)
+    arr = np.atleast_1d(np.asarray(value))
+    if arr.size == 1:
+        return [arr.reshape(-1)[0]] * A
+    if arr.size != A:
+        raise ValueError(
+            f"build_exp_tens: {name}= must be a scalar or have length "
+            f"A = {A}; got {arr.size}.")
+    return list(arr.reshape(-1))
 
 
 def _normalise_specs(specs, A):
@@ -54,7 +186,10 @@ def _normalise_specs(specs, A):
     level-structured (``sigma``, ``is_per``, ``period``) stays outside the
     spec.
 
-    Returns ``(r_vec, is_rel_vec, is_sym_vec, nested_list, names)``. For a
+    Returns ``(r_vec, is_rel_vec, is_sym_vec, nested_list, names,
+    kernel)``, ``kernel`` being a dict of the three per-attribute kernel
+    parameters, each a length-A list whose entries are the spec's value,
+    ``None`` where the field is absent, or NaN where it is NA. For a
     nested entry the geometry fields are placeholders: the nested machinery
     in :func:`_build_exp_tens_ma` derives ``r`` from ``prod(level r)`` and
     ``is_rel`` from the resolved projection, and uses the per-level ``sym``.
@@ -68,10 +203,13 @@ def _normalise_specs(specs, A):
             f"specs must have length {A} (one per attribute), got {len(specs)}."
         )
     r_vec, is_rel_vec, is_sym_vec, nested_list, names = [], [], [], [], []
+    kernel = {"sigma": [], "is_per": [], "period": []}
     for a, s in enumerate(specs):
         if not isinstance(s, dict):
             raise TypeError(f"specs[{a}] must be a dict.")
         names.append(s.get("name"))
+        for key in ("sigma", "is_per", "period"):
+            kernel[key].append(s.get(key, s.get(_ALIASES[key])))
         if "tags" in s:
             nested_list.append(s)
             r_vec.append(1)            # placeholder -> prod(level r)
@@ -94,7 +232,7 @@ def _normalise_specs(specs, A):
             r_vec.append(int(r_a[0]))
             is_rel_vec.append(bool(s.get("rel", False)))
             is_sym_vec.append(bool(s.get("sym", True)))
-    return r_vec, is_rel_vec, is_sym_vec, nested_list, names
+    return r_vec, is_rel_vec, is_sym_vec, nested_list, names, kernel
 
 
 def _resolve_aniso_single_multiset(p, sigma, r, is_rel, is_per, period, is_sym):
@@ -168,10 +306,15 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
     return p_out, sigma_out, cov_list, chol_list
 
 
-def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
-                   period=None, nested=None, wrap=None,
+def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
+                   is_per=None, period=None, r=None, rel=None,
+                   sym=None, nested=None, wrap=None,
                    verbose: bool = True) -> MaetDensity:
     """Precompute an r-ad expectation tensor density object.
+
+    Input forms, in the order to reach for them: a single multiset; a
+    pre-MAET, the canonical entry for everything else; then the raw
+    positional multi-attribute form.
 
     Dispatches on the type of the first argument:
 
@@ -180,15 +323,29 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
       - list/tuple of attribute matrices (each element itself an
         array-like with ``len(...)`` > 0 or a 2-D ndarray) -> multi-
         attribute path, returns :class:`MaetDensity`.
+      - pre-MAET dict -> multi-attribute path, its parts and specs
+        read from it.
 
     Single-multiset signature (legacy, unchanged)::
 
         build_exp_tens(p, w, sigma, r, is_rel, is_per, period, *, verbose=True)
 
-    Multi-attribute signature::
+    Pre-MAET signature (the canonical multi-attribute entry)::
 
-        build_exp_tens(p_attr, w, sigma_vec, r_vec,
+        build_exp_tens(pm)
+        build_exp_tens(pm, sigma=sigma_vec, r=r_vec, ...)
+
+    Multi-attribute positional signature::
+
+        build_exp_tens(p_attr, w_attr, sigma_vec, r_vec,
                        is_rel_vec, is_per_vec, period_vec, *, verbose=True)
+
+    A pre-MAET (:func:`~mpt.pre_maet`) stands in place of ``p`` and
+    ``w``, bringing its specs with it. Any of the six per-attribute
+    parameters --- ``sigma``, ``is_per``, ``period``, ``r``, ``rel``,
+    ``sym`` --- may be given alongside, and a supplied value wins over
+    the specs for every attribute, so a sweep over any of them is one
+    call per value and leaves the pre-MAET untouched.
 
     Both paths take seven positional arguments; they are distinguished
     purely by the type of the first argument (a list/tuple of attribute
@@ -249,6 +406,22 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
     --------
     MaetDensity, eval_exp_tens, cos_sim_exp_tens
     """
+    if is_pre_maet(p):
+        pm = p
+        if w is not None:
+            raise TypeError(
+                "build_exp_tens: given a whole pre-MAET, the weights "
+                "are taken from it and must not be passed again.")
+        p = pm["p_attr"]
+        w = pm.get("w_attr")
+        if specs is None:
+            specs = pm.get("specs")
+    if specs is None and (r is not None or rel is not None
+                          or sym is not None):
+        raise ValueError(
+            "build_exp_tens: r=, rel= and sym= override the specs, so "
+            "they are only valid alongside specs=. In the positional "
+            "form pass the geometry vectors positionally.")
     # --- Canonical specs form (level-structured geometry lives in specs;
     #     scalar sigma/is_per/period are supplied as keywords) ----------
     if specs is not None:
@@ -265,12 +438,27 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             )
         if nested is not None:
             raise ValueError("Pass nesting via specs=, not nested=.")
-        if sigma is None or is_per is None or period is None:
-            raise ValueError(
-                "specs= requires sigma=, is_per=, period= (each length-A)."
-            )
         from .aniso import sigma_vec_has_kernel_cov, \
             resolve_specs_for_kernel_cov
+        A = len(p)
+        # Resolve the kernel geometry first: a kernel covariance may live
+        # in the spec as readily as in the keyword, and the flat-geometry
+        # rewrite below is driven by whether one is present, so it cannot
+        # be decided from the keyword alone.
+        specs = _override_specs(specs, r, rel, sym, A)
+        _, _, _, _, names, spec_kernel = _normalise_specs(specs, A)
+        # The pre-MAET's kernel geometry may come from the specs, from the
+        # keywords, or from both. An explicit keyword wins outright and
+        # silently: sweeping sigma over a grid while the specs hold a
+        # baseline is the ordinary idiom, so a disagreement is intent, not
+        # error. What is refused is a value missing from both places.
+        sigma = _resolve_kernel_param(sigma, spec_kernel["sigma"],
+                                      "sigma", names, A)
+        is_per = _resolve_kernel_param(is_per, spec_kernel["is_per"],
+                                       "is_per", names, A)
+        period = _resolve_kernel_param(period, spec_kernel["period"],
+                                       "period", names, A, default=0.0)
+
         has_kc = sigma_vec_has_kernel_cov(sigma)
         if has_kc:
             # Matrix-sigma attributes require flat geometry; degenerate
@@ -278,9 +466,8 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             # events) are order-isomorphic to flat ordered tuples and
             # are flattened here; non-degenerate nesting raises.
             specs = resolve_specs_for_kernel_cov(specs, sigma)
-        A = len(p)
-        r_vec, is_rel_vec, is_sym_vec, nested_list, names = _normalise_specs(
-            specs, A)
+        r_vec, is_rel_vec, is_sym_vec, nested_list, names, _ = \
+            _normalise_specs(specs, A)
         # The specs form takes wrap= exactly as the positional form does;
         # without this it was accepted, dropped, and never validated.
         wrap_vec = _normalise_wrap_ma(wrap, A)

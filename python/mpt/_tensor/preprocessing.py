@@ -26,6 +26,7 @@ import numpy as np
 from scipy.special import erf as _erf
 
 from .._utils import validate_weights
+from .premaet import make_pre_maet, pre_maet, shift_lead
 
 
 class TranslateAttributesNoOpWarning(UserWarning):
@@ -42,7 +43,8 @@ class TranslateAttributesNoOpWarning(UserWarning):
 # ===================================================================
 
 
-def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
+def difference_events(p_attr, w_attr=None, diff_orders=None, *,
+                      circular=False, specs=None):
     """Replace selected attributes' event sequences with inter-event differences.
 
     Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
@@ -78,11 +80,16 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
 
     Parameters
     ----------
+    pm : dict, optional
+        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        passed in place of ``p_attr``, in which case
+        ``w_attr`` and ``specs`` come from it and the positional
+        arguments below move one place earlier.
     p_attr : list/tuple of array-like
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
         ``K_a >= 1``; ``K_a = 0`` is rejected. ``K_a > 1`` is differenced
         index by index when the attribute is ordered (see above).
-    w : None, scalar, or length-A list
+    w_attr : None, scalar, or length-A list
         Weights (``build_exp_tens`` convention).
     diff_orders : scalar or length-A array-like
         Per-attribute differencing orders (non-negative integers; a scalar
@@ -97,16 +104,19 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
 
     Returns
     -------
-    p_attr_diff : list of ndarray
-        Length-A list of differenced matrices, each ``(K_a, N')``.
-    w_diff : same general form as *w*
-    specs : list of dict
-        The attribute specifications, unchanged from the input (or synthesised).
+    dict
+        The pre-MAET. Its ``p_attr`` is a length-A list of
+        differenced matrices, each ``(K_a, N')``; its ``w_attr`` the
+        transformed weights; its ``specs`` the attribute specifications,
+        unchanged from the input (or synthesised).
 
     See Also
     --------
     build_exp_tens, bind_events, flat_specs, translate_attributes
     """
+    p_attr, w_attr, (diff_orders,), specs = shift_lead(
+        p_attr, w_attr, [diff_orders], specs, func="difference_events")
+    w = w_attr
     if not isinstance(p_attr, (list, tuple)):
         raise TypeError(
             "p_attr must be a list/tuple of per-attribute matrices."
@@ -189,7 +199,8 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
     w_diff = _difference_weights(
         w, A, orders, n_events, n_prime, circular,
     )
-    return p_attr_diff, w_diff, specs_out
+    specs_out = _diff_kernel_specs(specs_out, orders, A)
+    return pre_maet(p_attr_diff, w_diff, specs_out)
 
 
 def _check_differenceable(spec, K_a, a):
@@ -436,15 +447,30 @@ def _bcast_names(name, A):
     return names
 
 
-def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None):
+def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None,
+               sigma=None, is_per=None, period=None):
     """Build a list of flat (one-level) specs for bare attributes.
 
-    Convenience constructor for the canonical attribute specifications: wraps a list
-    of per-attribute value matrices in flat spec dicts ``{r, rel, sym,
-    name?}``, broadcasting scalar geometry across attributes. This is the
-    trivial flat-specs synthesis at the entry of a pre-MAET chain (raw
-    attributes carry no level structure yet) and an ergonomic alternative
-    to hand-writing flat dicts for ``build_exp_tens(..., specs=...)``.
+    Convenience constructor for the canonical attribute specifications:
+    wraps a list of per-attribute value matrices in flat spec dicts
+    ``{r, rel, sym, name?, sigma?, is_per?, period?}``, broadcasting
+    scalar geometry across attributes. This is the trivial flat-specs
+    synthesis at the entry of a pre-MAET chain (raw attributes carry no
+    level structure yet) and an ergonomic alternative to hand-writing
+    flat dicts for ``build_exp_tens(..., specs=...)``.
+
+    The kernel parameters are optional here and compulsory at the tensor
+    (§3.7.10). Given them, the specs are a complete pre-MAET geometry and
+    nothing further need be supplied at the build::
+
+        pm = pre_maet(p_attr, w_attr, flat_specs(
+            p_attr, r=[2, 1], sigma=[0.5, 0.25],
+            is_per=[True, False], period=[12.0, 0.0]))
+        dens = build_exp_tens(pm)
+
+    Omitted, they are simply absent from the specs, and `build_exp_tens`
+    then names the attribute that still needs one. ``nan`` is NA, the
+    third state: a width that a step could not carry forward.
 
     Parameters
     ----------
@@ -457,6 +483,13 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None):
         Per-attribute ``[rel]`` / ``[sym]`` (defaults ``False`` / ``True``).
     name : None, str, or length-A, keyword-only
         Optional per-attribute names.
+    sigma : None, scalar, or length-A, keyword-only
+        Optional per-attribute kernel width. A per-attribute entry may
+        be a matrix-valued kernel covariance.
+    is_per : None, bool, or length-A, keyword-only
+        Optional per-attribute periodicity.
+    period : None, scalar, or length-A, keyword-only
+        Optional per-attribute period (inert where not periodic).
 
     Returns
     -------
@@ -478,14 +511,98 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None):
         s = {"r": r_v[a], "rel": rel_v[a], "sym": sym_v[a]}
         if name_v[a] is not None:
             s["name"] = name_v[a]
+        for key, val in (("sigma", sigma), ("is_per", is_per),
+                         ("period", period)):
+            if val is None:
+                continue
+            s[key] = _bcast_kernel(val, A, key)[a]
         specs.append(s)
     return specs
 
 
+
+def _bcast_kernel(value, A, name):
+    """Broadcast an optional kernel parameter across attributes.
+
+    Unlike the structural geometry, an entry may be a matrix (a kernel
+    covariance), so the value is not coerced to a numeric array: a
+    scalar or a bare matrix applies to every attribute, and a length-A
+    list is taken per attribute.
+    """
+    if isinstance(value, (list, tuple)):
+        if len(value) != A:
+            raise ValueError(
+                f"flat_specs: {name} must be a scalar or have length "
+                f"A = {A}; got {len(value)}.")
+        return list(value)
+    arr = np.asarray(value)
+    if arr.ndim >= 2:
+        return [value] * A            # one covariance for every attribute
+    if arr.ndim == 1:
+        if arr.size == 1:
+            return [arr.reshape(-1)[0]] * A
+        if arr.size != A:
+            raise ValueError(
+                f"flat_specs: {name} must be a scalar or have length "
+                f"A = {A}; got {arr.size}.")
+        return list(arr)
+    return [value] * A
+
+
+def _diff_kernel_specs(specs_out, orders, A):
+    """Carry each attribute's kernel width through the difference.
+
+    A k-th finite difference is the alternating binomial sum
+    ``sum_j (-1)^j C(k, j) x_{n-j}``, so a value of width ``sigma`` whose
+    per-event errors are independent yields a difference of width
+    ``sigma * sqrt(C(2k, k))`` --- the ``sqrt(2)`` of a first difference
+    (Milne 2026, Online Supplement, Sec. motif) and ``sqrt(6)`` of a
+    second. The independence is a modelling assumption, so the scaling is
+    announced rather than applied silently. ``[per]`` and its period are
+    untouched: a difference of two values on a circle is still on that
+    circle, and the wrap is applied by the kernel at construction.
+    """
+    from math import comb, sqrt
+    out, scaled = [], []
+    for a in range(A):
+        spec = dict(specs_out[a])
+        k = int(orders[a])
+        sig = spec.get("sigma")
+        if k > 0 and sig is not None and not _is_na_scalar(sig):
+            factor = sqrt(comb(2 * k, k))
+            arr = np.asarray(sig, dtype=float)
+            if arr.ndim >= 2:
+                # A kernel covariance scales by the variance factor, not
+                # by its root: the difference's covariance is C(2k, k)
+                # times the values'.
+                spec["sigma"] = arr * (factor ** 2)
+            else:
+                spec["sigma"] = float(arr) * factor
+            scaled.append((spec.get("name") or f"attribute {a}", k, factor))
+        out.append(spec)
+    if scaled:
+        names = ", ".join(nm for nm, _, _ in scaled)
+        k0, f0 = scaled[0][1], scaled[0][2]
+        print(f"difference_events: sigma scaled by sqrt(C(2k, k)) on "
+              f"{names} (order {k0}: x{f0:.4f}); a difference of values "
+              f"of width sigma has width sigma*sqrt(C(2k, k)) when their "
+              f"errors are independent.")
+    return out
+
+
+def _is_na_scalar(v):
+    import numpy as _np
+    try:
+        arr = _np.asarray(v, dtype=float)
+    except (TypeError, ValueError):
+        return False
+    return arr.ndim == 0 and bool(_np.isnan(arr))
+
+
 def bind_events(
     p_attr,
-    w,
-    bind_orders,
+    w_attr=None,
+    bind_orders=None,
     *,
     circular: bool = False,
     step: int = 1,
@@ -532,9 +649,14 @@ def bind_events(
 
     Parameters
     ----------
+    pm : dict, optional
+        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        passed in place of ``p_attr``, in which case
+        ``w_attr`` and ``specs`` come from it and the positional
+        arguments below move one place earlier.
     p_attr : list/tuple of array-like
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
-    w : None, scalar, or length-A list
+    w_attr : None, scalar, or length-A list
         Weights (same convention as :func:`build_exp_tens`). Each bound
         attribute's value weights are the windowed-and-stacked input
         weights, so the kernel product over the nested tuple recovers
@@ -584,21 +706,23 @@ def bind_events(
 
     Returns
     -------
-    p_attr_bound : list of ndarray
-        Length-A list. For ``L_a >= 2`` a stacked ``(L_a * K_a, N')``
-        value matrix (the ``L_a`` lag windows vertically stacked); for
-        ``L_a = 1`` the leading-aligned ``(K_a, N')`` original.
-    w_bound : same general form as *w*
-        Transformed weights aligned to the value layout.
-    specs : list of dict
-        Length-A. A nested spec ``{tags, r, sym, rel, name?, names?}``
-        for ``L_a >= 2``; the incoming spec unchanged (flat or nested)
-        for ``L_a = 1``.
+    dict
+        The pre-MAET. Its ``p_attr`` is a length-A list holding,
+        for ``L_a >= 2``, a stacked ``(L_a * K_a, N')`` value matrix (the
+        ``L_a`` lag windows vertically stacked), and for ``L_a = 1`` the
+        leading-aligned ``(K_a, N')`` original; its ``w_attr`` the
+        transformed weights, aligned to the value layout; its ``specs`` a
+        nested spec ``{tags, r, sym, rel, name?, names?}`` for
+        ``L_a >= 2`` and the incoming spec unchanged (flat or nested) for
+        ``L_a = 1``.
 
     See Also
     --------
     build_exp_tens, difference_events, flat_specs, translate_attributes
     """
+    p_attr, w_attr, (bind_orders,), specs = shift_lead(
+        p_attr, w_attr, [bind_orders], specs, func="bind_events")
+    w = w_attr
     if not isinstance(p_attr, (list, tuple)):
         raise TypeError(
             "p_attr must be a list/tuple of per-attribute matrices."
@@ -765,6 +889,13 @@ def bind_events(
             }
             if level_names is not None:
                 spec["names"] = list(level_names)
+        # Binding regroups values; it does not touch them, so the
+        # attribute's kernel geometry crosses to the nested spec intact.
+        for key in ("sigma", "is_per", "period"):
+            if key in s_in:
+                spec[key] = s_in[key]
+            elif key == "is_per" and "isPer" in s_in:
+                spec[key] = s_in["isPer"]
         if nm is not None:
             spec["name"] = nm
         specs_out.append(spec)
@@ -772,7 +903,7 @@ def bind_events(
     w_bound = _bind_weights_nested(
         w, A, orders, K, n_events, n_prime, circular, step,
     )
-    return p_attr_bound, w_bound, specs_out
+    return pre_maet(p_attr_bound, w_bound, specs_out)
 
 
 
@@ -918,7 +1049,7 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
             spec["name"] = nm
         specs_out.append(spec)
 
-    return p_attr_bound, w_bound, specs_out
+    return pre_maet(p_attr_bound, w_bound, specs_out)
 
 
 def _canonicalise_bind_orders(bind_orders, A):
@@ -1040,11 +1171,11 @@ def _scalarize(x, name, *, dtype):
 
 def weight_events(
     p_attr,
-    w,
-    input_attr,
-    target_attr,
-    centre,
-    shape,
+    w_attr=None,
+    input_attr=None,
+    target_attr=None,
+    centre=None,
+    shape=None,
     *,
     specs=None,
     sd=None,
@@ -1141,10 +1272,15 @@ def weight_events(
 
     Parameters
     ----------
+    pm : dict, optional
+        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        passed in place of ``p_attr``, in which case
+        ``w_attr`` and ``specs`` come from it and the positional
+        arguments below move one place earlier.
     p_attr : list/tuple of array-like
         Length-``A`` list of ``(K_a, N)`` per-attribute value matrices.
         ``K_a >= 1``.
-    w : None, scalar, or list/tuple
+    w_attr : None, scalar, or list/tuple
         Existing weights. ``None``, scalar, or length-``A`` list of
         per-attribute weights (each ``None``, scalar, 1-D row, or
         ``(K_a, N)`` matrix). Same convention as :func:`build_exp_tens`.
@@ -1196,22 +1332,25 @@ def weight_events(
 
     Returns
     -------
-    p_attr_out : list of (K_a, N) ndarrays
-        Per-attribute value matrices. Length ``A`` if
-        ``drop_input_attr=False``, else ``A - 1``.
-    w_out : list
-        Per-attribute weights, length matching ``p_attr_out``. The
-        entry at ``target_attr`` (in the output indexing) carries the
-        windowed weights.
-    specs_out : list of dict
-        The attribute specifications for the output attribute list. Same as the
-        input specs (synthesised flat if ``specs`` was ``None``), with
-        the input attribute's entry removed when ``drop_input_attr=True``.
+    dict
+        The pre-MAET. Its ``p_attr`` is a list of per-attribute
+        value matrices, of length ``A`` if ``drop_input_attr=False`` and
+        ``A - 1`` otherwise; its ``w_attr`` the matching per-attribute
+        weights, the entry at ``target_attr`` (in the output indexing)
+        carrying the windowed weights; its ``specs`` the attribute
+        specifications for the output attribute list, as the input specs
+        (synthesised flat if ``specs`` was ``None``) with the input
+        attribute's entry removed when ``drop_input_attr=True``.
 
     See Also
     --------
     build_exp_tens, difference_events, bind_events, translate_attributes
     """
+    (p_attr, w_attr, (input_attr, target_attr, centre, shape),
+     specs) = shift_lead(
+        p_attr, w_attr, [input_attr, target_attr, centre, shape], specs,
+        func="weight_events")
+    w = w_attr
     # --- Normalise p_attr ---
     if not isinstance(p_attr, (list, tuple)):
         raise TypeError(
@@ -1387,7 +1526,7 @@ def weight_events(
         w_out_kept = list(w_out)
         specs_out = list(specs_in)
 
-    return p_attr_out, w_out_kept, specs_out
+    return pre_maet(p_attr_out, w_out_kept, specs_out)
 
 
 def _evaluate_shape(delta, width, gamma):
@@ -1531,7 +1670,8 @@ def _multiply_weights(w_existing, factor, attr_idx):
 # ===================================================================
 
 
-def translate_attributes(p_attr, w, offsets, *, specs=None):
+def translate_attributes(p_attr, w_attr=None, offsets=None, *,
+                         specs=None):
     """Translate attributes' positions by per-row offsets.
 
     Per-attribute preprocessing on the ``(p_attr, w, specs)`` triple.
@@ -1589,10 +1729,15 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
 
     Parameters
     ----------
+    pm : dict, optional
+        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        passed in place of ``p_attr``, in which case
+        ``w_attr`` and ``specs`` come from it and the positional
+        arguments below move one place earlier.
     p_attr : list/tuple of array-like
         Length-A list of ``K_total x N`` per-attribute value matrices
         (a 1-D entry is taken as a ``1 x N`` row).
-    w : None, scalar, or length-A list
+    w_attr : None, scalar, or length-A list
         Weights. Passed through unchanged (translation does not touch
         weights); returned as-is for clean chaining.
     offsets : length-A list
@@ -1603,12 +1748,12 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
 
     Returns
     -------
-    p_out : list of ndarray, or list of list of ndarray
-        Single translation (``M = 1``): a length-A list of ``K_total x N``
-        arrays. Sweep (``M > 1``): a length-M list of such lists.
-    w : same as input
-    specs : list of dict
-        The attribute specifications, unchanged (or synthesised).
+    dict
+        The pre-MAET. Its ``p_attr`` is, for a single translation
+        (``M = 1``), a length-A list of ``K_total x N`` arrays, and for a
+        sweep (``M > 1``) a length-M list of such lists, carrying the
+        offsets that produced it; its ``w_attr`` and ``specs`` are
+        unchanged from the input (or synthesised).
 
     Warns
     -----
@@ -1621,6 +1766,9 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
     difference_events, bind_events, flat_specs, build_exp_tens,
     windowed_similarity
     """
+    p_attr, w_attr, (offsets,), specs = shift_lead(
+        p_attr, w_attr, [offsets], specs, func="translate_attributes")
+    w = w_attr
     if not isinstance(p_attr, (list, tuple)):
         raise ValueError(
             "p_attr must be a list/tuple of attribute value matrices."
@@ -1713,14 +1861,12 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
                     uni[a, m] = 0.0
                 elif finite.all() and np.all(cm == cm.flat[0]):
                     uni[a, m] = float(cm.flat[0])
-        return (
-            TranslatedSweep(
-                cols_out, sweep_offsets=uni,
-                sweep_base=[M.copy() for M in p_arr],
-            ),
-            w, specs_out,
+        sweep = TranslatedSweep(
+            cols_out, sweep_offsets=uni,
+            sweep_base=[M.copy() for M in p_arr],
         )
-    return cols_out[0], w, specs_out         # single length-A list
+        return make_pre_maet(sweep, w, specs_out)
+    return pre_maet(cols_out[0], w, specs_out)
 
 
 def _normalise_translate_offsets(offsets, K, A):
@@ -1879,13 +2025,27 @@ def simplex_vertices(N: int, edge_length: float = 1.0) -> np.ndarray:
     # Pairwise distance between rows is sqrt(2).
     Vc = np.eye(N) - 1.0 / N
 
-    # Orthonormal basis of the column space of Vc, which is 1^perp
-    # (the (N-1)-dimensional subspace orthogonal to the all-ones vector).
-    # Use SVD: the first N-1 left singular vectors span the column space.
-    U, _, _ = np.linalg.svd(Vc, full_matrices=False)
-    Q = U[:, : N - 1]
+    # Orthonormal basis of 1^perp (the (N-1)-dimensional subspace
+    # orthogonal to the all-ones vector). The basis is written out rather
+    # than taken from a decomposition of Vc: that matrix has singular
+    # value 1 with multiplicity N - 1, so its singular vectors are not
+    # determined -- any orthonormal basis of the subspace is valid, and
+    # which one a solver returns is a property of the solver, not of the
+    # simplex. Pinning the basis makes the coordinates reproducible
+    # across languages and across library versions. The Helmert basis is
+    # the standard closed-form choice, and it nests: the first m vertices
+    # of an N-simplex, restricted to their first m-1 coordinates, are
+    # exactly the vertices of the m-simplex, so adding a level to a
+    # categorical attribute extends the coordinates rather than moving
+    # the levels already there. At N = 2 it gives the two levels as
+    # +1/2 and -1/2, in that order.
+    H = np.zeros((N - 1, N))
+    for k in range(1, N):
+        H[k - 1, :k] = 1.0
+        H[k - 1, k] = -k
+        H[k - 1] /= np.sqrt(k * (k + 1))
 
     # Express each row of Vc in this basis. The result has N rows and
     # N-1 columns, with pairwise row distance sqrt(2). Rescale to the
     # requested edge length.
-    return (Vc @ Q) * (edge_length / np.sqrt(2))
+    return (Vc @ H.T) * (edge_length / np.sqrt(2))

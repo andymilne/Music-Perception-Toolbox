@@ -1,8 +1,13 @@
-function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
+function pm = bindEvents(varargin)
 %BINDEVENTS Bind sliding windows of consecutive events into nested attributes.
 %
-%   [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, ...)
-%   is a cross-event preprocessing helper on the (pAttr, w, specs) triple.
+%   PM = bindEvents(PM0, bindOrders, ...) and
+%   PM = bindEvents(pAttr, wAttr, bindOrders, ...) are a cross-event
+%   preprocessing helper on the pre-MAET.%
+%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   its parts as pAttr and wAttr with the specs as a name-value; the two
+%   forms are the same call.
+%
 %   For each input attribute a, a sliding window of width L_a (bindOrders)
 %   is laid across the event axis and the L_a consecutive events are nested
 %   into a single output attribute (toolbox spec §6.1/§6.5): the bound
@@ -28,8 +33,9 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %   at step = 1 only.
 %
 %   Inputs
+%       pm         - Pre-MAET, in place of pAttr and wAttr.
 %       pAttr      - 1 x A cell of K_a x N per-attribute value matrices.
-%       w          - Weights ([], scalar, or 1 x A cell). Same convention
+%       wAttr      - Weights ([], scalar, or 1 x A cell). Same convention
 %                    as buildExpTens; bound value weights are the windowed-
 %                    and-stacked input weights.
 %       bindOrders - Scalar or 1 x A window widths L_a >= 1 (1 = no-op).
@@ -68,19 +74,27 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %                      it while deepening an already-nested attribute is
 %                      rejected (per-level names carry through from the input).
 %
-%   Outputs
-%       pAttrBound - 1 x A cell. For L_a >= 2 a stacked (L_a*K_a) x N'
-%                    value matrix; for L_a = 1 the leading-aligned K_a x N'.
-%       wBound     - Transformed weights aligned to the value layout.
-%       specs      - 1 x A cell of structs: nested {tags,r,sym,rel,...}
-%                    for L_a >= 2, the incoming spec unchanged (flat or
-%                    nested) for L_a = 1.
+%   Output
+%       pm - Pre-MAET. pAttr holds, for L_a >= 2, a stacked
+%            (L_a*K_a) x N' value matrix, and for L_a = 1 the leading-
+%            aligned K_a x N'; wAttr the transformed weights, aligned to
+%            the value layout; specs a 1 x A cell of structs, nested
+%            {tags,r,sym,rel,...} for L_a >= 2 and the incoming spec
+%            unchanged (flat or nested) for L_a = 1.
 %
 %   See also BUILDEXPTENS, DIFFERENCEEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
 
+[pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
+[pAttrBound, wBound, specs] = localBindEvents(pAttr, wAttr, specsPm, rest{:});
+pm = preMaet(pAttrBound, wBound, specs);
+end
+
+
+function [pAttrBound, wBound, specs] = localBindEvents(pAttr, w, specsPm, bindOrders, nvArgs)
 arguments
     pAttr
     w
+    specsPm
     bindOrders
     nvArgs.circular (1, 1) logical = false
     nvArgs.step (1, 1) double {mustBeInteger, mustBePositive} = 1
@@ -92,6 +106,10 @@ arguments
     nvArgs.levelNames = []
     nvArgs.groupBy = []
     nvArgs.groupAtol (1, 1) double = 0
+end
+
+if isempty(nvArgs.specs)
+    nvArgs.specs = specsPm;
 end
 
 % --- Normalise pAttr to a cell of 2-D double matrices ---
@@ -252,6 +270,16 @@ for a = 1:A
         spec = struct('tags', newColRow, 'r', [rInA rOut(a)], ...
                       'sym', [symInA symOut(a)], 'rel', [relInA relOut(a)]);
         if ~isempty(levelNames); spec.names = levelNames; end
+    end
+    % Binding regroups values; it does not touch them, so the attribute's
+    % kernel geometry crosses to the nested spec intact.
+    for kf = {'sigma', 'isPer', 'period'}
+        if isfield(sIn, kf{1})
+            spec.(kf{1}) = sIn.(kf{1});
+        end
+    end
+    if isfield(sIn, 'is_per') && ~isfield(spec, 'isPer')
+        spec.isPer = sIn.is_per;
     end
     if ~isempty(nm); spec.name = nm; end
     specs{a} = spec;

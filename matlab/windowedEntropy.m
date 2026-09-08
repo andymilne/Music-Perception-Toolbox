@@ -1,6 +1,22 @@
-function H = windowedEntropy(pAttr, w, sigma, r, isRel, isPer, period, centres, nv)
+function H = windowedEntropy(varargin)
 %WINDOWEDENTROPY  Slide a window across a context and read its entropy at
 %   each position.
+%
+%   Input forms, in the order to reach for them: a whole pre-MAET,
+%   the canonical entry; then the raw positional form, with pAttr,
+%   wAttr and the five geometry vectors written out.
+%
+%   Pre-MAET form. In place of pAttr, w and the five geometry vectors,
+%   pass a whole pre-MAET:
+%
+%     H = windowedEntropy(pm, centres, ...)
+%
+%   The geometry is read from its specs, and any of the six per-attribute
+%   parameters -- 'sigma', 'isPer', 'period', 'r', 'rel', 'sym' -- may be
+%   given alongside to override it, as at buildExpTens. An override may
+%   name every attribute or be selective, a 1 x A cell whose empty
+%   entries keep what the spec carries: 'sigma', {[], s, []} sweeps the
+%   second attribute's width and leaves the rest to the pre-MAET.
 %
 %   Shares the placement, window, 'locate', and 'drop' machinery of
 %   windowedSimilarity, with the same single-axis ('windowAttr' + 'centres'
@@ -16,8 +32,17 @@ function H = windowedEntropy(pAttr, w, sigma, r, isRel, isPer, period, centres, 
 %   reserved for integrating a retained axis out of the density and is not
 %   yet implemented.
 %
-%   See also WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDEXPTENS, ENTROPYEXPTENS.
+%
+%   See also PREMAET, WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDEXPTENS,
+%            ENTROPYEXPTENS.
 
+varargin = internal.windowedPreMaetArgs(varargin, 'windowedEntropy', 1);
+H = localWindowedEntropy(varargin{:});
+end
+
+
+function H = localWindowedEntropy(pAttr, w, sigma, r, isRel, isPer, ...
+        period, centres, nv)
 arguments
     pAttr (1,:) cell
     w

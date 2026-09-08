@@ -63,7 +63,7 @@ centre_qn = times(round(N_events / 2));
 %    'sd', s,  'dropInputAttr', tf)
 % inputAttr = 2 (time supplies the per-event scalar values),
 % targetAttr = 1 (the pitch attribute's weights receive the factor).
-[p_w, w_w, g_w] = weightEvents(pAttrPre, wPre, 2, 1, centre_qn, 0.0, 'sd', 1.0, 'dropInputAttr', true);
+[p_w, w_w, g_w] = unpackPreMaet(weightEvents(pAttrPre, wPre, 2, 1, centre_qn, 0.0, 'sd', 1.0, 'dropInputAttr', true));
 
 results{end+1,1} = 'weightEvents preserves event count after truncation';
 results{end,2}   = (size(p_w{1}, 2) == N_events);

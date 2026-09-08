@@ -95,8 +95,8 @@ class TestFactoredEqualsDenseJoint:
 
     def test_nested_bound_flattened(self):
         rng = np.random.default_rng(3)
-        pb0, _, s0 = mpt.bind_events([rng.normal(0, 1, (1, 12))], None, 3)
-        pb1, _, s1 = mpt.bind_events([rng.normal(0, 1, (1, 12))], None, 3)
+        pb0, _, s0 = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(0, 1, (1, 12))], None, 3))
+        pb1, _, s1 = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(0, 1, (1, 12))], None, 3))
         n = pb0[0].shape[1]
         d = mpt.build_exp_tens(
             [pb0[0], pb1[0]], [np.ones((3, n))] * 2, specs=[s0[0], s1[0]],
@@ -108,10 +108,10 @@ class TestFactoredEqualsDenseJoint:
         rng = np.random.default_rng(3)
         cA = np.sort(rng.uniform(0, 20, (2, 8)), axis=0)
         cB = np.sort(rng.uniform(0, 20, (2, 8)), axis=0)
-        pbA, _, sA = mpt.bind_events(
-            [cA], None, 2, specs=mpt.flat_specs([cA], r=2, rel=True, sym=True))
-        pbB, _, sB = mpt.bind_events(
-            [cB], None, 2, specs=mpt.flat_specs([cB], r=2, rel=True, sym=True))
+        pbA, _, sA = mpt.unpack_pre_maet(mpt.bind_events(
+            [cA], None, 2, specs=mpt.flat_specs([cA], r=2, rel=True, sym=True)))
+        pbB, _, sB = mpt.unpack_pre_maet(mpt.bind_events(
+            [cB], None, 2, specs=mpt.flat_specs([cB], r=2, rel=True, sym=True)))
         nn, nsl = pbA[0].shape[1], pbA[0].shape[0]
         d = mpt.build_exp_tens(
             [pbA[0], pbB[0]], [np.ones((nsl, nn))] * 2, specs=[sA[0], sB[0]],

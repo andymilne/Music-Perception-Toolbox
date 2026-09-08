@@ -67,8 +67,26 @@ def eval_exp_tens(*args,
                   verbose: bool = True) -> np.ndarray:
     """Evaluate an expectation tensor density at query points.
 
+    Input forms, in the order to reach for them: a single multiset; a
+    pre-MAET, the canonical entry for everything else; a density built
+    by :func:`build_exp_tens`; then the raw positional multi-attribute
+    and batched forms.
+
     Unified entry point. Accepts five input forms, dispatched on the
     type of the first argument:
+
+    **Raw single-multiset scalar input**:
+
+    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X)``.
+      Returns ``(nQ,)``.
+    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X, normalize)``.
+
+    **Pre-MAET input**:
+
+    - ``eval_exp_tens(pm, X)``. A pre-MAET (:func:`~mpt.pre_maet`)
+      holds everything :func:`build_exp_tens` needs, so it stands
+      wherever a density does: it is built internally and evaluated
+      at ``X``. Returns ``(nQ,)``.
 
     **Pre-built density input** (plus polymorphic lists):
 
@@ -81,22 +99,17 @@ def eval_exp_tens(*args,
       every query point. ``normalize`` (positional or kwarg) applies
       to all rows.
 
-    **Raw single-multiset scalar input**:
+    **Raw multi-attribute scalar input**:
 
-    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X)``.
-      Returns ``(nQ,)``.
-    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X, normalize)``.
+    - ``eval_exp_tens(p_attr, w_attr, sigma_vec, r_vec,
+      is_rel_vec, is_per_vec, period_vec, X)``, with ``w_attr`` the
+      per-attribute weights. Returns ``(nQ,)``.
 
     **Raw single-multiset batched input**:
 
     - ``eval_exp_tens(P, W, sigma, r, is_rel, is_per, period, X)``
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
       Returns ``(M, nQ)``.
-
-    **Raw multi-attribute scalar input**:
-
-    - ``eval_exp_tens(p_attr, w, sigma_vec, r_vec,
-      is_rel_vec, is_per_vec, period_vec, X)``. Returns ``(nQ,)``.
 
     Parameters
     ----------
@@ -183,6 +196,7 @@ def eval_exp_tens(*args,
     build_exp_tens, cos_sim_exp_tens
     eval_exp_tens_raw : deprecated; superseded by raw input mode here.
     """
+    args = _build_pre_maet_args(args, verbose=verbose)
     if len(args) < 2:
         raise TypeError(
             "eval_exp_tens requires at least 2 positional arguments."
@@ -1794,3 +1808,57 @@ def eval_exp_tens_raw(
         p, w, sigma, r, is_rel, is_per, period, x, normalize=normalize,
         verbose=verbose,
     )
+
+def _build_pre_maet_args(args, *, verbose=True):
+    """Replace any whole pre-MAET among the positional arguments.
+
+    A pre-MAET is a density in waiting: it holds everything build_exp_tens
+    needs, so it stands wherever a density does and is built here. That
+    goes for a *list* of them too: a list of pre-MAETs stands wherever a
+    list of densities does, so the list and scalar-vs-list forms take
+    them without the caller building each one first. A translation sweep
+    (:class:`~mpt._tensor.preprocessing.TranslatedSweep`) carried inside
+    a pre-MAET is one such list, sharing one geometry, and is expanded
+    the same way, its offsets carried through so the mixture reduction
+    still applies.
+
+    The loose triple has no such form, since the three parts are not
+    distinguishable from the surrounding positional geometry.
+
+    ``verbose`` governs these builds too, so a quiet call stays quiet.
+    """
+    from .premaet import is_pre_maet
+    from .preprocessing import TranslatedSweep
+
+    def _is_sweep_pm(a):
+        return is_pre_maet(a) and isinstance(a.get("p_attr"), TranslatedSweep)
+
+    def _listish(a):
+        return isinstance(a, (list, tuple)) and any(is_pre_maet(x) for x in a)
+
+    if not any(is_pre_maet(a) or _listish(a) for a in args):
+        return args
+    from .build import build_exp_tens
+
+    def _one(a):
+        if _is_sweep_pm(a):
+            # One geometry, one density per sweep entry; the offsets ride
+            # along so cos_sim_exp_tens can still reduce the sweep to a
+            # mixture in the offset.
+            sweep = a["p_attr"]
+            built = [build_exp_tens({"p_attr": list(block),
+                                     "w_attr": a.get("w_attr"),
+                                     "specs": a.get("specs")},
+                                    verbose=verbose)
+                     for block in sweep]
+            return TranslatedSweep(built,
+                                   sweep_offsets=sweep.sweep_offsets,
+                                   sweep_base=sweep.sweep_base)
+        if is_pre_maet(a):
+            return build_exp_tens(a, verbose=verbose)
+        if _listish(a):
+            return [build_exp_tens(x, verbose=verbose) if is_pre_maet(x) else x
+                    for x in a]
+        return a
+
+    return tuple(_one(a) for a in args)

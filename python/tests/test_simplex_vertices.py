@@ -58,3 +58,47 @@ class TestSimplexVertices:
     def test_zero_edge_length(self):
         with pytest.raises(ValueError, match="edge_length"):
             mpt.simplex_vertices(3, edge_length=0)
+
+    def test_orientation_is_pinned(self):
+        """The coordinates themselves, not merely the shape they form.
+
+        A regular simplex is defined only up to rotation, so the tests
+        above pass under any orientation. They therefore cannot see a
+        change of basis -- which is exactly how the two implementations
+        came to disagree, one taking its basis from an SVD and the other
+        from ``orth``, on a matrix whose singular vectors are not
+        determined. These are the pinned values, shared with the MATLAB
+        twin and with Milne (2026, Fig. 1).
+        """
+        np.testing.assert_allclose(
+            mpt.simplex_vertices(3),
+            [[0.5, 0.28867513459481287],
+             [-0.5, 0.28867513459481287],
+             [0.0, -0.5773502691896257]],
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            mpt.simplex_vertices(4),
+            [[0.5, 0.28867513459481287, 0.20412414523193154],
+             [-0.5, 0.28867513459481287, 0.20412414523193154],
+             [0.0, -0.5773502691896257, 0.20412414523193154],
+             [0.0, 0.0, -0.6123724356957945]],
+            atol=1e-12,
+        )
+
+    def test_binary_case_is_plus_minus_half(self):
+        """Two levels sit at +1/2 and -1/2, the first level positive."""
+        np.testing.assert_allclose(
+            mpt.simplex_vertices(2).ravel(), [0.5, -0.5], atol=1e-12)
+
+    def test_nesting(self):
+        """The first m vertices, on their first m-1 coordinates, are the
+        m-simplex: adding a level extends the coordinates rather than
+        moving the levels already there. This is the property the
+        Helmert basis is pinned for.
+        """
+        for N in (4, 5, 6):
+            V = mpt.simplex_vertices(N)
+            for m in range(2, N + 1):
+                np.testing.assert_allclose(
+                    V[:m, : m - 1], mpt.simplex_vertices(m), atol=1e-12)

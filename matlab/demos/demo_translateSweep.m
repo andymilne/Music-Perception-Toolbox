@@ -107,7 +107,8 @@ fprintf('=== 3. translateAttributes (offset sweep) ===\n');
 % entry together defines the m-th translated copy. Reads naturally as
 % "sweep pitch by these values; sweep time by these values".
 offsetsCell   = {Pmesh(:).', Tmesh(:).'};
-[qryPAttrSwept, ~, ~, sweep] = translateAttributes(qryPAttr, [], offsetsCell);
+[pmSwept, sweep] = translateAttributes(qryPAttr, [], offsetsCell);
+qryPAttrSwept = pmSwept.pAttr;
 % The fourth output records the per-attribute offsets (A x M) for
 % sweepCosSimExpTens; see Section 7.
 
@@ -182,6 +183,12 @@ fprintf('=== 6. Equivalent explicit build loop ===\n');
 fprintf('  This is what the raw-MA list mode does internally; here it\n');
 fprintf('  is spelled out so the relationship between translateAttributes,\n');
 fprintf('  buildExpTens, and cosSimExpTens is transparent.\n\n');
+
+showPreMaet(refPAttr, [], [], 'names', {'pitch', 'time'}, ...
+    'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods);
+showPreMaet(qryPAttrSwept{1}, [], [], 'names', {'pitch', 'time'}, ...
+    'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods);
+fprintf('\n');
 
 densRef = buildExpTens(refPAttr, [], sigma, r, ...
                        isRel, isPer, periods, 'verbose', false);

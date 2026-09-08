@@ -39,7 +39,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, eval_exp_tens
+from mpt import build_exp_tens, eval_exp_tens, unpack_pre_maet
 from mpt._tensor.dispatch import _select_ma_eval
 from math import comb as _math_comb
 
@@ -365,7 +365,7 @@ def test_ma_eval_ordered_r11_routes_centres_and_evaluates():
     infeasibility guard, its joint tuple set being one tuple."""
     from mpt import bind_events, build_exp_tens, eval_exp_tens
     x = np.arange(11, dtype=float)
-    p_b, w_b, sp_b = bind_events([x[None, :]], None, 11)
+    p_b, w_b, sp_b = unpack_pre_maet(bind_events([x[None, :]], None, 11))
     dens = build_exp_tens(p_b, w_b, specs=sp_b, sigma=[0.3],
                           is_per=[False], period=[None], verbose=False)
     chosen, reason = _select_ma_eval(dens, 200, method="auto")

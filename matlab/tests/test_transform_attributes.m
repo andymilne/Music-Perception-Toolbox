@@ -107,7 +107,7 @@ results{end,2}   = throwsErrorWithId(@() transformAttributes({[0.5 0 0.25]}, [],
                    && errorMessageContains(@() transformAttributes({[0.5 0 0.25]}, [], {'log'}), ...
                                            'offset');
 
-[outLO, ~, ~] = transformAttributes({[0 3]}, [], {{'log', 'offset', 1, 'base', 2}});
+[outLO, ~, ~] = unpackPreMaet(transformAttributes({[0 3]}, [], {{'log', 'offset', 1, 'base', 2}}));
 results{end+1,1} = 'transform: log offset domain is x + offset';
 results{end,2}   = max(abs(outLO{1} - [0 2])) < tol ...
                    && errorMessageContains(@() transformAttributes({[0.5 1]}, [], {{'log', 'offset', -0.5}}), ...
@@ -147,43 +147,43 @@ results{end,2}   = errorMessageContains(@() transformAttributes({[1 2], [0.5 0]}
 % --- Cell form: threading, handles, sign attribute --------------------
 
 p = {[1 2], [4 9]};
-[out, w, sp] = transformAttributes(p, [], {[], {'power', 'exponent', 0.5}});
+[out, w, sp] = unpackPreMaet(transformAttributes(p, [], {[], {'power', 'exponent', 0.5}}));
 results{end+1,1} = 'transform: [] leaves attribute; weights/specs threaded';
 results{end,2}   = isequal(out{1}, [1 2]) && max(abs(out{2} - [2 3])) < tol ...
                    && isempty(w) && numel(sp) == 2;
-[out2, ~, ~] = transformAttributes(p, [], {'power', 'exponent', 0.5});
+[out2, ~, ~] = unpackPreMaet(transformAttributes(p, [], {'power', 'exponent', 0.5}));
 results{end+1,1} = 'transform: single entry broadcasts to all attributes';
 results{end,2}   = max(abs(out2{1} - [1 sqrt(2)])) < tol;
 
 spIn = flatSpecs({[1 2]}, 'r', 2, 'name', 'x');
-[~, w, sp] = transformAttributes({[1 2]}, {[0.5 0.5]}, {'log'}, 'specs', spIn);
+[~, w, sp] = unpackPreMaet(transformAttributes({[1 2]}, {[0.5 0.5]}, {'log'}, 'specs', spIn));
 results{end+1,1} = 'transform: weights and specs pass through';
 results{end,2}   = isequal(sp{1}, spIn{1}) && isequal(w{1}, [0.5 0.5]);
 
-[out, ~, ~] = transformAttributes({[1 4; 9 16]}, [], {@sqrt});
+[out, ~, ~] = unpackPreMaet(transformAttributes({[1 4; 9 16]}, [], {@sqrt}));
 results{end+1,1} = 'transform: function handle on a K_total x N matrix';
 results{end,2}   = max(abs(out{1}(:) - [1; 3; 2; 4])) < tol;
 
 p = {[2 -3 0], [1 1 1]};
 sp = flatSpecs(p, 'name', {'ivl', 't'});
-[out, w, s] = transformAttributes(p, {1, 2}, {{'log', 'offset', 1}, []}, 'specs', sp, 'sign', [true false]);
+[out, w, s] = unpackPreMaet(transformAttributes(p, {1, 2}, {{'log', 'offset', 1}, []}, 'specs', sp, 'sign', [true false]));
 results{end+1,1} = 'transform: sign attribute inserted after its source';
 results{end,2}   = numel(out) == 3 && numel(w) == 3 && numel(s) == 3 ...
                    && max(abs(out{1} - [log(3) log(4) 0])) < tol ...
-                   && isequal(out{2}, [1 -1 0]) && isequal(out{3}, [1 1 1]) ...
+                   && isequal(out{2}, 0.5 * [1 -1 0]) && isequal(out{3}, [1 1 1]) ...
                    && isequal(s{2}.r, 1) && isequal(s{2}.rel, false) && isequal(s{2}.sym, true) ...
                    && strcmp(s{2}.name, 'ivl_sign') ...
                    && isequal(w, {1, 1, 2});
 
 spN = struct('tags', [0 1], 'r', [1 2], 'sym', [true true], 'rel', [0 1]);
-[out, ~, s] = transformAttributes({[1 -2; -3 4]}, [], {{'power', 'exponent', 0.5}}, 'specs', {spN}, 'sign', true);
+[out, ~, s] = unpackPreMaet(transformAttributes({[1 -2; -3 4]}, [], {{'power', 'exponent', 0.5}}, 'specs', {spN}, 'sign', true));
 results{end+1,1} = 'transform: sign on a nested spec clears rel';
-results{end,2}   = isequal(out{2}, [1 -1; -1 1]) && isequal(s{2}.rel, [false false]) ...
+results{end,2}   = isequal(out{2}, 0.5 * [1 -1; -1 1]) && isequal(s{2}.rel, [false false]) ...
                    && isequal(s{2}.tags, [0 1]) && strcmp(s{2}.name, 'sign');
 
-[out, ~, ~] = transformAttributes({[-4 9]}, [], {{'power', 'exponent', 0.5}}, 'sign', true);
+[out, ~, ~] = unpackPreMaet(transformAttributes({[-4 9]}, [], {{'power', 'exponent', 0.5}}, 'sign', true));
 results{end+1,1} = 'transform: sign with power';
-results{end,2}   = max(abs(out{1} - [2 3])) < tol && isequal(out{2}, [-1 1]);
+results{end,2}   = max(abs(out{1} - [2 3])) < tol && isequal(out{2}, 0.5 * [-1 1]);
 
 results{end+1,1} = 'transform: sign requires a magnitude transform';
 results{end,2}   = throwsErrorWithId(@() transformAttributes({1}, [], {'affine'}, 'sign', true), ...
@@ -211,13 +211,13 @@ results{end,2}   = throwsErrorWithId(@() transformAttributes({1, 1}, [], 'log', 
 
 % --- Composition with differencing and build ---------------------------
 
-[p, w, sp] = transformAttributes({[0.25 0.5 0.5 1]}, [], {{'log', 'base', 2}});
-[d, ~, ~] = differenceEvents(p, w, 1, 'specs', sp);
+[p, w, sp] = unpackPreMaet(transformAttributes({[0.25 0.5 0.5 1]}, [], {{'log', 'base', 2}}));
+[d, ~, ~] = unpackPreMaet(differenceEvents(p, w, 1, 'specs', sp));
 results{end+1,1} = 'transform: log then difference gives log ratios';
 results{end,2}   = max(abs(d{1} - [1 0 1])) < tol;
 
-[d, w, sp] = differenceEvents({[60 64 62 62 67]}, [], 1);
-[p, w, sp] = transformAttributes(d, w, {{'log', 'offset', 1}}, 'specs', sp, 'sign', true);
+[d, w, sp] = unpackPreMaet(differenceEvents({[60 64 62 62 67]}, [], 1));
+[p, w, sp] = unpackPreMaet(transformAttributes(d, w, {{'log', 'offset', 1}}, 'specs', sp, 'sign', true));
 dens = buildExpTens(p, w, 'specs', sp, 'sigma', [0.2 0.3], 'isPer', [false false], ...
                     'period', [0 0], 'verbose', false);
 results{end+1,1} = 'transform: difference then log(x+1) with sign feeds build';

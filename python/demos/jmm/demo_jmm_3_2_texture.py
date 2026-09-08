@@ -58,7 +58,7 @@ plt.rcParams.update({'font.size': 15, 'axes.titlesize': 17, 'axes.labelsize': 15
 
 import mpt
 mpt.set_default(show_hints=False, truncation_sigmas=3.0, kernel_precision='double')
-from mpt import windowed_entropy
+from mpt import show_pre_maet, windowed_entropy
 
 import piano_phase as pe
 
@@ -78,7 +78,7 @@ centres = np.linspace(t_lo, t_hi, N_SWEEP)
 phase_at = np.array([pe.lag_at(c / (pe.NC * IOI)) for c in centres])   # continuous lag
 
 
-def sweep(sigma_t):
+def sweep(sigma_t, show_input=False):
     """Windowed joint (pitch, time) Renyi-2 entropy at each sweep centre.
 
     A single windowed_entropy sweep: a Gaussian localisation window
@@ -91,6 +91,11 @@ def sweep(sigma_t):
     (set to 3.0 above, tighter than PRUNE = 4.0) already zeros every event
     the prune would have removed, so the result is identical.
     """
+    if show_input:
+        show_pre_maet([pitch.reshape(1, -1), onset.reshape(1, -1)], None,
+                      names=['pitch', 'onset'],
+                      sigma=[SIGMA_PITCH, sigma_t], is_per=[False, False],
+                      max_events=4)
     return windowed_entropy(
         [pitch.reshape(1, -1), onset.reshape(1, -1)], None,
         [SIGMA_PITCH, sigma_t], [1, 1],
@@ -103,7 +108,8 @@ def sweep(sigma_t):
     )
 
 
-H = {st: sweep(st) for st in SIGMAS_T}
+H = {st: sweep(st, show_input=(i == 0))
+     for i, st in enumerate(SIGMAS_T)}
 
 # --- figure ----------------------------------------------------------------
 if plt is None:

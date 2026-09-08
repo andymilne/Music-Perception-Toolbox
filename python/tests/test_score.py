@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens, events_from_score, read_score
+from mpt import (build_exp_tens, cos_sim_exp_tens, events_from_score,
+                 read_score, unpack_pre_maet)
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
@@ -72,9 +73,9 @@ def test_musicxml_table(name):
 def test_fermata_attribute():
     """The fermata column enters events_from_score as an attribute (0/1
     per note; in bound chords one value per note, NaN-padded)."""
-    p, w, specs = events_from_score(
+    p, w, specs = unpack_pre_maet(events_from_score(
         os.path.join(DATA, "score_small.musicxml"),
-        attributes=("pitch", "fermata"), chords="separate", time="beats")
+        attributes=("pitch", "fermata"), chords="separate", time="beats"))
     assert specs[1]["name"] == "fermata"
     np.testing.assert_array_equal(p[1].ravel(), XML_TABLE["fermata"])
 
@@ -111,7 +112,8 @@ def test_unknown_extension():
 
 
 def test_events_bind_chords_by_default():
-    p, w, specs = events_from_score(os.path.join(DATA, "score_small.mid"))
+    p, w, specs = unpack_pre_maet(
+        events_from_score(os.path.join(DATA, "score_small.mid")))
     assert [s["name"] for s in specs] == ["pitch", "onset"]
     assert p[0].shape == (4, 4) and p[1].shape == (1, 4)
     np.testing.assert_array_equal(p[0][:, 0], [60, 48, 52, 55])
@@ -123,26 +125,27 @@ def test_events_bind_chords_by_default():
 
 
 def test_events_options():
-    p, w, specs = events_from_score(
+    p, w, specs = unpack_pre_maet(events_from_score(
         os.path.join(DATA, "score_small.musicxml"),
         attributes=("pitch", "onset", "duration"), pitch="cents",
-        time="beats", weights="ones", chords="separate", parts=2)
+        time="beats", weights="ones", chords="separate", parts=2))
     assert w is None
     assert [s["name"] for s in specs] == ["pitch", "onset", "duration"]
     assert all(m.shape == (1, 7) for m in p)
     np.testing.assert_allclose(p[0][0], [3600, 4800, 5200, 5500, 4300, 4100, 5300])
     np.testing.assert_allclose(p[1][0], [0, 0, 0, 0, 1, 2, 3])
     np.testing.assert_allclose(p[2][0], [1, 2, 2, 2, 1, 1, 3])
-    p2, w2, _ = events_from_score(os.path.join(DATA, "score_small.musicxml"),
-                                  weights="duration", chords="separate",
-                                  time="beats")
+    p2, w2, _ = unpack_pre_maet(events_from_score(
+        os.path.join(DATA, "score_small.musicxml"),
+        weights="duration", chords="separate", time="beats"))
     np.testing.assert_allclose(w2[0][0], XML_TABLE["duration_beats"])
 
 
 def test_events_from_a_table_and_chord_tolerance():
     t = read_score(os.path.join(DATA, "score_small.mid"))
-    p, _, _ = events_from_score(t, chords="bind", chord_tolerance=0.6,
-                                time="seconds", weights="ones")
+    p, _, _ = unpack_pre_maet(events_from_score(
+        t, chords="bind", chord_tolerance=0.6,
+        time="seconds", weights="ones"))
     # 0.5 s (E4) binds to the notes at 0 s; 2 s stays alone
     assert p[0].shape[1] == 3 and p[0].shape[0] == 5
 
@@ -157,13 +160,12 @@ def test_bad_arguments():
         events_from_score(path, chords="merge")
 
 
-def test_carrier_feeds_the_pipeline():
+def test_pre_maet_feeds_the_pipeline():
     """A pitch-class dyad density of the chord track, and its similarity
-    with itself, without any hand-built carrier."""
-    p, w, specs = events_from_score(os.path.join(DATA, "score_small.mid"),
-                                    parts=2)
-    specs[0]["r"] = 2
-    d = build_exp_tens(p, w, specs=specs, sigma=[1.0, 0.2],
+    with itself, without any hand-built pre-MAET."""
+    pm = events_from_score(os.path.join(DATA, "score_small.mid"), parts=2)
+    pm["specs"][0]["r"] = 2
+    d = build_exp_tens(pm, sigma=[1.0, 0.2],
                        is_per=[True, False], period=[12.0, 0.0],
                        verbose=False)
     assert cos_sim_exp_tens(d, d, verbose=False) == pytest.approx(1.0)

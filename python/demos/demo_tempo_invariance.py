@@ -154,13 +154,16 @@ onsets = np.asarray(onsets)
 # time of its first interval. The rel kernel needs its trigrams read
 # relative to a common shift; the second bind, with rel_outer=True,
 # produces that reading of the same trigrams.
-p_diff, w_diff, sp_diff = mpt.difference_events(
-    [onsets[None, :], onsets[None, :]], None, [1, 0])
-p_diff[0] = np.log(p_diff[0])
-p_bound, w_bound, sp_bound = mpt.bind_events(p_diff, w_diff, [3, 1],
-                                             specs=sp_diff)
-_, _, sp_bound_rel = mpt.bind_events(p_diff, w_diff, [3, 1],
-                                     specs=sp_diff, rel_outer=True)
+# The three steps chain as pre-MAETs, each taking the last whole:
+# difference the onsets into IOIs, take the log of the interval
+# attribute (transform_attributes, which also refuses a zero IOI with
+# its remedies rather than yielding -inf), then bind.
+pm_diff = mpt.transform_attributes(
+    mpt.difference_events([onsets[None, :], onsets[None, :]], None, [1, 0]),
+    ["log", None])
+p_bound, w_bound, sp_bound = mpt.unpack_pre_maet(
+    mpt.bind_events(pm_diff, [3, 1]))
+sp_bound_rel = mpt.bind_events(pm_diff, [3, 1], rel_outer=True)["specs"]
 # Two quantities read off the bound triple feed the search below:
 N_TRI = p_bound[0].shape[1]      # number of trigrams (windows to place)
 tri_times = p_bound[1].ravel()   # window-placing times (the sweep
@@ -344,6 +347,15 @@ p_context = p_bound                    # [trigrams, times] as bound
 w_context = [np.ones((3, N_TRI)), np.ones((1, N_TRI))]
 p_query = [X_MOTIF[:, None], np.array([[0.0]])]
 w_query = [np.ones((3, 1)), np.ones((1, 1))]
+
+kw0 = KERNELS[0][2]
+mpt.show_pre_maet(p_context, w_context, [kw0["spec"], sp_bound[1]],
+                  names=['trigram', 'time'], sigma=[kw0["sigma"], 0.25],
+                  is_per=[False, False], max_events=4)
+mpt.show_pre_maet(p_query, w_query, [kw0["spec"], sp_bound[1]],
+                  names=['trigram', 'time'], sigma=[kw0["sigma"], 0.25],
+                  is_per=[False, False])
+print()
 
 profiles = {}
 for kname, _, kw in KERNELS:

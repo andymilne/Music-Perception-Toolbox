@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import add_spectra, bind_events, build_exp_tens, cos_sim_exp_tens
+from mpt import add_spectra, bind_events, build_exp_tens, cos_sim_exp_tens, unpack_pre_maet
 from mpt._tensor._nested_contraction import build_recipe, auto_taus_line
 from tests.references.nested_ip_reference import (
     _ip_rel_nonper, _ip_rel_nonper_generic, _ip_rel_nonper_factored,
@@ -86,7 +86,7 @@ def _cell(pitches, n_partials=12):
     p_attr = [pp.reshape(n, n_partials).T,
               np.arange(n, dtype=float).reshape(1, n)]
     w_attr = [wp.reshape(n, n_partials).T, None]
-    pb, wb, sb = bind_events(p_attr, w_attr, [n, 1], step=1, rel_outer=True)
+    pb, wb, sb = unpack_pre_maet(bind_events(p_attr, w_attr, [n, 1], step=1, rel_outer=True))
     return build_exp_tens(pb, wb, sigma=[SIG, 0.125], is_per=[False, False],
                           period=[0.0, 0.0], specs=sb, verbose=False)
 

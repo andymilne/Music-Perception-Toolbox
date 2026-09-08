@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_exp_tens, cos_sim_exp_tens, unpack_pre_maet
 from mpt._tensor.dispatch import _predict_pairwise_kernel_size
 from mpt.tensor import (
     _ORBIT_R_MAX_SHIPPED,
@@ -647,8 +647,8 @@ def test_ordered_bound_r9_cos_sim_end_to_end():
 
     def dens(vals):
         p_attr = [v[None, :] for v in vals]
-        p_b, w_b, sp_b = bind_events(p_attr, None, L,
-                                     rel_outer=[False, True, False])
+        p_b, w_b, sp_b = unpack_pre_maet(bind_events(p_attr, None, L,
+                                     rel_outer=[False, True, False]))
         return build_exp_tens(p_b, w_b, specs=sp_b, sigma=sig,
                               is_per=[False] * 3, period=[None] * 3,
                               verbose=False)

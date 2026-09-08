@@ -34,8 +34,18 @@
 %  and so cannot share work across transpositions), is looped over the
 %  distinct rows.
 %
+%  Workflow 3 shows a second, quite different sense of "batch". Rows of a
+%  2-D pitch matrix are single multisets over one attribute, and what
+%  Workflows 1 and 2 exploit is deduplication *within* such a matrix. A
+%  multi-attribute analysis has no row axis to deduplicate: each item is
+%  a whole pre-MAET. Batching there means passing a *cell* of them where
+%  a cell of densities would go, which loops rather than collapses — the
+%  saving is in the calling code, not in the arithmetic.
+%
 %  Uses: cosSimExpTens, spectralEntropy, templateHarmonicity,
-%        tensorHarmonicity, addSpectra, roughness, transformAttributes
+%        tensorHarmonicity, addSpectra, roughness, transformAttributes,
+%        preMaet, flatSpecs, translateAttributes,
+%        sweepCosSimExpTens, buildExpTens
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -215,5 +225,88 @@ end
 
 sgtitle('SPCS: chord fit at each scale degree');
 colormap(parula);
+
+%% === WORKFLOW 3: A cell of pre-MAETs — batching of a different kind ===
+%
+%  Everything above batches ROWS: a 2-D pitch matrix whose rows are
+%  single multisets over one attribute, deduplicated internally by a
+%  canonical key so that 144 rows cost 4 computations. That collapse is
+%  possible because the rows are commensurable — same attribute, same
+%  geometry, differing only in their values.
+%
+%  A multi-attribute item has no row to collapse: it is a whole
+%  pre-MAET, with its own event count and its own per-attribute
+%  geometry. So the multi-attribute analogue of a batch is a CELL, and a
+%  cell of pre-MAETs goes wherever a cell of densities goes. The
+%  functions build each entry and iterate; nothing is deduplicated,
+%  because in general nothing is repeated. What the cell form saves is
+%  the calling code — no per-item build, no loop, one call that returns
+%  one value per item — not arithmetic.
+%
+%  The exception that proves the rule is a translation sweep. Its
+%  entries DO share one geometry and differ only by an offset, so the
+%  comparison reduces to a mixture in the offset — a genuine collapse,
+%  and the one place where a multi-attribute batch is cheaper than the
+%  loop it replaces. The offsets are what make that possible, and a
+%  MATLAB cell cannot carry them alongside the entries, so a swept
+%  pre-MAET passed as a cell still loops: the collapse is spelled
+%  sweepCosSimExpTens(densX, densY, sweep.offsets), with the offsets
+%  taken from translateAttributes' second output.
+
+fprintf('\n=== Workflow 3: A cell of pre-MAETs (batching, other sense) ===\n\n');
+
+% Four two-attribute items: a pitch-class attribute and an onset-time
+% attribute. They are NOT commensurable rows — the second has four
+% events where the others have three — so no canonical key could
+% collapse them.
+itemPcs    = {[0 400 700], [0 300 700 1000], [200 500 900], [0 400 700]};
+itemOnsets = {[0 1 2],     [0 1 2 3],        [0 1 2],       [0 1 2]};
+
+items = cell(1, numel(itemPcs));
+for k = 1:numel(itemPcs)
+    pk = {itemPcs{k}, itemOnsets{k}};
+    items{k} = preMaet(pk, [], flatSpecs(pk, ...
+        'name', {'pitch class', 'onset'}, 'sigma', [35 0.25], ...
+        'isPer', [true false], 'period', [1200 0]));
+end
+reference = items{1};
+
+% One call, one value per item. The same call with pre-built densities
+% would be identical; the pre-MAETs simply save building them.
+sims = cosSimExpTens(reference, items, 'verbose', false);
+fprintf('  cosSimExpTens(reference, {pm1, ..., pm4})\n');
+for k = 1:numel(sims)
+    fprintf('    item %d: %.4f\n', k, sims{k});
+end
+fprintf('  (item 1 is the reference; item 4 repeats it.)\n');
+fprintf('  Each entry was built and compared in turn — four densities,\n');
+fprintf('  four inner products. Nothing collapsed: the items differ in\n');
+fprintf('  event count and content, so there is no repeated work to find.\n');
+
+% The sweep is the exception: one geometry, M offsets, so the comparison
+% reduces to a mixture in the offset rather than one inner product per
+% entry. A sweep pre-MAET passed as a cell is still only the loop — the
+% collapse needs the offsets, and a MATLAB cell cannot carry them, so
+% translateAttributes returns them as a second output and
+% sweepCosSimExpTens takes them. (Python attaches them to the returned
+% list, so there cosSimExpTens picks them up at the call site itself.)
+[pmSweep, sweep] = translateAttributes(reference, {[0 100 200 300], []});
+loopSims = cosSimExpTens(reference, pmSweep, 'verbose', false);
+
+densRef   = buildExpTens(reference, 'verbose', false);
+sweepSims = sweepCosSimExpTens(densRef, densRef, sweep.offsets, ...
+                               'verbose', false);
+
+fprintf('\n  translateAttributes(reference, {[0 100 200 300], []})\n');
+fprintf('    as a cell, one inner product per offset ->');
+fprintf(' %.4f', cell2mat(loopSims));
+fprintf('\n    as a sweep, one mixture in the offset  ->');
+fprintf(' %.4f', sweepSims);
+fprintf('\n');
+fprintf('  The two agree to %.1e. Here the entries DO share a geometry\n', ...
+        max(abs(cell2mat(loopSims(:))' - sweepSims(:)')));
+fprintf('  and differ by a known offset, so the sweep is a genuine\n');
+fprintf('  collapse — the one place where a multi-attribute batch is\n');
+fprintf('  cheaper than the loop it replaces.\n');
 
 fprintf('\nDone.\n');

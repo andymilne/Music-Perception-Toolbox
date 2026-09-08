@@ -655,13 +655,13 @@ results{end,2}   = abs(H_whole) < 1e-12;
 
 % gamma = 0 limit: pure Gaussian with std = width.
 p_we = {[60 62 64 67 72]};
-[~, w_we, ~] = weightEvents(p_we, [], 1, 1, 64, 0, 'sd', 3, 'dropInputAttr', false);
+[~, w_we, ~] = unpackPreMaet(weightEvents(p_we, [], 1, 1, 64, 0, 'sd', 3, 'dropInputAttr', false));
 expected_we = exp(-(([60 62 64 67 72] - 64) .^ 2) ./ (2 * 3 ^ 2));
 results{end+1,1} = 'weightEvents: gamma = 0 is pure Gaussian (std = width)';
 results{end,2}   = max(abs(w_we{1} - expected_we)) < 1e-12;
 
 % gamma = 1 limit: pure rectangle with half-width = width * sqrt(3).
-[~, w_re, ~] = weightEvents({[60 62 64 67 72]}, [], 1, 1, 64, 1, 'sd', 3, 'dropInputAttr', false);
+[~, w_re, ~] = unpackPreMaet(weightEvents({[60 62 64 67 72]}, [], 1, 1, 64, 1, 'sd', 3, 'dropInputAttr', false));
 expected_re = double(abs([60 62 64 67 72] - 64) <= 3 * sqrt(3));
 results{end+1,1} = 'weightEvents: gamma = 1 is pure rectangle (half-width = width * sqrt(3))';
 results{end,2}   = isequal(w_re{1}, expected_re);
@@ -670,7 +670,7 @@ results{end,2}   = isequal(w_re{1}, expected_re);
 gammas_peak = [0.05 0.1 0.25 0.5 0.75 0.9 0.95];
 peak_ok = true;
 for gg = gammas_peak
-    [~, w_pk, ~] = weightEvents({5}, [], 1, 1, 5, gg, 'sd', 2, 'dropInputAttr', false);
+    [~, w_pk, ~] = unpackPreMaet(weightEvents({5}, [], 1, 1, 5, gg, 'sd', 2, 'dropInputAttr', false));
     if abs(w_pk{1} - 1) >= 1e-12
         peak_ok = false; break;
     end
@@ -685,7 +685,7 @@ width_fv = 4;
 gammas_fv = [0 0.1 0.25 0.5 0.75 0.9 1.0];
 var_ok = true;
 for gg = gammas_fv
-    [~, w_fv, ~] = weightEvents({y_fv}, [], 1, 1, 0, gg, 'sd', width_fv, 'dropInputAttr', false);
+    [~, w_fv, ~] = unpackPreMaet(weightEvents({y_fv}, [], 1, 1, 0, gg, 'sd', width_fv, 'dropInputAttr', false));
     h_fv = w_fv{1};
     area = sum(h_fv) * dy_fv;
     variance = sum(y_fv .^ 2 .* h_fv) * dy_fv / area;
@@ -698,7 +698,7 @@ results{end,2}   = var_ok;
 
 % Output is a 3-tuple (pAttrOut, wOut, specsOut).
 p_3t = {[1 2], [3 4]};
-[p_3t_out, w_3t_out, s_3t_out] = weightEvents(p_3t, [], 1, 1, 1.5, 0, 'sd', 1, 'dropInputAttr', false);
+[p_3t_out, w_3t_out, s_3t_out] = unpackPreMaet(weightEvents(p_3t, [], 1, 1, 1.5, 0, 'sd', 1, 'dropInputAttr', false));
 results{end+1,1} = 'weightEvents: returns three-tuple (pAttr, w, specs)';
 results{end,2}   = iscell(p_3t_out) && numel(p_3t_out) == 2 && ...
                    iscell(w_3t_out) && numel(w_3t_out) == 2 && ...
@@ -707,14 +707,14 @@ results{end,2}   = iscell(p_3t_out) && numel(p_3t_out) == 2 && ...
 
 % Non-input, non-target attribute passes its incoming weight through.
 p_pt = {[1 2 3], [10 20 30], [100 200 300]};
-[~, w_pt, ~] = weightEvents(p_pt, {[], [], 0.5}, 1, 2, 2, 0, 'sd', 1, 'dropInputAttr', false);
+[~, w_pt, ~] = unpackPreMaet(weightEvents(p_pt, {[], [], 0.5}, 1, 2, 2, 0, 'sd', 1, 'dropInputAttr', false));
 results{end+1,1} = 'weightEvents: non-input non-target attribute passes through unchanged';
 results{end,2}   = isequal(w_pt{3}, 0.5);
 
 % input ~= target: factor lands on the target attribute's weights, the
 % input attribute's are unchanged.
 p_int = {[60 64 67], [0 1 2]};        % pitch (target), time (input)
-[~, w_int, ~] = weightEvents(p_int, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', false);
+[~, w_int, ~] = unpackPreMaet(weightEvents(p_int, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', false));
 expected_int = exp(-(([0 1 2] - 1) .^ 2) ./ 2);
 results{end+1,1} = 'weightEvents: input ~= target writes factor to target attribute only';
 results{end,2}   = max(abs(w_int{1} - expected_int)) < 1e-12 && isempty(w_int{2});
@@ -722,7 +722,7 @@ results{end,2}   = max(abs(w_int{1} - expected_int)) < 1e-12 && isempty(w_int{2}
 % Target with K_target > 1: (1, N) factor broadcasts across K_target positions.
 p_bc = {[60 64; 62 65; 64 67], [0 1]};   % pitch K=3 (target), time K=1 (input)
 w_bc_in = {ones(3, 2), []};
-[~, w_bc, ~] = weightEvents(p_bc, w_bc_in, 2, 1, 0, 0, 'sd', 1, 'dropInputAttr', false);
+[~, w_bc, ~] = unpackPreMaet(weightEvents(p_bc, w_bc_in, 2, 1, 0, 0, 'sd', 1, 'dropInputAttr', false));
 factor_bc = exp(-([0 1] .^ 2) ./ 2);
 expected_bc = repmat(factor_bc, 3, 1);
 results{end+1,1} = 'weightEvents: (1, N) factor broadcasts across target K_target > 1 positions';
@@ -731,7 +731,7 @@ results{end,2}   = isequal(size(w_bc{1}), [3 2]) && ...
 
 % Periodic wrap: delta = v - c wrapped to [-P/2, P/2] before h. Raw values intact.
 p_per = {[10 11 0 1 2]};
-[~, w_per, ~] = weightEvents(p_per, [], 1, 1, 0, 0, 'sd', 2, 'dropInputAttr', false, 'isPer', true, 'period', 12);
+[~, w_per, ~] = unpackPreMaet(weightEvents(p_per, [], 1, 1, 0, 0, 'sd', 2, 'dropInputAttr', false, 'isPer', true, 'period', 12));
 expected_per = exp(-([-2 -1 0 1 2] .^ 2) ./ 8);
 results{end+1,1} = 'weightEvents: periodic wrap of delta before shape';
 results{end,2}   = max(abs(w_per{1} - expected_per)) < 1e-12;
@@ -739,7 +739,7 @@ results{end+1,1} = 'weightEvents: input values stay raw (no value mutation)';
 results{end,2}   = isequal(p_per{1}, [10 11 0 1 2]);
 
 % Scalar existing weight multiplies in.
-[~, w_mul, ~] = weightEvents({[1 2 3]}, 0.5, 1, 1, 2, 0, 'sd', 1, 'dropInputAttr', false);
+[~, w_mul, ~] = unpackPreMaet(weightEvents({[1 2 3]}, 0.5, 1, 1, 2, 0, 'sd', 1, 'dropInputAttr', false));
 h_mul = exp(-(([1 2 3] - 2) .^ 2) ./ 2);
 results{end+1,1} = 'weightEvents: scalar existing weight multiplies in';
 results{end,2}   = max(abs(w_mul{1} - 0.5 .* h_mul)) < 1e-12;
@@ -747,8 +747,8 @@ results{end,2}   = max(abs(w_mul{1} - 0.5 .* h_mul)) < 1e-12;
 % Sequential composition replaces the old multi-input behaviour: two calls
 % on the same target multiply factors. pitch (target), two scaffolding attrs.
 p_seq = {[60 64 67], [0 1 2], [0 0.5 1]};
-[p_seq1, w_seq1, g_seq1] = weightEvents(p_seq, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', false);
-[~, w_seq2, ~] = weightEvents(p_seq1, w_seq1, 3, 1, 0.5, 0, 'sd', 0.5, 'dropInputAttr', false);
+[p_seq1, w_seq1, g_seq1] = unpackPreMaet(weightEvents(p_seq, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', false));
+[~, w_seq2, ~] = unpackPreMaet(weightEvents(p_seq1, w_seq1, 3, 1, 0.5, 0, 'sd', 0.5, 'dropInputAttr', false));
 h_time_seq = exp(-(([0 1 2] - 1) .^ 2) ./ 2);
 h_beat_seq = exp(-(([0 0.5 1] - 0.5) .^ 2) ./ 0.5);
 results{end+1,1} = 'weightEvents: sequential composition multiplies factors into target';
@@ -756,7 +756,7 @@ results{end,2}   = max(abs(w_seq2{1} - h_time_seq .* h_beat_seq)) < 1e-12;
 
 % drop_input_attr=true drops the input attribute.
 p_del = {[60 64 67], [0 1 2]};
-[p_del_out, w_del_out, g_del_out] = weightEvents(p_del, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', true);
+[p_del_out, w_del_out, g_del_out] = unpackPreMaet(weightEvents(p_del, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', true));
 results{end+1,1} = 'weightEvents: drop_input_attr=true drops the input attribute';
 results{end,2}   = numel(p_del_out) == 1 && numel(w_del_out) == 1 && ...
                    isequal(p_del_out{1}, [60 64 67]);
@@ -765,7 +765,7 @@ results{end,2}   = numel(p_del_out) == 1 && numel(w_del_out) == 1 && ...
 % weight, and spec are dropped; the target keeps its output index.
 % Input = attr 2, target = attr 1 (input after target).
 p_gc = {[1 2], [3 4], [5 6]};
-[p_gc_out, w_gc_out, s_gc_out] = weightEvents(p_gc, [], 2, 1, 3.5, 0, 'sd', 1, 'dropInputAttr', true);
+[p_gc_out, w_gc_out, s_gc_out] = unpackPreMaet(weightEvents(p_gc, [], 2, 1, 3.5, 0, 'sd', 1, 'dropInputAttr', true));
 factor_gc = exp(-(([3 4] - 3.5) .^ 2) ./ 2);   % from input attr 2 values
 results{end+1,1} = 'weightEvents: drop_input_attr (input after target) keeps target index';
 results{end,2}   = numel(p_gc_out) == 2 && numel(w_gc_out) == 2 && ...
@@ -777,7 +777,7 @@ results{end,2}   = numel(p_gc_out) == 2 && numel(w_gc_out) == 2 && ...
 % and the target shifts down one output index, carrying the factor.
 % Input = attr 1, target = attr 3 (input before target).
 p_gk = {[1 2], [3 4], [5 6]};
-[p_gk_out, w_gk_out, s_gk_out] = weightEvents(p_gk, [], 1, 3, 1.5, 0, 'sd', 1, 'dropInputAttr', true);
+[p_gk_out, w_gk_out, s_gk_out] = unpackPreMaet(weightEvents(p_gk, [], 1, 3, 1.5, 0, 'sd', 1, 'dropInputAttr', true));
 factor_gk = exp(-(([1 2] - 1.5) .^ 2) ./ 2);   % from input attr 1 values
 results{end+1,1} = 'weightEvents: drop_input_attr (input before target) shifts target index';
 results{end,2}   = numel(p_gk_out) == 2 && numel(w_gk_out) == 2 && ...
@@ -799,8 +799,8 @@ results{end,2}   = throwsErrorWithId( ...
 % sd and width produce the same output when paired by sd = width / (2*sqrt(3)).
 sd_xy   = 1.0;
 wid_xy  = sd_xy * 2 * sqrt(3);
-[~, w_sd_xy,  ~] = weightEvents({linspace(-5, 5, 21)}, [], 1, 1, 0, 1, 'sd', sd_xy, 'dropInputAttr', false);
-[~, w_wid_xy, ~] = weightEvents({linspace(-5, 5, 21)}, [], 1, 1, 0, 1, 'width', wid_xy, 'dropInputAttr', false);
+[~, w_sd_xy,  ~] = unpackPreMaet(weightEvents({linspace(-5, 5, 21)}, [], 1, 1, 0, 1, 'sd', sd_xy, 'dropInputAttr', false));
+[~, w_wid_xy, ~] = unpackPreMaet(weightEvents({linspace(-5, 5, 21)}, [], 1, 1, 0, 1, 'width', wid_xy, 'dropInputAttr', false));
 results{end+1,1} = 'weightEvents: sd and width yield identical output under conversion';
 results{end,2}   = max(abs(w_sd_xy{1} - w_wid_xy{1})) < 1e-12;
 
@@ -810,7 +810,7 @@ results{end,2}   = max(abs(w_sd_xy{1} - w_wid_xy{1})) < 1e-12;
 L_rect = 1.0;
 eps_rect = 1e-6;
 t_rect = [-L_rect/2, -L_rect/4, 0, L_rect/4, L_rect/2, L_rect/2 + eps_rect];
-[~, w_rect, ~] = weightEvents({t_rect}, [], 1, 1, 0, 1, 'width', L_rect, 'dropInputAttr', false);
+[~, w_rect, ~] = unpackPreMaet(weightEvents({t_rect}, [], 1, 1, 0, 1, 'width', L_rect, 'dropInputAttr', false));
 results{end+1,1} = 'weightEvents: width gives half-open rectangle of total support width';
 results{end,2}   = all(w_rect{1}(1:4) == 1) && w_rect{1}(5) == 0 && w_rect{1}(6) == 0;
 
@@ -819,23 +819,23 @@ results{end,2}   = all(w_rect{1}(1:4) == 1) && w_rect{1}(5) == 0 && w_rect{1}(6)
 t_grid = 0:8;                       % IOI = 1
 rectCounts = zeros(1, 5);
 for Wn = 1:5
-    [~, w_g, ~] = weightEvents({t_grid, t_grid}, [], 2, 1, 4, 1, ...
-                               'width', Wn, 'dropInputAttr', false);
+    [~, w_g, ~] = unpackPreMaet(weightEvents({t_grid, t_grid}, [], 2, 1, 4, 1, ...
+                               'width', Wn, 'dropInputAttr', false));
     rectCounts(Wn) = nnz(w_g{1});
 end
 results{end+1,1} = 'weightEvents: half-open rect width N keeps N pulses (on-pulse centre)';
 results{end,2}   = isequal(rectCounts, [1 2 3 4 5]);
 
 % Between-pulse centre keeps one pulse (lower edge), not zero or two.
-[~, w_bp, ~] = weightEvents({t_grid, t_grid}, [], 2, 1, 3.5, 1, ...
-                            'width', 1, 'dropInputAttr', false);
+[~, w_bp, ~] = unpackPreMaet(weightEvents({t_grid, t_grid}, [], 2, 1, 3.5, 1, ...
+                            'width', 1, 'dropInputAttr', false));
 results{end+1,1} = 'weightEvents: half-open rect between-pulse centre keeps 1 pulse';
 results{end,2}   = (nnz(w_bp{1}) == 1);
 
 % #21: an out-of-support rectangular window gives a zero-mass density, and
 % renyi2 returns NaN rather than erroring.
-[pa_z, wa_z, ~] = weightEvents({[60 62 64], [0 1 2]}, [], 2, 1, 100, 1, ...
-                               'width', 1, 'dropInputAttr', false);
+[pa_z, wa_z, ~] = unpackPreMaet(weightEvents({[60 62 64], [0 1 2]}, [], 2, 1, 100, 1, ...
+                               'width', 1, 'dropInputAttr', false));
 dens_z = buildExpTens(pa_z, wa_z, [1 1], [1 1], [false false], ...
                       [false false], [0 0]);
 H_z = entropyExpTens(dens_z, 'method', 'renyi2', 'verbose', false);
@@ -888,9 +888,10 @@ results{end,2}   = throwsErrorWithId( ...
 % gamma so the convolution branch is exercised.
 p_tw = {[60 62 64]};
 mu_tw = 5; c_tw = 64; width_tw = 3; gamma_tw = 0.3;
-p_after_t = translateAttributes(p_tw, [], {mu_tw});
-[~, w_after_t, ~] = weightEvents(p_after_t, [], 1, 1, c_tw, gamma_tw, 'sd', width_tw, 'dropInputAttr', false);
-[~, w_first, ~]   = weightEvents(p_tw, [], 1, 1, c_tw - mu_tw, gamma_tw, 'sd', width_tw, 'dropInputAttr', false);
+pm_after_t = translateAttributes(p_tw, [], {mu_tw});
+p_after_t = pm_after_t.pAttr;
+[~, w_after_t, ~] = unpackPreMaet(weightEvents(p_after_t, [], 1, 1, c_tw, gamma_tw, 'sd', width_tw, 'dropInputAttr', false));
+[~, w_first, ~]   = unpackPreMaet(weightEvents(p_tw, [], 1, 1, c_tw - mu_tw, gamma_tw, 'sd', width_tw, 'dropInputAttr', false));
 results{end+1,1} = 'weightEvents: T \circ W centre-shift commutation';
 results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 
@@ -918,7 +919,8 @@ results{end,2}   = isnumeric(s_scalar) && isscalar(s_scalar) && isfinite(s_scala
 
 % (b) Scalar-vs-list broadcast: matrix-form translateAttributes feed.
 offs_rma  = {[-100 0 100 200], [0 1 2 1]};
-qry_swept = translateAttributes(p_qry, [], offs_rma);
+pm_qry_swept = translateAttributes(p_qry, [], offs_rma);
+qry_swept = pm_qry_swept.pAttr;
 s_list = cosSimExpTens(p_ref, [], qry_swept, [], ...
     sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);
@@ -949,8 +951,10 @@ results{end+1,1} = 'cosSimExpTens raw-MA list symmetric in operand order';
 results{end,2}   = max(abs(s_list_num - s_rev_num)) < 1e-12;
 
 % (e) List-vs-list rejected.
-qry_swept_2 = translateAttributes(p_qry, [], {[0 100], [0 0]});
-ref_swept   = translateAttributes(p_ref, [], {[0 50], [0 0]});
+pm_qry_swept_2 = translateAttributes(p_qry, [], {[0 100], [0 0]});
+pm_ref_swept   = translateAttributes(p_ref, [], {[0 50], [0 0]});
+qry_swept_2 = pm_qry_swept_2.pAttr;
+ref_swept   = pm_ref_swept.pAttr;
 results{end+1,1} = 'cosSimExpTens raw-MA list-vs-list rejected';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(ref_swept, [], qry_swept_2, [], ...
@@ -960,7 +964,8 @@ results{end,2}   = throwsErrorWithId( ...
 
 % (f) Self-sweep peaks at zero offset.
 offs_self = {[-200 -100 0 100 200], [0 0 0 0 0]};
-ref_self  = translateAttributes(p_ref, [], offs_self);
+pm_ref_self = translateAttributes(p_ref, [], offs_self);
+ref_self  = pm_ref_self.pAttr;
 s_self    = cosSimExpTens(p_ref, [], ref_self, [], ...
     sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);

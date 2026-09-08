@@ -111,7 +111,7 @@ The consumer wrappers compose the tier-2 primitives into measures with musical i
 
 - **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `cos_sim_exp_tens` recognizes and reduces to a sweep.
 
-- **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `events_from_score` (MIDI and MusicXML input to the pre-MAET carrier), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
+- **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `events_from_score` (MIDI and MusicXML input, returning a pre-MAET), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
 
 The consumer layer is where measure-specific documentation belongs (see USER_GUIDE §6); the layering in this document stops at the tier-2 primitives.
 
@@ -134,6 +134,8 @@ mpt/
 │   │                      helpers
 │   ├── build.py           build_exp_tens (single-multiset and multi-attribute
 │   │                      input forms; both produce a MaetDensity)
+│   ├── premaet.py         pre_maet, unpack_pre_maet: the pre-MAET as one
+│   │                      object, and the argument front end the operators share
 │   ├── transform.py       transform_attributes (scale conversions, log and other elementwise maps)
 │   ├── preprocessing.py   difference_events, bind_events, translate_attributes,
 │   │                      weight_events, flat_specs, simplex_vertices

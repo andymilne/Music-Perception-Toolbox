@@ -35,6 +35,14 @@ without a batched form, roughness (which depends on absolute frequency
 and so cannot share work across transpositions), is looped over the
 distinct rows.
 
+Workflow 3 shows a second, quite different sense of "batch". Rows of a
+2-D pitch matrix are single multisets over one attribute, and what
+Workflows 1 and 2 exploit is deduplication *within* such a matrix. A
+multi-attribute analysis has no row axis to deduplicate: each item is a
+whole pre-MAET. Batching there means passing a *list* of them where a
+list of densities would go, which loops rather than collapses — the
+saving is in the calling code, not in the arithmetic.
+
 Requires: matplotlib (pip install matplotlib)
 """
 
@@ -225,6 +233,75 @@ for si in range(n_scales):
 
 fig.suptitle('SPCS: chord fit at each scale degree', fontweight='bold')
 plt.tight_layout()
+
+# ===================================================================
+#  WORKFLOW 3: A list of pre-MAETs — batching of a different kind
+#
+#  Everything above batches ROWS: a 2-D pitch matrix whose rows are
+#  single multisets over one attribute, deduplicated internally by a
+#  canonical key so that 144 rows cost 4 computations. That collapse is
+#  possible because the rows are commensurable — same attribute, same
+#  geometry, differing only in their values.
+#
+#  A multi-attribute item has no row to collapse: it is a whole
+#  pre-MAET, with its own event count and its own per-attribute
+#  geometry. So the multi-attribute analogue of a batch is a LIST, and
+#  a list of pre-MAETs goes wherever a list of densities goes. The
+#  functions build each entry and iterate; nothing is deduplicated,
+#  because in general nothing is repeated. What the list form saves is
+#  the calling code — no per-item build, no loop, one call that returns
+#  one value per item — not arithmetic.
+#
+#  The exception that proves the rule is a translation sweep. Its
+#  entries DO share one geometry and differ only by an offset, so
+#  cos_sim_exp_tens reads the offsets translate_attributes carried and
+#  reduces the sweep to a mixture in the offset — a genuine collapse,
+#  and the one place where a multi-attribute batch is cheaper than the
+#  loop it replaces.
+# ===================================================================
+
+print("\n=== Workflow 3: A list of pre-MAETs (batching, other sense) ===\n")
+
+# Four two-attribute items: a pitch-class attribute and an onset-time
+# attribute. They are NOT commensurable rows -- the second has four
+# events where the others have three -- so no canonical key could
+# collapse them.
+def _item(pcs, onsets):
+    p = [np.asarray(pcs, dtype=float)[None, :],
+         np.asarray(onsets, dtype=float)[None, :]]
+    return mpt.pre_maet(p, specs=mpt.flat_specs(
+        p, name=["pitch class", "onset"], sigma=[35.0, 0.25],
+        is_per=[True, False], period=[1200.0, 0.0]))
+
+items = [_item([0, 400, 700], [0, 1, 2]),
+         _item([0, 300, 700, 1000], [0, 1, 2, 3]),
+         _item([200, 500, 900], [0, 1, 2]),
+         _item([0, 400, 700], [0, 1, 2])]
+reference = items[0]
+
+# One call, one value per item. The same call with pre-built densities
+# would be identical; the pre-MAETs simply save building them.
+sims = mpt.cos_sim_exp_tens(reference, items, verbose=False)
+print("  cos_sim_exp_tens(reference, [pm_1, ..., pm_4])")
+for i, s in enumerate(sims):
+    print(f"    item {i + 1}: {float(s):.4f}")
+print("  (item 1 is the reference; item 4 repeats it.)")
+print("  Each entry was built and compared in turn -- four densities,")
+print("  four inner products. Nothing collapsed: the items differ in")
+print("  event count and content, so there is no repeated work to find.")
+
+# The sweep is the exception: one geometry, M offsets, carried through
+# from translate_attributes, so the comparison reduces to a mixture.
+pm_sweep = mpt.translate_attributes(
+    reference, [np.array([[0.0, 100.0, 200.0, 300.0]]), None])
+sweep_sims = mpt.cos_sim_exp_tens(reference, pm_sweep, verbose=False)
+print("\n  cos_sim_exp_tens(reference, translate_attributes(reference, ...))")
+print("    offsets 0, 100, 200, 300 cents ->",
+      ", ".join(f"{float(s):.4f}" for s in sweep_sims))
+print("  Here the entries DO share a geometry and differ by a known")
+print("  offset, so the sweep reduces to a mixture in the offset rather")
+print("  than one inner product per entry.")
+
 
 print("\nDone.")
 plt.show()

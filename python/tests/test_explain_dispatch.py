@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 import mpt
+from mpt import unpack_pre_maet
 from mpt._defaults import truncation_floor
 from mpt._tensor.dispatch import (
     _orbit_sigma_over_p_threshold,
@@ -122,8 +123,8 @@ def test_explain_dispatch_ordered_r9_does_not_raise():
     import numpy as np
     from mpt import bind_events, build_exp_tens, explain_dispatch
     x = np.arange(9, dtype=float)
-    p_b, w_b, sp_b = bind_events([x[None, :], x[None, :]], None, 9,
-                                 rel_outer=[False, True])
+    p_b, w_b, sp_b = unpack_pre_maet(bind_events([x[None, :], x[None, :]], None, 9,
+                                 rel_outer=[False, True]))
     dens = build_exp_tens(p_b, w_b, specs=sp_b, sigma=[0.3, 0.3],
                           is_per=[False] * 2, period=[None] * 2,
                           verbose=False)

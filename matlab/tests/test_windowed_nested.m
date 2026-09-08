@@ -39,8 +39,8 @@ width = 0.4;     % narrow context window: ~one super-event per centre
 qi    = 9;       % the clean statement's super-event (1-based)
 
 % ----- triples: plain and spectrally augmented --------------------------
-[pbP, wbP, sbP] = bindEvents({pitch, onset}, [], [4 1], ...
-    'step', 1, 'relOuter', true);
+[pbP, wbP, sbP] = unpackPreMaet(bindEvents({pitch, onset}, [], [4 1], ...
+    'step', 1, 'relOuter', true));
 
 Kp = 8;
 [ppS, wpS] = addSpectra(pitch, [], 'harmonic', Kp, 'powerlaw', 1.0, 'units', 12);
@@ -48,8 +48,8 @@ Kp = 8;
 % K-by-N value matrix is reshape(.., N, Kp).' (column j = note j's partials).
 PIT = reshape(ppS, N, Kp).';
 WP  = reshape(wpS, N, Kp).';
-[pbS, wbS, sbS] = bindEvents({PIT, onset}, {WP, []}, [4 1], ...
-    'step', 1, 'relOuter', true);
+[pbS, wbS, sbS] = unpackPreMaet(bindEvents({PIT, onset}, {WP, []}, [4 1], ...
+    'step', 1, 'relOuter', true));
 
 centres = pbP{2}(1:size(pbP{1}, 2));   % one centre per super-event (its onset)
 
@@ -64,12 +64,12 @@ end
 muQ = mean(qryP{AXIS}(:));
 ref = zeros(1, numel(centres));
 for i = 1:numel(centres)
-    [pc, wc, sc] = weightEvents(pbP, wbP, AXIS, TGT, centres(i), 1.0, ...
-        'width', width, 'dropInputAttr', false, 'specs', sbP);
+    [pc, wc, sc] = unpackPreMaet(weightEvents(pbP, wbP, AXIS, TGT, centres(i), 1.0, ...
+        'width', width, 'dropInputAttr', false, 'specs', sbP));
     dc = buildExpTens(pc, wc, 'sigma', SIG, 'isPer', ISP, 'period', PER, ...
         'specs', sc, 'verbose', false);
     offs = {[], centres(i) - muQ};
-    [pq, wq, sq] = translateAttributes(qryP, wqryP, offs, 'specs', sbP);
+    [pq, wq, sq] = unpackPreMaet(translateAttributes(qryP, wqryP, offs, 'specs', sbP));
     dq = buildExpTens(pq, wq, 'sigma', SIG, 'isPer', ISP, 'period', PER, ...
         'specs', sq, 'verbose', false);
     ref(i) = cosSimExpTens(dc, dq, 'normalize', 'oneSidedDenom', 'verbose', false);
@@ -106,12 +106,12 @@ end
 muQS = mean(qryS{AXIS}(:));
 refS = zeros(1, numel(centres));
 for i = 1:numel(centres)
-    [pc, wc, sc] = weightEvents(pbS, wbS, AXIS, TGT, centres(i), 1.0, ...
-        'width', width, 'dropInputAttr', false, 'specs', sbS);
+    [pc, wc, sc] = unpackPreMaet(weightEvents(pbS, wbS, AXIS, TGT, centres(i), 1.0, ...
+        'width', width, 'dropInputAttr', false, 'specs', sbS));
     dc = buildExpTens(pc, wc, 'sigma', SIG, 'isPer', ISP, 'period', PER, ...
         'specs', sc, 'verbose', false);
     offs = {[], centres(i) - muQS};
-    [pq, wq, sq] = translateAttributes(qryS, wqryS, offs, 'specs', sbS);
+    [pq, wq, sq] = unpackPreMaet(translateAttributes(qryS, wqryS, offs, 'specs', sbS));
     dq = buildExpTens(pq, wq, 'sigma', SIG, 'isPer', ISP, 'period', PER, ...
         'specs', sq, 'verbose', false);
     refS(i) = cosSimExpTens(dc, dq, 'normalize', 'oneSidedDenom', 'verbose', false);
@@ -128,8 +128,8 @@ eWidth   = 2.0;
 eCentres = linspace(min(pbP{2}), max(pbP{2}), 7);
 refH = zeros(1, numel(eCentres));
 for i = 1:numel(eCentres)
-    [pw, ww, sw] = weightEvents(pbP, wbP, AXIS, TGT, eCentres(i), 1.0, ...
-        'width', eWidth, 'dropInputAttr', false, 'specs', sbP);
+    [pw, ww, sw] = unpackPreMaet(weightEvents(pbP, wbP, AXIS, TGT, eCentres(i), 1.0, ...
+        'width', eWidth, 'dropInputAttr', false, 'specs', sbP));
     densH = buildExpTens(pw, ww, 'sigma', SIG, 'isPer', ISP, 'period', PER, ...
         'specs', sw, 'verbose', false);
     refH(i) = entropyExpTens(densH, 'method', 'renyi2', 'verbose', false);
@@ -163,7 +163,7 @@ eOn  = [0 1 2 3, 40 41 42 43];                 % wide rest around t = 20
 eCtr = [0 20 40];                              % 20 falls in the rest
 eNe  = numel(ePit);
 % plain
-[epbP, ewbP, esbP] = bindEvents({ePit, eOn}, [], [4 1], 'step', 1, 'relOuter', true);
+[epbP, ewbP, esbP] = unpackPreMaet(bindEvents({ePit, eOn}, [], [4 1], 'step', 1, 'relOuter', true));
 eqP  = {epbP{1}(:, 1), epbP{2}(:, 1)};
 gotEP = windowedSimilarity(epbP, ewbP, eqP, [], SIG, [1 1], [true false], ISP, PER, ...
     eCtr, 'contextWindow', {1.0, 0.6}, 'windowAttr', AXIS, 'dropWindowAttr', true, ...
@@ -172,7 +172,7 @@ gotEP = windowedSimilarity(epbP, ewbP, eqP, [], SIG, [1 1], [true false], ISP, P
 [ePITv, eWPv] = addSpectra(ePit, [], 'harmonic', Kp, 'powerlaw', 1.0, 'units', 12);
 ePITm = reshape(ePITv, eNe, Kp).';
 eWPm  = reshape(eWPv, eNe, Kp).';
-[epbS, ewbS, esbS] = bindEvents({ePITm, eOn}, {eWPm, []}, [4 1], 'step', 1, 'relOuter', true);
+[epbS, ewbS, esbS] = unpackPreMaet(bindEvents({ePITm, eOn}, {eWPm, []}, [4 1], 'step', 1, 'relOuter', true));
 eqS  = {epbS{1}(:, 1), epbS{2}(:, 1)};
 ewqS = {ewbS{1}(:, 1), []};
 gotES = windowedSimilarity(epbS, ewbS, eqS, ewqS, SIG, [1 1], [true false], ISP, PER, ...

@@ -63,7 +63,8 @@ try:
 except ImportError:
     plt = None
 
-from bwv_window import (cos_sim_exp_tens, win_events, aggregate, build_pair,
+from bwv_window import (cos_sim_exp_tens, show_pre_maet, win_events,
+                        aggregate, build_pair,
                         bound_density, query, son_at, is_root_position,
                         is_six_four, b2bar, T0, T1, ROOT_YES, ROOT_NO)
 
@@ -111,7 +112,11 @@ def _query_density(spec, r_inner):
     return bound_density(aggs, flag=flag, r_inner=r_inner)
 
 
-def prototype_sweep(r_inner: int, normalize: str = NORMALIZE):
+NEST_NAMES = ['pitch', 'inversion flag']
+
+
+def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
+                    show_input: bool = False):
     """One-sided similarity profiles of all six three-chord queries at one
     inner r: {query name: (len(MUS),) profile}. Positions whose windows lack
     events score 0. The chorale's aligned span at resolution moment mu is
@@ -135,6 +140,10 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE):
     out = {}
     for name, spec in QUERIES.items():
         qd = _query_density(spec, r_inner)
+        if show_input:
+            show_pre_maet(qd, names=NEST_NAMES[:qd.n_attrs],
+                          title=f'  query: {name} (r_inner = {r_inner})')
+            print()
         ctx = ctx_flag if spec['flagged'] else ctx_plain
         vals = np.atleast_1d(cos_sim_exp_tens(ctx, qd, normalize=normalize,
                                               verbose=False))
@@ -194,7 +203,8 @@ VARIANTS = [
 
 
 def compute():
-    proto_prof = {r: prototype_sweep(r) for r in RS}
+    proto_prof = {r: prototype_sweep(r, show_input=(i == 0))
+                  for i, r in enumerate(RS)}
     data = {}
     for ri, (_, kind, spec) in enumerate(ROWS):
         for r in RS:

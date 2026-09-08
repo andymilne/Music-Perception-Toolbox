@@ -36,6 +36,7 @@ from .preprocessing import (
     _evaluate_shape, _multiply_weights, _normalise_weights_to_list,
 )
 from .build import build_exp_tens
+from .premaet import is_pre_maet, unpack_pre_maet
 from .cosine import (cos_sim_exp_tens)
 from .density import _weight_is_live
 
@@ -316,9 +317,11 @@ def _single_window(context_window, p_query, axis):
     return gamma, width / _SQRT12
 
 
-def windowed_similarity(p_context, w_context, p_query, w_query,
-                        sigma, r, is_rel, is_per, period,
-                        centres=None, *, is_sym=None,
+def windowed_similarity(p_context, w_context=None, p_query=None,
+                        w_query=None, sigma=None, r=None,
+                        is_rel=None, is_per=None, period=None,
+                        centres=None, *, is_sym=None, rel=None,
+                        sym=None,
                         start=None, stop=None, step=None,
                         query_centres=None, context_window=("rect", None),
                         query_window=None, window_attr=-1, drop_window_attr=None,
@@ -327,6 +330,29 @@ def windowed_similarity(p_context, w_context, p_query, w_query,
                         verbose=False):
     r"""Slide a query across a context and measure their similarity at each
     position (a pre-MAET cross-correlation).
+
+    Input forms, in the order to reach for them: two whole pre-MAETs, the
+    canonical entry; then the raw positional form, with the operands'
+    parts and the five geometry vectors written out.
+
+    **Pre-MAET input**:
+
+    - ``windowed_similarity(pm_context, pm_query, centres, ...)``. The
+      shared geometry is read from their specs, and any of the six
+      per-attribute parameters --- ``sigma``, ``is_per``, ``period``,
+      ``r``, ``rel``, ``sym`` --- may be given alongside to override it,
+      as at :func:`build_exp_tens`. An override may name every attribute
+      or be selective, a length-A list whose ``None`` entries keep what
+      the spec carries: ``sigma=[None, s, None]`` sweeps the second
+      attribute's width and leaves the rest to the pre-MAET. The two
+      pre-MAETs describe one comparison, so they must agree on ``r``,
+      ``rel``, ``sym`` and the nesting; ``sigma``, ``is_per`` and
+      ``period`` may differ and are taken from the context.
+
+    **Raw positional input**:
+
+    - ``windowed_similarity(p_context, w_context, p_query, w_query,
+      sigma, r, is_rel, is_per, period, centres, ...)``.
 
     Two equivalent argument surfaces:
 
@@ -355,6 +381,16 @@ def windowed_similarity(p_context, w_context, p_query, w_query,
     mutually exclusive with ``specs``, whose nesting carries its own
     per-level sym.
     """
+    if is_pre_maet(p_context):
+        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_sym,
+         specs, centres) = _windowed_pre_maet_args(
+            [p_context, w_context], p_query if p_query is not None
+            else centres,
+            {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
+             "rel": rel if rel is not None else is_rel, "sym": sym},
+            "windowed_similarity")
+        p_context, p_query = p_attrs
+        w_context, w_query = w_attrs
     if sweep is not None:
         if drop is None:
             raise ValueError("multi-axis `sweep` requires a parallel `drop`.")
@@ -396,8 +432,8 @@ def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                 p_query[a], _resolve_locate(locate, a))))
             offs[a] = np.array([[centres[a] - q_loc]], dtype=float)
         if any(o is not None for o in offs):
-            pq_t, wq_t, sq_t = translate_attributes(p_query, w_query, offs,
-                                                     specs=specs)
+            pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(p_query, w_query, offs,
+                                                     specs=specs))
         else:
             pq_t, wq_t, sq_t = p_query, w_query, specs
         pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs, centres,
@@ -501,8 +537,8 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                     p_query[axis], _resolve_locate(locate, axis))))
                 offs = [None] * n
                 offs[axis] = np.array([[float(q_rows[a, t]) - q_loc]], dtype=float)
-                pq_t, wq_t, sq_t = translate_attributes(p_query, w_query, offs,
-                                                         specs=specs)
+                pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(p_query, w_query, offs,
+                                                         specs=specs))
             pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
             if nested:
                 dq = build_exp_tens(pq, wq, sigma=sg, is_per=pr, period=pd,
@@ -517,8 +553,10 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
     return out.reshape(out_shape)
 
 
-def windowed_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
-                     centres=None, *, is_sym=None,
+def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
+                     is_rel=None, is_per=None, period=None,
+                     centres=None, *, is_sym=None, rel=None,
+                     sym=None,
                      start=None, stop=None, step=None,
                      context_window=("rect", None), window_attr=-1,
                      drop_window_attr=None, sweep=None, drop=None,
@@ -526,6 +564,26 @@ def windowed_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
                      marginalise=None, target_attr=None, specs=None,
                      verbose=False):
     r"""Slide a window across a context and read its entropy at each position.
+
+    Input forms, in the order to reach for them: a whole pre-MAET, the
+    canonical entry; then the raw positional form, with ``p_context``,
+    ``w_context`` and the five geometry vectors written out.
+
+    **Pre-MAET input**:
+
+    - ``windowed_entropy(pm, centres, ...)``. The geometry is read from
+      its specs, and any of the six per-attribute parameters ---
+      ``sigma``, ``is_per``, ``period``, ``r``, ``rel``, ``sym`` --- may
+      be given alongside to override it, as at :func:`build_exp_tens`.
+      An override may name every attribute or be selective, a length-A
+      list whose ``None`` entries keep what the spec carries:
+      ``sigma=[None, s, None]`` sweeps the second attribute's width and
+      leaves the rest to the pre-MAET.
+
+    **Raw positional input**:
+
+    - ``windowed_entropy(p_context, w_context, sigma, r, is_rel,
+      is_per, period, centres, ...)``.
 
     Shares the placement, window, ``locate``, and ``drop`` machinery of
     :func:`windowed_similarity`, with the same single-axis
@@ -535,6 +593,15 @@ def windowed_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
     its entropy taken. ``marginalise`` is reserved for integrating a retained
     axis out of the density and is not yet implemented.
     """
+    if is_pre_maet(p_context):
+        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_sym,
+         specs, centres) = _windowed_pre_maet_args(
+            [p_context], w_context if w_context is not None else centres,
+            {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
+             "rel": rel if rel is not None else is_rel, "sym": sym},
+            "windowed_entropy")
+        p_context, = p_attrs
+        w_context, = w_attrs
     if marginalise is not None:
         raise NotImplementedError(
             "marginalise (integrating a retained axis out of the density) is "
@@ -633,3 +700,87 @@ def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
         out[i] = float(entropy_exp_tens(dens, method=method, base=base,
                                         verbose=False))
     return out
+
+
+def _windowed_pre_maet_args(pms, centres, kw, func):
+    """Resolve a pre-MAET call of the windowed functions.
+
+    ``windowed_similarity`` and ``windowed_entropy`` take their geometry
+    positionally, as vectors shared by both operands. Given whole
+    pre-MAETs instead, this reads the shared geometry out of their specs,
+    applies any of the six per-attribute overrides passed as keywords,
+    and returns the parts the workers already speak.
+
+    The two pre-MAETs of ``windowed_similarity`` describe one comparison,
+    so they must agree on the structural geometry: same attribute count,
+    and the same ``r``, ``rel``, ``sym``, and nesting on every attribute.
+    The context supplies the specs; a disagreement is an error rather
+    than a silent choice between them.
+
+    Parameters
+    ----------
+    pms : list of Mapping
+        The pre-MAET operands, context first.
+    centres : object
+        The argument sitting in the ``centres`` slot of the call.
+    kw : dict
+        The six overrides, keyed ``sigma``, ``is_per``, ``period``,
+        ``r``, ``rel``, ``sym``; ``None`` where not given.
+    func : str
+        The caller's name, for error messages.
+
+    Returns
+    -------
+    tuple
+        ``(p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_sym,
+        specs, centres)``, with ``specs`` ``None`` unless the geometry is
+        nested.
+    """
+    from .build import (_normalise_specs, _override_specs,
+                        _resolve_kernel_param)
+
+    specs = pms[0].get("specs")
+    if not specs:
+        raise ValueError(
+            f"{func}: a pre-MAET passed here must carry its specs — they "
+            "are where the shared geometry is read from. Build it with "
+            "pre_maet(p_attr, w_attr, specs), or use the positional form.")
+    A = len(pms[0]["p_attr"])
+    for k, pm in enumerate(pms[1:], start=1):
+        _check_specs_agree(specs, pm.get("specs"), A, func)
+
+    specs = _override_specs(specs, kw.get("r"), kw.get("rel"),
+                            kw.get("sym"), A)
+    _, _, _, _, names, spec_kernel = _normalise_specs(specs, A)
+    sigma = _resolve_kernel_param(kw.get("sigma"), spec_kernel["sigma"],
+                                  "sigma", names, A)
+    is_per = _resolve_kernel_param(kw.get("is_per"), spec_kernel["is_per"],
+                                   "is_per", names, A)
+    period = _resolve_kernel_param(kw.get("period"), spec_kernel["period"],
+                                   "period", names, A, default=0.0)
+    r_vec, is_rel_vec, is_sym_vec, nested_list, _, _ = \
+        _normalise_specs(specs, A)
+
+    nested = any(n is not None for n in nested_list)
+    return ([pm["p_attr"] for pm in pms], [pm.get("w_attr") for pm in pms],
+            sigma, r_vec, is_rel_vec, is_per, period,
+            None if nested else is_sym_vec,
+            specs if nested else None, centres)
+
+
+def _check_specs_agree(specs_a, specs_b, A, func):
+    """The pre-MAETs of one comparison must share the structural geometry."""
+    if not specs_b or len(specs_b) != A:
+        raise ValueError(
+            f"{func}: the two pre-MAETs must have the same attribute count "
+            "and both carry specs — they describe one comparison.")
+    for a in range(A):
+        for f in ("r", "rel", "sym", "tags"):
+            va = list(np.ravel(specs_a[a].get(f, [])))
+            vb = list(np.ravel(specs_b[a].get(f, [])))
+            if va != vb:
+                raise ValueError(
+                    f"{func}: the two pre-MAETs disagree on '{f}' for "
+                    f"attribute {a}. They describe one comparison, so the "
+                    "structural geometry must match; sigma, is_per and "
+                    "period may differ and are taken from the first.")

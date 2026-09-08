@@ -1,12 +1,9 @@
-function [pAttrOut, wOut, specsOut] = weightEvents( ...
-    pAttr, w, inputAttr, targetAttr, centre, shape, nvArgs)
+function pm = weightEvents(varargin)
 %WEIGHTEVENTS Apply a per-event weight via an input-to-target window factor.
 %
-%   [pAttrOut, wOut, specsOut] = weightEvents(pAttr, w, ...
-%       inputAttr, targetAttr, centre, shape, ...
+%   PM = weightEvents(PM0, inputAttr, targetAttr, centre, shape, ...
 %       'sd', s,     'dropInputAttr', tf)
-%   [pAttrOut, wOut, specsOut] = weightEvents(pAttr, w, ...
-%       inputAttr, targetAttr, centre, shape, ...
+%   PM = weightEvents(pAttr, wAttr, inputAttr, targetAttr, centre, shape, ...
 %       'width', L,  'dropInputAttr', tf)
 %   is a per-event preprocessing helper for multi-attribute tensor
 %   input. It reads the K=1 value at every event from inputAttr,
@@ -84,9 +81,12 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %   distance at k * s.
 %
 %   Inputs:
+%     pm           Pre-MAET, in place of pAttr and wAttr. The
+%                  pre-MAET may be passed whole or in its parts; the two
+%                  forms are the same call.
 %     pAttr        1 x A cell of (K_a, N) per-attribute value matrices.
 %                  K_a >= 1.
-%     w            Existing weights. [], scalar, or 1 x A cell of
+%     wAttr        Existing weights. [], scalar, or 1 x A cell of
 %                  scalar/(1, N)/(K_a, N) entries. None / [] means no
 %                  existing weight (factor goes in directly).
 %     inputAttr    Scalar integer in [1, A]. The attribute whose K = 1
@@ -119,21 +119,32 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %     dropInputAttr  (1,1) logical, REQUIRED (no default; the choice is
 %                  destructive enough to be explicit at every call).
 %
-%   Outputs:
-%     pAttrOut     1 x A_out cell of per-attribute value matrices.
-%                  Length A if dropInputAttr=false, A - 1 otherwise.
-%     wOut         1 x A_out cell of weights. The targetAttr entry (in
+%   Output:
+%     pm           Pre-MAET. Its pAttr is a 1 x A_out cell of
+%                  per-attribute value matrices, of length A if
+%                  dropInputAttr=false and A - 1 otherwise; its wAttr a
+%                  1 x A_out cell of weights whose targetAttr entry (in
 %                  the output indexing) carries the windowed weights.
-%     specsOut     1 x A_out cell of attribute specifications for the output
-%                  attribute list (the input attribute's spec removed
-%                  when dropInputAttr=true).
+%                  Its specs is a 1 x A_out cell of attribute
+%                  specifications for the output attribute list (the input
+%                  attribute's spec removed when dropInputAttr=true).
 %
-%   See also BUILDEXPTENS, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
-%            MPTDEFAULTS.
+%   See also PREMAET, BUILDEXPTENS, DIFFERENCEEVENTS, BINDEVENTS,
+%            TRANSLATEATTRIBUTES, MPTDEFAULTS.
 
+    [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
+    [pAttrOut, wOut, specsOut] = localWeightEvents( ...
+        pAttr, wAttr, specsPm, rest{:});
+    pm = preMaet(pAttrOut, wOut, specsOut);
+end
+
+
+function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
+    pAttr, w, specsPm, inputAttr, targetAttr, centre, shape, nvArgs)
     arguments
         pAttr cell
         w
+        specsPm
         inputAttr (1,1) double {mustBeInteger, mustBePositive}
         targetAttr (1,1) double {mustBeInteger, mustBePositive}
         centre (1,1) double
@@ -144,6 +155,10 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
         nvArgs.isPer (1,1) logical = false
         nvArgs.period (1,1) double = 0
         nvArgs.dropInputAttr (1,1) logical
+    end
+
+    if isempty(nvArgs.specs)
+        nvArgs.specs = specsPm;
     end
 
     % isPer/period/dropInputAttr as locals (the rest of the body reads them

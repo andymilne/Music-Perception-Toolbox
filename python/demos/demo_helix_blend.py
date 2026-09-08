@@ -4,21 +4,21 @@ Helix blend: routing pitch through two groups of a MAET.
 
 Demonstrates a multi-attribute expectation tensor pattern in which the
 same pitch values are routed simultaneously through a periodic
-pitch-class group and a linear register group. Sweeping the
-register-group sigma while holding the pitch-class-group sigma fixed
+pitch-class group and a linear pitch-height group. Sweeping the
+pitch-height-group sigma while holding the pitch-class-group sigma fixed
 morphs the similarity profile of a motif against a longer stream from
 
-  * "matches every octave-displaced recurrence equally"   (large sigma_reg)
+  * "matches every octave-displaced recurrence equally"   (large sigma_ph)
   * through graded octave tolerance                       (medium)
-  * to "matches only the same-register recurrence"        (small sigma_reg).
+  * to "matches only the same-height recurrence"          (small sigma_ph).
 
 Equivalence with Shepard's model. The factored Gaussian
 
     exp(- d_pc(p1,p2)^2 / (2 sigma_pc^2))
-  * exp(-  (p1 - p2)^2  / (2 sigma_reg^2))
+  * exp(-  (p1 - p2)^2  / (2 sigma_ph^2))
 
 is equivalent to a Gaussian kernel of width sigma = sigma_pc on the
-pitch-class-cum-register cylinder with stretch h = sigma_pc/sigma_reg.
+pitch-class-cum-height cylinder with stretch h = sigma_pc/sigma_ph.
 Shepard's helix itself has no built-in smoothing; this MAET pattern
 adds it, parametrised naturally in two pitch-domain sigma values.
 
@@ -34,7 +34,7 @@ indistinguishable.
 Two parts:
 
   Part 1. Synthetic. A three-note C-major motif stated at four
-          registers, with non-pitch-class-overlapping filler between
+          heights, with non-pitch-class-overlapping filler between
           instances.
 
   Part 2. Fugal texture in C minor (BWV 847-inspired, stylised; not
@@ -44,8 +44,8 @@ Two parts:
 
 Each part produces three stacked panels:
   (a) the event stream,
-  (b) a similarity heatmap over (time offset, sigma_reg),
-  (c) three overlaid profile curves at representative sigma_reg values.
+  (b) a similarity heatmap over (time offset, sigma_ph),
+  (c) three overlaid profile curves at representative sigma_ph values.
 
 Uses: windowed_similarity (event weighting over a raw pre-MAET),
 transform_attributes.
@@ -62,8 +62,8 @@ import mpt
 
 # -- Common --
 SIG_PC           = 30.0                                    # pc group sigma (cents)
-SIG_REG_SWEEP    = np.logspace(np.log10(100), np.log10(8000), 25)
-SIG_REG_PROFILES = [200.0, 600.0, 3000.0]                  # three overlaid profiles
+SIG_PH_SWEEP    = np.logspace(np.log10(100), np.log10(8000), 25)
+SIG_PH_PROFILES = [200.0, 600.0, 3000.0]                  # three overlaid profiles
 WIN_MIX          = 0.5                                     # rectangular x Gaussian
 
 # -- Part 1 (synthetic) --
@@ -78,27 +78,39 @@ OFFSETS_2        = np.arange(-0.5, 8.5 + 1e-9, 0.02)
 
 
 # ==================================================================
-#  Core: two-group (pc, reg) + time MAET, and sigma_reg sweep
+#  Core: two-group (pc, ph) + time MAET, and sigma_ph sweep
 # ==================================================================
 
-def helix_surface(pitch_cents, time_sec, sigma_pc, sigma_reg, sigma_time):
-    """Pre-build (p_attr, sigma) with pitch routed through two attributes
-    plus time.
+def helix_pre_maet(pitch_cents, time_sec, sigma_pc, sigma_time):
+    """The same pitch values routed through two attributes, plus time.
 
-    Attributes: (pitch, pitch, time), read as (pc, reg, time): the first
+    Attributes: (pitch, pitch, time), read as (pc, ph, time): the first
     pitch copy is periodic at 1200 cents, the second and the time axis
-    are linear. All r = 1. The remaining per-attribute geometry (r,
-    is_rel, is_per, period) is fixed in sweep_profiles.
+    are linear. All r = 1.
+
+    The pre-MAET carries its own geometry, so nothing has to be threaded
+    alongside it. The pitch-height width is left at NaN --- NA, the
+    value the sweep supplies --- since it is the one parameter that
+    varies and no baseline for it would be honest.
     """
     p = np.asarray(pitch_cents, dtype=float).reshape(1, -1)
     t = np.asarray(time_sec,    dtype=float).reshape(1, -1)
-    return [p, p, t], [sigma_pc, sigma_reg, sigma_time]
+    n = p.shape[1]
+    specs = [
+        {"name": "pitch class",  "r": 1, "rel": False, "sym": True,
+         "sigma": sigma_pc,   "is_per": True,  "period": 1200.0},
+        {"name": "pitch height", "r": 1, "rel": False, "sym": True,
+         "sigma": float("nan"), "is_per": False, "period": 0.0},
+        {"name": "time",         "r": 1, "rel": False, "sym": True,
+         "sigma": sigma_time, "is_per": False, "period": 0.0},
+    ]
+    return mpt.pre_maet([p, p, t], [np.ones((1, n))] * 3, specs)
 
 
 def sweep_profiles(q_cents, q_t, c_cents, c_t,
-                   sigma_pc, sigma_reg_values, sigma_time,
-                   win_size_time, win_mix, offsets):
-    """Return a (n_sigma_reg, n_offsets) array of windowed-similarity
+                   sigma_pc, sigma_ph_values, sigma_time,
+                   win_size_time, win_mix, offsets, show_input=False):
+    """Return a (n_sigma_ph, n_offsets) array of windowed-similarity
     profiles (a cross-correlation of the query against the time-windowed
     context).
 
@@ -109,11 +121,7 @@ def sweep_profiles(q_cents, q_t, c_cents, c_t,
     position. The window has standard deviation win_size_time * sigma_time
     and shape win_mix (0 Gaussian, 1 rectangular).
     """
-    r      = [1, 1, 1]
-    is_rel = [False, False, False]
-    is_per = [True,  False, False]
-    period = [1200.0, 0.0, 0.0]
-    TIME   = 2                                   # the swept (window) axis
+    TIME = 2                                     # the swept (window) axis
 
     # The window family has fixed variance sd^2 for every shape; the
     # width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
@@ -124,15 +132,23 @@ def sweep_profiles(q_cents, q_t, c_cents, c_t,
     # offset is the position relative to the query's time centroid.
     centres = np.asarray(offsets, dtype=float) + float(np.mean(q_t))
 
-    n_q, n_c = len(q_t), len(c_t)
-    wq = [np.ones((1, n_q))] * 3
-    wc = [np.ones((1, n_c))] * 3
-    out = np.empty((len(sigma_reg_values), len(offsets)))
-    for i, sig_reg in enumerate(sigma_reg_values):
-        pq, sigma = helix_surface(q_cents, q_t, sigma_pc, sig_reg, sigma_time)
-        pc, _     = helix_surface(c_cents, c_t, sigma_pc, sig_reg, sigma_time)
+    # Only the pitch-height width varies across the sweep, so the two
+    # pre-MAETs are built once and each call names that one parameter.
+    # A selective override --- the entries left None keep what the spec
+    # carries --- says exactly that, and the pre-MAETs are unchanged by
+    # it. The table below shows sigma = NA on the swept attribute, the
+    # value each call supplies.
+    pm_q = helix_pre_maet(q_cents, q_t, sigma_pc, sigma_time)
+    pm_c = helix_pre_maet(c_cents, c_t, sigma_pc, sigma_time)
+
+    if show_input:
+        mpt.show_pre_maet(pm_c, max_events=4)
+        print()
+
+    out = np.empty((len(sigma_ph_values), len(offsets)))
+    for i, sig_ph in enumerate(sigma_ph_values):
         out[i, :] = mpt.windowed_similarity(
-            pc, wc, pq, wq, sigma, r, is_rel, is_per, period, centres,
+            pm_c, pm_q, centres, sigma=[None, sig_ph, None],
             window_attr=TIME, drop_window_attr=False,
             context_window=context_window, locate="centroid",
             normalize="oneSidedDenom", verbose=False)
@@ -140,19 +156,19 @@ def sweep_profiles(q_cents, q_t, c_cents, c_t,
 
 
 # ==================================================================
-#  Part 1 -- Synthetic motif at four registers
+#  Part 1 -- Synthetic motif at four heights
 # ==================================================================
 
 def build_part1_stream():
-    """Three-note motif at four registers with non-overlapping filler."""
+    """Three-note motif at four heights with non-overlapping filler."""
     motif_midi  = np.array([60, 64, 67])                    # C4 E4 G4
     filler_midi = np.array([62, 65, 69])                    # D4 F4 A4
-    regs_st     = [0, 12, -12, 24]
+    heights_st     = [0, 12, -12, 24]
     dt          = 0.5
 
     ctx_midi, ctx_t, motif_event_idx = [], [], []
     t = 0.0
-    for shift_st in regs_st:
+    for shift_st in heights_st:
         for fp in filler_midi:
             ctx_midi.append(fp + shift_st); ctx_t.append(t); t += dt
         for mp in motif_midi:
@@ -167,7 +183,7 @@ def build_part1_stream():
     per_entry = len(motif_midi)
     motif_centroids = np.array([
         np.mean(ctx_t[motif_event_idx[k*per_entry:(k+1)*per_entry]])
-        for k in range(len(regs_st))
+        for k in range(len(heights_st))
     ])
     return ctx_midi, ctx_t, query_midi, query_t, motif_event_idx, motif_centroids
 
@@ -226,7 +242,7 @@ def build_part2_stream():
 def plot_part(fig, suptitle,
               ctx_midi, ctx_t, marker_idx, peak_offsets,
               query_centroid_t,
-              heat, prof, offsets, sigma_reg_sweep, sigma_reg_profiles,
+              heat, prof, offsets, sigma_ph_sweep, sigma_ph_profiles,
               label_marked, label_unmarked):
     """All three panels share the "query offset" x-axis:
 
@@ -269,29 +285,29 @@ def plot_part(fig, suptitle,
     ax.grid(True, alpha=0.3)
     ax.set_title("(a) Event stream")
 
-    # (b) Heatmap over (offset, sigma_reg)
+    # (b) Heatmap over (offset, sigma_ph)
     ax = axes[1]
-    im = ax.pcolormesh(offsets, sigma_reg_sweep, heat,
+    im = ax.pcolormesh(offsets, sigma_ph_sweep, heat,
                        shading="nearest", cmap="viridis",
                        vmin=0, vmax=max(heat.max(), 1e-3))
     ax.set_yscale("log")
-    ax.set_ylabel(r"$\sigma_{\mathrm{reg}}$ (cents)")
+    ax.set_ylabel(r"$\sigma_{\mathrm{ph}}$ (cents)")
     for po in peak_offsets:
         ax.axvline(po, color="white", linestyle="--",
                    linewidth=0.7, alpha=0.6)
-    for spv in sigma_reg_profiles:
+    for spv in sigma_ph_profiles:
         ax.axhline(spv, color="white", linestyle=":",
                    linewidth=0.6, alpha=0.6)
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label("windowed similarity", fontsize=9)
-    ax.set_title(r"(b) Similarity heatmap over (offset, $\sigma_{\mathrm{reg}}$)")
+    ax.set_title(r"(b) Similarity heatmap over (offset, $\sigma_{\mathrm{ph}}$)")
 
     # (c) Three overlaid profiles
     ax = axes[2]
     colours = ["#1f4eb8", "#2b8a3e", "#c25008"]
-    for i, sr in enumerate(sigma_reg_profiles):
+    for i, sr in enumerate(sigma_ph_profiles):
         ax.plot(offsets, prof[i], linewidth=1.8, color=colours[i],
-                label=fr"$\sigma_{{\mathrm{{reg}}}} = {sr:g}$ cents")
+                label=fr"$\sigma_{{\mathrm{{ph}}}} = {sr:g}$ cents")
     for po in peak_offsets:
         ax.axvline(po, color="#888", linestyle="--",
                    linewidth=0.7, alpha=0.6)
@@ -299,7 +315,7 @@ def plot_part(fig, suptitle,
     ax.set_ylabel("Cosine similarity")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=9)
-    ax.set_title(r"(c) Profiles at three representative $\sigma_{\mathrm{reg}}$")
+    ax.set_title(r"(c) Profiles at three representative $\sigma_{\mathrm{ph}}$")
 
     fig.suptitle(suptitle, fontsize=12, y=0.995)
     # Hide x-tick labels on top two panels (sharex shares limits only)
@@ -313,37 +329,38 @@ def plot_part(fig, suptitle,
 #  Driver
 # ==================================================================
 
-def report_peaks(prof, offsets, sigma_regs, true_peaks):
-    """Print, per profile sigma_reg, the similarity at each true statement
-    offset: as sigma_reg widens, octave-displaced statements rise from
-    near zero towards the same-register value of 1."""
-    for row, sr in zip(prof, sigma_regs):
+def report_peaks(prof, offsets, sigma_phs, true_peaks):
+    """Print, per profile sigma_ph, the similarity at each true statement
+    offset: as sigma_ph widens, octave-displaced statements rise from
+    near zero towards the same-height value of 1."""
+    for row, sr in zip(prof, sigma_phs):
         vals = [row[int(np.argmin(np.abs(offsets - pk)))] for pk in np.atleast_1d(true_peaks)]
-        print(f"  sigma_reg = {sr:6.0f} cents: similarity at the statements = "
+        print(f"  sigma_ph = {sr:6.0f} cents: similarity at the statements = "
               + ", ".join(f"{v:.4f}" for v in vals))
 
 
 def main():
     # -- Part 1 --
-    print("Part 1: synthetic motif at four registers.")
+    print("Part 1: synthetic motif at four heights.")
     (ctx1_midi, ctx1_t, q1_midi, q1_t,
      motif_idx1, motif_cent1) = build_part1_stream()
     ctx1_cents = mpt.transform_attributes(ctx1_midi, None, ('midi', 'cents'))
     q1_cents   = mpt.transform_attributes(q1_midi,   None, ('midi', 'cents'))
 
     heat1 = sweep_profiles(q1_cents, q1_t, ctx1_cents, ctx1_t,
-                           SIG_PC, SIG_REG_SWEEP, SIG_TIME_1,
-                           WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1)
+                           SIG_PC, SIG_PH_SWEEP, SIG_TIME_1,
+                           WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1,
+                           show_input=True)
     prof1 = sweep_profiles(q1_cents, q1_t, ctx1_cents, ctx1_t,
-                           SIG_PC, SIG_REG_PROFILES, SIG_TIME_1,
+                           SIG_PC, SIG_PH_PROFILES, SIG_TIME_1,
                            WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1)
     peak1 = motif_cent1 - np.mean(q1_t)
-    report_peaks(prof1, OFFSETS_1, SIG_REG_PROFILES, peak1)
+    report_peaks(prof1, OFFSETS_1, SIG_PH_PROFILES, peak1)
 
     fig1 = plt.figure("Helix blend: synthetic", figsize=(9.8, 8.0))
-    plot_part(fig1, "Helix blend (synthetic): C-E-G at four registers",
+    plot_part(fig1, "Helix blend (synthetic): C-E-G at four heights",
               ctx1_midi, ctx1_t, motif_idx1, peak1, float(np.mean(q1_t)),
-              heat1, prof1, OFFSETS_1, SIG_REG_SWEEP, SIG_REG_PROFILES,
+              heat1, prof1, OFFSETS_1, SIG_PH_SWEEP, SIG_PH_PROFILES,
               label_marked="motif events (C-E-G)",
               label_unmarked="filler events")
 
@@ -355,18 +372,18 @@ def main():
     q2_cents   = mpt.transform_attributes(q2_midi,   None, ('midi', 'cents'))
 
     heat2 = sweep_profiles(q2_cents, q2_t, ctx2_cents, ctx2_t,
-                           SIG_PC, SIG_REG_SWEEP, SIG_TIME_2,
+                           SIG_PC, SIG_PH_SWEEP, SIG_TIME_2,
                            WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2)
     prof2 = sweep_profiles(q2_cents, q2_t, ctx2_cents, ctx2_t,
-                           SIG_PC, SIG_REG_PROFILES, SIG_TIME_2,
+                           SIG_PC, SIG_PH_PROFILES, SIG_TIME_2,
                            WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2)
     peak2 = subj_cent2 - np.mean(q2_t)
-    report_peaks(prof2, OFFSETS_2, SIG_REG_PROFILES, peak2)
+    report_peaks(prof2, OFFSETS_2, SIG_PH_PROFILES, peak2)
 
     fig2 = plt.figure("Helix blend: fugal texture", figsize=(9.8, 8.0))
     plot_part(fig2, "Helix blend (BWV 847-inspired, stylised): subject in bass, alto, soprano",
               ctx2_midi, ctx2_t, subj_idx2, peak2, float(np.mean(q2_t)),
-              heat2, prof2, OFFSETS_2, SIG_REG_SWEEP, SIG_REG_PROFILES,
+              heat2, prof2, OFFSETS_2, SIG_PH_SWEEP, SIG_PH_PROFILES,
               label_marked="subject events",
               label_unmarked="counter-material")
 

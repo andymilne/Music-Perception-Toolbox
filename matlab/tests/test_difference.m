@@ -23,41 +23,41 @@ end
 % --- Triple basics --------------------------------------------------
 
 % Returns three-tuple with specs (flat: no tags field).
-[pd, ~, sd] = differenceEvents({[0 2 5 9]}, [], 1);
+[pd, ~, sd] = unpackPreMaet(differenceEvents({[0 2 5 9]}, [], 1));
 results{end+1,1} = 'diff: returns specs (flat, no tags)';
 results{end,2}   = iscell(sd) && numel(sd) == 1 && ~isfield(sd{1}, 'tags') ...
                    && isequal(pd{1}, [2 3 4]);
 
 % Specs synthesised when none supplied (flatSpecs defaults).
-[~, ~, sd] = differenceEvents({[0 2 5]}, [], 1);
+[~, ~, sd] = unpackPreMaet(differenceEvents({[0 2 5]}, [], 1));
 results{end+1,1} = 'diff: synthesised flat spec has r=1 rel=false sym=true';
 results{end,2}   = isequal(sd{1}.r, 1) && isequal(logical(sd{1}.rel), false) ...
                    && isequal(logical(sd{1}.sym), true);
 
 % Spec passes through unchanged.
 sIn = flatSpecs({zeros(1, 4)}, 'r', 2, 'rel', true, 'sym', false);
-[~, ~, sOut] = differenceEvents({[0 2 5 9]}, [], 1, 'specs', sIn);
+[~, ~, sOut] = unpackPreMaet(differenceEvents({[0 2 5 9]}, [], 1, 'specs', sIn));
 results{end+1,1} = 'diff: spec passes through unchanged';
 results{end,2}   = isequal(sOut, sIn);
 
 % Order 0 identity.
-[pd, ~, ~] = differenceEvents({[60 62 64]}, [], 0);
+[pd, ~, ~] = unpackPreMaet(differenceEvents({[60 62 64]}, [], 0));
 results{end+1,1} = 'diff: order 0 identity';
 results{end,2}   = isequal(pd{1}, [60 62 64]);
 
 % Order 2 and leading-drop alignment (orders [2 0] -> N' = 3).
-[pd, ~, ~] = differenceEvents({[0 1 4 9 16], [10 20 30 40 50]}, [], [2 0]);
+[pd, ~, ~] = unpackPreMaet(differenceEvents({[0 1 4 9 16], [10 20 30 40 50]}, [], [2 0]));
 results{end+1,1} = 'diff: order 2 + alignment';
 results{end,2}   = isequal(size(pd{1}), [1 3]) && isequal(size(pd{2}), [1 3]) ...
                    && isequal(pd{1}, [2 2 2]) && isequal(pd{2}, [30 40 50]);
 
 % Scalar order broadcasts to all attributes.
-[pd, ~, ~] = differenceEvents({[0 2 5], [1 4 9]}, [], 1);
+[pd, ~, ~] = unpackPreMaet(differenceEvents({[0 2 5], [1 4 9]}, [], 1));
 results{end+1,1} = 'diff: scalar order broadcasts';
 results{end,2}   = isequal(size(pd{1}), [1 2]) && isequal(size(pd{2}), [1 2]);
 
 % Weight rolling product (width 2).
-[~, wd, ~] = differenceEvents({[0 1 2 3]}, {[1 2 3 4]}, 1);
+[~, wd, ~] = unpackPreMaet(differenceEvents({[0 1 2 3]}, {[1 2 3 4]}, 1));
 results{end+1,1} = 'diff: weight rolling product';
 results{end,2}   = isequal(wd{1}, [2 6 12]);
 
@@ -66,7 +66,7 @@ results{end,2}   = isequal(wd{1}, [2 6 12]);
 
 % K>1 ordered attribute differences row by row (the lifted K=1 rule).
 M = [0 2 5; 10 13 17];
-[pd, ~, ~] = differenceEvents({M}, [], 1, 'specs', flatSpecs({M}, 'sym', false));
+[pd, ~, ~] = unpackPreMaet(differenceEvents({M}, [], 1, 'specs', flatSpecs({M}, 'sym', false)));
 results{end+1,1} = 'diff: ordered K>1 differences row by row';
 results{end,2}   = isequal(pd{1}, [2 3; 3 4]);
 
@@ -76,19 +76,19 @@ results{end,2}   = throwsError(@() differenceEvents({M}, [], 1, ...
                        'specs', flatSpecs({M}, 'sym', true)));
 
 % Symmetric K>1 with order 0 never triggers the guard (identity).
-[pd, ~, ~] = differenceEvents({M}, [], 0, 'specs', flatSpecs({M}, 'sym', true));
+[pd, ~, ~] = unpackPreMaet(differenceEvents({M}, [], 0, 'specs', flatSpecs({M}, 'sym', true)));
 results{end+1,1} = 'diff: symmetric K>1 order 0 ok (identity)';
 results{end,2}   = isequal(pd{1}, M);
 
 % Singleton (K=1) is always differenceable regardless of sym.
-[pd, ~, ~] = differenceEvents({[0 2 5]}, [], 1, ...
-                 'specs', flatSpecs({[0 2 5]}, 'sym', true));
+[pd, ~, ~] = unpackPreMaet(differenceEvents({[0 2 5]}, [], 1, ...
+                 'specs', flatSpecs({[0 2 5]}, 'sym', true)));
 results{end+1,1} = 'diff: K=1 differences regardless of sym';
 results{end,2}   = isequal(pd{1}, [2 3]);
 
 % NaN propagates as an absent value.
 Mn = [0 2 5; 10 NaN 17];
-[pd, ~, ~] = differenceEvents({Mn}, [], 1, 'specs', flatSpecs({Mn}, 'sym', false));
+[pd, ~, ~] = unpackPreMaet(differenceEvents({Mn}, [], 1, 'specs', flatSpecs({Mn}, 'sym', false)));
 out = pd{1};
 results{end+1,1} = 'diff: NaN propagates as absent value';
 results{end,2}   = isequal(out(1, :), [2 3]) && all(isnan(out(2, :)));
@@ -97,15 +97,15 @@ results{end,2}   = isequal(out(1, :), [2 3]) && all(isnan(out(2, :)));
 % --- Nested-D: difference a bound attribute -------------------------
 
 raw = [0 2 5 9 14];
-[pb, wb, specs] = bindEvents({raw}, [], 2);   % nested, N'=4
-[pnd, ~, snd] = differenceEvents(pb, wb, 1, 'specs', specs);
+[pb, wb, specs] = unpackPreMaet(bindEvents({raw}, [], 2));   % nested, N'=4
+[pnd, ~, snd] = unpackPreMaet(differenceEvents(pb, wb, 1, 'specs', specs));
 results{end+1,1} = 'diff: nested-D row by row, spec passthrough';
 results{end,2}   = isequal(size(pnd{1}), [2 3]) ...
                    && isequal(snd{1}.tags(:).', [0 1]) ...
                    && isequal(snd{1}.r, specs{1}.r);
 
 % A bag outer level (symOuter = true) cannot be differenced.
-[pb2, wb2, specs2] = bindEvents({raw}, [], 2, 'symOuter', true);
+[pb2, wb2, specs2] = unpackPreMaet(bindEvents({raw}, [], 2, 'symOuter', true));
 results{end+1,1} = 'diff: nested symmetric-outer rejected';
 results{end,2}   = throwsError(@() differenceEvents(pb2, wb2, 1, 'specs', specs2));
 
@@ -114,10 +114,10 @@ results{end,2}   = throwsError(@() differenceEvents(pb2, wb2, 1, 'specs', specs2
 
 P = [0 3 7 12 18];
 L = 2;
-[pD, wD, sD]    = differenceEvents({P}, [], 1);
-[pDB, wDB, sDB] = bindEvents(pD, wD, L, 'specs', sD);
-[pB, wB, sB]    = bindEvents({P}, [], L);
-[pBD, wBD, sBD] = differenceEvents(pB, wB, 1, 'specs', sB);
+[pD, wD, sD]    = unpackPreMaet(differenceEvents({P}, [], 1));
+[pDB, wDB, sDB] = unpackPreMaet(bindEvents(pD, wD, L, 'specs', sD));
+[pB, wB, sB]    = unpackPreMaet(bindEvents({P}, [], L));
+[pBD, wBD, sBD] = unpackPreMaet(differenceEvents(pB, wB, 1, 'specs', sB));
 results{end+1,1} = 'diff: B o D == D o B (values + specs)';
 results{end,2}   = isequal(pDB{1}, pBD{1}) ...
                    && isequal(sDB{1}.tags, sBD{1}.tags) ...
@@ -140,7 +140,7 @@ results{end,2}   = (dDB.dim == dBD.dim) && max(abs(vDB(:) - vBD(:))) < 1e-12;
 % --- Circular + errors + entropy parity -----------------------------
 
 % Circular mode keeps N events; first difference wraps at the boundary.
-[pd, ~, ~] = differenceEvents({[0 2 5 9]}, [], 1, 'circular', true);
+[pd, ~, ~] = unpackPreMaet(differenceEvents({[0 2 5 9]}, [], 1, 'circular', true));
 results{end+1,1} = 'diff: circular keeps N';
 results{end,2}   = isequal(size(pd{1}), [1 4]) && isequal(pd{1}, [0 - 9, 2, 3, 4]);
 

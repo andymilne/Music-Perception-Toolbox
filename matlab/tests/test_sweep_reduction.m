@@ -402,8 +402,9 @@ results{end,2} = ok;
 
 % --- translateAttributes carries its offsets ----------------------------
 
-[pOut, ~, ~, sw] = translateAttributes({zeros(2, 3), zeros(2, 3)}, [], ...
+[pmSw, sw] = translateAttributes({zeros(2, 3), zeros(2, 3)}, [], ...
     {baseOff, 0.5 * baseOff});
+pOut = pmSw.pAttr;
 % offsets is A x M, so compare against the A x M matrix rather than a
 % flattened vector: unrolling column-major interleaves the attributes,
 % which has the same element count as the concatenation and so compares
@@ -416,7 +417,7 @@ results{end,2} = iscell(pOut) && numel(pOut) == numel(baseOff) ...
     && max(abs(sw.offsets(:) - expectedOff(:))) < 1e-15 ...
     && isfield(sw, 'base') && iscell(sw.base) && numel(sw.base) == 2;
 
-[~, ~, ~, swSingle] = translateAttributes({zeros(2, 3)}, [], {5});
+[~, swSingle] = translateAttributes({zeros(2, 3)}, [], {5});
 results{end+1,1} = 'sweep: single translation carries no sweep struct';
 results{end,2} = isempty(swSingle);
 
@@ -424,7 +425,7 @@ results{end,2} = isempty(swSingle);
 rng(70);
 pXt = {randn(3, 6) * 3, randn(3, 6) * 3};
 pYt = {randn(3, 3) * 3, randn(3, 3) * 3};
-[~, ~, ~, swT] = translateAttributes(pYt, [], {baseOff, 0.5 * baseOff});
+[~, swT] = translateAttributes(pYt, [], {baseOff, 0.5 * baseOff});
 dXt = buildExpTens(pXt, [], sig, rv, z, z, pd, sym, 'verbose', false);
 dYt = buildExpTens(swT.base, [], sig, rv, z, z, pd, sym, 'verbose', false);
 gotT = sweepCosSimExpTens(dXt, dYt, swT.offsets, ...

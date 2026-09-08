@@ -141,12 +141,15 @@ end
 % time of its first interval. The rel kernel needs its trigrams read
 % relative to a common shift; the second bind, with 'relOuter' = true,
 % produces that reading of the same trigrams.
-[pDiff, wDiff, spDiff] = differenceEvents({onsets, onsets}, [], [1, 0]);
-pDiff{1} = log(pDiff{1});
-[pBound, wBound, spBound] = bindEvents(pDiff, wDiff, [3, 1], ...
-    'specs', spDiff);
-[~, ~, spBoundRel] = bindEvents(pDiff, wDiff, [3, 1], 'specs', spDiff, ...
-    'relOuter', true);
+% The three steps chain as pre-MAETs, each taking the last whole:
+% difference the onsets into IOIs, take the log of the interval
+% attribute (transformAttributes, which also refuses a zero IOI with its
+% remedies rather than yielding -Inf), then bind.
+pmDiff = transformAttributes( ...
+    differenceEvents({onsets, onsets}, [], [1, 0]), {'log', []});
+[pBound, wBound, spBound] = unpackPreMaet(bindEvents(pmDiff, [3, 1]));
+pmBoundRel  = bindEvents(pmDiff, [3, 1], 'relOuter', true);
+spBoundRel  = pmBoundRel.specs;
 % Two quantities read off the bound attributes feed the search below:
 nTri = size(pBound{1}, 2);   % number of trigrams (windows to place)
 triTimes = pBound{2};        % window-placing times (the sweep centres);
@@ -332,6 +335,14 @@ pContext = pBound;         % {trigrams, times} as bound
 wContext = {ones(3, nTri), ones(1, nTri)};
 pQuery = {xMotif, 0};
 wQuery = {ones(3, 1), 1};
+
+showPreMaet(pContext, wContext, {kernelSpecs{1}, spBound{2}}, ...
+    'names', {'trigram', 'time'}, 'sigma', {kernelSigmas{1}, 0.25}, ...
+    'isPer', [false false], 'maxEvents', 4);
+showPreMaet(pQuery, wQuery, {kernelSpecs{1}, spBound{2}}, ...
+    'names', {'trigram', 'time'}, 'sigma', {kernelSigmas{1}, 0.25}, ...
+    'isPer', [false false]);
+fprintf('\n');
 
 profiles = zeros(numel(kernelNames), nTri);
 for k = 1:numel(kernelNames)

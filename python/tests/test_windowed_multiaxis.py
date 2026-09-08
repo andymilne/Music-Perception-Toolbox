@@ -9,7 +9,7 @@ new surface (the several-axes map, the ``locate`` reduction, and the guards).
 import numpy as np
 import pytest
 
-from mpt import windowed_similarity, windowed_entropy, bind_events
+from mpt import windowed_similarity, windowed_entropy, bind_events, unpack_pre_maet
 
 SIG_P, SIG_T = 0.12, 0.05
 
@@ -55,10 +55,10 @@ def test_multi_two_axis_map_shape_and_peak():
     P = np.concatenate([pat_p, pat_p + 5.0])
     T = np.concatenate([pat_t, pat_t + 10.0])
     N = P.size
-    pb, wb, sb = bind_events([P.reshape(1, N), T.reshape(1, N)], None, [4, 4],
-                             step=1, rel_outer=[False, False])
-    qb, qw, qs = bind_events([pat_p.reshape(1, 4), pat_t.reshape(1, 4)], None,
-                             [4, 4], step=1, rel_outer=[False, False])
+    pb, wb, sb = unpack_pre_maet(bind_events([P.reshape(1, N), T.reshape(1, N)], None, [4, 4],
+                             step=1, rel_outer=[False, False]))
+    qb, qw, qs = unpack_pre_maet(bind_events([pat_p.reshape(1, 4), pat_t.reshape(1, 4)], None,
+                             [4, 4], step=1, rel_outer=[False, False]))
     t_grid = np.array([1.0, 11.0])            # centroids of the two copies
     p_grid = np.array([62.0, 67.0])            # their pitch centroids
     R = windowed_similarity(
@@ -76,10 +76,10 @@ def test_locate_start_vs_centroid_shift():
     they place the window differently for an asymmetric pattern."""
     pat_p = np.array([60., 63., 60., 65.]); pat_t = np.array([0., 0.3, 0.6, 3.0])
     N = 4
-    pb, wb, sb = bind_events([pat_p.reshape(1, N), pat_t.reshape(1, N)], None,
-                             [4, 4], step=1, rel_outer=[True, False])
-    qb, qw, qs = bind_events([pat_p.reshape(1, N), pat_t.reshape(1, N)], None,
-                             [4, 4], step=1, rel_outer=[True, False])
+    pb, wb, sb = unpack_pre_maet(bind_events([pat_p.reshape(1, N), pat_t.reshape(1, N)], None,
+                             [4, 4], step=1, rel_outer=[True, False]))
+    qb, qw, qs = unpack_pre_maet(bind_events([pat_p.reshape(1, N), pat_t.reshape(1, N)], None,
+                             [4, 4], step=1, rel_outer=[True, False]))
     # window centred on the centroid (mean ~0.975) finds the pattern there
     at_centroid = windowed_similarity(
         pb, wb, qb, qw, [SIG_P, SIG_T], [1, 1], [True, False], [False, False],

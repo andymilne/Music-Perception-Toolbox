@@ -1,15 +1,25 @@
 """demo_preprocessing -- Pre-MAET preprocessing operations and compositions.
 
-Demonstrates the pre-MAET preprocessing helpers in MPT,
-applied to a small fragment of J. S. Bach, BWV 347 ("Ich dank dir,
-lieber Herre"). The fragment is cadence 1's three-chord approach
-(antepenult i, penult V, tonic I, at quarter-note positions
-t = 5, 6, 7) reduced to the soprano line for clarity. Two
-attributes are kept: the soprano pitch (attribute 0, treated as periodic
-mod 12 so it lives on the pitch-class circle) and the event time in
-quarter-notes (attribute 1, non-periodic). Each subsequent section
-illustrates one operation or one composition; the operations leave
-the source ``p_attr`` untouched.
+Demonstrates the pre-MAET preprocessing helpers in MPT, applied to a
+fragment of J. S. Bach, BWV 347 ("Ich dank dir, lieber Herre"): the
+soprano over quarter-notes t = 1 to 7, which is bar 1 entire followed by
+cadence 1's three-chord approach (antepenult i, penult V, tonic I at
+t = 5, 6, 7), so the fragment ends on its cadential goal. Two attributes
+are kept: the soprano pitch (attribute 0, treated as periodic mod 12 so
+it lives on the pitch-class circle) and the event time in quarter-notes
+(attribute 1, non-periodic).
+
+The events carry metrical weights rather than uniform ones, so that each
+operation's weight rule is visible in its output rather than described:
+the chorale is in 4/4 with a one-quarter pickup, so t = 1 and t = 5 fall
+on the downbeat (weight 1), t = 3 and t = 7 on the third beat (0.75),
+and t = 2, 4, 6 on the weak beats (0.5).
+
+Every operation's result is displayed with ``show_pre_maet``, which
+prints a pre-MAET in the layout of the article's tables: brace-delimited
+cells where the attribute is unordered, parentheses where it is ordered,
+brackets within brackets where it is nested, and weights as
+parenthesized superscripts.
 
 Operations
     difference_events    (D): per-attribute difference orders.
@@ -25,7 +35,8 @@ Operations
 
 Compositions
     D o B == B o D       (n-tuple entropy pipeline commutation,
-                          value-wise after attribute permutation).
+                          value-wise and weight-wise after attribute
+                          permutation).
     D o T == D           (differencing absorbs absolute translation;
                           T o D adds mu to every difference).
     T o W centre shift   (W with centre c after T(mu) equals W with
@@ -34,34 +45,46 @@ Compositions
 
 The MATLAB mirror is demos/demo_preprocessing.m.
 
-See also: difference_events, bind_events, translate_attributes,
-weight_events.
+See also: show_pre_maet, difference_events, bind_events,
+translate_attributes.
 """
 import numpy as np
 
 import mpt
 
+# Shown on every table, so that the parameters that would build the
+# density travel with the values they would be built from.
+KERNEL = dict(sigma=[0.5, 0.25], is_per=[True, False], period=[12.0, 0.0],
+              names=['pitch', 'time'])
+
 
 # ===================================================================
-#  1. BWV 347 cadence 1 input (soprano + time)
+#  1. BWV 347 input (soprano + time, metrically weighted)
 # ===================================================================
 
-print("=== 1. Inputs (BWV 347 cadence 1 soprano, three-chord approach) ===")
+print("=== 1. Inputs (BWV 347, soprano, t = 1..7) ===")
 
-# Two attributes, both K_a = 1, three events.
+# Two attributes, both K_a = 1, seven events.
 p_attr = [
-    np.array([[67, 66, 64]], dtype=float),   # a_0: soprano (G4, F#4, E4)
-    np.array([[ 5,  6,  7]], dtype=float),   # a_1: event time (quarter-notes)
+    np.array([[69, 69, 69, 71, 67, 66, 64]], dtype=float),  # a_0: soprano
+    np.array([[ 1,  2,  3,  4,  5,  6,  7]], dtype=float),  # a_1: time (QN)
 ]
-w       = None                # weights: default (uniform)
+# Metrical weight: downbeat 1, third beat 0.75, weak beats 0.5. The same
+# weighting is carried on both attributes, since a metrically weak event
+# is weak in every attribute it carries.
+metre = np.array([[1.0, 0.5, 0.75, 0.5, 1.0, 0.5, 0.75]])
+w = [metre.copy(), metre.copy()]
+
+# The three parts travel together as one pre-MAET, which every operator
+# below takes whole and returns whole.
+pm = mpt.pre_maet(p_attr, w)
+
 is_rel  = [False, False]      # both attributes are absolute
 is_per  = [True, False]       # attribute 0 is periodic (PC), attribute 1 isn't
 periods = [12.0, 0.0]         # period 12 (semitones) for PC
 
-print(f"  pitch (a_0):  {p_attr[0].ravel().tolist()}")
-print(f"  time  (a_1):  {p_attr[1].ravel().tolist()}")
-print(f"  attribute 0 (PC):   periodic, P = 12")
-print(f"  attribute 1 (time): non-periodic\n")
+mpt.show_pre_maet(pm, **KERNEL)
+print()
 
 
 # ===================================================================
@@ -71,22 +94,19 @@ print(f"  attribute 1 (time): non-periodic\n")
 print("=== 2. difference_events (D) ===")
 
 # Take the first difference of pitch and leave time alone. The first
-# event is dropped (leading-drop alignment): N' = N - max(k) = 2.
+# event is dropped (leading-drop alignment): N' = N - max(k) = 6.
+# Weights propagate as the rolling product w'(n) = prod_{j=0..k} w(n-j),
+# the probability that the k+1 contributing events are jointly
+# perceived, so a difference is only as strong as its weaker endpoint
+# allows: the superscripts below are the products of consecutive metre
+# weights on the differenced attribute, and the surviving metre weights
+# on the undifferenced one.
 diff_orders = [1, 0]
-pD, wD, sD = mpt.difference_events(p_attr, w, diff_orders)
+pmD = mpt.difference_events(pm, diff_orders)
 
-print(f"  diff_orders = {diff_orders}")
-print(f"  D(pitch)    = {pD[0].ravel().tolist()}   "
-      f"(interval sequence: F#-G, E-F#)")
-print(f"  D(time)     = {pD[1].ravel().tolist()}   "
-      f"(unchanged in value, leading event dropped)")
-# The weights come back as None because none were supplied: None means
-# uniform throughout the toolbox, and a uniform weighting differences to
-# a uniform weighting. Given weights, D propagates them as the rolling
-# product w'(n) = prod_{j=0..k} w(n-j), the probability that the k+1
-# contributing events are jointly perceived: with w = [1, 0.5, 0.25] the
-# first difference carries [0.5, 0.125].
-print(f"  D(w)        = {wD}   (None = uniform; see the comment above)\n")
+print(f"  diff_orders = {diff_orders}   (pitch differenced, time left alone)")
+mpt.show_pre_maet(pmD, **KERNEL)
+print()
 
 
 # ===================================================================
@@ -99,21 +119,21 @@ print("=== 3. bind_events (B) ===")
 # attribute becomes ONE nested attribute: the two bound events form the
 # ordered outer level, each event's own value the inner level (inheriting
 # the source r/is_rel/is_sym). A' = A = 2. Trailing-drop alignment gives
-# N' = N - max(L) + 1 = 2.
+# N' = N - max(L) + 1 = 6. B gathers each super-event's constituent
+# weights alongside its values rather than combining them, so both of a
+# 2-gram's metre weights survive, in order, inside the cell.
 bind_orders = [2, 2]
-pB, wB, specB = mpt.bind_events(p_attr, w, bind_orders)
+pmB = mpt.bind_events(pm, bind_orders)
+specB = pmB["specs"]
 
-print(f"  bind_orders = {bind_orders}")
-print(f"  A' = {len(pB)} (each source attribute -> one nested attribute)")
-# As with D, the weights come back as None because none were supplied.
-# Given weights, B gathers each super-event's constituent weights
-# alongside its values: w = [1, 0.5, 0.25] binds at L = 2 to
-# [1, 0.5, 0.5, 0.25], the two events of each 2-gram in order.
-print(f"  B(w) = {wB} (None = uniform)")
-print(f"  pitch nest (stacked L*K x N'):\n{pB[0]}")
+print(f"  bind_orders = {bind_orders}   "
+      f"(A' = {len(pmB['p_attr'])}: each source attribute -> one nested "
+      f"attribute)")
+mpt.show_pre_maet(pmB, **KERNEL)
 s0 = specB[0]
 print(f"  spec[0]: r = {s0['r']}, sym = {s0['sym']}, rel = {s0['rel']}, "
-      f"tags = {np.asarray(s0['tags']).tolist()}\n")
+      f"tags = {np.asarray(s0['tags']).ravel().tolist()}")
+print()
 
 
 # ===================================================================
@@ -127,20 +147,23 @@ print("=== 3b. bind_events again (B o B): deepen to L = 3 ===")
 # over. The existing tag matrix is tiled and a fresh outermost grouping
 # column is appended; r/sym/rel each gain one outer level. The hierarchy
 # grows note -> 2-event group (first bind) -> 2-group window (second
-# bind). Trailing-drop again: N'' = N' - max(L) + 1 = 1.
-pBB, wBB, specBB = mpt.bind_events(pB, wB, [2, 2], specs=specB)
+# bind). Trailing-drop again: N'' = N' - max(L) + 1 = 5.
+pmBB = mpt.bind_events(pmB, [2, 2])
+specBB = pmBB["specs"]
 
 sBB = specBB[0]
-print(f"  N'' = {pBB[0].shape[1]}  (one 3-level super-event)")
-print(f"  pitch nest (stacked D x N''):\n{pBB[0]}")
+print(f"  N'' = {pmBB['p_attr'][0].shape[1]}  (three-level super-events)")
+mpt.show_pre_maet(pmBB, max_events=4, **KERNEL)
 print(f"  spec[0]: r = {sBB['r']}, sym = {sBB['sym']}, rel = {sBB['rel']}")
-print(f"  tags (K_total x (L-1) = 4 x 2):\n{np.asarray(sBB['tags']).tolist()}")
-print("  (inner column [0,1] tiled; new outermost column [0,0,1,1] appended.)")
+print("  (inner tag column tiled; a new outermost column appended.)")
 
 # Build the absolute L=3 nest and confirm a clean self-similarity.
+# The specs here carry no kernel geometry, so these arguments supply it;
+# where a spec does carry a value, an argument overrides it instead, which
+# is what makes a sweep one call per value (demo_pre_maet_io, section 4).
 kwBB = dict(sigma=[0.5, 0.25], is_per=[True, False], period=[12.0, 0.0],
             verbose=False)
-dBB_abs = mpt.build_exp_tens(pBB, wBB, specs=specBB, **kwBB)
+dBB_abs = mpt.build_exp_tens(pmBB, **kwBB)
 sm_abs = float(mpt.cos_sim_exp_tens(dBB_abs, dBB_abs, verbose=False))
 print(f"  absolute build: dim = {dBB_abs.dim}, "
       f"cosine self-match = {sm_abs:.4f}")
@@ -149,12 +172,17 @@ print(f"  absolute build: dim = {dBB_abs.dim}, "
 # shift: the doubly-bound pitch structure is then invariant to transposing
 # every note together. Absolute (no [rel]) is not --- the narrow PC kernel
 # (sigma = 0.5) puts a 5-semitone shift out of reach.
+# Replacing one part of a pre-MAET leaves the rest in place: here the
+# specs, and below the values.
 specBB_out = [dict(specBB[0]), dict(specBB[1])]
 specBB_out[0]["rel"] = [0, 0, 1]                 # outermost unit on pitch
-dBB_out = mpt.build_exp_tens(pBB, wBB, specs=specBB_out, **kwBB)
-pBB_T = [pBB[0] + 5.0, pBB[1]]                    # transpose all pitches +5
-dBB_out_T = mpt.build_exp_tens(pBB_T, wBB, specs=specBB_out, **kwBB)
-dBB_abs_T = mpt.build_exp_tens(pBB_T, wBB, specs=specBB, **kwBB)
+pmBB_out = mpt.pre_maet(pmBB, specs=specBB_out)
+dBB_out = mpt.build_exp_tens(pmBB_out, **kwBB)
+pmBB_T = mpt.pre_maet([pmBB["p_attr"][0] + 5.0, pmBB["p_attr"][1]],
+                      pmBB["w_attr"], specBB)   # transpose all pitches +5
+pmBB_out_T = mpt.pre_maet(pmBB_T, specs=specBB_out)
+dBB_out_T = mpt.build_exp_tens(pmBB_out_T, **kwBB)
+dBB_abs_T = mpt.build_exp_tens(pmBB_T, **kwBB)
 sim_out = float(mpt.cos_sim_exp_tens(dBB_out, dBB_out_T, verbose=False))
 sim_abs = float(mpt.cos_sim_exp_tens(dBB_abs, dBB_abs_T, verbose=False))
 print(f"  outer pitch (rel=[0,0,1]): dim = {dBB_out.dim}, "
@@ -172,39 +200,41 @@ print("=== 4. translate_attributes (T) ===")
 # Translate pitch (attribute 0) by +5 semitones; leave time alone.
 # Offsets are a per-attribute list: a scalar broadcasts across the
 # attribute's values (here K=1 each). is_rel is read from specs
-# (synthesised flat: both absolute), so neither is a no-op.
+# (synthesised flat: both absolute), so neither is a no-op. T moves
+# values only: the weights below are the metre weights unchanged.
 mu_pitch = 5.0
 mu = [mu_pitch, 0.0]
-pT, _, _ = mpt.translate_attributes(p_attr, w, mu)
+pmT = mpt.translate_attributes(pm, mu)
 
-print(f"  mu (per attribute) = {mu}   (attribute 0: pitch; attribute 1: time)")
-print(f"  T(pitch)       = {pT[0].ravel().tolist()}   (G->C, F#->B, E->A)")
-print(f"  T(time)        = {pT[1].ravel().tolist()}   (unchanged)\n")
+print(f"  mu (per attribute) = {mu}   (G->C, F#->B, E->A; time untouched)")
+mpt.show_pre_maet(pmT, **KERNEL)
+print()
 
 
 # ===================================================================
-#  5. weight_events (W): window the time attribute at the penult
+#  5. weight_events (W): window the time attribute at the cadence
 # ===================================================================
 
 print("=== 5. weight_events (W) ===")
 
 # Apply a window on the time axis (input attribute 1) centred at the
-# penult event (t = 6) with standard deviation 1 quarter-note and
+# penult event (t = 6) with standard deviation 2 quarter-notes and
 # gamma = 0 (pure Gaussian). The factor lands back on the time attribute
 # (target attribute 1), the in-place weighting case, and the input is
-# kept (drop_input_attr=False).
-p_w, w_w, s_w = mpt.weight_events(
-    p_attr, w,
+# kept (drop_input_attr=False). The window multiplies the metre weights
+# it finds rather than replacing them, so the time row below carries
+# metre times envelope, and the pitch row is untouched.
+pmW = mpt.weight_events(
+    pm,
     input_attr=1, target_attr=1,
-    centre=6.0, sd=1.0, shape=0.0,    # gamma = 0 -> pure Gaussian
+    centre=6.0, sd=2.0, shape=0.0,    # gamma = 0 -> pure Gaussian
     drop_input_attr=False,
 )
 
-print("  input_attr = 1 (time); target_attr = 1; centre = 6; sd = 1; shape = 0 (Gaussian)")
-print(f"  w_w[0] (pitch, untouched): {w_w[0]}")
-print(f"  w_w[1] (time, windowed):   "
-      f"{[round(v, 4) for v in np.asarray(w_w[1]).ravel().tolist()]}")
-print("  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2 / 2).)\n")
+print("  input_attr = 1 (time); target_attr = 1; centre = 6; sd = 2; "
+      "shape = 0 (Gaussian)")
+mpt.show_pre_maet(pmW, decimals=3, **KERNEL)
+print()
 
 
 # ===================================================================
@@ -214,26 +244,35 @@ print("  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2 / 2).)\n")
 print("=== 6. B o D == D o B (pipeline commutation) ===")
 
 # Both pre-MAET operators speak the (p_attr, w, specs) triple, so the
-# two routes coincide. Differencing pairs values position by position across (super-)events and the
-# sliding bind window commutes with it, on the ordered/K=1 domain where
-# difference is defined.
+# two routes coincide. Differencing pairs values position by position
+# across (super-)events and the sliding bind window commutes with it, on
+# the ordered/K=1 domain where difference is defined. The two operators
+# propagate weights by different rules --- D takes the rolling product,
+# B gathers --- and the composition agrees on the weights as well.
 #   D then B: difference each attribute (order 1), then bind 2-grams.
-pD1, wD1, sD1 = mpt.difference_events(p_attr, w, [1, 1])
-pDB, wDB, sDB = mpt.bind_events(pD1, wD1, [2, 2], specs=sD1)
-#   B then D: bind 2-grams, then difference each nested attribute position by position.
-pB1, wB1, sB1 = mpt.bind_events(p_attr, w, [2, 2])
-pBD, wBD, sBD = mpt.difference_events(pB1, wB1, [1, 1], specs=sB1)
+pmDB = mpt.bind_events(mpt.difference_events(pm, [1, 1]), [2, 2])
+#   B then D: bind 2-grams, then difference each nested attribute
+#   position by position.
+pmBD = mpt.difference_events(mpt.bind_events(pm, [2, 2]), [1, 1])
 
-vals_agree = all(np.allclose(pDB[a], pBD[a], equal_nan=True) for a in range(2))
+mpt.show_pre_maet(pmDB, title="  D then B:", **KERNEL)
+mpt.show_pre_maet(pmBD, title="  B then D:", **KERNEL)
+
+vals_agree = all(np.allclose(pmDB["p_attr"][a], pmBD["p_attr"][a],
+                             equal_nan=True) for a in range(2))
+wts_agree = all(np.allclose(np.asarray(pmDB["w_attr"][a]),
+                            np.asarray(pmBD["w_attr"][a]),
+                            equal_nan=True) for a in range(2))
 specs_agree = all(
-    list(np.ravel(sDB[a][k])) == list(np.ravel(sBD[a][k]))
+    list(np.ravel(pmDB["specs"][a][k]))
+    == list(np.ravel(pmBD["specs"][a][k]))
     for a in range(2) for k in ("tags", "r", "sym", "rel")
 )
-print(f"  D(pitch) intervals, bound (stacked L*K x N''):\n{pDB[0]}")
-print(f"  values agree (both routes): {vals_agree}")
-print(f"  specs  agree (both routes): {specs_agree}")
-print("  (Position-by-position differencing commutes with the sliding bind window; the\n"
-      "   two routes share one nested representation.)\n")
+print(f"  values agree: {vals_agree};  weights agree: {wts_agree};  "
+      f"specs agree: {specs_agree}")
+assert vals_agree and wts_agree and specs_agree, \
+    "Section 6: the two routes disagree."
+print()
 
 
 # ===================================================================
@@ -246,13 +285,13 @@ print("=== 7. D o T == D ===")
 # as differencing the original: translation is wiped out by the
 # difference operator (T o D, by contrast, adds mu to every
 # difference).
-pT_for_D, _, _ = mpt.translate_attributes(p_attr, w, mu)
-pDT, wDT, sDT = mpt.difference_events(pT_for_D, w, [1, 0])
+pmDT = mpt.difference_events(pmT, [1, 0])
 
-print(f"  D(T(pitch)) = {pDT[0].ravel().tolist()}")
-print(f"  D(pitch)    = {pD[0].ravel().tolist()}")
-print(f"  difference max = {float(np.max(np.abs(pDT[0] - pD[0])))}  "
-      "(zero --- translation absorbed)\n")
+mpt.show_pre_maet(pmDT, title="  D(T(p)):", **KERNEL)
+print(f"  vs D(p) above: max |difference| = "
+      f"{float(np.max(np.abs(pmDT['p_attr'][0] - pmD['p_attr'][0])))}"
+      "  (zero: translation absorbed)")
+print()
 
 
 # ===================================================================
@@ -262,26 +301,23 @@ print(f"  difference max = {float(np.max(np.abs(pDT[0] - pD[0])))}  "
 print("=== 8. T o W centre shift ===")
 
 # Path 1: T(mu) first (transposing pitch by +5), then W centred at
-# the original pitch c = 67 (G4).
-c_pitch  = 67.0
+# the original pitch c = 69 (A4).
+c_pitch  = 69.0
 width_w  = 2.0
 gamma_w  = 0.3
-pT_path, _, _ = mpt.translate_attributes(
-    p_attr, w, [mu_pitch, 0.0],
-)
-_, w_path1, _ = mpt.weight_events(
-    pT_path, w,
+w_path1 = mpt.weight_events(
+    mpt.translate_attributes(pm, [mu_pitch, 0.0]),
     input_attr=0, target_attr=0, centre=c_pitch, sd=width_w, shape=gamma_w,
     drop_input_attr=False,
-)
+)["w_attr"]
 
-# Path 2: W centred at c - mu = 62 BEFORE T (T leaves weights
+# Path 2: W centred at c - mu = 64 BEFORE T (T leaves weights
 # untouched).
-_, w_path2, _ = mpt.weight_events(
-    p_attr, w,
+w_path2 = mpt.weight_events(
+    pm,
     input_attr=0, target_attr=0, centre=c_pitch - mu_pitch, sd=width_w,
     shape=gamma_w, drop_input_attr=False,
-)
+)["w_attr"]
 
 print(f"  T then W (centre c = {c_pitch}):")
 print(f"    w_path1[0] = "
@@ -310,26 +346,29 @@ print(f"  Hz -> cents: [{p_cents[0]:.1f} {p_cents[1]:.1f} {p_cents[2]:.1f}]")
 # Order with differencing carries meaning. (i) F then D on inter-onset
 # intervals in log2 gives log ratios: a doubling is +1, a halving -1.
 ioi = np.array([[0.25, 0.5, 0.5, 1.0]])            # seconds
-p_l, w_l, s_l = mpt.transform_attributes([ioi], None, [('log', {'base': 2})])
-p_ld, _, _ = mpt.difference_events(p_l, w_l, 1, specs=s_l)
+pmLD = mpt.difference_events(
+    mpt.transform_attributes([ioi], None, [('log', {'base': 2})]), 1)
+p_ld = pmLD["p_attr"]
 print(f"  log2(IOI) then D: {p_ld[0].ravel()}  (log ratios)")
 
 # (ii) D then a compressive transform on the signed pitch intervals.
 # log(x + 1) admits the zero of a repeated note with the constant written
 # down. Negative values are refused unless a sign attribute is requested:
 # with sign=True the transform is applied to |x| and a sign attribute
-# in {-1, 0, +1} is inserted right after its source, so the carrier
+# at the 2-point simplex's vertices, {-1/2, 0, +1/2}, is inserted right
+# after its source, so the pre-MAET
 # grows from one attribute to two (note the two sigmas below).
-p_dp, w_dp, s_dp = mpt.difference_events([p_attr[0]], w, 1)
-p_f, w_f, s_f = mpt.transform_attributes(p_dp, w_dp, [('log', {'offset': 1})], specs=s_dp,
-                                         sign=True)
+pmDp = mpt.difference_events([p_attr[0]], [w[0]], 1)
+pmF = mpt.transform_attributes(pmDp, [('log', {'offset': 1})], sign=True)
+p_dp = pmDp["p_attr"]
+p_f, s_f = pmF["p_attr"], pmF["specs"]
 print(f"  D(pitch)        = {p_dp[0].ravel()}")
 print(f"  log(|D(pitch)|+1) = {np.round(p_f[0].ravel(), 4)}, "
       f"sign = {p_f[1].ravel()} (spec name '{s_f[1]['name']}')")
-dens_f = mpt.build_exp_tens(p_f, w_f, specs=s_f, sigma=[0.2, 0.3],
+dens_f = mpt.build_exp_tens(pmF, sigma=[0.2, 0.3],
                             is_per=[False, False], period=[0, 0],
                             verbose=False)
-print(f"  build_exp_tens on the two-attribute carrier: dim = {dens_f.dim}")
+print(f"  build_exp_tens on the two-attribute pre-MAET: dim = {dens_f.dim}")
 
 # (iii) A zero under 'log' is an error with remedies, never -inf.
 try:
@@ -338,8 +377,8 @@ except ValueError as err:
     print(f"  zero IOI under 'log' -> {str(err).split(';')[0]}")
 
 # (iv) A callable is accepted alongside the named transforms.
-p_user, _, _ = mpt.transform_attributes([np.array([[1.0, 4.0, 9.0]])], None,
-                                        [lambda x: np.sqrt(x) + 1])
+p_user = mpt.transform_attributes([np.array([[1.0, 4.0, 9.0]])], None,
+                                  [lambda x: np.sqrt(x) + 1])["p_attr"]
 print(f"  user function sqrt(x) + 1: {p_user[0].ravel()}\n")
 
 # ===================================================================
@@ -373,6 +412,11 @@ print("\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===")
 sigma = [0.5, 0.25]   # kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
 r     = [1, 1]        # single-value attributes (K_a = 1)
 
+# The raw form takes the parts positionally, so the pre-MAETs above are
+# read out into the lists it expects.
+pT = pmT["p_attr"]
+pD, wD = pmD["p_attr"], pmD["w_attr"]
+
 # --- 9a. entropy_exp_tens (raw MA form) ---
 # Signature:
 #   H = entropy_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods, ...)
@@ -395,7 +439,7 @@ val_at_penult = mpt.eval_exp_tens(
 print(f"  eval_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods, Xq)")
 print(f"    = {float(val_at_penult[0]):.4f}")
 print("  (Density peak near an actual event; the value reflects the")
-print("   contribution from event 2 at (66, 6) plus tails from its neighbours.)")
+print("   contribution from event 6 at (66, 6) plus tails from its neighbours.)")
 
 # --- 9c. cos_sim_exp_tens on two pre-MAETs (raw MA form) ---
 # Signature:
@@ -419,9 +463,9 @@ print(f"    = {float(sim_T):.4f}")
 # identical, so their cosine similarity must be exactly 1. The
 # algebraic identity from Section 7 surfacing as a downstream
 # observable; no build_exp_tens required.
-pDT_again, wDT_again, sDT_again = mpt.difference_events(pT, w, [1, 0])
+
 sim_diffed = mpt.cos_sim_exp_tens(
-    pD, wD, pDT_again, wDT_again,
+    pD, wD, pmDT["p_attr"], pmDT["w_attr"],
     sigma, r, is_rel, is_per, periods,
     verbose=False,
 )
@@ -447,9 +491,10 @@ dens_T = mpt.build_exp_tens(
 dens_D = mpt.build_exp_tens(
     pD, wD, sigma, r, is_rel, is_per, periods, verbose=False,
 )
-pDT_4, wDT_4, sDT_4 = mpt.difference_events(pT, w, [1, 0])
+
 dens_DT = mpt.build_exp_tens(
-    pDT_4, wDT_4, sigma, r, is_rel, is_per, periods, verbose=False,
+    pmDT["p_attr"], pmDT["w_attr"], sigma, r, is_rel, is_per, periods,
+    verbose=False,
 )
 
 # --- 10a. entropy_exp_tens on the struct; same answer as 9a. ---

@@ -73,6 +73,9 @@ from ._utils import estimate_comp_time
 
 # Diagnostic: report how a call would be routed, and why.
 from ._tensor.explain import explain_dispatch
+from ._tensor.premaet import pre_maet, unpack_pre_maet
+from ._tensor.show import show_pre_maet
+from ._tensor.premaet_io import read_pre_maet, write_pre_maet
 
 # --- Audio ---
 from .audio import AudioPeaksDetail, audio_peaks
@@ -92,6 +95,11 @@ from ._defaults import (
 
 __all__ = [
     "explain_dispatch",
+    "pre_maet",
+    "unpack_pre_maet",
+    "show_pre_maet",
+    "read_pre_maet",
+    "write_pre_maet",
     # spectra
     "add_spectra",
     # tensor

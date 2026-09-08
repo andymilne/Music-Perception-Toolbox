@@ -1,7 +1,23 @@
-function out = windowedSimilarity(pContext, wContext, pQuery, wQuery, ...
-        sigma, r, isRel, isPer, period, centres, nv)
+function out = windowedSimilarity(varargin)
 %WINDOWEDSIMILARITY  Slide a query across a context and measure their
 %   similarity at each position (a pre-MAET cross-correlation).
+%
+%   Input forms, in the order to reach for them: two whole pre-MAETs,
+%   the canonical entry; then the raw positional form, with the
+%   operands' parts and the five geometry vectors written out.
+%
+%   Pre-MAET form. In place of the operands and the five geometry
+%   vectors, pass whole pre-MAETs:
+%
+%     out = windowedSimilarity(pmContext, pmQuery, centres, ...)
+%
+%   The shared geometry is read from their specs, and any of the six
+%   per-attribute parameters -- 'sigma', 'isPer', 'period', 'r',
+%   'rel', 'sym' -- may be given alongside to override it, as at
+%   buildExpTens. An override may name every attribute or be
+%   selective, a 1 x A cell whose empty entries keep what the spec
+%   carries: 'sigma', {[], s, []} sweeps the second attribute's
+%   width and leaves the rest to the pre-MAET.
 %
 %   Two equivalent argument surfaces:
 %
@@ -19,6 +35,7 @@ function out = windowedSimilarity(pContext, wContext, pQuery, wQuery, ...
 %     'drop' = {axis, tf; ...}; the output gains one dimension per swept
 %     axis. 'contextWindow' is then a map {axis, struct('shape',..,'width'/'sd',..); ...}.
 %
+%
 %   'locate' is 'centroid' (default) | 'start' | 'end' | 'mid' | a handle.
 %   'targetAttr' is the attribute whose weights absorb the window factors
 %   (default: first compared attribute; may coincide with a swept axis).
@@ -30,8 +47,16 @@ function out = windowedSimilarity(pContext, wContext, pQuery, wQuery, ...
 %   own per-level sym. The window-factor and
 %   comparison-kernel truncation both read the global mptDefaults setting.
 %
-%   See also WINDOWEDENTROPY, WEIGHTEVENTS, TRANSLATEATTRIBUTES, COSSIMEXPTENS.
+%   See also PREMAET, WINDOWEDENTROPY, WEIGHTEVENTS, TRANSLATEATTRIBUTES,
+%            COSSIMEXPTENS.
 
+varargin = internal.windowedPreMaetArgs(varargin, 'windowedSimilarity', 2);
+out = localWindowedSimilarity(varargin{:});
+end
+
+
+function out = localWindowedSimilarity(pContext, wContext, pQuery, wQuery, ...
+        sigma, r, isRel, isPer, period, centres, nv)
 arguments
     pContext (1,:) cell
     wContext
@@ -175,7 +200,7 @@ function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
             else
                 qLoc = mean(internal.locateRow(pQuery{axisIdx}, locate), 'omitnan');
                 offs = cell(1, A); offs{axisIdx} = qRows(a, t) - qLoc;
-                [pqT, wqT, sqT] = translateAttributes(pQuery, wQuery, offs, 'specs', specs);
+                [pqT, wqT, sqT] = unpackPreMaet(translateAttributes(pQuery, wQuery, offs, 'specs', specs));
             end
             [pq, wq, sq] = internal.dropAxes(pqT, wqT, sqT, dropAxes, A);
             if nested
@@ -251,7 +276,7 @@ function out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, ...
             offs{a} = centresK(k) - qLocs(k); doTrans = true;
         end
         if doTrans
-            [pqT, wqT, sqT] = translateAttributes(pQuery, wQuery, offs, 'specs', specs);
+            [pqT, wqT, sqT] = unpackPreMaet(translateAttributes(pQuery, wQuery, offs, 'specs', specs));
         else
             pqT = pQuery; wqT = wQuery; sqT = specs;
         end

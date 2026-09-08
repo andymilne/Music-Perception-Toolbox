@@ -113,6 +113,18 @@ VARIANT_ROWS = {[1 2 3 5 6], [4 7 8], 1:nRows};
 % ---------------------------------------------------------------------------
 protoProf = cell(1, numel(RS));
 for r = RS
+    if r == RS(1)
+        for qi = 1:numel(QUERIES)
+            qDens = jmm.queryDensity(QUERIES(qi).chords, ...
+                QUERIES(qi).flagged, r);
+            NEST_NAMES = {'pitch', 'inversion flag'};
+            showPreMaet(qDens, [], [], ...
+                'names', NEST_NAMES(1:qDens.nAttrs), ...
+                'title', sprintf('  query: %s (rInner = %d)', ...
+                QUERY_NAMES{qi}, r));
+            fprintf('\n');
+        end
+    end
     protoProf{r} = jmm.prototypeSweep(r, QUERIES, MUS, NORMALIZE);
 end
 data = cell(nRows, numel(RS));

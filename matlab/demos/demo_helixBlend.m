@@ -3,23 +3,23 @@
 %
 %  Demonstrates a multi-attribute expectation tensor pattern in which
 %  the same pitch values are routed simultaneously through a periodic
-%  pitch-class group and a linear register group. Sweeping the
-%  register-group sigma while holding the pitch-class-group sigma fixed
+%  pitch-class group and a linear pitch-height group. Sweeping the
+%  pitch-height-group sigma while holding the pitch-class-group sigma fixed
 %  morphs the similarity profile of a motif against a longer stream
 %  from
 %
-%    * "matches every octave-displaced recurrence equally"  (large sigma_reg)
+%    * "matches every octave-displaced recurrence equally"  (large sigma_ph)
 %    * through graded octave tolerance                      (medium)
-%    * to "matches only the same-register recurrence"       (small sigma_reg).
+%    * to "matches only the same-height recurrence"         (small sigma_ph).
 %
 %  Equivalence with Shepard's model. The factored Gaussian
 %
 %      exp(- d_pc(p1,p2)^2 / (2 sigma_pc^2))
-%    * exp(-  (p1 - p2)^2  / (2 sigma_reg^2))
+%    * exp(-  (p1 - p2)^2  / (2 sigma_ph^2))
 %
 %  is equivalent to a Gaussian kernel of width sigma = sigma_pc on the
-%  pitch-class-cum-register cylinder with stretch
-%  h = sigma_pc/sigma_reg. Shepard's helix itself has no built-in
+%  pitch-class-cum-height cylinder with stretch
+%  h = sigma_pc/sigma_ph. Shepard's helix itself has no built-in
 %  smoothing; this MAET pattern adds it, parametrised naturally in two
 %  pitch-domain sigma values.
 %
@@ -35,7 +35,7 @@
 %  Two parts:
 %
 %    Part 1. Synthetic. A three-note C-major motif stated at four
-%            registers, with non-pitch-class-overlapping filler between
+%            heights, with non-pitch-class-overlapping filler between
 %            instances.
 %
 %    Part 2. Fugal texture in C minor (BWV 847-inspired, stylised; not
@@ -45,8 +45,8 @@
 %
 %  Each part produces three stacked panels:
 %    (a) the event stream,
-%    (b) a similarity heatmap over (time offset, sigma_reg),
-%    (c) three overlaid profile curves at representative sigma_reg
+%    (b) a similarity heatmap over (time offset, sigma_ph),
+%    (c) three overlaid profile curves at representative sigma_ph
 %        values.
 %
 %  Uses: windowedSimilarity (event weighting), transformAttributes.
@@ -57,8 +57,8 @@ clear; clc; close all;
 
 % -- Common --
 SIG_PC           = 30;                               % pc group sigma (cents)
-SIG_REG_SWEEP    = logspace(log10(100), log10(8000), 25);
-SIG_REG_PROFILES = [200, 600, 3000];                 % three overlaid profiles
+SIG_PH_SWEEP    = logspace(log10(100), log10(8000), 25);
+SIG_PH_PROFILES = [200, 600, 3000];                 % three overlaid profiles
 WIN_MIX          = 0.5;                              % rectangular x Gaussian
 
 % -- Part 1 (synthetic) --
@@ -71,24 +71,25 @@ SIG_TIME_2       = 0.08;
 WIN_SIZE_TIME_2  = 12.0;
 OFFSETS_2        = -0.5 : 0.02 : 8.5;
 
-%% === Part 1: synthetic motif at four registers ===
+%% === Part 1: synthetic motif at four heights ===
 
-fprintf('Part 1: synthetic motif at four registers.\n');
+fprintf('Part 1: synthetic motif at four heights.\n');
 [ctx1_midi, ctx1_t, q1_midi, q1_t, motif_idx1, motif_cent1] = buildPart1Stream();
 ctx1_cents = transformAttributes(ctx1_midi, [], {'midi', 'cents'});
 q1_cents   = transformAttributes(q1_midi,   [], {'midi', 'cents'});
 
 heat1 = sweepProfiles(q1_cents, q1_t, ctx1_cents, ctx1_t, ...
-    SIG_PC, SIG_REG_SWEEP, SIG_TIME_1, WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1);
+    SIG_PC, SIG_PH_SWEEP, SIG_TIME_1, WIN_SIZE_TIME_1, WIN_MIX, ...
+    OFFSETS_1, true);
 prof1 = sweepProfiles(q1_cents, q1_t, ctx1_cents, ctx1_t, ...
-    SIG_PC, SIG_REG_PROFILES, SIG_TIME_1, WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1);
+    SIG_PC, SIG_PH_PROFILES, SIG_TIME_1, WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1);
 peak1 = motif_cent1 - mean(q1_t);
-reportPeaks(prof1, OFFSETS_1, SIG_REG_PROFILES, peak1);
+reportPeaks(prof1, OFFSETS_1, SIG_PH_PROFILES, peak1);
 
 figure('Name', 'Helix blend: synthetic', 'Position', [80, 80, 980, 800]);
-plotPart(gcf, 'Helix blend (synthetic): C-E-G at four registers', ...
+plotPart(gcf, 'Helix blend (synthetic): C-E-G at four heights', ...
     ctx1_midi, ctx1_t, motif_idx1, peak1, mean(q1_t), ...
-    heat1, prof1, OFFSETS_1, SIG_REG_SWEEP, SIG_REG_PROFILES, ...
+    heat1, prof1, OFFSETS_1, SIG_PH_SWEEP, SIG_PH_PROFILES, ...
     'motif events (C-E-G)', 'filler events');
 
 %% === Part 2: fugal texture (BWV 847-inspired, stylised) ===
@@ -99,55 +100,68 @@ ctx2_cents = transformAttributes(ctx2_midi, [], {'midi', 'cents'});
 q2_cents   = transformAttributes(q2_midi,   [], {'midi', 'cents'});
 
 heat2 = sweepProfiles(q2_cents, q2_t, ctx2_cents, ctx2_t, ...
-    SIG_PC, SIG_REG_SWEEP, SIG_TIME_2, WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2);
+    SIG_PC, SIG_PH_SWEEP, SIG_TIME_2, WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2);
 prof2 = sweepProfiles(q2_cents, q2_t, ctx2_cents, ctx2_t, ...
-    SIG_PC, SIG_REG_PROFILES, SIG_TIME_2, WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2);
+    SIG_PC, SIG_PH_PROFILES, SIG_TIME_2, WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2);
 peak2 = subj_cent2 - mean(q2_t);
-reportPeaks(prof2, OFFSETS_2, SIG_REG_PROFILES, peak2);
+reportPeaks(prof2, OFFSETS_2, SIG_PH_PROFILES, peak2);
 
 figure('Name', 'Helix blend: fugal texture', 'Position', [120, 120, 980, 800]);
 plotPart(gcf, ['Helix blend (BWV 847-inspired, stylised): ' ...
                'subject in bass, alto, soprano'], ...
     ctx2_midi, ctx2_t, subj_idx2, peak2, mean(q2_t), ...
-    heat2, prof2, OFFSETS_2, SIG_REG_SWEEP, SIG_REG_PROFILES, ...
+    heat2, prof2, OFFSETS_2, SIG_PH_SWEEP, SIG_PH_PROFILES, ...
     'subject events', 'counter-material');
 
 % =====================================================================
 %  Local functions
 % =====================================================================
 
-function reportPeaks(prof, offsets, sigma_regs, true_peaks)
-%REPORTPEAKS  Print, per profile sigma_reg, the similarity at each true
-%   statement offset: as sigma_reg widens, octave-displaced statements
-%   rise from near zero towards the same-register value of 1.
-    for i = 1:numel(sigma_regs)
+function reportPeaks(prof, offsets, sigma_phs, true_peaks)
+%REPORTPEAKS  Print, per profile sigma_ph, the similarity at each true
+%   statement offset: as sigma_ph widens, octave-displaced statements
+%   rise from near zero towards the same-height value of 1.
+    for i = 1:numel(sigma_phs)
         vals = zeros(1, numel(true_peaks));
         for k = 1:numel(true_peaks)
             [~, j] = min(abs(offsets - true_peaks(k)));
             vals(k) = prof(i, j);
         end
-        fprintf('  sigma_reg = %6.0f cents: similarity at the statements = %s\n', ...
-            sigma_regs(i), strjoin(arrayfun(@(v) sprintf('%.4f', v), vals, 'UniformOutput', false), ', '));
+        fprintf('  sigma_ph = %6.0f cents: similarity at the statements = %s\n', ...
+            sigma_phs(i), strjoin(arrayfun(@(v) sprintf('%.4f', v), vals, 'UniformOutput', false), ', '));
     end
 end
 
-function [pAttr, sigma] = helixSurface(pitch_cents, time_sec, sigma_pc, sigma_reg, sigma_time)
-%HELIXSURFACE  Pre-build (pAttr, sigma) with pitch routed through two attributes plus time.
+function pm = helixPreMaet(pitch_cents, time_sec, sigma_pc, sigma_time)
+%HELIXPREMAET  The same pitch values routed through two attributes, plus time.
 %
-%   Attributes: (pitch, pitch, time), read as (pc, reg, time): the first
+%   Attributes: (pitch, pitch, time), read as (pc, ph, time): the first
 %   pitch copy is periodic at 1200 cents, the second and the time axis
-%   are linear. All r = 1. The remaining per-attribute geometry (r,
-%   isRel, isPer, period) is fixed in sweepProfiles.
+%   are linear. All r = 1.
+%
+%   The pre-MAET carries its own geometry, so nothing has to be threaded
+%   alongside it. The pitch-height width is left at NaN -- NA, the value
+%   the sweep supplies -- since it is the one parameter that varies and
+%   no baseline for it would be honest.
     p = pitch_cents(:).';
     t = time_sec(:).';
-    pAttr = {p, p, t};
-    sigma = [sigma_pc, sigma_reg, sigma_time];
+    n = numel(p);
+    specs = {struct('name', 'pitch class',  'r', 1, 'rel', false, ...
+                    'sym', true, 'sigma', sigma_pc,   'isPer', true, ...
+                    'period', 1200), ...
+             struct('name', 'pitch height', 'r', 1, 'rel', false, ...
+                    'sym', true, 'sigma', NaN,        'isPer', false, ...
+                    'period', 0), ...
+             struct('name', 'time',         'r', 1, 'rel', false, ...
+                    'sym', true, 'sigma', sigma_time, 'isPer', false, ...
+                    'period', 0)};
+    pm = preMaet({p, p, t}, {ones(1, n), ones(1, n), ones(1, n)}, specs);
 end
 
 function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
-                              sigma_pc, sigma_reg_values, sigma_time, ...
-                              win_size_time, win_mix, offsets)
-%SWEEPPROFILES  Return a length(sigma_reg_values) x length(offsets) array
+                              sigma_pc, sigma_ph_values, sigma_time, ...
+                              win_size_time, win_mix, offsets, showInput)
+%SWEEPPROFILES  Return a length(sigma_ph_values) x length(offsets) array
 %   of windowed-similarity profiles (a cross-correlation of the query
 %   against the time-windowed context).
 %
@@ -159,16 +173,12 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
 %   and shape win_mix (0 Gaussian, 1 rectangular).
 
     % Acquire a top-level dispatch scope for the duration of the
-    % per-sigma_reg loop, so the dispatch-announce throttle deduplicates
+    % per-sigma_ph loop, so the dispatch-announce throttle deduplicates
     % the cosine path's announce across the sweep rather than re-emitting
     % it per iteration. See internal.dispatchScope.
     guard = internal.dispatchScope(); %#ok<NASGU>
 
-    r      = [1, 1, 1];
-    isRel  = [false, false, false];
-    isPer  = [true,  false, false];
-    period = [1200, 0, 0];
-    TIME   = 3;                                  % the swept (window) axis
+    TIME = 3;                                    % the swept (window) axis
 
     % The window family has fixed variance sd^2 for every shape; the
     % width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
@@ -179,17 +189,25 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
     % offset is the position relative to the query's time centroid.
     centres = offsets(:).' + mean(q_t);
 
-    nS = numel(sigma_reg_values);
-    N  = numel(offsets);
-    prof = zeros(nS, N);
-    wq = {ones(1, numel(q_t)), ones(1, numel(q_t)), ones(1, numel(q_t))};
-    wc = {ones(1, numel(c_t)), ones(1, numel(c_t)), ones(1, numel(c_t))};
+    % Only the pitch-height width varies across the sweep, so the two
+    % pre-MAETs are built once and each call names that one parameter.
+    % A selective override -- the entries left empty keep what the spec
+    % carries -- says exactly that, and the pre-MAETs are unchanged by
+    % it. The table below shows sigma = NA on the swept attribute, the
+    % value each call supplies.
+    pmQ = helixPreMaet(q_cents, q_t, sigma_pc, sigma_time);
+    pmC = helixPreMaet(c_cents, c_t, sigma_pc, sigma_time);
+
+    if nargin >= 11 && showInput
+        showPreMaet(pmC, 'maxEvents', 4);
+        fprintf('\n');
+    end
+
+    nS = numel(sigma_ph_values);
+    prof = zeros(nS, numel(offsets));
     for i = 1:nS
-        sr = sigma_reg_values(i);
-        [pq, sigma] = helixSurface(q_cents, q_t, sigma_pc, sr, sigma_time);
-        pc          = helixSurface(c_cents, c_t, sigma_pc, sr, sigma_time);
-        prof(i, :) = windowedSimilarity(pc, wc, pq, wq, ...
-            sigma, r, isRel, isPer, period, centres, ...
+        prof(i, :) = windowedSimilarity(pmC, pmQ, centres, ...
+            'sigma', {[], sigma_ph_values(i), []}, ...
             'windowAttr', TIME, 'dropWindowAttr', false, ...
             'contextWindow', contextWindow, 'locate', 'centroid', ...
             'normalize', 'oneSidedDenom', 'verbose', false);
@@ -197,18 +215,18 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
 end
 
 function [ctx_midi, ctx_t, q_midi, q_t, motif_idx, motif_cent] = buildPart1Stream()
-%BUILDPART1STREAM  Three-note motif at four registers with non-overlapping filler.
+%BUILDPART1STREAM  Three-note motif at four heights with non-overlapping filler.
     motif_midi_ref  = [60, 64, 67];        % C4 E4 G4
     filler_midi_ref = [62, 65, 69];        % D4 F4 A4 (disjoint pc's)
-    regs_st         = [0, 12, -12, 24];
+    heights_st         = [0, 12, -12, 24];
     dt              = 0.5;
 
     ctx_midi  = [];
     ctx_t     = [];
     motif_idx = [];
     t = 0;
-    for k = 1:numel(regs_st)
-        shift_st = regs_st(k);
+    for k = 1:numel(heights_st)
+        shift_st = heights_st(k);
         for fp = filler_midi_ref
             ctx_midi(end+1) = fp + shift_st; %#ok<AGROW>
             ctx_t(end+1)    = t;             %#ok<AGROW>
@@ -226,15 +244,15 @@ function [ctx_midi, ctx_t, q_midi, q_t, motif_idx, motif_cent] = buildPart1Strea
     q_t    = (0 : numel(motif_midi_ref) - 1) * dt;
 
     per_entry = numel(motif_midi_ref);
-    motif_cent = zeros(1, numel(regs_st));
-    for k = 1:numel(regs_st)
+    motif_cent = zeros(1, numel(heights_st));
+    for k = 1:numel(heights_st)
         ii = motif_idx((k-1)*per_entry + 1 : k*per_entry);
         motif_cent(k) = mean(ctx_t(ii));
     end
 end
 
 function [ctx_midi, ctx_t, q_midi, q_t, subj_idx, subj_cent] = buildPart2Stream()
-%BUILDPART2STREAM  Six-note subject at three registers, short counter-material between.
+%BUILDPART2STREAM  Six-note subject at three heights, short counter-material between.
     subj_ref = [60, 63, 65, 63, 62, 60];       % C Eb F Eb D C
     cnt1     = [57, 55, 53];                   % A3 G3 F3
     cnt2     = [74, 72, 70];                   % D5 C5 Bb4
@@ -282,7 +300,7 @@ end
 
 function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
                   peak_offsets, query_centroid_t, ...
-                  heat, prof, offsets, sigma_reg_sweep, sigma_reg_profiles, ...
+                  heat, prof, offsets, sigma_ph_sweep, sigma_ph_profiles, ...
                   label_marked, label_unmarked)
 %PLOTPART  All three panels share the "query offset" x-axis:
 %
@@ -340,15 +358,15 @@ function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
 
     % (b) Heatmap
     cmax = max(max(heat(:)), 1e-3);
-    y_idx = 1:numel(sigma_reg_sweep);
+    y_idx = 1:numel(sigma_ph_sweep);
     imagesc(ax2, offsets, y_idx, heat);
     caxis(ax2, [0, cmax]);
     set(ax2, 'YDir', 'normal');
     colormap(ax2, parula);
 
-    log_sw = log(sigma_reg_sweep);
+    log_sw = log(sigma_ph_sweep);
     cand = [100, 200, 500, 1000, 2000, 5000];
-    ytick_vals = cand(cand >= min(sigma_reg_sweep) & cand <= max(sigma_reg_sweep));
+    ytick_vals = cand(cand >= min(sigma_ph_sweep) & cand <= max(sigma_ph_sweep));
     ytick_pos  = interp1(log_sw, y_idx, log(ytick_vals));
     set(ax2, 'YTick', ytick_pos, ...
         'YTickLabel', arrayfun(@(v) sprintf('%g', v), ytick_vals, ...
@@ -358,14 +376,14 @@ function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
     for po = peak_offsets
         xline(ax2, po, '--', 'Color', 'w', 'LineWidth', 0.7);
     end
-    for spv = sigma_reg_profiles
+    for spv = sigma_ph_profiles
         spv_idx = interp1(log_sw, y_idx, log(spv));
         yline(ax2, spv_idx, ':', 'Color', 'w', 'LineWidth', 0.6);
     end
-    ylabel(ax2, '\sigma_{reg} (cents)');
+    ylabel(ax2, '\sigma_{ph} (cents)');
     cb = colorbar(ax2, 'Position', [CBAR_L, ROW_B_Y, CBAR_W, ROW_B_H]);
     cb.Label.String = 'windowed similarity';
-    title(ax2, '(b) Similarity heatmap over (offset, \sigma_{reg})');
+    title(ax2, '(b) Similarity heatmap over (offset, \sigma_{ph})');
     xlim(ax2, [offsets(1), offsets(end)]);
 
     % (c) Three overlaid profiles
@@ -373,10 +391,10 @@ function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
     cols = [0.12, 0.31, 0.72;
             0.17, 0.54, 0.24;
             0.76, 0.31, 0.03];
-    legendStrs = cell(1, numel(sigma_reg_profiles));
-    for i = 1:numel(sigma_reg_profiles)
+    legendStrs = cell(1, numel(sigma_ph_profiles));
+    for i = 1:numel(sigma_ph_profiles)
         plot(ax3, offsets, prof(i, :), 'LineWidth', 1.7, 'Color', cols(i, :));
-        legendStrs{i} = sprintf('\\sigma_{reg} = %g cents', sigma_reg_profiles(i));
+        legendStrs{i} = sprintf('\\sigma_{ph} = %g cents', sigma_ph_profiles(i));
     end
     for po = peak_offsets
         xline(ax3, po, '--', 'Color', [0.53, 0.53, 0.53], 'LineWidth', 0.7);
@@ -386,7 +404,7 @@ function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
     legend(ax3, legendStrs, ...
         'Position', [LEG_L, ROW_C_Y + ROW_C_H - 0.095, LEG_W, 0.085], ...
         'FontSize', 9);
-    title(ax3, '(c) Profiles at three representative \sigma_{reg}');
+    title(ax3, '(c) Profiles at three representative \sigma_{ph}');
     xlim(ax3, [offsets(1), offsets(end)]);
 
     % Hide x-tick labels on top panels, link x-limits

@@ -17,7 +17,7 @@ tol = 1e-9;
 % --- structure: groups 3,2,1,4 -> Lmax=4, nPrime=4, rOuter=min=1 ----------
 pitch = [60 64 67 62 65 60 59 62 67 71];
 onset = [0 0 0 1 1 2 3 3 3 3];
-[pb, wb, sp] = bindEvents({pitch, onset}, [], [], 'groupBy', 2);
+[pb, wb, sp] = unpackPreMaet(bindEvents({pitch, onset}, [], [], 'groupBy', 2));
 okShape = isequal(size(pb{1}), [4, 4]);
 okR     = isequal(sp{1}.r, [1 1]);
 okPad   = isequal(sum(isnan(pb{1}), 1), [1 2 3 0]);
@@ -28,11 +28,11 @@ results(end+1, :) = {'run-length structure (sizes 3/2/1/4)', ...
 % --- rOuter defaults to smallest group size ------------------------------
 onset2 = [0 0 0 0 0 0 1 1 1 1 2 2 2 2 2];   % sizes 6,4,5 -> min 4
 pit2 = 60:74;
-[~, ~, sp2] = bindEvents({pit2, onset2}, [], [], 'groupBy', 2);
+[~, ~, sp2] = unpackPreMaet(bindEvents({pit2, onset2}, [], [], 'groupBy', 2));
 results(end+1, :) = {'rOuter defaults to min group size', sp2{1}.r(2) == 4}; %#ok<SAGROW>
 
 % --- self-similarity = 1 on a ragged density -----------------------------
-[pb3, wb3, sp3] = bindEvents({pit2, onset2}, [], [], 'groupBy', 2, 'rOuter', 4, 'symOuter', true);
+[pb3, wb3, sp3] = unpackPreMaet(bindEvents({pit2, onset2}, [], [], 'groupBy', 2, 'rOuter', 4, 'symOuter', true));
 d3 = buildExpTens(pb3, wb3, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp3, 'verbose', false);
 s3 = cosSimExpTens(d3, d3, 'verbose', false);
 results(end+1, :) = {'ragged self-similarity == 1', abs(s3 - 1) < tol}; %#ok<SAGROW>
@@ -40,13 +40,13 @@ results(end+1, :) = {'ragged self-similarity == 1', abs(s3 - 1) < tol}; %#ok<SAG
 % --- large-tuple-size ragged smoke (orbit path carries it) ---------------------
 onset4 = [zeros(1,7), ones(1,6), 2*ones(1,8)];   % sizes 7,6,8 -> min 6
 pit4 = 60 + (0:numel(onset4)-1);
-[pb4, wb4, sp4] = bindEvents({pit4, onset4}, [], [], 'groupBy', 2, 'rOuter', 6, 'symOuter', true);
+[pb4, wb4, sp4] = unpackPreMaet(bindEvents({pit4, onset4}, [], [], 'groupBy', 2, 'rOuter', 6, 'symOuter', true));
 d4 = buildExpTens(pb4, wb4, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp4, 'verbose', false);
 s4 = cosSimExpTens(d4, d4, 'verbose', false);
 results(end+1, :) = {'large-tuple-size ragged self-similarity == 1', abs(s4 - 1) < tol}; %#ok<SAGROW>
 
 % --- consecutive runs, not global grouping -------------------------------
-[pbc, ~, ~] = bindEvents({[60 61 62 63], [0 0 1 0]}, [], [], 'groupBy', 2);
+[pbc, ~, ~] = unpackPreMaet(bindEvents({[60 61 62 63], [0 0 1 0]}, [], [], 'groupBy', 2));
 results(end+1, :) = {'consecutive runs (0,0,1,0 -> 3 groups)', size(pbc{1}, 2) == 3}; %#ok<SAGROW>
 
 % --- validation ----------------------------------------------------------

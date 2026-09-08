@@ -119,7 +119,7 @@ print("=== 3. translate_attributes (offset sweep) ===")
 # "sweep pitch by these values; sweep time by these values".
 offsets = [P_mesh.reshape(1, -1),     # pitch shifts (attribute 0)
            T_mesh.reshape(1, -1)]     # time  shifts (attribute 1)
-qry_pAttr_swept, _, _ = mpt.translate_attributes(qry_pAttr, None, offsets)
+qry_pAttr_swept, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(qry_pAttr, None, offsets))
 
 # The returned list of translated copies carries its offsets with it (a
 # TranslatedSweep), so cos_sim_exp_tens below can recognise the sweep;
@@ -202,6 +202,12 @@ print("=== 6. Equivalent explicit build loop ===")
 print("  This is what the raw-MA list mode does internally; spelled")
 print("  out here so the relationship between translate_attributes,")
 print("  build_exp_tens, and cos_sim_exp_tens is transparent.")
+print()
+
+mpt.show_pre_maet(ref_pAttr, None, names=['pitch', 'time'], sigma=sigma,
+                  is_rel=is_rel, is_per=is_per, period=periods)
+mpt.show_pre_maet(qry_pAttr_swept[0], None, names=['pitch', 'time'],
+                  sigma=sigma, is_rel=is_rel, is_per=is_per, period=periods)
 print()
 
 dens_ref = mpt.build_exp_tens(

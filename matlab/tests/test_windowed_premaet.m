@@ -44,11 +44,11 @@ for k = 1:size(methodsShapes, 1)
     ref = zeros(1, numel(centres));
     for i = 1:numel(centres)
         if shape == 1.0
-            [pw, ww] = weightEvents(pAttr, [], 2, 1, centres(i), shape, ...
-                'width', WW, 'dropInputAttr', true);
+            [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), shape, ...
+                'width', WW, 'dropInputAttr', true));
         else
-            [pw, ww] = weightEvents(pAttr, [], 2, 1, centres(i), shape, ...
-                'sd', SD, 'dropInputAttr', true);
+            [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), shape, ...
+                'sd', SD, 'dropInputAttr', true));
         end
         dens = buildExpTens(pw, ww, SIGP, 1, false, false, 0.0, 'verbose', false);
         ref(i) = entropyExpTens(dens, 'method', method, 'verbose', false);
@@ -64,8 +64,8 @@ end
 % ----- 2. entropy, retain the time axis (joint pitch-time renyi2) --------
 ref = zeros(1, numel(centres));
 for i = 1:numel(centres)
-    [pw, ww] = weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
-        'width', WW, 'dropInputAttr', false);
+    [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
+        'width', WW, 'dropInputAttr', false));
     dens = buildExpTens(pw, ww, [SIGP, SIGT], [1, 1], [false, false], ...
         [false, false], [0.0, 0.0], 'verbose', false);
     ref(i) = entropyExpTens(dens, 'method', 'renyi2', 'verbose', false);
@@ -81,10 +81,10 @@ for nm = {'oneSidedDenom', 'cosine'}
     normalize = nm{1};
     ref = zeros(1, numel(centres));
     for i = 1:numel(centres)
-        [pc, wc] = weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
-            'width', qExt, 'dropInputAttr', false);
+        [pc, wc] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
+            'width', qExt, 'dropInputAttr', false));
         offs = {[], centres(i) - muQ};
-        [pq, wq] = translateAttributes(query, [], offs);
+        [pq, wq] = unpackPreMaet(translateAttributes(query, [], offs));
         ref(i) = cosSimExpTens(pc, wc, pq, wq, [SIGP, SIGT], [1, 1], ...
             [false, false], [false, false], [0.0, 0.0], ...
             'normalize', normalize, 'verbose', false);
@@ -107,7 +107,7 @@ for ia = 1:numel(anchors)
     pc = {pitch(keep), onset(keep)};
     for it = 1:numel(tau)
         offs = {[], (a - tau(it)) - muQ};
-        [pq, wq] = translateAttributes(query, [], offs);
+        [pq, wq] = unpackPreMaet(translateAttributes(query, [], offs));
         ref(ia, it) = cosSimExpTens(pc, [], pq, wq, [SIGP, SIGT], [1, 1], ...
             [false, false], [false, false], [0.0, 0.0], ...
             'normalize', 'oneSidedDenom', 'verbose', false);
@@ -185,8 +185,8 @@ results(end+1, :) = {'windowedSimilarity single == one-entry sweep', ok}; %#ok<S
 % ----- 8. multi-axis two-axis map (pitch swept+compared, time dropped) ---
 patP = [60, 63, 60, 65]; patT = [0, 0.5, 1.5, 2.0];
 PP = [patP, patP + 5]; TT = [patT, patT + 10];
-[pb8, wb8, sb8] = bindEvents({PP, TT}, [], [4, 4], 'step', 1, 'relOuter', [false, false]);
-[qb8, qw8, ~]   = bindEvents({patP, patT}, [], [4, 4], 'step', 1, 'relOuter', [false, false]);
+[pb8, wb8, sb8] = unpackPreMaet(bindEvents({PP, TT}, [], [4, 4], 'step', 1, 'relOuter', [false, false]));
+[qb8, qw8, ~]   = unpackPreMaet(bindEvents({patP, patT}, [], [4, 4], 'step', 1, 'relOuter', [false, false]));
 R8 = windowedSimilarity(pb8, wb8, qb8, qw8, [SIGP, SIGT], [1, 1], [false, false], ...
     [false, false], [0.0, 0.0], 'sweep', {2, [1.0, 11.0]; 1, [62.0, 67.0]}, ...
     'drop', {2, true; 1, false}, 'specs', sb8, 'verbose', false);
@@ -195,7 +195,7 @@ ok = isequal(size(R8), [2, 2]) && R8(1,1) > 0.99 && R8(2,2) > 0.99 ...
 results(end+1, :) = {'windowedSimilarity two-axis map', ok}; %#ok<SAGROW>
 
 % ----- 9. locate is wired (centroid vs start peak at different centres) --
-[qb9, qw9, qs9] = bindEvents({[60, 64], [0.0, 0.6]}, [], [1, 2], 'step', 1, 'relOuter', [false, false]);
+[qb9, qw9, qs9] = unpackPreMaet(bindEvents({[60, 64], [0.0, 0.6]}, [], [1, 2], 'step', 1, 'relOuter', [false, false]));
 cc9 = linspace(-0.4, 0.7, 12);
 common9 = {'windowAttr', 2, 'dropWindowAttr', false, 'contextWindow', {1.0, 1.5}, ...
            'normalize', 'cosine', 'specs', qs9, 'verbose', false};

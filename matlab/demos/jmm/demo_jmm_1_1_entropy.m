@@ -16,7 +16,7 @@
 % How it is computed. Every grid-point chord is spectrally augmented
 % (addSpectra: twelve harmonics with 1/n roll-off), so the pitch
 % attribute carries 48 partials per event. The chorale is then a two-
-% attribute pre-MAET carrier (pitch, time). windowedEntropy sweeps a
+% attribute pre-MAET (pitch, time). windowedEntropy sweeps a
 % window along the time attribute: at each centre the events are
 % reweighted by the window (weightEvents under the hood, the window
 % factor multiplied into the pitch weights), the time axis is dropped, and
@@ -67,7 +67,7 @@ fprintf('Loading BWV 347 and expanding partials...\n');
 [times, pitchesSatb, ~] = jmm.bwv347Grid();
 N = numel(times);
 tEnd = times(end) + 0.25;
-pitchesCents = pitchesSatb * 100.0;           % (N, 4)
+pitchesCents = transformAttributes(pitchesSatb, [], {'midi', 'cents'});           % (N, 4)
 K = 4 * H_PARTIALS;                           % 48 partials per event
 
 % addSpectra operates on one weighted multiset (one event) at a time, so
@@ -84,6 +84,10 @@ end
 % Pitch is attribute 1, time is attribute 2.
 pAttrPre = {pPartials.', times};
 wPre = {wPartials.', ones(1, N)};
+
+showPreMaet(pAttrPre, wPre, [], 'names', {'pitch', 'time'}, ...
+    'sigma', [SIGMA_PITCH, 1.0], 'isPer', [false false], ...
+    'maxEvents', 4, 'maxElements', 4, 'decimals', 2);
 
 % ---------------------------------------------------------------------------
 % Compute differential entropy at each event time

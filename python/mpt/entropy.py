@@ -12,6 +12,7 @@ from ._utils import kernel_chunk_bytes_resolved, maybe_print_batched_estimate
 from ._defaults import _with_dispatch_scope
 from .spectra import add_spectra
 from ._tensor.density import is_single_multiset
+from ._tensor.premaet import is_pre_maet, unpack_pre_maet
 from .tensor import (
     MaetDensity,
     bind_events,
@@ -474,10 +475,25 @@ def entropy_exp_tens(
     ('shannon', 'normalized') require an explicit ``n_points_per_dim``
     (no toolbox-wide default).
 
-    Input forms (Shannon and normalized support all; differential and
-    Rényi-2 support only scalar forms — pre-built density, raw single-multiset
-    scalar, raw MA scalar — and raise ``NotImplementedError`` on list
-    or batched forms):
+    Input forms, in the order to reach for them: a single multiset; a
+    pre-MAET, the canonical entry for everything else; a density built by
+    :func:`build_exp_tens`; then the raw positional multi-attribute and
+    batched forms. (Shannon and normalized support all; differential and
+    Rényi-2 support only the scalar forms — single multiset, pre-MAET,
+    pre-built density, raw MA scalar — and raise ``NotImplementedError``
+    on list or batched forms.)
+
+    **Raw single-multiset scalar input**:
+
+    - ``entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period)``.
+      Returns a Python float. Optional ``spectrum``.
+
+    **Pre-MAET input**:
+
+    - ``entropy_exp_tens(pm)``. A pre-MAET (:func:`~mpt.pre_maet`)
+      holds everything :func:`build_exp_tens` needs, so it stands
+      wherever a density does: it is built internally and no further
+      positional arguments are required.
 
     **Pre-built density input**:
 
@@ -486,10 +502,11 @@ def entropy_exp_tens(
     - ``entropy_exp_tens([d1, d2, …])`` — list of densities
       (Shannon/normalized only). Returns ``(M,)`` ndarray.
 
-    **Raw single-multiset scalar input**:
+    **Raw multi-attribute scalar input**:
 
-    - ``entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period)``.
-      Returns a Python float. Optional ``spectrum``.
+    - ``entropy_exp_tens(p_attr, w_attr, sigma_vec, r_vec,
+      is_rel_vec, is_per_vec, period_vec)``, with ``w_attr`` the
+      per-attribute weights. Returns a Python float.
 
     **Raw single-multiset batched input** (Shannon/normalized only):
 
@@ -497,11 +514,6 @@ def entropy_exp_tens(
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
       Returns ``(M,)``. Optional ``spectrum``, ``precision``,
       ``dedup``.
-
-    **Raw multi-attribute scalar input**:
-
-    - ``entropy_exp_tens(p_attr, w, sigma_vec, r_vec,
-      is_rel_vec, is_per_vec, period_vec)``. Returns a Python float.
 
     Parameters
     ----------
@@ -579,6 +591,18 @@ def entropy_exp_tens(
     For ``method='shannon'``, accuracy is set by the grid resolution
     ``n_points_per_dim`` and is independent of the Möbius method.
     """
+    # A whole pre-MAET stands wherever a density does: it holds
+    # everything build_exp_tens needs, so it is built here. A list of
+    # them stands wherever a list of densities does.
+    if is_pre_maet(p_or_dens):
+        from ._tensor.build import build_exp_tens
+        p_or_dens = build_exp_tens(p_or_dens, verbose=verbose)
+    elif (isinstance(p_or_dens, (list, tuple))
+          and any(is_pre_maet(x) for x in p_or_dens)):
+        from ._tensor.build import build_exp_tens
+        p_or_dens = [build_exp_tens(x, verbose=verbose) if is_pre_maet(x) else x
+                     for x in p_or_dens]
+
     # Detect the legacy normalize kwarg (removed in v3) and emit a
     # migration error pointing to the four-method API. Other unknown
     # kwargs surface as a standard TypeError.
@@ -1979,13 +2003,13 @@ def n_tuple_entropy(
     # kernel handles mod-period wrapping at evaluation time, so no explicit
     # mod is needed here.
     p_row = p.astype(np.float64).reshape(1, -1)
-    p_diff_list, _, _ = difference_events(
+    p_diff_list, _, _ = unpack_pre_maet(difference_events(
         [p_row], None, 1, circular=True,
-    )
+    ))
     diffs_row = p_diff_list[0]
-    p_step, w_step, step_specs = bind_events(
+    p_step, w_step, step_specs = unpack_pre_maet(bind_events(
         [diffs_row], None, n, circular=True,
-    )
+    ))
     tuples_out = p_step[0].T
 
     sigma_use = sigma if sigma > 0 else 1e-12
@@ -2011,9 +2035,9 @@ def n_tuple_entropy(
         # covariance is needed. Exact at every n; at sigma = 0 it reduces to
         # the integer step histogram, matching 'interval' and Milne & Dean
         # (2016).
-        p_win, w_win, win_specs = bind_events(
+        p_win, w_win, win_specs = unpack_pre_maet(bind_events(
             [p_row], None, n + 1, circular=True,
-        )
+        ))
         # Two nesting levels: inner singleton pitch, outer window of n+1
         # pitches. Take the outer window relative, inner absolute. The inner
         # singleton's flags are inert (Section "Sigma semantics"), so the

@@ -1,6 +1,22 @@
 function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %COSSIMEXPTENS Cosine similarity of two r-ad expectation tensor densities.
 %
+%   Input forms, in the order to reach for them: a single multiset;
+%   a pre-MAET, the canonical entry for everything else; densities
+%   built by buildExpTens; then the raw positional multi-attribute,
+%   batched, and list forms.
+%
+%   s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period):
+%   s = cosSimExpTens(..., 'verbose', false):
+%   Cosine similarity from raw arguments (builds density structs
+%   internally via buildExpTens).
+%
+%   s = cosSimExpTens(pm1, pm2):
+%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildExpTens
+%   needs, so it stands wherever a density does: each side is built
+%   internally and a scalar returned. Either side may equally be a
+%   density, so the two forms mix freely.
+%
 %   s = cosSimExpTens(dens_x, dens_y):
 %   s = cosSimExpTens(dens_x, dens_y, 'verbose', false):
 %   Cosine similarity using precomputed density structs from buildExpTens.
@@ -32,10 +48,30 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   applied internally across the sweep, so no threading is needed
 %   there.
 %
-%   s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period):
-%   s = cosSimExpTens(..., 'verbose', false):
-%   Cosine similarity from raw arguments (builds density structs
-%   internally via buildExpTens).
+%   s = cosSimExpTens(pAttr1, wAttr1, pAttr2, wAttr2, sigma, r, ...
+%                     isRel, isPer, periods):
+%   Raw multi-attribute mode. pAttr1 and pAttr2 are each a 1-by-A
+%   cell of K_a-by-N value matrices, and wAttr1 and wAttr2 the
+%   matching per-attribute weights (the same shapes one would pass
+%   to buildExpTens). Builds the two MaetDensity structs internally
+%   and returns a scalar.
+%
+%   sCell = cosSimExpTens(refPAttr, refWAttr, {pAttrA, pAttrB, ...}, ...
+%                          qryWAttr, sigma, r, isRel, isPer, periods):
+%   Raw multi-attribute scalar-vs-list mode (sweep). Exactly one of
+%   the two pAttr arguments is a cell-of-cells (a 1-by-M cell whose
+%   entries are themselves 1-by-A pAttr cells, e.g. the matrix-form
+%   output of translateAttributes); the other is a single 1-by-A pAttr
+%   cell. The scalar operand is built once; the list operand is
+%   built once per entry. Weights for the list side are shared
+%   across every entry (a single wAttr value, not a cell of weights).
+%   Returns a 1-by-M cell of similarity scalars.
+%
+%   s = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period):
+%   Batched-raw mode. At least one of P1, P2 is an M-by-K
+%   matrix (both dimensions > 1); the function returns an M-by-1
+%   vector of similarities. Pass [] for W1 or W2 to use uniform
+%   weights. Equivalent to batchCosSimExpTens (which is now deprecated).
 %
 %   sCell = cosSimExpTens({d_x_1, ..., d_x_n}, {d_y_1, ..., d_y_n}):
 %   List mode. Iterates over paired entries of two cell arrays of
@@ -53,30 +89,6 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   against many" without first wrapping the reference in {ref} on the
 %   call site.
 %
-%   s = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period):
-%   Batched-raw mode. At least one of P1, P2 is an M-by-K
-%   matrix (both dimensions > 1); the function returns an M-by-1
-%   vector of similarities. Pass [] for W1 or W2 to use uniform
-%   weights. Equivalent to batchCosSimExpTens (which is now deprecated).
-%
-%   s = cosSimExpTens(pAttr1, w1, pAttr2, w2, sigma, r, ...
-%                     isRel, isPer, periods):
-%   Raw multi-attribute mode. pAttr1 and pAttr2 are each a 1-by-A
-%   cell of K_a-by-N value matrices (the same shape one would pass
-%   to buildExpTens). Builds the two MaetDensity structs internally
-%   and returns a scalar.
-%
-%   sCell = cosSimExpTens(refPAttr, refW, {pAttrA, pAttrB, ...}, qryW, ...
-%                          sigma, r, isRel, isPer, periods):
-%   Raw multi-attribute scalar-vs-list mode (sweep). Exactly one of
-%   the two pAttr arguments is a cell-of-cells (a 1-by-M cell whose
-%   entries are themselves 1-by-A pAttr cells, e.g. the matrix-form
-%   output of translateAttributes); the other is a single 1-by-A pAttr
-%   cell. The scalar operand is built once; the list operand is
-%   built once per entry. Weights for the list side are shared
-%   across every entry (a single w value, not a cell of weights).
-%   Returns a 1-by-M cell of similarity scalars.
-%
 %   Broadcasting. If one operand is a vector of length K
 %   (1-by-K, K-by-1, or 1-D) and the other is M-by-K with M > 1, the
 %   vector is broadcast across the matrix's M rows, in NumPy / MATLAB
@@ -88,9 +100,9 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   Multiset-argument shapes (each operand takes the same shape on both
 %   sides; subscript 1 / 2 selects which operand):
 %     p1, p2          — Vectors of length K_1, K_2 (may differ). single multiset raw
-%                       form (single multiset, single-attribute).
+%                       form (a single multiset).
 %     P1, P2          — nRows-by-K matrices, both dimensions > 1.
-%                       BATCHED-RAW form (rows are independent single-attribute-style
+%                       BATCHED-RAW form (rows are independent single-multiset-style
 %                       multisets, processed in lockstep; returns an
 %                       nRows-by-1 vector of per-row similarities).
 %     pAttr1, pAttr2  — 1-by-A cells of K_a-by-N matrices. MA raw form
@@ -148,7 +160,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %
 %   Inputs (BATCHED-RAW calling convention):
 %     P1, P2 — nRows-by-K matrices of pitch or position values (rows
-%              are independent single-attribute-style multisets, paired between P1
+%              are independent single multisets, paired between P1
 %              and P2). At least one of P1, P2 must have both
 %              dimensions > 1; the other may be a length-K vector that
 %              is broadcast against the matrix's rows.
@@ -163,7 +175,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                       buildExpTens). For the scalar-vs-list sweep
 %                       form, exactly one of these is a 1-by-M cell of
 %                       such cells; the other is a single pAttr cell.
-%     w1, w2          — Weights paired with pAttr1, pAttr2 (see
+%     wAttr1, wAttr2  — Weights paired with pAttr1, pAttr2 (see
 %                       buildExpTens for the accepted shapes). Shared
 %                       across every list entry in the sweep form.
 %     sigmaVec        — 1-by-G per-group Gaussian widths.
@@ -286,6 +298,10 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 % overhead vs the previous separate dispatchScope() + pinForCall()
 % pair. See internal.callGuard.
 guard = internal.callGuard(); %#ok<NASGU>
+
+% A whole pre-MAET stands wherever a density does, and a cell of them
+% wherever a cell of densities does.
+varargin = internal.buildPreMaetArgs(varargin);
 
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'
@@ -450,7 +466,7 @@ end
 %     - either operand iscell                -> LIST (early return).
 %     - otherwise                            -> usage error.
 %
-%   nArgs == 9:  single-attribute raw form (vectors), with optional
+%   nArgs == 9:  single-multiset raw form (vectors), with optional
 %                batched-raw lift.
 %     - either operand iscell                -> "use 10 args" error.
 %     - both numeric:
@@ -472,7 +488,7 @@ USAGE_MSG = ['Usage:\n' ...
     '  single multiset struct:    cosSimExpTens(dens_x, dens_y [, ''verbose'', tf])\n' ...
     '  single multiset raw args:  cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
     '  MA struct:    cosSimExpTens(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
-    '  MA raw args:  cosSimExpTens(pAttr1, w1, pAttr2, w2, sigmaVec, rVec, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
+    '  MA raw args:  cosSimExpTens(pAttr1, wAttr1, pAttr2, wAttr2, sigmaVec, rVec, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
     '  List mode:    cosSimExpTens({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
     '  Batched raw:  cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period) -> vector of values\n' ...
     '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).'];

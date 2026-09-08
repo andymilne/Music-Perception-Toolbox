@@ -35,8 +35,8 @@ rwTime9  = 0:8;
 % --- 1. On-pulse centre: width N keeps exactly N pulses ---------------
 rwOk = true;
 for rwW = 1:5
-    [~, rwWc, ~] = weightEvents({rwPitch9, rwTime9}, [], 2, 1, 4, 1, ...
-                                'width', rwW, 'dropInputAttr', false);
+    [~, rwWc, ~] = unpackPreMaet(weightEvents({rwPitch9, rwTime9}, [], 2, 1, 4, 1, ...
+                                'width', rwW, 'dropInputAttr', false));
     rwOk = rwOk && (nnz(rwWc{1}) == rwW);
 end
 results{end+1, 1} = 'rectWindow: width N keeps exactly N pulses (on-pulse centre)'; %#ok<*AGROW>
@@ -45,15 +45,15 @@ results{end, 2}   = rwOk;
 % --- 2. Between-pulse centre is not empty -----------------------------
 %  Midway between pulses 3 and 4; width 1 keeps the lower-edge pulse,
 %  not zero (the closed-interval degeneracy) and not two.
-[~, rwWb, ~] = weightEvents({rwPitch9, rwTime9}, [], 2, 1, 3.5, 1, ...
-                            'width', 1, 'dropInputAttr', false);
+[~, rwWb, ~] = unpackPreMaet(weightEvents({rwPitch9, rwTime9}, [], 2, 1, 3.5, 1, ...
+                            'width', 1, 'dropInputAttr', false));
 results{end+1, 1} = 'rectWindow: between-pulse centre keeps one pulse';
 results{end, 2}   = nnz(rwWb{1}) == 1;
 
 % --- 3. Lower edge included, upper edge excluded ----------------------
 %  width 2 at centre 4 spans [3, 5): pulses 3 and 4, not pulse 5.
-[~, rwWe, ~] = weightEvents({rwPitch9, rwTime9}, [], 2, 1, 4, 1, ...
-                            'width', 2, 'dropInputAttr', false);
+[~, rwWe, ~] = unpackPreMaet(weightEvents({rwPitch9, rwTime9}, [], 2, 1, 4, 1, ...
+                            'width', 2, 'dropInputAttr', false));
 rwFactor = rwWe{1};
 results{end+1, 1} = 'rectWindow: lower edge included, upper edge excluded';
 results{end, 2}   = rwFactor(4) > 0 && rwFactor(5) > 0 && rwFactor(6) == 0;
@@ -62,16 +62,16 @@ results{end, 2}   = rwFactor(4) > 0 && rwFactor(5) > 0 && rwFactor(6) == 0;
 %  Pulses spaced 0.25; full support 1.0 = 4 * IOI keeps 4 pulses.
 rwPitch = 0:8;
 rwTime  = 0.25 * (0:8);
-[~, rwW4, ~] = weightEvents({rwPitch, rwTime}, [], 2, 1, rwTime(5), 1, ...
-                            'width', 1, 'dropInputAttr', false);
+[~, rwW4, ~] = unpackPreMaet(weightEvents({rwPitch, rwTime}, [], 2, 1, rwTime(5), 1, ...
+                            'width', 1, 'dropInputAttr', false));
 results{end+1, 1} = 'rectWindow: fractional IOI grid keeps width/IOI pulses';
 results{end, 2}   = nnz(rwW4{1}) == 4;
 
 % --- 5. The Gaussian shape is untouched by the half-open rule ---------
 rwPitch5 = 0:4;
 rwTime5  = 0:4;
-[~, rwW5, ~] = weightEvents({rwPitch5, rwTime5}, [], 2, 1, 2, 0, ...
-                            'sd', 1, 'dropInputAttr', false);
+[~, rwW5, ~] = unpackPreMaet(weightEvents({rwPitch5, rwTime5}, [], 2, 1, 2, 0, ...
+                            'sd', 1, 'dropInputAttr', false));
 rwF5 = rwW5{1};
 results{end+1, 1} = 'rectWindow: Gaussian shape peak-normalised with no hard edge';
 results{end, 2}   = abs(rwF5(3) - 1) < 1e-12 && all(rwF5 > 0);
@@ -85,8 +85,8 @@ results{end, 2}   = isnan(rwH1);
 % --- 7. renyi2 on an out-of-support windowed density returns NaN ------
 rwPitch7 = [60 62 64];
 rwTime7  = [0 1 2];
-[rwPa, rwWa, rwSp] = weightEvents({rwPitch7, rwTime7}, [], 2, 1, 100, 1, ...
-                                  'width', 1, 'dropInputAttr', false);
+[rwPa, rwWa, rwSp] = unpackPreMaet(weightEvents({rwPitch7, rwTime7}, [], 2, 1, 100, 1, ...
+                                  'width', 1, 'dropInputAttr', false));
 rwDens = buildExpTens(rwPa, rwWa, 'specs', rwSp, 'sigma', [1 1], ...
                       'isPer', [false false], 'period', [0 0], ...
                       'verbose', false);

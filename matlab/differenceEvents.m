@@ -1,11 +1,15 @@
-function [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, nvArgs)
+function pm = differenceEvents(varargin)
 %DIFFERENCEEVENTS Replace event sequences with inter-event differences.
 %
-%   [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, ...)
-%   is cross-event preprocessing on the canonical (pAttr, w, specs) triple.
-%   The k_a-th finite difference is applied along the event axis to each
-%   attribute; the returned (pAttrDiff, wDiff, specs) chains into another
-%   pre-MAET operation or into buildExpTens(..., 'specs', specs).
+%   PM = differenceEvents(PM0, diffOrders, ...) and
+%   PM = differenceEvents(pAttr, wAttr, diffOrders, ...) are cross-event
+%   preprocessing on the pre-MAET. The k_a-th finite difference is applied
+%   along the event axis to each attribute; the returned pre-MAET chains
+%   into another pre-MAET operation or straight into buildExpTens.
+%
+%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   its parts as pAttr and wAttr with the specs as a name-value; the two
+%   forms are the same call.
 %
 %   Differencing pairs positions row by row: event i's position at
 %   position k differences against event
@@ -24,8 +28,9 @@ function [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, nvAr
 %   kernel's job in buildExpTens.
 %
 %   Inputs
+%       pm        - Pre-MAET, in place of pAttr and wAttr.
 %       pAttr     - 1 x A cell of K_a x N per-attribute value matrices.
-%       w         - Weights ([], scalar, or 1 x A cell); rolling product
+%       wAttr     - Weights ([], scalar, or 1 x A cell); rolling product
 %                   over the k_a + 1 constituent events per differenced
 %                   attribute.
 %       diffOrders- Scalar or 1 x A non-negative differencing orders.
@@ -36,19 +41,32 @@ function [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, nvAr
 %                    per-attribute specs. The ordered-or-singleton guard
 %                    reads [sym] from here; the specs pass through unchanged.
 %
-%   Outputs
-%       pAttrDiff - 1 x A cell of differenced matrices, each K_a x N'.
-%       wDiff     - Transformed weights.
-%       specs     - The attribute specifications, unchanged from input (or synthesised).
+%   Output
+%       pm - Pre-MAET: pAttr holds the differenced matrices, each
+%            K_a x N'; wAttr the transformed weights; specs the attribute
+%            specifications, unchanged from input (or synthesised).
 %
-%   See also BUILDEXPTENS, BINDEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
+%   See also PREMAET, BUILDEXPTENS, BINDEVENTS, FLATSPECS,
+%            TRANSLATEATTRIBUTES.
 
+[pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
+[pAttrDiff, wDiff, specs] = localDifferenceEvents(pAttr, wAttr, specsPm, rest{:});
+pm = preMaet(pAttrDiff, wDiff, specs);
+end
+
+
+function [pAttrDiff, wDiff, specs] = localDifferenceEvents(pAttr, w, specsPm, diffOrders, nvArgs)
 arguments
     pAttr
     w
+    specsPm
     diffOrders
     nvArgs.circular (1, 1) logical = false
     nvArgs.specs = []
+end
+
+if isempty(nvArgs.specs)
+    nvArgs.specs = specsPm;
 end
 
 % --- Normalise pAttr to a cell of 2-D double matrices ---
@@ -158,7 +176,53 @@ end
 wDiff = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime, ...
                                nvArgs.circular);
 
-% --- specs pass through unchanged ---
+% --- the kernel width follows the difference ---
+%
+% A k-th finite difference is the alternating binomial sum
+% sum_j (-1)^j C(k, j) x_{n-j}, so a value of width sigma whose per-event
+% errors are independent yields a difference of width
+% sigma * sqrt(C(2k, k)) -- the sqrt(2) of a first difference (Milne 2026,
+% Online Supplement, Sec. motif) and sqrt(6) of a second. A kernel
+% covariance is in squared units and takes the factor itself. The
+% independence is a modelling assumption, so the scaling is announced
+% rather than applied silently. [per] and its period are untouched: a
+% difference of two values on a circle is still on that circle, and the
+% wrap is applied by the kernel at construction.
+scaledNames = {}; firstK = 0; firstF = 1;
+for a = 1:A
+    k = double(ordersPerAttr(a));
+    if k <= 0 || ~isfield(specs{a}, 'sigma') || isempty(specs{a}.sigma)
+        continue;
+    end
+    sig = specs{a}.sigma;
+    if isscalar(sig) && isnan(sig)
+        continue;
+    end
+    factor = sqrt(nchoosek(2 * k, k));
+    if isscalar(sig)
+        specs{a}.sigma = double(sig) * factor;
+    else
+        specs{a}.sigma = double(sig) * factor^2;
+    end
+    if isfield(specs{a}, 'name') && ~isempty(specs{a}.name)
+        scaledNames{end+1} = specs{a}.name; %#ok<AGROW>
+    else
+        scaledNames{end+1} = sprintf('attribute %d', a); %#ok<AGROW>
+    end
+    if firstK == 0
+        firstK = k; firstF = factor;
+    end
+end
+if ~isempty(scaledNames)
+    joined = scaledNames{1};
+    for i = 2:numel(scaledNames)
+        joined = [joined ', ' scaledNames{i}]; %#ok<AGROW>
+    end
+    fprintf(['differenceEvents: sigma scaled by sqrt(C(2k, k)) on %s ' ...
+             '(order %d: x%.4f); a difference of values of width sigma ' ...
+             'has width sigma*sqrt(C(2k, k)) when their errors are ' ...
+             'independent.\n'], joined, firstK, firstF);
+end
 
 end
 

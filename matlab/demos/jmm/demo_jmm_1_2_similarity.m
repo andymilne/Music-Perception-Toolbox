@@ -69,7 +69,7 @@ SIGMA_PH_SNAPSHOTS = [200.0, 600.0, 3000.0];       % heat-map widths
 % ---------------------------------------------------------------------------
 [times, pitchesSatb, ~] = jmm.bwv347Grid();
 GRID_STEP_QN = jmm.gridStepQn();
-pitchesCents = pitchesSatb * 100.0;
+pitchesCents = transformAttributes(pitchesSatb, [], {'midi', 'cents'});
 N = numel(times);
 eventAt = @(t) round(t / GRID_STEP_QN) + 1;         % 1-based grid index
 
@@ -95,6 +95,17 @@ BUILDERS = {@(c, spc, sph) jmm.buildVoiceAware(c, spc, sph), ...
             @(c, spc, sph) jmm.buildSimplexVoice(c, spc, sph, SIGMA_VOICE), ...
             @(c, spc, sph) jmm.buildVoiceAgnostic(c, spc, sph)};
 nBuilders = numel(BUILDERS);
+PC_PH = {'pitch class', 'pitch height'};
+BUILDER_NAMES = {PC_PH, [PC_PH, {'voice'}], PC_PH};
+
+% The three encodings carry the same chord differently, so each is shown
+% as the pre-MAET the cosine actually receives, on the cadence-1 tonic.
+for bIdx = 1:nBuilders
+    showPreMaet(BUILDERS{bIdx}(pitchesCents(eventAt(7.0), :), ...
+        SIGMA_PC, SIGMA_PHS(1)), [], [], ...
+        'names', BUILDER_NAMES{bIdx}, 'title', BUILDER_TITLES{bIdx});
+    fprintf('\n');
+end
 
 % ---------------------------------------------------------------------------
 % Sweep: (3 encodings, 6 pairs, numel(SIGMA_PHS)) cosine similarities

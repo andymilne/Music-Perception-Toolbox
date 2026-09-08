@@ -229,11 +229,11 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
     % periodic kernel handles mod-period wrapping at evaluation time, so
     % no explicit mod is needed here.
     pRow = p(:).';
-    [pDiffCell, ~, ~] = differenceEvents({pRow}, [], 1, ...
-                                          'circular', true);
+    [pDiffCell, ~, ~] = unpackPreMaet(differenceEvents({pRow}, [], 1, ...
+                                          'circular', true));
     diffsRow = pDiffCell{1};
-    [pStep, wStep, stepSpecs] = bindEvents({diffsRow}, [], n, ...
-                                           'circular', true);
+    [pStep, wStep, stepSpecs] = unpackPreMaet(bindEvents({diffsRow}, [], n, ...
+                                           'circular', true));
 
     if nvArgs.sigma > 0
         sigmaUse = nvArgs.sigma;
@@ -260,8 +260,8 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         % kernels, so no off-diagonal kernel covariance is needed. Exact
         % at every n; at sigma = 0 it reduces to the integer step
         % histogram, matching 'interval' and Milne & Dean (2016).
-        [pWin, wWin, winSpecs] = bindEvents({pRow}, [], n + 1, ...
-                                            'circular', true);
+        [pWin, wWin, winSpecs] = unpackPreMaet(bindEvents({pRow}, [], n + 1, ...
+                                            'circular', true));
         % Two nesting levels (inner singleton pitch, outer window of n+1
         % pitches). Take the outer window relative, inner absolute. The
         % inner singleton's flags are inert, so the level collapses to a

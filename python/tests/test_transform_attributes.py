@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import transform_attributes
+from mpt import transform_attributes, unpack_pre_maet
 
 
 # ===================================================================
@@ -108,8 +108,8 @@ class TestDomain:
     def test_log_offset_domain_is_x_plus_offset(self):
         # -0.5 + 1 > 0 is admitted only with the sign attribute (the
         # negative itself is refused first); 0 + 1 > 0 is fine
-        out, _, _ = transform_attributes([np.array([0.0, 3.0])], None,
-                                         [("log", {"offset": 1, "base": 2})])
+        out, _, _ = unpack_pre_maet(transform_attributes([np.array([0.0, 3.0])], None,
+                                         [("log", {"offset": 1, "base": 2})]))
         np.testing.assert_allclose(out[0], [[0.0, 2.0]])
         with pytest.raises(ValueError, match=r"x \+ offset <= 0"):
             transform_attributes([np.array([0.5, 1.0])], None,
@@ -152,33 +152,48 @@ class TestDomain:
 class TestListForm:
     def test_none_leaves_attribute_and_broadcast_applies_to_all(self):
         p = [np.array([1.0, 2.0]), np.array([4.0, 9.0])]
-        out, w, specs = transform_attributes(p, None, [None, ("power", {"exponent": 0.5})])
+        out, w, specs = unpack_pre_maet(transform_attributes(p, None, [None, ("power", {"exponent": 0.5})]))
         np.testing.assert_array_equal(out[0], [[1.0, 2.0]])
         np.testing.assert_allclose(out[1], [[2.0, 3.0]])
         assert w is None and len(specs) == 2
-        out2, _, _ = transform_attributes(p, None, ("power", {"exponent": 0.5}))
+        out2, _, _ = unpack_pre_maet(transform_attributes(p, None, ("power", {"exponent": 0.5})))
         np.testing.assert_allclose(out2[0], [[1.0, math.sqrt(2)]])
 
     def test_weights_and_specs_pass_through(self):
+        """The level geometry passes through; the spec is a fresh dict.
+
+        It cannot be the caller's object any more: a transform may have to
+        write NA into the attribute's sigma, and doing that by reference
+        would edit the spec the caller still holds.
+        """
         p = [np.array([1.0, 2.0])]
         specs = mpt.flat_specs(p, r=2, name="x")
-        out, w, s = transform_attributes(p, [np.array([0.5, 0.5])], ["log"], specs=specs)
-        assert s[0] is specs[0]
+        out, w, s = unpack_pre_maet(transform_attributes(p, [np.array([0.5, 0.5])], ["log"], specs=specs))
+        assert s[0] is not specs[0]
+        assert s[0] == specs[0]
         np.testing.assert_array_equal(w[0], [0.5, 0.5])
+
+    def test_caller_spec_not_mutated_when_sigma_is_dropped(self):
+        p = [np.array([1.0, 2.0])]
+        specs = [{"r": 2, "rel": False, "sym": True, "name": "x",
+                  "sigma": 0.5}]
+        _, _, s = unpack_pre_maet(transform_attributes(p, None, ["log"], specs=specs))
+        assert np.isnan(s[0]["sigma"])
+        assert specs[0]["sigma"] == 0.5
 
     def test_callable_and_nested_values(self):
         p = [np.array([[1.0, 4.0], [9.0, 16.0]])]          # K_total = 2
-        out, _, _ = transform_attributes(p, None, [np.sqrt])
+        out, _, _ = unpack_pre_maet(transform_attributes(p, None, [np.sqrt]))
         np.testing.assert_allclose(out[0], [[1.0, 2.0], [3.0, 4.0]])
 
     def test_sign_attribute_is_inserted_after_its_source(self):
         p = [np.array([2.0, -3.0, 0.0]), np.array([1.0, 1.0, 1.0])]
         specs = mpt.flat_specs(p, name=["ivl", "t"])
-        out, w, s = transform_attributes(p, [1.0, 2.0], [("log", {"offset": 1}), None],
-                                         specs=specs, sign=[True, False])
+        out, w, s = unpack_pre_maet(transform_attributes(p, [1.0, 2.0], [("log", {"offset": 1}), None],
+                                         specs=specs, sign=[True, False]))
         assert len(out) == 3 and len(w) == 3 and len(s) == 3
         np.testing.assert_allclose(out[0], [[math.log(3), math.log(4), 0.0]])
-        np.testing.assert_array_equal(out[1], [[1.0, -1.0, 0.0]])
+        np.testing.assert_array_equal(out[1], [[0.5, -0.5, 0.0]])
         np.testing.assert_array_equal(out[2], [[1.0, 1.0, 1.0]])
         assert s[1] == {"r": 1, "rel": False, "sym": True, "name": "ivl_sign"}
         assert w == [1.0, 1.0, 2.0]
@@ -186,17 +201,17 @@ class TestListForm:
     def test_sign_on_a_nested_spec_clears_rel(self):
         p = [np.array([[1.0, -2.0], [-3.0, 4.0]])]
         spec = {"tags": [0, 1], "r": [1, 2], "sym": [True, True], "rel": [0, 1]}
-        out, _, s = transform_attributes(p, None, [("power", {"exponent": 0.5})],
-                                         specs=[spec], sign=True)
-        np.testing.assert_array_equal(out[1], [[1.0, -1.0], [-1.0, 1.0]])
+        out, _, s = unpack_pre_maet(transform_attributes(p, None, [("power", {"exponent": 0.5})],
+                                         specs=[spec], sign=True))
+        np.testing.assert_array_equal(out[1], [[0.5, -0.5], [-0.5, 0.5]])
         assert s[1]["rel"] == [False, False] and s[1]["tags"] == [0, 1]
         assert s[1]["name"] == "sign"
 
     def test_sign_with_power(self):
-        out, _, _ = transform_attributes([np.array([-4.0, 9.0])], None,
-                                         [("power", {"exponent": 0.5})], sign=True)
+        out, _, _ = unpack_pre_maet(transform_attributes([np.array([-4.0, 9.0])], None,
+                                         [("power", {"exponent": 0.5})], sign=True))
         np.testing.assert_allclose(out[0], [[2.0, 3.0]])
-        np.testing.assert_array_equal(out[1], [[-1.0, 1.0]])
+        np.testing.assert_array_equal(out[1], [[-0.5, 0.5]])
 
     def test_sign_requires_a_magnitude_transform(self):
         with pytest.raises(ValueError, match="magnitude"):
@@ -233,15 +248,15 @@ class TestListForm:
 class TestComposition:
     def test_log_then_difference_gives_log_ratios(self):
         ioi = np.array([0.25, 0.5, 0.5, 1.0])
-        p, w, specs = transform_attributes([ioi], None, [("log", {"base": 2})])
-        d, _, _ = mpt.difference_events(p, w, 1, specs=specs)
+        p, w, specs = unpack_pre_maet(transform_attributes([ioi], None, [("log", {"base": 2})]))
+        d, _, _ = mpt.unpack_pre_maet(mpt.difference_events(p, w, 1, specs=specs))
         np.testing.assert_allclose(d[0], [[1.0, 0.0, 1.0]])
 
     def test_difference_then_log_offset_with_sign_feeds_build(self):
         pitch = np.array([60.0, 64.0, 62.0, 62.0, 67.0])
-        d, w, specs = mpt.difference_events([pitch.reshape(1, -1)], None, 1)
-        p, w, specs = transform_attributes(d, w, [("log", {"offset": 1})],
-                                           specs=specs, sign=True)
+        d, w, specs = mpt.unpack_pre_maet(mpt.difference_events([pitch.reshape(1, -1)], None, 1))
+        p, w, specs = unpack_pre_maet(transform_attributes(d, w, [("log", {"offset": 1})],
+                                           specs=specs, sign=True))
         dens = mpt.build_exp_tens(p, w, specs=specs, sigma=[0.2, 0.3],
                                   is_per=[False, False], period=[0, 0],
                                   verbose=False)

@@ -56,12 +56,29 @@ function V = simplexVertices(N, edgeLength)
     % Pairwise distance between rows is sqrt(2).
     Vc = eye(N) - 1/N;
 
-    % Orthonormal basis of the column space of Vc, which is 1^perp
-    % (the (N-1)-dimensional subspace orthogonal to the all-ones vector).
-    Q = orth(Vc);
+    % Orthonormal basis of 1^perp (the (N-1)-dimensional subspace
+    % orthogonal to the all-ones vector). The basis is written out rather
+    % than taken from a decomposition of Vc: that matrix has singular
+    % value 1 with multiplicity N - 1, so its singular vectors are not
+    % determined -- any orthonormal basis of the subspace is valid, and
+    % which one a solver returns is a property of the solver, not of the
+    % simplex. Pinning the basis makes the coordinates reproducible
+    % across languages and across library versions. The Helmert basis is
+    % the standard closed-form choice, and it nests: the first m vertices
+    % of an N-simplex, restricted to their first m-1 coordinates, are
+    % exactly the vertices of the m-simplex, so adding a level to a
+    % categorical attribute extends the coordinates rather than moving
+    % the levels already there. At N = 2 it gives the two levels as
+    % +1/2 and -1/2, in that order.
+    H = zeros(N - 1, N);
+    for k = 1:(N - 1)
+        H(k, 1:k) = 1;
+        H(k, k + 1) = -k;
+        H(k, :) = H(k, :) / sqrt(k * (k + 1));
+    end
 
     % Express each row of Vc in this basis. The result has N rows and
     % N-1 columns, with pairwise row distance sqrt(2). Rescale to the
     % requested edge length.
-    V = (Vc * Q) * (edgeLength / sqrt(2));
+    V = (Vc * H.') * (edgeLength / sqrt(2));
 end

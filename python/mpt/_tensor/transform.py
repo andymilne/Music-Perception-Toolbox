@@ -18,6 +18,7 @@ import math
 
 import numpy as np
 
+from .premaet import pre_maet, shift_lead
 from .preprocessing import flat_specs
 
 __all__ = ["transform_attributes", "TRANSFORM_NAMES", "PITCH_SCALES"]
@@ -254,7 +255,7 @@ def _check_domain(x, src, tr, a, spec, sign_on):
         if tr.magnitude:
             remedy = (
                 " Pass sign=True for this attribute to transform the "
-                "magnitudes |x| and append a sign attribute (-1, 0, +1) "
+                "magnitudes |x| and append a sign attribute (-1/2, 0, +1/2) "
                 "immediately after it.")
         else:
             remedy = ""
@@ -296,7 +297,77 @@ def _check_finite_output(y, x, tr, a, spec):
 #  transform_attributes
 # ===================================================================
 
-def transform_attributes(p_attr, w, transforms, *, specs=None, sign=False):
+
+# ===================================================================
+#  Kernel geometry under a transform
+# ===================================================================
+
+#: Scales that are affine images of one another --- all log-frequency,
+#: differing only in unit --- so that a conversion among them multiplies a
+#: kernel width by a constant. Every other scale (Hz, mel, bark, erb,
+#: greenwood) is a non-linear map of these, under which a single width has
+#: no image.
+_LOG_FREQ_SCALES = {"midi": 1.0, "cents": 100.0, "octave": 1.0 / 12.0}
+
+
+def _transform_gain(tr):
+    """The constant a transform multiplies a kernel width by, or None.
+
+    ``None`` means no width carries across. A width remains perfectly
+    meaningful in the new coordinate --- after a log it is a width on the
+    log axis, so it expresses a ratio rather than a difference --- but a
+    non-linear map has a local scaling that varies with position, so no
+    single value is the image of the old one. The caller records NA to
+    say there is no canonical choice, not that a width is meaningless.
+    """
+    if tr is None:
+        return 1.0
+    if tr.kind == "scale":
+        src, tgt = (str(v).lower() for v in tr.name)
+        if src in _LOG_FREQ_SCALES and tgt in _LOG_FREQ_SCALES:
+            return _LOG_FREQ_SCALES[tgt] / _LOG_FREQ_SCALES[src]
+        return None
+    if tr.kind == "named":
+        if tr.name == "affine":
+            return abs(float(tr.params.get("scale", 1.0)))
+        if tr.name == "power" and float(tr.params.get("exponent", 0.0)) == 1.0:
+            return 1.0
+        return None
+    return None                     # a user callable is opaque
+
+
+def _transformed_spec(spec, tr, magnitude):
+    """One attribute's spec after a transform, with its kernel geometry.
+
+    An affine map (or a conversion within the log-frequency family)
+    carries the width and the period across by the same constant. Anything
+    non-linear leaves NA --- not because a width would be meaningless in
+    the new coordinate, but because there is no canonical value to carry
+    over, the local scaling varying across the attribute's range; the
+    analyst supplies the width the new units call for. Taking magnitudes
+    for a sign attribute folds the axis, which no width survives either.
+    """
+    out = dict(spec)
+    gain = None if magnitude else _transform_gain(tr)
+    for key in ("sigma", "period"):
+        val = out.get(key)
+        if val is None:
+            continue
+        if gain is None:
+            out[key] = float("nan")
+            continue
+        arr = np.asarray(val, dtype=float)
+        if arr.ndim >= 2:
+            # A kernel covariance is in squared units, so an affine map
+            # of gain g scales it by g^2 where a width scales by g.
+            out[key] = arr * (gain ** 2)
+        else:
+            out[key] = float(arr) * gain
+    return out
+
+
+def transform_attributes(p_attr, w_attr=None, transforms=None, *,
+                         specs=None, sign=False):
     """Map attribute values through named transforms, scale conversions,
     or user functions.
 
@@ -358,7 +429,7 @@ def transform_attributes(p_attr, w, transforms, *, specs=None, sign=False):
 
     **Sign.** ``sign`` (bool, or a length-A list of bools) applies a
     magnitude transform (``'log'`` or ``'power'``) to ``|x|`` and inserts a **sign attribute** with
-    values in {-1, 0, +1} immediately after the source attribute. The
+    values in {-1/2, 0, +1/2} immediately after the source attribute. The
     attribute count grows by one for each such attribute, so downstream
     per-attribute arguments (``sigma``, ``r``, ``rel``, ``sym``, ``wrap``,
     ``diff_orders``, ...) must include the new column; this is why the
@@ -370,10 +441,15 @@ def transform_attributes(p_attr, w, transforms, *, specs=None, sign=False):
 
     Parameters
     ----------
+    pm : dict, optional
+        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        passed in place of ``p_attr``, in which case
+        ``w_attr`` and ``specs`` come from it and the positional
+        arguments below move one place earlier.
     p_attr : list/tuple of array-like, or array-like
         Length-A list of ``K_total x N`` per-attribute value matrices (a
         1-D entry is a ``1 x N`` row), or a bare array (see above).
-    w : None, scalar, or length-A list
+    w_attr : None, scalar, or length-A list
         Weights; passed through unchanged (a per-attribute list gains a
         copy of the source's entry for each sign attribute).
     transforms : entry or length-A list of entries
@@ -386,15 +462,20 @@ def transform_attributes(p_attr, w, transforms, *, specs=None, sign=False):
 
     Returns
     -------
-    p_out : list of ndarray (or ndarray in the bare-array form)
-    w : as input, extended for sign attributes
-    specs : list of dict, extended for sign attributes
+    dict, or ndarray in the bare-array form
+        The pre-MAET. Its ``p_attr`` is the list of transformed
+        value matrices, its ``w_attr`` is as input, and its ``specs`` are
+        as input, both extended for sign attributes. In the bare-array
+        form the transformed array is returned instead.
 
     See Also
     --------
     difference_events, bind_events, translate_attributes, weight_events,
     build_exp_tens
     """
+    p_attr, w_attr, (transforms,), specs = shift_lead(
+        p_attr, w_attr, [transforms], specs, func="transform_attributes")
+    w = w_attr
     # --- bare-array form (a numeric array, or a list of plain numbers) ---
     if not isinstance(p_attr, (list, tuple)) or (
             len(p_attr) > 0 and all(np.isscalar(v) for v in p_attr)):
@@ -411,8 +492,9 @@ def transform_attributes(p_attr, w, transforms, *, specs=None, sign=False):
                 "In the bare-array form transforms must be a single "
                 "transform, not a list.")
         x = np.asarray(p_attr, dtype=np.float64)
-        out, _, _ = transform_attributes([x.reshape(1, -1) if x.ndim <= 1
-                                          else x], None, [transforms])
+        bare = transform_attributes([x.reshape(1, -1) if x.ndim <= 1
+                                     else x], None, [transforms])
+        out = bare["p_attr"]
         return float(out[0][0, 0]) if x.ndim == 0 else out[0].reshape(x.shape)
 
     A = len(p_attr)
@@ -507,18 +589,29 @@ def transform_attributes(p_attr, w, transforms, *, specs=None, sign=False):
                 f"{y.shape}; expected {x.shape}.")
         _check_finite_output(y, src, tr, a, specs_in[a])
         p_out.append(y)
-        specs_out.append(specs_in[a])
+        specs_out.append(_transformed_spec(specs_in[a], tr, sign_v[a]))
         if w_list is not None:
             w_out.append(w_list[a])
         if sign_v[a]:
-            p_out.append(np.sign(x))
-            specs_out.append(_sign_spec(specs_in[a]))
+            # The two signs are the vertices of the 2-point simplex, at
+            # the toolbox's default unit edge length (simplex_vertices(2)
+            # is [+1/2, -1/2]), with a zero step at the centroid. Coding
+            # them +/-1 would put them at edge length 2 and so on a
+            # different scale from every other categorical attribute.
+            p_out.append(0.5 * np.sign(x))
+            # The sign axis is a fresh three-level categorical: its width
+            # is a modelling choice, not an image of the source's.
+            sgn = dict(_sign_spec(specs_in[a]))
+            for key in ("sigma", "period"):
+                if key in sgn:
+                    sgn[key] = float("nan")
+            specs_out.append(sgn)
             if w_list is not None:
                 w_out.append(w_list[a])
 
     if w_list is None:
         w_out = w
-    return p_out, w_out, specs_out
+    return pre_maet(p_out, w_out, specs_out)
 
 
 def _sign_spec(spec):

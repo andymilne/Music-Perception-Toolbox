@@ -15,7 +15,7 @@ that the Online Supplement tests across a corpus of chorales.
 How it is computed. Every grid-point chord is spectrally augmented
 (``add_spectra``: twelve harmonics with 1/n roll-off), so the pitch
 attribute carries 48 partials per event. The chorale is then a two-
-attribute pre-MAET carrier (pitch, time). ``windowed_entropy`` sweeps a
+attribute pre-MAET (pitch, time). ``windowed_entropy`` sweeps a
 window along the time attribute: at each centre the events are
 reweighted by the window (``weight_events`` under the hood, the window
 factor multiplied into the pitch weights), the time axis is dropped, and
@@ -45,7 +45,7 @@ mpt.set_default(
     truncation_sigmas=3.0,          # truncate Gaussian tails at 3 sigma
     kernel_precision='single',      # 32-bit kernel arithmetic
 )
-from mpt import add_spectra, windowed_entropy
+from mpt import add_spectra, show_pre_maet, windowed_entropy
 
 from jmm_data import bwv347_grid
 
@@ -80,7 +80,8 @@ print('Loading BWV 347 and expanding partials...')
 times, pitches_satb, _ = bwv347_grid()
 N = len(times)
 t_end = times[-1] + 0.25
-pitches_cents = pitches_satb * 100.0          # (N, 4)
+pitches_cents = mpt.transform_attributes(pitches_satb, None,
+                                         ('midi', 'cents'))          # (N, 4)
 K = 4 * H_PARTIALS                            # 48 partials per event
 
 # add_spectra operates on one weighted multiset (one event) at a time,
@@ -96,6 +97,11 @@ for n in range(N):
 # Pitch is attribute 0, time is attribute 1.
 p_attr_pre = [p_partials.T, times.reshape(1, N)]
 w_pre = [w_partials.T, np.ones((1, N))]
+
+
+show_pre_maet(p_attr_pre, w_pre, names=['pitch', 'time'],
+              sigma=[SIGMA_PITCH, 1.0], is_per=[False, False],
+              max_events=4, max_elements=4, decimals=2)
 
 
 # ---------------------------------------------------------------------------

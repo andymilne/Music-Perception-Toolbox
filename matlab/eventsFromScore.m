@@ -1,10 +1,10 @@
-function [pAttr, w, specs] = eventsFromScore(source, nvArgs)
-%EVENTSFROMSCORE  Build the (pAttr, w, specs) carrier from a score.
+function pm = eventsFromScore(source, nvArgs)
+%EVENTSFROMSCORE  Build a pre-MAET from a score.
 %
-%   [pAttr, w, specs] = eventsFromScore(source, ...)
+%   PM = eventsFromScore(source, ...)
 %
 %   source is a file path (parsed with readScore: MIDI, MusicXML, or .mxl)
-%   or a note table from readScore. The output is the carrier that
+%   or a note table from readScore. The output is the pre-MAET that
 %   buildExpTens and the pre-MAET preprocessors consume.
 %
 %   Name-value pairs
@@ -29,13 +29,14 @@ function [pAttr, w, specs] = eventsFromScore(source, nvArgs)
 %       'chordTolerance' - onset tolerance for binding (default 0).
 %       'names'          - name the specs after the attributes (default true).
 %
-%   Outputs
-%       pAttr - 1 x A cell of K_a x N value matrices.
-%       w     - 1 x A cell of K_a x N weight matrices (NaN-padded slots
-%               carry weight 0), or [] under 'ones'.
-%       specs - 1 x A cell of flat specs, named after the attributes.
+%   Output
+%       pm - Pre-MAET: pAttr is a 1 x A cell of K_a x N value matrices;
+%            wAttr a 1 x A cell of K_a x N weight matrices (NaN-padded
+%            slots carry weight 0), or [] under 'ones'; specs a 1 x A cell
+%            of flat specs, named after the attributes.
 %
-%   See also READSCORE, BUILDEXPTENS, TRANSFORMATTRIBUTES, FLATSPECS.
+%   See also PREMAET, READSCORE, BUILDEXPTENS, TRANSFORMATTRIBUTES,
+%            FLATSPECS.
 
     arguments
         source
@@ -169,4 +170,18 @@ function [pAttr, w, specs] = eventsFromScore(source, nvArgs)
     else
         specs = flatSpecs(pAttr);
     end
+    % A score determines the periodicity of its attributes and not their
+    % kernel widths. Pitches, onsets, durations, velocities, parts, bars
+    % and fermatas are all read as they are written -- absolute, on an
+    % unbounded axis -- so [per] = 0 and the period is inert; octave
+    % equivalence is an equivalence the analyst imposes, not one the score
+    % states. Sigma is left unset rather than defaulted, because there is
+    % no width a score implies: buildExpTens will then name the attribute
+    % that still needs one.
+    for a = 1:numel(specs)
+        specs{a}.isPer = false;
+        specs{a}.period = 0;
+    end
+
+    pm = preMaet(pAttr, w, specs);
 end

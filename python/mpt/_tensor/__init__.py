@@ -49,6 +49,7 @@ from .preprocessing import (
     translate_attributes,
     weight_events,
 )
+from .premaet import is_pre_maet, pre_maet, unpack_pre_maet
 from .transform import transform_attributes
 
 from .windowed import (

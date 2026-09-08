@@ -45,8 +45,8 @@ for ci = 1:size(cases, 1)
         'units', 12);
     PITX = reshape(ppX, NX, KpX).';        % Kp x N reference values (partial-major)
     WPX  = reshape(wpX, NX, KpX).';
-    [pbX, wbX, sbX] = bindEvents({PITX, 0:(NX - 1)}, {WPX, []}, [NX 1], ...
-        'step', 1, 'relOuter', true);
+    [pbX, wbX, sbX] = unpackPreMaet(bindEvents({PITX, 0:(NX - 1)}, {WPX, []}, [NX 1], ...
+        'step', 1, 'relOuter', true));
     dX = buildExpTens(pbX, wbX, 'sigma', SIG, 'isPer', [false false], ...
         'period', [0 0], 'specs', sbX, 'verbose', false);
 
@@ -55,8 +55,8 @@ for ci = 1:size(cases, 1)
         'units', 12);
     PITY = reshape(ppY, NY, KpY).';
     WPY  = reshape(wpY, NY, KpY).';
-    [pbY, wbY, sbY] = bindEvents({PITY, 0:(NY - 1)}, {WPY, []}, [NY 1], ...
-        'step', 1, 'relOuter', true);
+    [pbY, wbY, sbY] = unpackPreMaet(bindEvents({PITY, 0:(NY - 1)}, {WPY, []}, [NY 1], ...
+        'step', 1, 'relOuter', true));
     dY = buildExpTens(pbY, wbY, 'sigma', SIG, 'isPer', [false false], ...
         'period', [0 0], 'specs', sbY, 'verbose', false);
 

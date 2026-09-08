@@ -1,12 +1,18 @@
-function [pOut, w, specs] = transformAttributes(pAttr, w, transforms, nvArgs)
+function pm = transformAttributes(varargin)
 %TRANSFORMATTRIBUTES Map attribute values through named transforms, scale
 %   conversions, or user functions.
 %
-%   [pOut, w, specs] = transformAttributes(pAttr, w, transforms, ...)
-%   is per-attribute preprocessing on the (pAttr, w, specs) triple: every
-%   value of each selected attribute is passed through the transform given
-%   for that attribute, and the triple feeds straight into buildExpTens or
-%   a further pre-MAET step. Weights pass through unchanged. The map is
+%   PM = transformAttributes(PM0, transforms, ...) and
+%   PM = transformAttributes(pAttr, wAttr, transforms, ...) are
+%   per-attribute preprocessing on the pre-MAET: every value of each
+%   selected attribute is passed through the transform given for that
+%   attribute, and the returned pre-MAET feeds straight into buildExpTens
+%   or a further pre-MAET step.%
+%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   its parts as pAttr and wAttr with the specs as a name-value; the two
+%   forms are the same call.
+%   In the bare-array form the input is a numeric array rather than a
+%   pre-MAET, and the transformed array is returned in its place. Weights pass through unchanged. The map is
 %   elementwise, so it composes with the other preprocessors in either
 %   order, and the order carries meaning: 'log' THEN differenceEvents
 %   gives log ratios (the natural representation of inter-onset-interval
@@ -62,7 +68,7 @@ function [pOut, w, specs] = transformAttributes(pAttr, w, transforms, nvArgs)
 %                 attribute specifications.
 %       'sign'  - false (default), true, or a 1 x A logical vector. On a
 %                 magnitude transform ('log' or 'power') the transform is applied
-%                 to |x| and a SIGN ATTRIBUTE with values in {-1, 0, +1}
+%                 to |x| and a SIGN ATTRIBUTE with values in {-1/2, 0, +1/2}
 %                 is inserted immediately after the source attribute. The
 %                 attribute count grows by one for each such attribute, so
 %                 downstream per-attribute arguments (sigma, r, rel, sym,
@@ -74,22 +80,47 @@ function [pOut, w, specs] = transformAttributes(pAttr, w, transforms, nvArgs)
 %                 small kernel width on the sign attribute makes it
 %                 effectively categorical.
 %
-%   Outputs
-%       pOut  - 1 x A' cell of K_total x N matrices (A' = A plus the
-%               number of sign attributes), or a numeric array in the
-%               bare-array form.
-%       w     - As input, extended for sign attributes.
-%       specs - 1 x A' cell of specs, extended for sign attributes.
+%   Output
+%       pm - Pre-MAET: pAttr is a 1 x A' cell of K_total x N
+%            matrices (A' = A plus the number of sign attributes), wAttr
+%            is as input, extended for sign attributes, and specs is a
+%            1 x A' cell, extended likewise. In the bare-array form the
+%            transformed numeric array is returned instead.
 %
-%   See also DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
+%   See also PREMAET, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
 %   WEIGHTEVENTS, BUILDEXPTENS.
 
+if ~isempty(varargin) && (isnumeric(varargin{1}) || islogical(varargin{1}))
+    % Bare-array form: one array in, the transformed array out. There is
+    % no pre-MAET here, so there is none to return.
+    rest = varargin(2:end);
+    if isempty(rest)
+        wBare = [];
+    else
+        wBare = rest{1};
+        rest = rest(2:end);
+    end
+    pm = localTransformAttributes(varargin{1}, wBare, [], rest{:});
+    return;
+end
+[pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
+[pOut, w, specs] = localTransformAttributes(pAttr, wAttr, specsPm, rest{:});
+pm = preMaet(pOut, w, specs);
+end
+
+
+function [pOut, w, specs] = localTransformAttributes(pAttr, w, specsPm, transforms, nvArgs)
 arguments
     pAttr
     w = []
+    specsPm = []
     transforms = []
     nvArgs.specs = []
     nvArgs.sign = false
+end
+
+if isempty(nvArgs.specs)
+    nvArgs.specs = specsPm;
 end
 
 % --- Bare-array form ---
@@ -110,7 +141,7 @@ if isnumeric(pAttr) || islogical(pAttr)
     else
         xm = x;
     end
-    out = transformAttributes({xm}, [], {transforms});
+    out = localTransformAttributes({xm}, [], [], {transforms});
     pOut = reshape(out{1}, size(x));
     return;
 end
@@ -246,13 +277,24 @@ for a = 1:A
                                'UniformOutput', false), ', '));
     end
     pOut{end+1} = y; %#ok<AGROW>
-    specs{end+1} = specsIn{a}; %#ok<AGROW>
+    specs{end+1} = localTransformedSpec(specsIn{a}, tr, signV(a)); %#ok<AGROW>
     if iscell(wList)
         wOut{end+1} = wList{a}; %#ok<AGROW>
     end
     if signV(a)
-        pOut{end+1} = sign(x); %#ok<AGROW>
-        specs{end+1} = localSignSpec(specsIn{a}); %#ok<AGROW>
+        % The two signs are the vertices of the 2-point simplex, at the
+        % toolbox's default unit edge length (simplexVertices(2) is
+        % [+1/2, -1/2]), with a zero step at the centroid. Coding them
+        % +/-1 would put them at edge length 2 and so on a different
+        % scale from every other categorical attribute.
+        pOut{end+1} = 0.5 * sign(x); %#ok<AGROW>
+        % The sign axis is a fresh three-level categorical: its width is
+        % a modelling choice, not an image of the source's.
+        sgn = localSignSpec(specsIn{a});
+        for kf = {'sigma', 'period'}
+            if isfield(sgn, kf{1}); sgn.(kf{1}) = NaN; end
+        end
+        specs{end+1} = sgn; %#ok<AGROW>
         if iscell(wList)
             wOut{end+1} = wList{a}; %#ok<AGROW>
         end
@@ -565,7 +607,7 @@ function localCheckDomain(x, src, tr, a, spec, signOn)
         if tr.magnitude
             remedy = [' Pass ''sign'', true for this attribute to transform ' ...
                       'the magnitudes |x| and append a sign attribute ' ...
-                      '(-1, 0, +1) immediately after it.'];
+                      '(-1/2, 0, +1/2) immediately after it.'];
         end
         error('transformAttributes:domainNegative', ...
               '%s: %s is undefined for negative values; negatives at %s.%s', ...
@@ -621,5 +663,73 @@ function s = localSignSpec(spec)
         s.name = [char(s.name) '_sign'];
     else
         s.name = 'sign';
+    end
+end
+
+
+function out = localTransformedSpec(spec, tr, magnitude)
+%LOCALTRANSFORMEDSPEC  One attribute's spec after a transform.
+%
+%   An affine map (or a conversion within the log-frequency family)
+%   carries the width and the period across by the same constant; a
+%   covariance, being in squared units, takes its square. Anything
+%   non-linear leaves NA -- not because a width would be meaningless in
+%   the new coordinate, but because there is no canonical value to carry
+%   over, the local scaling varying across the attribute's range; the
+%   analyst supplies the width the new units call for. Taking magnitudes
+%   for a sign attribute folds the axis, which no width survives either.
+    out = spec;
+    if magnitude
+        gain = [];
+    else
+        gain = localTransformGain(tr);
+    end
+    for kf = {'sigma', 'period'}
+        key = kf{1};
+        if ~isfield(out, key) || isempty(out.(key))
+            continue;
+        end
+        if isempty(gain)
+            out.(key) = NaN;
+        elseif isscalar(out.(key))
+            out.(key) = double(out.(key)) * gain;
+        else
+            out.(key) = double(out.(key)) * gain^2;
+        end
+    end
+end
+
+
+function gain = localTransformGain(tr)
+%LOCALTRANSFORMGAIN  The constant a transform multiplies a width by, or [].
+%
+%   [] means no width carries across. A width remains perfectly
+%   meaningful in the new coordinate -- after a log it is a width on the
+%   log axis, so it expresses a ratio rather than a difference -- but a
+%   non-linear map has a local scaling that varies with position, so no
+%   single value is the image of the old one. The caller records NA to
+%   say there is no canonical choice, not that a width is meaningless. The
+%   log-frequency scales (midi, cents, octave) are affine images of one
+%   another, differing only in unit; every other scale (Hz, mel, bark,
+%   erb, greenwood) is a non-linear map of these.
+    logFreq = struct('midi', 1, 'cents', 100, 'octave', 1/12);
+    gain = [];
+    if isempty(tr)
+        gain = 1;
+        return;
+    end
+    switch tr.kind
+        case 'scale'
+            src = lower(tr.name{1}); tgt = lower(tr.name{2});
+            if isfield(logFreq, src) && isfield(logFreq, tgt)
+                gain = logFreq.(tgt) / logFreq.(src);
+            end
+        case 'named'
+            if strcmp(tr.name, 'affine')
+                gain = abs(double(tr.params.scale));
+            elseif strcmp(tr.name, 'power') && ...
+                    double(tr.params.exponent) == 1
+                gain = 1;
+            end
     end
 end

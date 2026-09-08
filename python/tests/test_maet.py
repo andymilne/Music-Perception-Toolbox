@@ -855,13 +855,13 @@ class TestMAET:
     def test_weight_pure_gaussian_gamma_zero(self):
         """gamma = 0 limit: pure Gaussian with std = width."""
         p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
-        _, w_out, _ = mpt.weight_events(
+        _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         expected = np.exp(
             -((np.array([60.0, 62.0, 64.0, 67.0, 72.0]) - 64.0) ** 2)
             / (2 * 3.0 ** 2)
@@ -871,13 +871,13 @@ class TestMAET:
     def test_weight_pure_rectangle_gamma_one(self):
         """gamma = 1 limit: pure rectangle with half-width = width * sqrt(3)."""
         p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
-        _, w_out, _ = mpt.weight_events(
+        _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=1.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         half = 3.0 * np.sqrt(3.0)
         expected = (
             np.abs(np.array([60.0, 62.0, 64.0, 67.0, 72.0]) - 64.0) <= half
@@ -888,13 +888,13 @@ class TestMAET:
         """Peak h(0) = 1 throughout the family, for every gamma in (0, 1)."""
         p = [np.array([[5.0]])]   # single event at the centre
         for g in [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]:
-            _, w_out, _ = mpt.weight_events(
+            _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=5.0, sd=2.0, shape=g,
                 is_per=False, period=0.0,
                 drop_input_attr=False,
-            )
+            ))
             assert abs(np.asarray(w_out[0])[0, 0] - 1.0) < 1e-12, (
                 f"peak at gamma={g} was {np.asarray(w_out[0])[0, 0]}, "
                 f"expected 1.0"
@@ -907,13 +907,13 @@ class TestMAET:
         p = [y]
         width = 4.0
         for g in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]:
-            _, w_out, _ = mpt.weight_events(
+            _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=0.0, sd=width, shape=g,
                 is_per=False, period=0.0,
                 drop_input_attr=False,
-            )
+            ))
             h = np.asarray(w_out[0]).ravel()
             dy = y[0, 1] - y[0, 0]
             area = h.sum() * dy
@@ -922,8 +922,8 @@ class TestMAET:
                 f"variance at gamma={g} was {variance}, expected {width**2}"
             )
 
-    def test_weight_returns_three_tuple(self):
-        """Output is a 3-tuple (p_attr_out, w_out, specs_out)."""
+    def test_weight_returns_pre_maet(self):
+        """Output is a pre-MAET: p_attr, w_attr, and specs."""
         p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
         out = mpt.weight_events(
             p, None,
@@ -932,7 +932,8 @@ class TestMAET:
             is_per=False, period=0.0,
             drop_input_attr=False,
         )
-        assert isinstance(out, tuple) and len(out) == 3
+        assert sorted(out) == ["p_attr", "specs", "w_attr"]
+        out = mpt.unpack_pre_maet(out)
         p_out, w_out, s_out = out
         assert isinstance(p_out, list) and len(p_out) == 2
         assert isinstance(w_out, list) and len(w_out) == 2
@@ -947,13 +948,13 @@ class TestMAET:
              np.array([[10.0, 20.0, 30.0]]),
              np.array([[100.0, 200.0, 300.0]])]
         w_in = [None, None, 0.5]
-        _, w_out, _ = mpt.weight_events(
+        _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, w_in,
             input_attr=0, target_attr=1,
             centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         # Attr 2 (not input, not target) keeps its weight unchanged.
         assert w_out[2] == 0.5
 
@@ -962,13 +963,13 @@ class TestMAET:
         weights and the input attribute's own are unchanged."""
         p = [np.array([[60.0, 64.0, 67.0]]),    # pitch (target)
              np.array([[0.0, 1.0, 2.0]])]        # time (input)
-        _, w_out, _ = mpt.weight_events(
+        _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,    # Gaussian on time at t=1
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         expected_factor = np.exp(
             -((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0
         )
@@ -985,13 +986,13 @@ class TestMAET:
              np.array([[0.0, 1.0]])]
         # Pre-existing weight on pitch with full (3, 2) shape, all 1s.
         w_in = [np.ones((3, 2)), None]
-        _, w_out, _ = mpt.weight_events(
+        _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, w_in,
             input_attr=1, target_attr=0,
             centre=0.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         # The (1, 2) factor broadcasts across the 3 pitch positions, giving (3, 2).
         out0 = np.asarray(w_out[0])
         assert out0.shape == (3, 2)
@@ -1003,13 +1004,13 @@ class TestMAET:
         """Periodic input attribute wraps delta = v - c to [-P/2, P/2] before
         applying the shape function. Values themselves stay raw."""
         p = [np.array([[10.0, 11.0, 0.0, 1.0, 2.0]])]   # raw
-        _, w_out, _ = mpt.weight_events(
+        _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
             centre=0.0, sd=2.0, shape=0.0,
             is_per=True, period=12.0,
             drop_input_attr=False,
-        )
+        ))
         deltas = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
         expected = np.exp(-(deltas ** 2) / 8.0).reshape(1, -1)
         np.testing.assert_allclose(np.asarray(w_out[0]), expected)
@@ -1018,13 +1019,13 @@ class TestMAET:
         """Window factor multiplies into the target's incoming weight."""
         p = [np.array([[1.0, 2.0, 3.0]])]
         w_in = 0.5
-        _, w_out, _ = mpt.weight_events(
+        _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, w_in,
             input_attr=0, target_attr=0,
             centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         h = np.exp(-(np.array([1.0, 2.0, 3.0]) - 2.0) ** 2 / 2.0)
         np.testing.assert_allclose(np.asarray(w_out[0]).ravel(), 0.5 * h)
 
@@ -1037,21 +1038,21 @@ class TestMAET:
              np.array([[0.0, 0.5, 1.0]])]
         # First call: time-window into pitch; keep input for the next call
         # (which expects all three attributes still present).
-        p1, w1, g1 = mpt.weight_events(
+        p1, w1, g1 = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         # Second call: beat-window into pitch.
-        _, w2, _ = mpt.weight_events(
+        _, w2, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p1, w1,
             input_attr=2, target_attr=0,
             centre=0.5, sd=0.5, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         # Result: the pitch attribute's weights carry the product of both factors.
         h_time = np.exp(-((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0)
         h_beat = np.exp(-((np.array([0.0, 0.5, 1.0]) - 0.5) ** 2) / 0.5)
@@ -1064,13 +1065,13 @@ class TestMAET:
         from the output structures."""
         p = [np.array([[60.0, 64.0, 67.0]]),
              np.array([[0.0, 1.0, 2.0]])]
-        p_out, w_out, g_out = mpt.weight_events(
+        p_out, w_out, g_out = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=True,
-        )
+        ))
         assert len(p_out) == 1
         assert len(w_out) == 1
         # The remaining attribute is the original pitch (attr 0).
@@ -1084,13 +1085,13 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]]),
              np.array([[3.0, 4.0]]),
              np.array([[5.0, 6.0]])]
-        p_out, w_out, s_out = mpt.weight_events(
+        p_out, w_out, s_out = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
             centre=3.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=True,
-        )
+        ))
         # Input attr 1 removed: originals 0 and 2 remain at output indices 0, 1.
         assert len(p_out) == 2 and len(w_out) == 2 and len(s_out) == 2
         np.testing.assert_array_equal(p_out[0], p[0])
@@ -1107,13 +1108,13 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]]),
              np.array([[3.0, 4.0]]),
              np.array([[5.0, 6.0]])]
-        p_out, w_out, s_out = mpt.weight_events(
+        p_out, w_out, s_out = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=2,
             centre=1.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             drop_input_attr=True,
-        )
+        ))
         # Input attr 0 removed: originals 1 and 2 remain at output indices 0, 1.
         assert len(p_out) == 2 and len(w_out) == 2 and len(s_out) == 2
         np.testing.assert_array_equal(p_out[0], p[1])
@@ -1245,21 +1246,21 @@ class TestMAET:
         c = 64.0
         width = 3.0
         gamma = 0.3   # intermediate (non-trivial convolution)
-        p_t, _, _ = mpt.translate_attributes(p, None, [mu])
-        _, w_after_t, _ = mpt.weight_events(
+        p_t, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(p, None, [mu]))
+        _, w_after_t, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p_t, None,
             input_attr=0, target_attr=0,
             centre=c, sd=width, shape=gamma,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
-        _, w_first, _ = mpt.weight_events(
+        ))
+        _, w_first, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
             centre=c - mu, sd=width, shape=gamma,
             is_per=False, period=0.0,
             drop_input_attr=False,
-        )
+        ))
         np.testing.assert_allclose(
             np.asarray(w_first[0]), np.asarray(w_after_t[0]),
         )

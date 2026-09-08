@@ -31,8 +31,10 @@ from __future__ import annotations
 import numpy as np
 
 import mpt
+from mpt import unpack_pre_maet
 mpt.set_default(show_hints=False)
-from mpt import bind_events, flat_specs, build_exp_tens, cos_sim_exp_tens  # noqa: F401
+from mpt import (bind_events, flat_specs, build_exp_tens,  # noqa: F401
+                 cos_sim_exp_tens, show_pre_maet)
 
 from jmm_data import bwv347_grid, bwv347_fermata_spans, GRID_STEP_QN
 
@@ -161,7 +163,7 @@ def bound_density(aggs, flag=None, r_inner: int = 1):
         P[:len(p), j] = p
         W[:len(w), j] = w
     specs = flat_specs([P], r=r_inner, rel=False, sym=True, name='pitch')
-    pb, wb, sb = bind_events([P], [W], L, rel_outer=True, specs=specs)
+    pb, wb, sb = unpack_pre_maet(bind_events([P], [W], L, rel_outer=True, specs=specs))
     attrs, ws, sp = [pb[0]], [wb[0]], [sb[0]]
     sigma, is_per, period = [SIGMA_PITCH], [True], [PERIOD]
     if flag is not None:

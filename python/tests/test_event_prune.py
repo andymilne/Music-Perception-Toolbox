@@ -47,6 +47,7 @@ import numpy as np
 import pytest
 
 import mpt
+from mpt import unpack_pre_maet
 from mpt import (
     build_exp_tens,
     cos_sim_exp_tens,
@@ -259,13 +260,13 @@ def _windowed_ma_inputs(n_events: int, seed: int):
     p_attr = [pitches, times.reshape(1, n_events)]
     w = [np.ones((1, n_events)), np.ones((1, n_events))]
     c = float(times[n_events // 2])
-    p_w, w_w, g_w = weight_events(
+    p_w, w_w, g_w = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
-    )
+    ))
     return p_w, w_w, g_w
 
 

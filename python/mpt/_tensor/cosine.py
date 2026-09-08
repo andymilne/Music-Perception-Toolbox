@@ -271,8 +271,28 @@ def cos_sim_exp_tens(*args,
                      verbose: bool = True) -> float | np.ndarray:
     """Cosine similarity of two expectation tensor densities.
 
+    Input forms, in the order to reach for them: a single multiset; a
+    pre-MAET, the canonical entry for everything else; densities built
+    by :func:`build_exp_tens`; then the raw positional multi-attribute,
+    sweep, and batched forms.
+
     Unified entry point. Accepts four input forms, dispatched on the
     type of the first argument:
+
+    **Raw single-multiset scalar input**:
+
+    - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
+      where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
+      ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
+      Returns scalar.
+
+    **Pre-MAET input**:
+
+    - ``cos_sim_exp_tens(pm1, pm2)``. A pre-MAET
+      (:func:`~mpt.pre_maet`) holds everything :func:`build_exp_tens`
+      needs, so it stands wherever a density does: each side is built
+      internally and a scalar returned. Either side may equally be a
+      density, so the two forms mix freely.
 
     **Pre-built density input** (plus polymorphic lists):
 
@@ -284,40 +304,24 @@ def cos_sim_exp_tens(*args,
       pairwise for equal lengths) returning ``(M,)``, or
       ``mode='cartesian'`` returning ``(M, N)``.
 
-    **Raw single-multiset scalar input**:
-
-    - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
-      where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
-      ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
-      Returns scalar.
-
-    **Raw single-multiset batched input** (replaces ``batch_cos_sim_exp_tens``):
-
-    - ``cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
-      where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
-      (rows are chords; NaN-padded for variable cardinality), ``W1``,
-      ``W2`` likewise (or ``None`` for uniform). Returns ``(M,)``. If
-      only one operand is a matrix and the other is a 1-D vector of
-      length ``K``, the vector is broadcast across the matrix's ``M``
-      rows.
-
     **Raw multi-attribute scalar input**:
 
-    - ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec,
-      is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
-      lists of per-attribute matrices. Returns scalar.
+    - ``cos_sim_exp_tens(p_attr1, w_attr1, p_attr2, w_attr2, sigma_vec,
+      r_vec, is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
+      lists of per-attribute matrices and ``w_attr*`` the matching
+      per-attribute weights. Returns scalar.
 
     **Raw multi-attribute scalar-vs-list (sweep)**:
 
-    - ``cos_sim_exp_tens(p_attr_ref, w_ref, p_attr_list, w_shared,
+    - ``cos_sim_exp_tens(p_attr_ref, w_attr_ref, p_attr_list, w_attr_shared,
       sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec)``
       where exactly one of the two ``p_attr`` arguments is a list of
       ``p_attr`` blocks (a list of lists; e.g. the matrix-form output of
       :func:`translate_attributes`) and the other is a single ``p_attr``.
       Build is internalised: the scalar operand is built once, the
       list operand once per entry. Weights for the list side are
-      shared across every entry — a single ``w`` value, not a list of
-      weights. Returns an ``ndarray`` of length M. The output index
+      shared across every entry — a single ``w_attr`` value, not a list
+      of weights. Returns an ``ndarray`` of length M. The output index
       matches the order of entries in the list operand. When every
       ``r_a = 1`` and ``method`` is ``'auto'`` or ``'bulger'`` the whole
       list is evaluated in one batched kernel pass (the same fast path
@@ -442,6 +446,7 @@ def cos_sim_exp_tens(*args,
     Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
 
     """
+    args = _build_pre_maet_args(args, verbose=verbose)
     if len(args) < 2:
         raise TypeError(
             "cos_sim_exp_tens requires at least 2 positional arguments."
@@ -2763,6 +2768,16 @@ def _nested_attr_route(dens_x, dens_y, a, force_route=None,
     - ``'taugrid'`` -- relative-periodic on the all-image tau-grid contraction,
       the transposition average over the period.
 
+    **Raw single-multiset batched input** (replaces ``batch_cos_sim_exp_tens``):
+
+    - ``cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
+      where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
+      (rows are chords; NaN-padded for variable cardinality), ``W1``,
+      ``W2`` likewise (or ``None`` for uniform). Returns ``(M,)``. If
+      only one operand is a matrix and the other is a 1-D vector of
+      length ``K``, the vector is broadcast across the matrix's ``M``
+      rows.
+
     **The measure is declared by ``wrap``, not by the dispatch.** This mirrors
     the rule the flat relative-periodic path already enforces in
     :func:`~mpt._tensor.dispatch._select_ma_inner_product_method`:
@@ -3827,3 +3842,57 @@ def batch_cos_sim_exp_tens(
         spectrum=spectrum, precision=precision,
         verbose=verbose,
     )
+
+def _build_pre_maet_args(args, *, verbose=True):
+    """Replace any whole pre-MAET among the positional arguments.
+
+    A pre-MAET is a density in waiting: it holds everything build_exp_tens
+    needs, so it stands wherever a density does and is built here. That
+    goes for a *list* of them too: a list of pre-MAETs stands wherever a
+    list of densities does, so the list and scalar-vs-list forms take
+    them without the caller building each one first. A translation sweep
+    (:class:`~mpt._tensor.preprocessing.TranslatedSweep`) carried inside
+    a pre-MAET is one such list, sharing one geometry, and is expanded
+    the same way, its offsets carried through so the mixture reduction
+    still applies.
+
+    The loose triple has no such form, since the three parts are not
+    distinguishable from the surrounding positional geometry.
+
+    ``verbose`` governs these builds too, so a quiet call stays quiet.
+    """
+    from .premaet import is_pre_maet
+    from .preprocessing import TranslatedSweep
+
+    def _is_sweep_pm(a):
+        return is_pre_maet(a) and isinstance(a.get("p_attr"), TranslatedSweep)
+
+    def _listish(a):
+        return isinstance(a, (list, tuple)) and any(is_pre_maet(x) for x in a)
+
+    if not any(is_pre_maet(a) or _listish(a) for a in args):
+        return args
+    from .build import build_exp_tens
+
+    def _one(a):
+        if _is_sweep_pm(a):
+            # One geometry, one density per sweep entry; the offsets ride
+            # along so cos_sim_exp_tens can still reduce the sweep to a
+            # mixture in the offset.
+            sweep = a["p_attr"]
+            built = [build_exp_tens({"p_attr": list(block),
+                                     "w_attr": a.get("w_attr"),
+                                     "specs": a.get("specs")},
+                                    verbose=verbose)
+                     for block in sweep]
+            return TranslatedSweep(built,
+                                   sweep_offsets=sweep.sweep_offsets,
+                                   sweep_base=sweep.sweep_base)
+        if is_pre_maet(a):
+            return build_exp_tens(a, verbose=verbose)
+        if _listish(a):
+            return [build_exp_tens(x, verbose=verbose) if is_pre_maet(x) else x
+                    for x in a]
+        return a
+
+    return tuple(_one(a) for a in args)

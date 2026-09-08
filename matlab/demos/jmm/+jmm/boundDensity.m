@@ -31,7 +31,7 @@ function dens = boundDensity(aggs, flag, rInner)
     end
     specs = flatSpecs({P}, 'r', rInner, 'rel', false, 'sym', true, ...
                       'name', 'pitch');
-    [pb, wb, sb] = bindEvents({P}, {W}, L, 'relOuter', true, 'specs', specs);
+    [pb, wb, sb] = unpackPreMaet(bindEvents({P}, {W}, L, 'relOuter', true, 'specs', specs));
     attrs = {pb{1}}; ws = {wb{1}}; sp = {sb{1}};
     sigma = S.sigmaPitch; isPer = true; period = S.period;
     if ~isempty(flag)

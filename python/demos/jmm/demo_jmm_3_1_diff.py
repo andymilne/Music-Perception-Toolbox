@@ -56,8 +56,10 @@ plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19, 'axes.labelsize': 17
                      'font.family': 'DejaVu Sans'})
 
 import mpt
+from mpt import unpack_pre_maet
 mpt.set_default(show_hints=False, truncation_sigmas=4.0, kernel_precision='double')
 from mpt import (difference_events, build_exp_tens, eval_exp_tens,
+                 show_pre_maet,
                  windowed_entropy)
 
 import piano_phase as pe
@@ -78,12 +80,16 @@ N = len(pitch)
 p_attr = [pitch.reshape(1, N), onset.reshape(1, N), onset.reshape(1, N)]
 # Per-attribute difference orders: pitch and onset first-differenced, the
 # third (onset copy) passed through at order 0 as the windowing axis.
-pd, wd, _ = difference_events(p_attr, None, [1, 1, 0])
+pd, wd, _ = unpack_pre_maet(difference_events(p_attr, None, [1, 1, 0]))
 dp, dt, t_abs = pd[0].ravel(), pd[1].ravel(), pd[2].ravel()
 print(f'Differenced events: {len(dp)}; dp distinct: '
       f'{sorted(set(np.round(dp).astype(int).tolist()))}')
 print(f'IOI (=dt) min/max: {dt.min()*1000:.2f} / {dt.max()*1000:.2f} ms  '
       f'(excursion {(dt.max()-dt.min())*1000:.2f} ms)')
+
+show_pre_maet([pd[0], pd[1]], None, names=['dp', 'dt'],
+              sigma=[SIGMA_DP, SIGMA_JND], is_per=[False, False],
+              max_events=4, decimals=3)
 
 # --- (a) static (dp, dt) density over the whole voice (at the JND width) ---
 static = build_exp_tens([pd[0], pd[1]], None, [SIGMA_DP, SIGMA_JND], [1, 1],

@@ -131,7 +131,7 @@ results{end, 2} = ok;
 ok = false;
 try
     x11 = (0:10);
-    [pB11, wB11, spB11] = bindEvents({x11}, [], 11);
+    [pB11, wB11, spB11] = unpackPreMaet(bindEvents({x11}, [], 11));
     d11 = buildExpTens(pB11, wB11, 'specs', spB11, 'sigma', 0.3, ...
         'isPer', false, 'period', 0, 'verbose', false);
     v11 = evalExpTens(d11, x11(:), 'verbose', false);
@@ -175,8 +175,8 @@ function d = localOrderedBound9(vals, sigC)
 %LOCALORDEREDBOUND9  One bound super-event: three ordered 9-tuples,
 %   the second read relative (a common shift quotiented).
     L = numel(vals{1});
-    [pB, wB, spB] = bindEvents(vals, [], L, ...
-        'relOuter', [false, true, false]);
+    [pB, wB, spB] = unpackPreMaet(bindEvents(vals, [], L, ...
+        'relOuter', [false, true, false]));
     d = buildExpTens(pB, wB, 'specs', spB, 'sigma', sigC, ...
         'isPer', [false, false, false], 'period', [0, 0, 0], ...
         'verbose', false);

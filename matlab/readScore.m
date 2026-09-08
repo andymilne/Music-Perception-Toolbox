@@ -22,7 +22,7 @@ function notes = readScore(path)
 %       .partNames                        1 x P cell of part names
 %       .source                           'midi' or 'musicxml'
 %
-%   eventsFromScore turns the table into the (pAttr, w, specs) carrier of
+%   eventsFromScore turns the table into the (pAttr, wAttr, specs) of
 %   buildExpTens. Both parsers are self-contained (no toolbox or Java
 %   dependency) and mirror the Python mpt.read_score, which reads the same
 %   files to the same table.

@@ -22,15 +22,15 @@ end
 
 
 % --- Returns three-tuple with specs (nested has tags) ---
-[~, ~, sp] = bindEvents({[0 4 7 11 2]}, [], 2);
+[~, ~, sp] = unpackPreMaet(bindEvents({[0 4 7 11 2]}, [], 2));
 results{end+1,1} = 'bind: returns specs (nested has tags)';
 results{end,2}   = iscell(sp) && numel(sp) == 1 && isfield(sp{1}, 'tags');
 
 
 % --- L = 1 passes the incoming flat spec through (no tags) ---
 p1 = {[0 4 7 11 2]};
-[pb1, ~, sp1] = bindEvents(p1, [], 1, 'specs', flatSpecs(p1, 'r', 3, ...
-                                                         'rel', true, 'sym', true));
+[pb1, ~, sp1] = unpackPreMaet(bindEvents(p1, [], 1, 'specs', flatSpecs(p1, 'r', 3, ...
+                                                         'rel', true, 'sym', true)));
 okFlat = ~isfield(sp1{1}, 'tags') && sp1{1}.r == 3 && sp1{1}.rel == true ...
          && sp1{1}.sym == true && isequal(pb1{1}, p1{1});
 results{end+1,1} = 'bind: L=1 flat passthrough';
@@ -39,8 +39,8 @@ results{end,2}   = okFlat;
 
 % --- Inner geometry read from incoming spec (inner inherits; outer r=L) ---
 pN = {[0 4 7; 10 12 14]};   % K=2, N=3
-[pbN, ~, spN] = bindEvents(pN, [], 2, 'specs', flatSpecs(pN, 'r', 2, ...
-                                                         'rel', true, 'sym', true));
+[pbN, ~, spN] = unpackPreMaet(bindEvents(pN, [], 2, 'specs', flatSpecs(pN, 'r', 2, ...
+                                                         'rel', true, 'sym', true)));
 s = spN{1};
 okNest = isequal(s.r, [2 2]) && isequal(s.sym, [true false]) ...
          && isequal(logical(s.rel), [true false]) ...
@@ -51,7 +51,7 @@ results{end,2}   = okNest;
 
 % --- Synthesised specs (specs []) give flat-default inner geometry ---
 pR = {[0 4 7 11]};
-[~, ~, sSyn] = bindEvents(pR, [], 2);
+[~, ~, sSyn] = unpackPreMaet(bindEvents(pR, [], 2));
 results{end+1,1} = 'bind: synthesised specs default inner geometry';
 results{end,2}   = isequal(sSyn{1}.r, [1 2]) ...
                    && isequal(sSyn{1}.sym, [true false]) ...
@@ -59,22 +59,22 @@ results{end,2}   = isequal(sSyn{1}.r, [1 2]) ...
 
 
 % --- rel default [relIn, 0]; absolute -> [0 0] ---
-[~, ~, sAbs] = bindEvents(pR, [], 2);
-[~, ~, sRel] = bindEvents(pR, [], 2, 'specs', flatSpecs(pR, 'rel', true));
+[~, ~, sAbs] = unpackPreMaet(bindEvents(pR, [], 2));
+[~, ~, sRel] = unpackPreMaet(bindEvents(pR, [], 2, 'specs', flatSpecs(pR, 'rel', true)));
 results{end+1,1} = 'bind: rel default [relIn,0]';
 results{end,2}   = isequal(logical(sAbs{1}.rel), [false false]) ...
                    && isequal(logical(sRel{1}.rel), [true false]);
 
 
 % --- relOuter -> [0 1] (global-transposition quotient) ---
-[~, ~, sRO] = bindEvents(pR, [], 2, 'relOuter', true);
+[~, ~, sRO] = unpackPreMaet(bindEvents(pR, [], 2, 'relOuter', true));
 results{end+1,1} = 'bind: relOuter gives [0 1]';
 results{end,2}   = isequal(logical(sRO{1}.rel), [false true]);
 
 
 % --- symOuter adjustable ---
-[~, ~, sS0] = bindEvents(pR, [], 2);
-[~, ~, sS1] = bindEvents(pR, [], 2, 'symOuter', true);
+[~, ~, sS0] = unpackPreMaet(bindEvents(pR, [], 2));
+[~, ~, sS1] = unpackPreMaet(bindEvents(pR, [], 2, 'symOuter', true));
 results{end+1,1} = 'bind: symOuter adjustable';
 results{end,2}   = isequal(sS0{1}.sym, [true false]) ...
                    && isequal(sS1{1}.sym, [true true]);
@@ -83,7 +83,7 @@ results{end,2}   = isequal(sS0{1}.sym, [true false]) ...
 % --- Reproduces old tensor join (eval parity, §6.5) ---
 diffs = [2 -1 3 0 -2 1 4];
 n = 3;
-[pb, wb, specs] = bindEvents({diffs}, [], n, 'circular', true);
+[pb, wb, specs] = unpackPreMaet(bindEvents({diffs}, [], n, 'circular', true));
 dNew = buildExpTens(pb, wb, 'specs', specs, 'sigma', 10, 'isPer', true, ...
                     'period', 12, 'verbose', false);
 pOld = cell(1, n);
@@ -103,15 +103,15 @@ results{end,2}   = (dNew.dim == dOld.dim) && (dNew.dim == n) ...
 
 % --- circular vs non-circular sizes ---
 pC = {[0 4 7 11 2]};   % N=5
-[pbNC, ~, ~] = bindEvents(pC, [], 2, 'circular', false);
-[pbC,  ~, ~] = bindEvents(pC, [], 2, 'circular', true);
+[pbNC, ~, ~] = unpackPreMaet(bindEvents(pC, [], 2, 'circular', false));
+[pbC,  ~, ~] = unpackPreMaet(bindEvents(pC, [], 2, 'circular', true));
 results{end+1,1} = 'bind: circular/non-circular N''';
 results{end,2}   = isequal(size(pbNC{1}), [2 4]) && isequal(size(pbC{1}), [2 5]);
 
 
 % --- Per-attribute orders + alignment (smaller L keeps leading N') ---
 pPA = {[0 1 2 3 4], [10 11 12 13 14]};
-[pbPA, ~, spPA] = bindEvents(pPA, [], [1 3]);
+[pbPA, ~, spPA] = unpackPreMaet(bindEvents(pPA, [], [1 3]));
 nPrime = 5 - 3 + 1;
 results{end+1,1} = 'bind: per-attribute orders + alignment';
 results{end,2}   = ~isfield(spPA{1}, 'tags') && isfield(spPA{2}, 'tags') ...
@@ -122,7 +122,7 @@ results{end,2}   = ~isfield(spPA{1}, 'tags') && isfield(spPA{2}, 'tags') ...
 
 % --- K_a > 1: tags repeat per event block ---
 pK = {[0 7; 4 11]};   % K=2, N=2
-[pbK, ~, spK] = bindEvents(pK, [], 2, 'specs', flatSpecs(pK, 'r', 2));
+[pbK, ~, spK] = unpackPreMaet(bindEvents(pK, [], 2, 'specs', flatSpecs(pK, 'r', 2)));
 results{end+1,1} = 'bind: K_a>1 tags repeat per block';
 results{end,2}   = isequal(spK{1}.tags, [0 0 1 1]) && isequal(size(pbK{1}), [4 1]);
 
@@ -130,27 +130,27 @@ results{end,2}   = isequal(spK{1}.tags, [0 0 1 1]) && isequal(size(pbK{1}), [4 1
 % --- Event-dependent weight stacks ---
 pW = {[0 4 7 11]};
 wW = {[1 2 3 4]};
-[~, wbW, ~] = bindEvents(pW, wW, 2);
+[~, wbW, ~] = unpackPreMaet(bindEvents(pW, wW, 2));
 results{end+1,1} = 'bind: event-dependent weight stacks';
 results{end,2}   = isequal(wbW{1}, [1 2 3; 2 3 4]);
 
 
 % --- Scalar weight passes through ---
-[~, wbS, ~] = bindEvents(pW, 0.7, 2);
+[~, wbS, ~] = unpackPreMaet(bindEvents(pW, 0.7, 2));
 results{end+1,1} = 'bind: scalar weight passes through';
 results{end,2}   = isequal(wbS, 0.7);
 
 
 % --- Nested input spec rejected (L>=3 deep nesting not yet supported) ---
-[~, ~, spNested] = bindEvents(pW, [], 2);
+[~, ~, spNested] = unpackPreMaet(bindEvents(pW, [], 2));
 results{end+1,1} = 'bind: nested input spec rejected';
 results{end,2}   = throwsError(@() bindEvents(pW, [], 2, 'specs', spNested));
 
 
 % --- name from kwarg and inherited from incoming spec ---
-[~, ~, spNm] = bindEvents(pW, [], 2, ...
-                          'name', 'steps', 'levelNames', {'step', 'ngram'});
-[~, ~, spInh] = bindEvents(pW, [], 2, 'specs', flatSpecs(pW, 'name', 'pitch'));
+[~, ~, spNm] = unpackPreMaet(bindEvents(pW, [], 2, ...
+                          'name', 'steps', 'levelNames', {'step', 'ngram'}));
+[~, ~, spInh] = unpackPreMaet(bindEvents(pW, [], 2, 'specs', flatSpecs(pW, 'name', 'pitch')));
 results{end+1,1} = 'bind: name from kwarg and inherited';
 results{end,2}   = strcmp(spNm{1}.name, 'steps') ...
                    && isequal(spNm{1}.names, {'step', 'ngram'}) ...

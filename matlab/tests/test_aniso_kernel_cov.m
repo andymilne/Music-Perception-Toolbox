@@ -333,7 +333,7 @@ results{end,2}   = abs(vA - vT) <= 1e-12;
 
 rngSeed = RandStream('mt19937ar', 'Seed', 7);
 xDeg = rand(rngSeed, 1, 12);
-[pbD, ~, spD] = bindEvents({xDeg}, [], 3);
+[pbD, ~, spD] = unpackPreMaet(bindEvents({xDeg}, [], 3));
 PDeg = pbD{1};
 nDeg = size(PDeg, 2);
 flatDeg = struct('r', 3, 'sym', false, 'rel', false);
@@ -365,9 +365,9 @@ results{end,2}   = max(abs(evNestS(:) - evFlatS(:))) <= TOL;
 % Demo pipeline: difference -> log -> bind, swept via specs, against
 % the manually stacked flat surface via isSym.
 onsW = [0, 0.5, 0.75, 1.0, 2.0, 2.5, 2.75, 3.0, 4.0, 4.4, 4.6, 4.8];
-[pDf, wDf, spDf] = differenceEvents({onsW}, [], 1);
+[pDf, wDf, spDf] = unpackPreMaet(differenceEvents({onsW}, [], 1));
 pDf{1} = log(pDf{1});
-[pBf, wBf, spBf] = bindEvents(pDf, wDf, 3, 'specs', spDf);
+[pBf, wBf, spBf] = unpackPreMaet(bindEvents(pDf, wDf, 3, 'specs', spDf));
 nTriW = size(pBf{1}, 2);
 triTimesW = onsW(1:nTriW);
 liW = log(diff(onsW));
@@ -403,20 +403,20 @@ results{end,2}   = abs(cosSP - 1) <= TOL;
 
 % Non-degenerate nesting (K = 2 constituents) is rejected.
 x2Deg = rand(rngSeed, 2, 12);
-[pb2D, ~, sp2D] = bindEvents({x2Deg}, [], 3);
+[pb2D, ~, sp2D] = unpackPreMaet(bindEvents({x2Deg}, [], 3));
 results{end+1,1} = 'aniso: non-degenerate nested rejected';
 results{end,2}   = errorMessageContains(@() buildExpTens({pb2D{1}}, [], ...
     'specs', {sp2D{1}}, 'sigma', {0.01 * eye(6)}, 'isPer', false, ...
     'period', 0, 'verbose', false), 'not degenerate');
 
 % Outer-level sym/rel on a degenerate spec hit the canonical messages.
-[pbSy, ~, spSy] = bindEvents({xDeg}, [], 3, 'symOuter', true);
+[pbSy, ~, spSy] = unpackPreMaet(bindEvents({xDeg}, [], 3, 'symOuter', true));
 results{end+1,1} = 'aniso: degenerate spec with symOuter rejected canonically';
 results{end,2}   = errorMessageContains(@() buildExpTens({pbSy{1}}, [], ...
     'specs', {spSy{1}}, 'sigma', {0.01 * eye(3)}, 'isPer', false, ...
     'period', 0, 'verbose', false), 'ordered multiset');
 
-[pbRl, ~, spRl] = bindEvents({xDeg}, [], 3, 'relOuter', true);
+[pbRl, ~, spRl] = unpackPreMaet(bindEvents({xDeg}, [], 3, 'relOuter', true));
 results{end+1,1} = 'aniso: degenerate spec with relOuter rejected canonically';
 results{end,2}   = errorMessageContains(@() buildExpTens({pbRl{1}}, [], ...
     'specs', {spRl{1}}, 'sigma', {0.01 * eye(3)}, 'isPer', false, ...

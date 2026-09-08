@@ -5,7 +5,7 @@ or 1) or a MusicXML file (``.musicxml``, ``.xml``, or compressed
 ``.mxl``) into a *note table*: one row per sounding note with its onset
 and duration in beats and in seconds, its MIDI pitch, its velocity, and
 its part. :func:`events_from_score` turns a note table (or a path) into
-the ``(p_attr, w, specs)`` carrier that :func:`build_exp_tens` and the
+the ``(p_attr, w_attr, specs)`` that :func:`build_exp_tens` and the
 pre-MAET preprocessors consume, choosing the attributes, their units,
 the weights, and whether simultaneous notes are bound into one
 multi-value event.
@@ -42,6 +42,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from ._tensor.premaet import pre_maet
 from ._tensor.preprocessing import flat_specs
 from ._tensor.transform import _convert_scale
 
@@ -478,7 +479,7 @@ def events_from_score(source, *, attributes=("pitch", "onset"),
                       pitch="midi", time="seconds", weights="velocity",
                       parts=None, chords="bind", chord_tolerance=0.0,
                       names=True):
-    """Build the ``(p_attr, w, specs)`` carrier from a score.
+    """Build the pre-MAET's parts from a score.
 
     Parameters
     ----------
@@ -510,13 +511,12 @@ def events_from_score(source, *, attributes=("pitch", "onset"),
 
     Returns
     -------
-    p_attr : list of ndarray
-        One ``K_a x N`` value matrix per attribute.
-    w : list of ndarray
-        One ``K_a x N`` weight matrix per attribute (NaN-padded slots
-        carry weight 0). Under ``'ones'`` this is ``None``.
-    specs : list of dict
-        Flat specs, named after the attributes when ``names`` is set.
+    dict
+        The pre-MAET. Its ``p_attr`` holds one ``K_a x N`` value matrix
+        per attribute; its ``w_attr`` one ``K_a x N`` weight matrix per
+        attribute (NaN-padded slots carry weight 0), or ``None`` under
+        ``'ones'``; its ``specs`` flat specs, named after the attributes
+        when ``names`` is set.
     """
     table = read_score(source) if isinstance(source, (str, os.PathLike)) \
         else source
@@ -600,4 +600,15 @@ def events_from_score(source, *, attributes=("pitch", "onset"),
     else:
         w = w_list
     specs = flat_specs(p_attr, name=attributes if names else None)
-    return p_attr, w, specs
+    # A score determines the periodicity of its attributes and not their
+    # kernel widths. Pitches, onsets, durations, velocities, parts, bars
+    # and fermatas are all read as they are written --- absolute, on an
+    # unbounded axis --- so [per] = 0 and the period is inert; octave
+    # equivalence is an equivalence the analyst imposes, not one the score
+    # states. Sigma is left unset rather than defaulted, because there is
+    # no width a score implies: build_exp_tens will then name the
+    # attribute that still needs one.
+    for spec in specs:
+        spec["is_per"] = False
+        spec["period"] = 0.0
+    return pre_maet(p_attr, w, specs)

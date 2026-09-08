@@ -58,7 +58,8 @@ except ImportError:
 
 import mpt
 mpt.set_default(show_hints=False)
-from mpt import build_exp_tens, cos_sim_exp_tens, simplex_vertices
+from mpt import (build_exp_tens, cos_sim_exp_tens, show_pre_maet,
+                 simplex_vertices)
 
 from jmm_data import bwv347_grid, GRID_STEP_QN
 
@@ -76,7 +77,8 @@ SIGMA_PH_SNAPSHOTS = [200.0, 600.0, 3000.0]      # heat-map widths
 # Load chorale, identify reference chord pairs by score time
 # ---------------------------------------------------------------------------
 times, pitches_satb, _ = bwv347_grid()
-pitches_cents = pitches_satb * 100.0
+pitches_cents = mpt.transform_attributes(pitches_satb, None,
+                                         ('midi', 'cents'))
 N = len(times)
 
 
@@ -160,9 +162,19 @@ def build_voice_agnostic(satb_cents, sigma_pc, sigma_ph):
     )
 
 
-BUILDERS = [('Voice-aware encoding', build_voice_aware),
-            (f'Simplex-voice encoding (σ$_{{voice}}$ = {SIGMA_VOICE})', build_simplex_voice),
-            ('Voice-agnostic encoding', build_voice_agnostic)]
+PC_PH = ['pitch class', 'pitch height']
+BUILDERS = [('Voice-aware encoding', build_voice_aware, PC_PH),
+            (f'Simplex-voice encoding (σ$_{{voice}}$ = {SIGMA_VOICE})',
+             build_simplex_voice, PC_PH + ['voice']),
+            ('Voice-agnostic encoding', build_voice_agnostic, PC_PH)]
+
+
+# The three encodings carry the same chord differently, so each is shown
+# as the pre-MAET the cosine actually receives, on the cadence-1 tonic.
+for _label, _builder, _names in BUILDERS:
+    show_pre_maet(_builder(pitches_cents[event_at(7.0)], SIGMA_PC,
+                           SIGMA_PHS[0]), names=_names, title=_label)
+    print()
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +190,7 @@ def sweep():
     chords = {t: pitches_cents[event_at(t)] for t in chord_times}
     sims = np.zeros((len(BUILDERS), len(REFERENCE_PAIRS), len(SIGMA_PHS)))
     for sp_idx, sigma_ph in enumerate(SIGMA_PHS):
-        for b_idx, (_, build) in enumerate(BUILDERS):
+        for b_idx, (_, build, _) in enumerate(BUILDERS):
             dens = {t: build(chords[t], SIGMA_PC, sigma_ph) for t in chord_times}
             # One batched call per encoding: list-vs-list pairwise mode
             # returns all six pair similarities at once.
@@ -195,7 +207,7 @@ def report_sweep(sims):
     cols = [100.0, 1200.0, 8000.0]
     print('cosine similarity at σ_ph = ' + ', '.join(f'{c:g}' for c in cols)
           + ' cents (σ_pc = 50 cents):')
-    for b_idx, (title, _) in enumerate(BUILDERS):
+    for b_idx, (title, _, _) in enumerate(BUILDERS):
         print(f'  {title.split(" (")[0]}')
         for p_idx, (label, _, _) in enumerate(REFERENCE_PAIRS):
             vals = '  '.join(f'{sims[b_idx, p_idx, at(c)]:5.3f}' for c in cols)
@@ -204,7 +216,7 @@ def report_sweep(sims):
 
 def plot_sweep(sims):
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
-    for ax, (title, _), S in zip(axes, BUILDERS, sims):
+    for ax, (title, _, _), S in zip(axes, BUILDERS, sims):
         for p_idx, ((label, _, _), colour) in enumerate(zip(REFERENCE_PAIRS, PAIR_COLOURS)):
             ax.plot(SIGMA_PHS, S[p_idx], color=colour, linewidth=2, label=label)
         ax.set_xscale('log')
@@ -236,7 +248,7 @@ def heatmaps():
     out = {}
     for sigma_ph in SIGMA_PH_SNAPSHOTS:
         print(f'  σ_ph = {sigma_ph:g}: building {N} densities x 3 encodings ...')
-        for b_idx, (_, build) in enumerate(BUILDERS):
+        for b_idx, (_, build, _) in enumerate(BUILDERS):
             dens = [build(pitches_cents[i], SIGMA_PC, sigma_ph) for i in range(N)]
             # One cartesian-mode call per encoding returns the full N x N
             # matrix (unit diagonal, symmetric) directly.
@@ -254,7 +266,7 @@ def plot_heatmaps(maps):
 
     fig, axes = plt.subplots(3, 3, figsize=(16, 16), constrained_layout=True)
     for row, sigma_ph in enumerate(SIGMA_PH_SNAPSHOTS):
-        for col, (title, _) in enumerate(BUILDERS):
+        for col, (title, _, _) in enumerate(BUILDERS):
             ax = axes[row, col]
             S = maps[(sigma_ph, col)]
             im = ax.imshow(S, cmap='magma', vmin=0, vmax=1, origin='lower',

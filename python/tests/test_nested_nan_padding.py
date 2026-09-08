@@ -9,7 +9,7 @@ normalisation, an accompanying plain attribute, and all four
 import numpy as np
 import pytest
 
-from mpt import bind_events, flat_specs, build_exp_tens, cos_sim_exp_tens
+from mpt import bind_events, flat_specs, build_exp_tens, cos_sim_exp_tens, unpack_pre_maet
 
 
 def _bound(chords, *, r_inner, rel_outer, per, flag=None):
@@ -21,7 +21,7 @@ def _bound(chords, *, r_inner, rel_outer, per, flag=None):
         P[:len(c), j] = c
         W[:len(c), j] = 1.0
     specs = flat_specs([P], r=r_inner, rel=False, sym=True)
-    pb, wb, sb = bind_events([P], [W], L, rel_outer=rel_outer, specs=specs)
+    pb, wb, sb = unpack_pre_maet(bind_events([P], [W], L, rel_outer=rel_outer, specs=specs))
     attrs, ws, sp = [pb[0]], [wb[0]], [sb[0]]
     sigma, is_per, period = [0.15], [per], [12.0]
     if flag is not None:

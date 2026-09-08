@@ -15,6 +15,7 @@ import pytest
 from mpt import (
     windowed_similarity, windowed_entropy,
     weight_events, translate_attributes, bind_events,
+    unpack_pre_maet,
     build_exp_tens, entropy_exp_tens, cos_sim_exp_tens,
 )
 
@@ -48,8 +49,8 @@ def test_entropy_drop_window_axis(triple, method, shape):
     kw = {"width": W_WIDTH} if shape == 1.0 else {"sd": SD}
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
-        pw, ww, _ = weight_events(p_attr, None, 1, 0, float(c), shape,
-                                  is_per=False, period=0.0, drop_input_attr=True, **kw)
+        pw, ww, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), shape,
+                                  is_per=False, period=0.0, drop_input_attr=True, **kw))
         dens = build_exp_tens(pw, ww, [SIG_P], [1], [False], [False], [0.0], verbose=False)
         ref[i] = entropy_exp_tens(dens, method=method, verbose=False)
     got = windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
@@ -63,8 +64,8 @@ def test_entropy_retain_axis(triple):
     p_attr, centres = triple
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
-        pw, ww, _ = weight_events(p_attr, None, 1, 0, float(c), 1.0,
-                                  is_per=False, period=0.0, width=W_WIDTH, drop_input_attr=False)
+        pw, ww, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), 1.0,
+                                  is_per=False, period=0.0, width=W_WIDTH, drop_input_attr=False))
         dens = build_exp_tens(pw, ww, [SIG_P, SIG_T], [1, 1], [False, False],
                               [False, False], [0.0, 0.0], verbose=False)
         ref[i] = entropy_exp_tens(dens, method="renyi2", verbose=False)
@@ -118,9 +119,9 @@ def test_similarity_locked(triple, query, normalize):
     qv = query[1].ravel(); q_ext = float(qv.max() - qv.min()); mu_q = float(qv.mean())
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
-        pc, wc, _ = weight_events(p_attr, None, 1, 0, float(c), 1.0,
-                                  width=q_ext, is_per=False, period=0.0, drop_input_attr=False)
-        pq, wq, _ = translate_attributes(query, None, [None, np.array([[c - mu_q]])])
+        pc, wc, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), 1.0,
+                                  width=q_ext, is_per=False, period=0.0, drop_input_attr=False))
+        pq, wq, _ = unpack_pre_maet(translate_attributes(query, None, [None, np.array([[c - mu_q]])]))
         ref[i] = cos_sim_exp_tens(pc, wc, pq, wq, [SIG_P, SIG_T], [1, 1],
                                   [False, False], [False, False], [0.0, 0.0],
                                   normalize=normalize, verbose=False)
@@ -145,7 +146,7 @@ def test_similarity_decoupled_correlogram(triple, query):
         keep = np.abs(onset.ravel() - a) <= half
         pc = [pitch[:, keep], onset[:, keep]]
         for it, t in enumerate(tau):
-            pq, wq, _ = translate_attributes(query, None, [None, np.array([[(a - t) - mu_q]])])
+            pq, wq, _ = unpack_pre_maet(translate_attributes(query, None, [None, np.array([[(a - t) - mu_q]])]))
             ref[ia, it] = cos_sim_exp_tens(pc, None, pq, wq, [SIG_P, SIG_T], [1, 1],
                                            [False, False], [False, False], [0.0, 0.0],
                                            normalize="oneSidedDenom", verbose=False)
@@ -218,7 +219,7 @@ def test_locate_is_wired():
     the query translation) differently, so the self-similarity sweep peaks at
     different centres and the two arrays must not coincide."""
     qp = np.array([[60., 64.]]); qo = np.array([[0.0, 0.6]])   # centroid 0.3, start 0.0
-    qb, qw, qs = bind_events([qp, qo], None, [1, 2], step=1, rel_outer=[False, False])
+    qb, qw, qs = unpack_pre_maet(bind_events([qp, qo], None, [1, 2], step=1, rel_outer=[False, False]))
     centres = np.linspace(-0.4, 0.7, 12)        # keeps both window centres non-empty
     common = dict(window_attr=1, drop_window_attr=False, context_window=(1.0, 1.5),
                   normalize="cosine", specs=qs, verbose=False)

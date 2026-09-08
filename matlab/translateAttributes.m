@@ -1,12 +1,15 @@
-function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs)
+function [pm, sweep] = translateAttributes(varargin)
 %TRANSLATEATTRIBUTES Translate attributes' positions by per-row offsets.
 %
-%   [pOut, w, specs] = translateAttributes(pAttr, w, offsets, ...)
-%   is per-attribute preprocessing on the (pAttr, w, specs) triple.
-%   Selected attributes' positions are shifted by a chosen offset and the
-%   transformed triple feeds straight into buildExpTens (or a further
-%   pre-MAET step). Weights and specs pass through unchanged; only the
-%   values move.
+%   PM = translateAttributes(PM0, offsets, ...) and
+%   PM = translateAttributes(pAttr, wAttr, offsets, ...) are per-attribute
+%   preprocessing on the pre-MAET. Selected attributes' positions are
+%   shifted by a chosen offset and the transformed pre-MAET feeds straight
+%   into buildExpTens (or a further pre-MAET step). Weights and specs pass
+%   through unchanged; only the values move.%
+%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   its parts as pAttr and wAttr with the specs as a name-value; the two
+%   forms are the same call.
 %
 %   Value-axis alignment (read this first). Everything hangs off one axis:
 %   the value axis of an attribute, whose length is K_total (the number of
@@ -48,8 +51,9 @@ function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs
 %   periodic kernel in buildExpTens wraps downstream) and stay separate.
 %
 %   Inputs
+%       pm      - Pre-MAET, in place of pAttr and wAttr.
 %       pAttr   - 1 x A cell of K_total x N per-attribute value matrices.
-%       w       - Weights ([], scalar, or 1 x A cell); passed through.
+%       wAttr   - Weights ([], scalar, or 1 x A cell); passed through.
 %       offsets - 1 x A cell of per-attribute offsets (see above).
 %
 %   Name-value pairs
@@ -57,10 +61,10 @@ function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs
 %                 per-attribute specs supplying is_rel (outermost level).
 %
 %   Outputs
-%       pOut  - Single (M = 1): 1 x A cell of K_total x N matrices.
-%               Sweep (M > 1): 1 x M cell of such cells.
-%       w     - Same as input.
-%       specs - The attribute specifications, unchanged (or synthesised).
+%       pm    - Pre-MAET. Its pAttr is, for a single translation
+%               (M = 1), a 1 x A cell of K_total x N matrices, and for a
+%               sweep (M > 1) a 1 x M cell of such cells; wAttr and specs
+%               are unchanged from input (or synthesised).
 %       sweep - Struct describing the sweep, for callers that go on to
 %               sweepCosSimExpTens: .offsets is an A x M matrix of the
 %               per-attribute uniform translations, with NaN in any
@@ -83,11 +87,30 @@ function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs
 %   See also DIFFERENCEEVENTS, BINDEVENTS, FLATSPECS, BUILDEXPTENS,
 %   SWEEPCOSSIMEXPTENS.
 
+[pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
+[pOut, w, specs, sweep] = localTranslateAttributes(pAttr, wAttr, specsPm, rest{:});
+if isempty(sweep)
+    pm = preMaet(pOut, w, specs);
+else
+    % Sweep form: pOut holds one length-A cell per sweep index, so the
+    % parts do not share a length and the cross-checks do not
+    % apply.
+    pm = struct('pAttr', {pOut}, 'wAttr', {w}, 'specs', {specs});
+end
+end
+
+
+function [pOut, w, specs, sweep] = localTranslateAttributes(pAttr, w, specsPm, offsets, nvArgs)
 arguments
     pAttr
     w
+    specsPm
     offsets
     nvArgs.specs = []
+end
+
+if isempty(nvArgs.specs)
+    nvArgs.specs = specsPm;
 end
 
 % --- Normalise pAttr ---

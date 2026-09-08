@@ -56,6 +56,7 @@ the subject of demo_tempo_invariance.
 import numpy as np
 
 import mpt
+from mpt import unpack_pre_maet
 from mpt import (bind_events, build_exp_tens, cos_sim_exp_tens,
                  difference_events)
 
@@ -139,24 +140,25 @@ print()
 def make_events(pitches, onsets, treatment):
     """Differenced events for one variant under one treatment.
 
-    Returns a dict with the per-event arrays: 'sign' (+1/2 or -1/2),
-    'logmag' (log of the absolute pitch step), 'ioi' (inter-onset
-    interval in beats), and, for the count treatment, 'count' (onsets
-    gathered into the event completing the step).
+    Returns a dict with the per-event arrays: 'steps' (the signed pitch
+    step), 'ioi' (inter-onset interval in beats), and, for the count
+    treatment, 'count' (onsets gathered into the event completing the
+    step). build_density splits the step into its log magnitude and its
+    sign, which is transform_attributes' job.
     """
     pitches = np.asarray(pitches, dtype=float)
     onsets = np.asarray(onsets, dtype=float)
     if treatment in ("prolong", "count"):
         pitches, onsets, counts = gather_repetitions(pitches, onsets)
-        p_diff, _, _ = difference_events(
+        p_diff, _, _ = unpack_pre_maet(difference_events(
             [pitches[None, :], onsets[None, :], counts[None, :]],
-            None, [1, 1, 0])
+            None, [1, 1, 0]))
         steps = p_diff[0].ravel()
         iois = p_diff[1].ravel()
         counts = p_diff[2].ravel()
     elif treatment == "excise":
-        p_diff, _, _ = difference_events(
-            [pitches[None, :], onsets[None, :]], None, [1, 1])
+        p_diff, _, _ = unpack_pre_maet(difference_events(
+            [pitches[None, :], onsets[None, :]], None, [1, 1]))
         steps = p_diff[0].ravel()
         iois = p_diff[1].ravel()
         keep = np.abs(steps) > 1e-9
@@ -164,35 +166,47 @@ def make_events(pitches, onsets, treatment):
         counts = None
     else:
         raise ValueError(f"unknown treatment {treatment!r}")
-    out = {"sign": np.where(steps > 0, 0.5, -0.5),
-           "logmag": np.log(np.abs(steps)),
-           "ioi": iois}
+    out = {"steps": steps, "ioi": iois}
     if treatment == "count":
         out["count"] = counts
     return out
 
 
-def build_density(ev, log_ioi, sigma_count=SIGMA_COUNT):
+def build_density(ev, log_ioi, sigma_count=SIGMA_COUNT,
+                  show_input=False):
     """One bound super-event: the whole event sequence as one tuple.
 
-    Attributes: sign, log step magnitude, inter-onset interval, and
-    (when present) count. The log-magnitude tuple is read relative
+    Attributes: log step magnitude, sign, inter-onset interval, and
+    (when present) count. One transform_attributes call takes the log of
+    the signed step and, with sign=True, inserts the sign attribute
+    right after it at the 2-point simplex's vertices, {-1/2, 0, +1/2};
+    the same call takes the log of the
+    intervals where log_ioi. The log-magnitude tuple is read relative
     (rel_outer), quotienting a common shift -- a uniform scaling of
-    the pitch steps. With log_ioi, the intervals are taken to
-    logarithms and read relative too, quotienting a tempo change; in
-    beats they are read absolute, so tempo differences count.
+    the pitch steps. With log_ioi, the intervals are read relative too,
+    quotienting a tempo change; in beats they are read absolute, so
+    tempo differences count.
     """
-    ioi = np.log(ev["ioi"]) if log_ioi else ev["ioi"]
-    p_attr = [ev["sign"][None, :], ev["logmag"][None, :], ioi[None, :]]
-    rel = [False, True, bool(log_ioi)]
-    sig = [SIGMA_SIGN, SIGMA_LOGMAG,
+    pm_step = mpt.transform_attributes(
+        [ev["steps"][None, :], ev["ioi"][None, :]], None,
+        ["log", "log" if log_ioi else None], sign=[True, False])
+    p_attr = list(pm_step["p_attr"])          # [log magnitude, sign, ioi]
+    rel = [True, False, bool(log_ioi)]
+    sig = [SIGMA_LOGMAG, SIGMA_SIGN,
            SIGMA_LOGIOI if log_ioi else SIGMA_IOI_BEATS]
     if "count" in ev:
         p_attr.append(ev["count"][None, :])
         rel.append(False)
         sig.append(sigma_count)
-    L = ev["sign"].size
-    p_b, w_b, sp_b = bind_events(p_attr, None, L, rel_outer=rel)
+    L = ev["steps"].size
+    p_b, w_b, sp_b = unpack_pre_maet(bind_events(p_attr, None, L, rel_outer=rel))
+    if show_input:
+        names = ['log magnitude', 'sign', 'log IOI' if log_ioi else 'IOI']
+        if len(sig) > 3:
+            names.append('count')
+        mpt.show_pre_maet(p_b, w_b, sp_b, names=names, sigma=sig,
+                          is_per=[False] * len(sig), max_elements=6)
+        print()
     return build_exp_tens(p_b, w_b, specs=sp_b, sigma=sig,
                           is_per=[False] * len(sig),
                           period=[None] * len(sig), verbose=False)
@@ -203,12 +217,12 @@ TREATMENTS = ["excise", "prolong", "count"]
 print("=== 2. The reference melody under each treatment ===\n")
 for tr in TREATMENTS:
     ev = make_events(PITCHES_REF, ONSETS_REF, tr)
-    n = ev["sign"].size
+    n = ev["steps"].size
     print(f"  {tr}: {n} events")
     print("    step sign  :", "  ".join(
-        "+" if s > 0 else "-" for s in ev["sign"]))
+        "+" if s > 0 else "-" for s in ev["steps"]))
     print("    |step|     :", "  ".join(
-        f"{m:.0f}" for m in np.exp(ev["logmag"])))
+        f"{m:.0f}" for m in np.abs(ev["steps"])))
     print("    IOI (beats):", "  ".join(f"{d:.0f}" for d in ev["ioi"]))
     if "count" in ev:
         print("    onsets     :", "  ".join(
@@ -227,8 +241,9 @@ print()
 
 def similarity_table(log_ioi):
     ref_dens = {tr: build_density(
-        make_events(PITCHES_REF, ONSETS_REF, tr), log_ioi)
-        for tr in TREATMENTS}
+        make_events(PITCHES_REF, ONSETS_REF, tr), log_ioi,
+        show_input=(i == 0))
+        for i, tr in enumerate(TREATMENTS)}
     header = f"  {'variant':<12}" + "".join(f"{tr:>10}" for tr in TREATMENTS)
     print(header)
     print("  " + "-" * (len(header) - 2))

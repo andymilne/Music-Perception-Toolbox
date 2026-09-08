@@ -12,7 +12,7 @@ import pytest
 
 import mpt
 import mpt._tensor._nested_contraction as nc
-from mpt import bind_events, build_exp_tens, cos_sim_exp_tens
+from mpt import bind_events, build_exp_tens, cos_sim_exp_tens, unpack_pre_maet
 
 
 def _density(seed, sizes, r_outer=None, sym_outer=True):
@@ -20,15 +20,15 @@ def _density(seed, sizes, r_outer=None, sym_outer=True):
     onset = np.concatenate([[k] * s for k, s in enumerate(sizes)])
     onset = onset.reshape(1, -1).astype(float)
     pitch = r.uniform(55, 79, size=onset.shape[1]).reshape(1, -1)
-    pb, wb, sp = bind_events([pitch, onset], None, None, group_by=1,
-                             r_outer=r_outer, sym_outer=sym_outer)
+    pb, wb, sp = unpack_pre_maet(bind_events([pitch, onset], None, None, group_by=1,
+                             r_outer=r_outer, sym_outer=sym_outer))
     return pb, wb, sp
 
 
 def test_run_length_structure():
     pitch = np.array([[60, 64, 67, 62, 65, 60, 59, 62, 67, 71]], float)
     onset = np.array([[0, 0, 0, 1, 1, 2, 3, 3, 3, 3]], float)  # 3,2,1,4
-    pb, wb, sp = bind_events([pitch, onset], None, None, group_by=1)
+    pb, wb, sp = unpack_pre_maet(bind_events([pitch, onset], None, None, group_by=1))
     assert pb[0].shape == (4, 4)               # L_max=4, n_prime=4
     assert sp[0]["r"] == [1, 1]                # inner r preserved, outer = min = 1
     assert np.array_equal(sp[0]["tags"], np.repeat(np.arange(4), 1))
@@ -81,7 +81,7 @@ def test_consecutive_runs_not_global():
     # non-adjacent equal values do not merge
     onset = np.array([[0, 0, 1, 0]], float)
     pitch = np.array([[60, 61, 62, 63]], float)
-    pb, _, sp = bind_events([pitch, onset], None, None, group_by=1)
+    pb, _, sp = unpack_pre_maet(bind_events([pitch, onset], None, None, group_by=1))
     assert pb[0].shape[1] == 3                  # [0,0], [1], [0]
 
 

@@ -487,7 +487,7 @@ class TestDegenerateNestedFlattening:
     def _triples(self, seed=7, n=12):
         rng = np.random.default_rng(seed)
         x = rng.normal(size=(1, n))
-        pb, _, specs = mpt.bind_events([x], None, 3)
+        pb, _, specs = mpt.unpack_pre_maet(mpt.bind_events([x], None, 3))
         P = pb[0]
         flat = {"r": 3, "sym": False, "rel": False}
         return P, specs[0], flat, rng
@@ -531,10 +531,10 @@ class TestDegenerateNestedFlattening:
         # flat surface via is_sym=.
         onsets = np.array([0.0, 0.5, 0.75, 1.0, 2.0, 2.5, 2.75, 3.0,
                            4.0, 4.4, 4.6, 4.8])
-        p_d, w_d, sp_d = mpt.difference_events([onsets[None, :]],
-                                               None, [1])
+        p_d, w_d, sp_d = mpt.unpack_pre_maet(mpt.difference_events([onsets[None, :]],
+                                               None, [1]))
         p_d[0] = np.log(p_d[0])
-        p_b, w_b, sp_b = mpt.bind_events(p_d, w_d, [3], specs=sp_d)
+        p_b, w_b, sp_b = mpt.unpack_pre_maet(mpt.bind_events(p_d, w_d, [3], specs=sp_d))
         n_tri = p_b[0].shape[1]
         tri_times = onsets[:n_tri]
         li = np.log(np.diff(onsets))
@@ -574,7 +574,7 @@ class TestDegenerateNestedFlattening:
     def test_non_degenerate_nested_rejected(self):
         rng = np.random.default_rng(2)
         x2 = rng.normal(size=(2, 12))            # K = 2 constituents
-        pb2, _, sp2 = mpt.bind_events([x2], None, 3)
+        pb2, _, sp2 = mpt.unpack_pre_maet(mpt.bind_events([x2], None, 3))
         with pytest.raises(ValueError, match="not[ ]?degenerate"):
             mpt.build_exp_tens(
                 [pb2[0]], None, specs=[sp2[0]],
@@ -583,14 +583,14 @@ class TestDegenerateNestedFlattening:
 
     def test_outer_sym_rejected_canonically(self):
         rng = np.random.default_rng(3)
-        pb, _, sp = mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
-                                    sym_outer=True)
+        pb, _, sp = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
+                                    sym_outer=True))
         with pytest.raises(ValueError, match="ordered multiset"):
             self._build(pb[0], sp[0], np.eye(3) * 0.01)
 
     def test_outer_rel_rejected_canonically(self):
         rng = np.random.default_rng(4)
-        pb, _, sp = mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
-                                    rel_outer=True)
+        pb, _, sp = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
+                                    rel_outer=True))
         with pytest.raises(ValueError, match="is_rel=False"):
             self._build(pb[0], sp[0], np.eye(3) * 0.01)

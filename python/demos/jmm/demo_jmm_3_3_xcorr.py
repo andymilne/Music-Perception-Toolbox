@@ -40,7 +40,7 @@ plt.rcParams.update({'font.size': 15, 'axes.titlesize': 17, 'axes.labelsize': 15
 
 import mpt
 mpt.set_default(show_hints=False, truncation_sigmas=4.0, kernel_precision='double')
-from mpt import windowed_similarity
+from mpt import show_pre_maet, windowed_similarity
 
 import piano_phase as pe
 
@@ -87,6 +87,12 @@ tau_grid = np.linspace(0.0, CELL_DUR, N_TAU, endpoint=False)
 HALF = CELL_DUR + 2 * IOI
 mu_q = float(query_pattr[1].mean())
 query_centres = (anchors[:, None] - tau_grid[None, :]) + mu_q   # (anchors, N_TAU)
+show_pre_maet([p2.reshape(1, -1), t2.reshape(1, -1)], None,
+              names=['pitch', 'onset'], sigma=sigma, is_rel=is_rel,
+              is_per=is_per, period=periods, max_events=4)
+show_pre_maet(query_pattr, None, names=['pitch', 'onset'], sigma=sigma,
+              is_rel=is_rel, is_per=is_per, period=periods, max_events=4)
+
 R = windowed_similarity(
     [p2.reshape(1, -1), t2.reshape(1, -1)], None,
     query_pattr, None,

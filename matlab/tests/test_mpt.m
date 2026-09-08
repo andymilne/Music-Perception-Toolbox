@@ -99,7 +99,8 @@ serial = {'test_serial_continuity.m', 'test_serial_seq_weights.m'};
 maet = {'test_maet.m', 'test_windowed_premaet.m', 'test_windowed_nested.m', 'test_periodic_unfolded_centres.m', 'test_sym.m', 'test_nested.m', 'test_nesting_L3.m', 'test_nested_unequal_cardinality.m', 'test_nested_ma_contraction.m', 'test_nested_abs_per_full_image.m', 'test_nested_rel_per_full_image.m', 'test_nested_measure_rule.m', 'test_nested_cost_model.m', 'test_nested_spectral_factor.m', 'test_nested_mobius_eval.m', 'test_inner_product_scale.m', 'test_specs.m', 'test_bind.m', 'test_bind_by_attribute.m', 'test_difference.m', 'test_translate.m', 'test_sweep_reduction.m', 'test_gram_quadratic_form.m'};
 
 % Geometry helpers
-geom = {'test_simplex_vertices.m'};
+geom = {'test_simplex_vertices.m', 'test_show_pre_maet.m', ...
+        'test_pre_maet_io.m', 'test_pre_maet.m'};
 
 % v3 features
 v22 = {'test_mobius_combinatorics.m', 'test_mobius_orbit_table.m', ...

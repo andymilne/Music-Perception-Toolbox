@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 
 import mpt
+from mpt import unpack_pre_maet
 from mpt import (
     add_spectra,
     entropy_exp_tens,
@@ -84,37 +85,37 @@ def test_weight_events_sd_and_width_yield_same_density_under_conversion():
     L = s * 2.0 * math.sqrt(3.0)
 
     # Rectangle (shape = 1)
-    _, w_sd, _ = weight_events(
+    _, w_sd, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=1.0,
         is_per=False, period=0.0,
         sd=s, drop_input_attr=True,
-    )
-    _, w_width, _ = weight_events(
+    ))
+    _, w_width, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=1.0,
         is_per=False, period=0.0,
         width=L, drop_input_attr=True,
-    )
+    ))
     np.testing.assert_allclose(w_sd[0], w_width[0], rtol=0, atol=1e-12)
 
     # Gaussian (shape = 0)
-    _, w_sd_g, _ = weight_events(
+    _, w_sd_g, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=0.0,
         is_per=False, period=0.0,
         sd=s, drop_input_attr=True,
-    )
-    _, w_width_g, _ = weight_events(
+    ))
+    _, w_width_g, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=0.0,
         is_per=False, period=0.0,
         width=L, drop_input_attr=True,
-    )
+    ))
     np.testing.assert_allclose(w_sd_g[0], w_width_g[0], rtol=0, atol=1e-12)
 
 
@@ -134,13 +135,13 @@ def test_weight_events_rect_width_is_full_support():
     p_attr = [pitches, times.reshape(1, n)]
     w = [np.ones((1, n)), np.ones((1, n))]
 
-    _, w_out, _ = weight_events(
+    _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=0.0, shape=1.0,
         is_per=False, period=0.0,
         width=L, drop_input_attr=True,
-    )
+    ))
     # Lower edge and interior (indices 0-3) kept; upper edge +L/2 (index 4)
     # and just-past (index 5) excluded.
     np.testing.assert_allclose(w_out[0][0, :4], 1.0)
@@ -223,13 +224,13 @@ def test_differential_entropy_bounded_after_weight_events_truncation():
     mpt.set_default(truncation_sigmas=3.0)
     c = float(times[n_events // 2])
 
-    p_w, w_w, g_w = weight_events(
+    p_w, w_w, g_w = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
-    )
+    ))
     # Sanity: weight_events should zero most events, but not prune them.
     assert p_w[0].shape[1] == n_events
     n_nonzero_events = int((w_w[0].sum(axis=0) > 0).sum())
@@ -260,13 +261,13 @@ def test_differential_entropy_matches_manual_prune():
     mpt.set_default(truncation_sigmas=3.0)
     c = float(times[n_events // 2])
 
-    p_w, w_w, g_w = weight_events(
+    p_w, w_w, g_w = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
-    )
+    ))
     H_auto = entropy_exp_tens(
         p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='differential', base=2.0,
@@ -299,13 +300,13 @@ def test_shannon_grid_matches_manual_prune():
     mpt.set_default(truncation_sigmas=3.0)
     c = float(times[n_events // 2])
 
-    p_w, w_w, g_w = weight_events(
+    p_w, w_w, g_w = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
-    )
+    ))
     H_auto = entropy_exp_tens(
         p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='shannon', base=2.0,

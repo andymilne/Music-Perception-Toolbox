@@ -73,6 +73,47 @@ results{end,2}   = throwsError(@() simplexVertices(3, 0));
 
 %% ---- Standalone summary ----
 
+% Orientation is pinned: the coordinates themselves, not merely the shape
+% they form. A regular simplex is defined only up to rotation, so every
+% test above passes under any orientation and none can see a change of
+% basis -- which is exactly how the two implementations came to disagree,
+% one taking its basis from orth and the other from an SVD, on a matrix
+% whose singular vectors are not determined. These are the pinned values,
+% shared with the Python twin.
+V3ref = [0.5, 0.28867513459481287; ...
+         -0.5, 0.28867513459481287; ...
+         0, -0.5773502691896257];
+V3 = simplexVertices(3);
+results{end+1,1} = 'simplexVertices: orientation pinned (N=3)'; %#ok<SAGROW>
+results{end,2}   = max(abs(V3(:) - V3ref(:))) < 1e-12;
+
+V4ref = [0.5, 0.28867513459481287, 0.20412414523193154; ...
+         -0.5, 0.28867513459481287, 0.20412414523193154; ...
+         0, -0.5773502691896257, 0.20412414523193154; ...
+         0, 0, -0.6123724356957945];
+V4 = simplexVertices(4);
+results{end+1,1} = 'simplexVertices: orientation pinned (N=4)'; %#ok<SAGROW>
+results{end,2}   = max(abs(V4(:) - V4ref(:))) < 1e-12;
+
+% Two levels sit at +1/2 and -1/2, the first level positive.
+V2 = simplexVertices(2);
+results{end+1,1} = 'simplexVertices: binary case is +/- 0.5'; %#ok<SAGROW>
+results{end,2}   = max(abs(V2(:) - [0.5; -0.5])) < 1e-12;
+
+% Nesting: the first m vertices, on their first m-1 coordinates, are the
+% m-simplex, so adding a level extends the coordinates rather than moving
+% the levels already there. This is the property the basis is pinned for.
+nestOk = true;
+for N = [4 5 6]
+    V = simplexVertices(N);
+    for m = 2:N
+        nestOk = nestOk && max(max(abs(V(1:m, 1:m-1) - simplexVertices(m)))) < 1e-12;
+    end
+end
+results{end+1,1} = 'simplexVertices: nesting across N'; %#ok<SAGROW>
+results{end,2}   = nestOk;
+
+
 if standalone
     nPass = sum([results{:, 2}]);
     nFail = size(results, 1) - nPass;
@@ -93,6 +134,7 @@ end
 
 
 %% ---- Local helpers ----
+
 
 function D = pairwiseDistances(V)
 %PAIRWISEDISTANCES Pairwise Euclidean distances between rows of V.

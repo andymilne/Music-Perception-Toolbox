@@ -4,7 +4,7 @@ A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article ("Cadence localization using nested multisets"; Analysis 1.4
 in the preprint's numbering), lightly edited from the article's own
 scripts. Data come from jmm_data (BWV 347 read from the bundled
-MusicXML); figures are written to figures/ when matplotlib is available.
+MusicXML); the figures stay on screen unless SAVE_FIGURES is set.
 
 What the analysis asks. Where in the chorale do cadences, and
 cadence-like progressions, occur — of which type, and in any key? A
@@ -67,6 +67,11 @@ from bwv_window import (cos_sim_exp_tens, show_pre_maet, win_events,
                         aggregate, build_pair,
                         bound_density, query, son_at, is_root_position,
                         is_six_four, b2bar, T0, T1, ROOT_YES, ROOT_NO)
+
+# Set True to write the figures to a figures/ folder beside this script;
+# False shows them instead.
+SAVE_FIGURES = False
+FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 # Similarity normalization for all sweeps: 'oneSidedDenom' (query
 # self-overlap alone) or 'cosine' (symmetric; penalizes context content
@@ -196,9 +201,9 @@ ROWS = [('d5/A4–M3/m6', 'dyad', False),
         (r'*$\mathrm{i_c}$–$\mathrm{V}$–$\mathrm{i}$', 'proto', qk[5])]
 
 VARIANTS = [
-    ('figures/demo_jmm_1_4_cadence_sweeps.pdf', [0, 1, 2, 4, 5]),    # the article's figure
-    ('figures/demo_jmm_1_4_cadence_sweeps_minor.pdf', [3, 6, 7]),    # Online Supplement
-    ('figures/demo_jmm_1_4_cadence_sweeps_all8.pdf', list(range(len(ROWS)))),
+    ('demo_jmm_1_4_cadence_sweeps.pdf', [0, 1, 2, 4, 5]),    # the article's figure
+    ('demo_jmm_1_4_cadence_sweeps_minor.pdf', [3, 6, 7]),    # Online Supplement
+    ('demo_jmm_1_4_cadence_sweeps_all8.pdf', list(range(len(ROWS)))),
 ]
 
 
@@ -233,7 +238,8 @@ def report(data):
 
 
 def plot(data):
-    os.makedirs('figures', exist_ok=True)
+    if SAVE_FIGURES:
+        os.makedirs(FIG_DIR, exist_ok=True)
     for out, row_ids in VARIANTS:
         n = len(row_ids)
         fig, axes = plt.subplots(n, 3, figsize=(11.5, 1.275 * n + 0.4), sharex=True)
@@ -278,10 +284,14 @@ def plot(data):
                     ax.set_xlabel('bar', fontsize=13)
         fig.tight_layout()
         fig.subplots_adjust(hspace=0.13)
-        fig.savefig(out)
-        fig.savefig(out.replace('.pdf', '.png'), dpi=150)
-        plt.close(fig)
-        print('Saved', out)
+        if SAVE_FIGURES:
+            path = os.path.join(FIG_DIR, out)
+            fig.savefig(path)
+            fig.savefig(path.replace('.pdf', '.png'), dpi=150)
+            plt.close(fig)
+            print('Saved figures/' + out)
+        else:
+            plt.show()
 
 
 if __name__ == '__main__':

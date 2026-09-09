@@ -11,8 +11,10 @@ example
 
     run('demos/jmm/demo_jmm_1_1_entropy.m')
 
-Figures are written to `figures/` (created if absent) with `print`, so
-the scripts also run headless; the numbers print to the console. The
+The figures stay on screen and the numbers print to the console. Set
+`SAVE_FIGURES = true` at the top of a script to write them to `figures/`
+instead (created if absent), which is also what makes the scripts useful
+headless. The
 scripts are the twins of the Python demos in `python/demos/jmm/`, with
 the same computations, the same printed numbers, and the same figures.
 

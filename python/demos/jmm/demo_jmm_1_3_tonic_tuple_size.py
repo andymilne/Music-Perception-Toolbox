@@ -3,8 +3,8 @@
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
 from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
-(the rendered Piano Phase voices); a figure is written to figures/ when
-matplotlib is available.
+(the rendered Piano Phase voices); the figures stay on screen unless
+SAVE_FIGURES is set.
 
 
 Analysis 1.3: structural matching of the four cadence tonics of BWV 347
@@ -44,6 +44,11 @@ except ImportError:
     plt = None
 
 import mpt
+
+# Set True to write the figures to a figures/ folder beside this script;
+# False shows them instead.
+SAVE_FIGURES = False
+FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 mpt.set_default(show_hints=False)
 from mpt import build_exp_tens, cos_sim_exp_tens
 
@@ -155,10 +160,13 @@ def main():
         pos = axes[row, 1].get_position()
         fig.text(0.014, pos.y0 + pos.height / 2, row_lab, rotation=90,
                  va='center', ha='left', fontsize=15)
-    os.makedirs('figures', exist_ok=True)
-    out_png = 'figures/demo_jmm_1_3_tonic_tuple_size.png'
-    fig.savefig(out_png, dpi=140, bbox_inches='tight')
-    print(f'Saved {out_png}')
+    if SAVE_FIGURES:
+        os.makedirs(FIG_DIR, exist_ok=True)
+        out_png = os.path.join(FIG_DIR, 'demo_jmm_1_3_tonic_tuple_size.png')
+        fig.savefig(out_png, dpi=140, bbox_inches='tight')
+        print('Saved figures/demo_jmm_1_3_tonic_tuple_size.png')
+    else:
+        plt.show()
 
 
 if __name__ == '__main__':

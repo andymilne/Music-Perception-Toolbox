@@ -3,8 +3,8 @@
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
 from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
-(the rendered Piano Phase voices); a figure is written to figures/ when
-matplotlib is available.
+(the rendered Piano Phase voices); the figures stay on screen unless
+SAVE_FIGURES is set.
 
 Analysis 3.3: phase as lag in Reich's *Piano Phase*.
 
@@ -29,6 +29,7 @@ Pre-MAET structure::
     one-sided normalisation (divide by the query self-overlap).
 """
 
+import os
 import numpy as np
 try:
     import matplotlib.pyplot as plt
@@ -43,6 +44,11 @@ mpt.set_default(show_hints=False, truncation_sigmas=4.0, kernel_precision='doubl
 from mpt import show_pre_maet, windowed_similarity
 
 import piano_phase as pe
+
+# Set True to write the figures to a figures/ folder beside this script;
+# False shows them instead.
+SAVE_FIGURES = False
+FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 # --- parameters ------------------------------------------------------------
 SIGMA_PITCH = 0.15
@@ -135,6 +141,12 @@ ax.set_title('Lag cross-correlation: canonical cell (Piano 1) vs Piano 2 '
 ax.legend(loc='upper left', fontsize=12, framealpha=0.6)
 fig.colorbar(im, ax=ax, label='matched-filter response', pad=0.06)
 fig.tight_layout()
-fig.savefig('figures/demo_jmm_3_3_xcorr.png', dpi=140, bbox_inches='tight')
+if SAVE_FIGURES:
+    os.makedirs(FIG_DIR, exist_ok=True)
+    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_3_3_xcorr.png'),
+                dpi=140, bbox_inches='tight')
+    print('Saved figures/demo_jmm_3_3_xcorr.png')
+else:
+    plt.show()
 print(f'saved; R range {np.nanmin(R):.3f}-{np.nanmax(R):.3f}, '
       f'{len(anchors)} anchors x {N_TAU} lags')

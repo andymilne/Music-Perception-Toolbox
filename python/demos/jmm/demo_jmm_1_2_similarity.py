@@ -4,7 +4,7 @@ A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article (Section 4.1.2, "Voice-aware versus voice-agnostic across
 the pitch–pitch-class blend"), lightly edited from the article's own
 scripts. Data come from jmm_data (BWV 347 read from the bundled
-MusicXML); figures are written to figures/ when matplotlib is available.
+MusicXML); the figures stay on screen unless SAVE_FIGURES is set.
 
 What the analysis asks. When do two chords count as alike? Six chord
 pairs from BWV 347 — an identical voicing, a bass octave shift, a full
@@ -57,6 +57,11 @@ except ImportError:
     plt = None
 
 import mpt
+
+# Set True to write the figures to a figures/ folder beside this
+# script; False shows them instead.
+SAVE_FIGURES = False
+FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 mpt.set_default(show_hints=False)
 from mpt import (build_exp_tens, cos_sim_exp_tens, show_pre_maet,
                  simplex_vertices)
@@ -233,11 +238,16 @@ def plot_sweep(sims):
     fig.suptitle(f'BWV 347 chord-pair similarity vs σ$_{{ph}}$ '
                  f'(σ$_{{pc}}$ = {SIGMA_PC:g} cents fixed)', fontsize=27, y=0.995)
     fig.tight_layout()
-    os.makedirs('figures', exist_ok=True)
-    fig.savefig('figures/demo_jmm_1_2_sweep.png', dpi=140, bbox_inches='tight')
-    fig.savefig('figures/demo_jmm_1_2_sweep.pdf', bbox_inches='tight')
-    plt.close(fig)
-    print('Saved figures/demo_jmm_1_2_sweep.png')
+    if SAVE_FIGURES:
+        os.makedirs(FIG_DIR, exist_ok=True)
+        fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_1_2_sweep.png'),
+                    dpi=140, bbox_inches='tight')
+        fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_1_2_sweep.pdf'),
+                    bbox_inches='tight')
+        plt.close(fig)
+        print('Saved figures/demo_jmm_1_2_sweep.png')
+    else:
+        plt.show()
 
 
 # ---------------------------------------------------------------------------
@@ -298,11 +308,16 @@ def plot_heatmaps(maps):
                  f'(N = {N} at $\\Delta = {GRID_STEP_QN:g}$ QN; '
                  f'σ$_{{pc}}$ = {SIGMA_PC:g} cents fixed).\n'
                  f'Rows: σ$_{{ph}}$ snapshots. Columns: encodings.', fontsize=24)
-    os.makedirs('figures', exist_ok=True)
-    fig.savefig('figures/demo_jmm_1_2_heatmaps.png', dpi=140, bbox_inches='tight')
-    fig.savefig('figures/demo_jmm_1_2_heatmaps.pdf', bbox_inches='tight')
-    plt.close(fig)
-    print('Saved figures/demo_jmm_1_2_heatmaps.png')
+    if SAVE_FIGURES:
+        os.makedirs(FIG_DIR, exist_ok=True)
+        fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_1_2_heatmaps.png'),
+                    dpi=140, bbox_inches='tight')
+        fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_1_2_heatmaps.pdf'),
+                    bbox_inches='tight')
+        plt.close(fig)
+        print('Saved figures/demo_jmm_1_2_heatmaps.png')
+    else:
+        plt.show()
 
 
 if __name__ == '__main__':

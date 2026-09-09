@@ -5,7 +5,7 @@
 % JMM article ("Cadence localization using nested multisets"; Analysis 1.4
 % in the preprint's numbering), lightly edited from the article's own
 % scripts. Data come from the jmm package (BWV 347 read from the bundled
-% MusicXML); figures are written to figures/.
+% MusicXML); the figures stay on screen unless SAVE_FIGURES is set.
 %
 % What the analysis asks. Where in the chorale do cadences, and
 % cadence-like progressions, occur — of which type, and in any key? A
@@ -70,6 +70,11 @@ end
 thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
+
+% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% figures/ folder beside this script; false leaves them on screen only.
+SAVE_FIGURES = false;
+
 mptDefaults('showHints', false);
 
 % Similarity normalization for all sweeps: 'oneSidedDenom' (query
@@ -181,7 +186,7 @@ end
 % Figures
 % ---------------------------------------------------------------------------
 figDir = fullfile(thisDir, 'figures');
-if ~exist(figDir, 'dir'), mkdir(figDir); end
+if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
 for v = 1:numel(VARIANT_FILES)
     rowIds = VARIANT_ROWS{v};
     n = numel(rowIds);
@@ -238,7 +243,9 @@ for v = 1:numel(VARIANT_FILES)
             end
         end
     end
-    print(fig, '-dpdf', fullfile(figDir, [VARIANT_FILES{v}, '.pdf']));
-    print(fig, '-dpng', '-r150', fullfile(figDir, [VARIANT_FILES{v}, '.png']));
-    fprintf('Saved figures/%s.pdf\n', VARIANT_FILES{v});
+    if SAVE_FIGURES
+        print(fig, '-dpdf', fullfile(figDir, [VARIANT_FILES{v}, '.pdf']));
+        print(fig, '-dpng', '-r150', fullfile(figDir, [VARIANT_FILES{v}, '.png']));
+        fprintf('Saved figures/%s.pdf\n', VARIANT_FILES{v});
+    end
 end

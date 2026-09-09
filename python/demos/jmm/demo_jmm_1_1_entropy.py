@@ -28,8 +28,7 @@ a Gaussian of one quarter note.
 Data: ``jmm_data.bwv347_grid`` (the score sampled on the sixteenth-note
 grid, repeats expanded). Toolbox: ``add_spectra``, ``windowed_entropy``.
 Runtime: a few minutes (the differential estimator refines its grid at
-every centre). A figure is written to ``figures/`` when matplotlib is
-available.
+every centre). The figures stay on screen unless SAVE_FIGURES is set.
 """
 import os
 import numpy as np
@@ -46,6 +45,11 @@ mpt.set_default(
     kernel_precision='single',      # 32-bit kernel arithmetic
 )
 from mpt import add_spectra, show_pre_maet, windowed_entropy
+
+# Set True to write the figures (and the checkpoint data) to a figures/ folder beside this
+# script; False shows them instead.
+SAVE_FIGURES = False
+FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 from jmm_data import bwv347_grid
 
@@ -149,12 +153,13 @@ for wi, window in enumerate(WINDOWS):
               f'range [{finite.min():.4f}, {finite.max():.4f}] nats')
 
 # Checkpoint: save H so the figure can be rebuilt without re-computing.
-os.makedirs('figures', exist_ok=True)
-np.savez('figures/demo_jmm_1_1_H.npz',
-         times=times,
-         H_rect=H[0],
-         H_gauss=H[1],
-         window_labels=np.array([w['label'] for w in WINDOWS]))
+if SAVE_FIGURES:
+    os.makedirs(FIG_DIR, exist_ok=True)
+    np.savez(os.path.join(FIG_DIR, 'demo_jmm_1_1_H.npz'),
+             times=times,
+             H_rect=H[0],
+             H_gauss=H[1],
+             window_labels=np.array([w['label'] for w in WINDOWS]))
 
 
 # ---------------------------------------------------------------------------
@@ -262,5 +267,10 @@ fig.suptitle(f'BWV 347 windowed differential pitch entropy '
              f'($\\sigma_{{pitch}}$ = {SIGMA_PITCH:.0f} cents, '
              f'harmonic × {H_PARTIALS} with 1/n rolloff)',
              fontsize=20, y=0.995)
-fig.savefig('figures/demo_jmm_1_1_entropy.png', dpi=140, bbox_inches='tight')
-print('Saved figures/demo_jmm_1_1_entropy.png.')
+if SAVE_FIGURES:
+    os.makedirs(FIG_DIR, exist_ok=True)
+    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_1_1_entropy.png'),
+                dpi=140, bbox_inches='tight')
+    print('Saved figures/demo_jmm_1_1_entropy.png.')
+else:
+    plt.show()

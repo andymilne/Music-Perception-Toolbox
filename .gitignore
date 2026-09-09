@@ -26,3 +26,5 @@ python/tests/precision_audit/*.out.txt
 python/figures/
 python/demos/*.png
 python/dist/
+python/demos/jmm/figures/
+matlab/demos/jmm/figures/

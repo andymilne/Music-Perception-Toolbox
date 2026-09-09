@@ -4,8 +4,8 @@
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
 % from the jmm package (BWV 347 read from the bundled MusicXML) or
-% jmm.pianoPhase (the rendered Piano Phase voices); a figure is written to
-% figures/.
+% jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
+% SAVE_FIGURES is set.
 %
 % Analysis 3.3: phase as lag in Reich's Piano Phase.
 %
@@ -45,6 +45,11 @@ end
 thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
+
+% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% figures/ folder beside this script; false leaves them on screen only.
+SAVE_FIGURES = false;
+
 mptDefaults('showHints', false, 'truncationSigmas', 4.0, 'kernelPrecision', 'double');
 
 % --- parameters --------------------------------------------------------------
@@ -140,8 +145,11 @@ cb = colorbar(ax);
 ylabel(cb, 'matched-filter response', 'FontSize', 13);
 
 figDir = fullfile(thisDir, 'figures');
-if ~exist(figDir, 'dir'), mkdir(figDir); end
-print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_3_xcorr.png'));
+if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
+if SAVE_FIGURES
+    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_3_xcorr.png'));
+    fprintf('Saved figures/demo_jmm_3_3_xcorr.png\n');
+end
 Rf = R(~isnan(R));
-fprintf('saved; R range %.3f-%.3f, %d anchors x %d lags\n', ...
+fprintf('R range %.3f-%.3f, %d anchors x %d lags\n', ...
         min(Rf), max(Rf), numel(anchors), N_TAU);

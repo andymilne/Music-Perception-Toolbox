@@ -6,7 +6,7 @@
 % JMM article (Section 4.1.2, "Voice-aware versus voice-agnostic across
 % the pitch–pitch-class blend"), lightly edited from the article's own
 % scripts. Data come from the jmm package (BWV 347 read from the bundled
-% MusicXML); figures are written to figures/.
+% MusicXML); the figures stay on screen unless SAVE_FIGURES is set.
 %
 % What the analysis asks. When do two chords count as alike? Six chord
 % pairs from BWV 347 — an identical voicing, a bass octave shift, a full
@@ -62,6 +62,11 @@ end
 thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
+
+% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% figures/ folder beside this script; false leaves them on screen only.
+SAVE_FIGURES = false;
+
 mptDefaults('showHints', false);
 
 HEATMAPS = false;            % true: also compute the appendix heat maps
@@ -169,7 +174,7 @@ end
 % Figure: the sweep
 % ---------------------------------------------------------------------------
 figDir = fullfile(thisDir, 'figures');
-if ~exist(figDir, 'dir'), mkdir(figDir); end
+if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
 
 fig = figure('Position', [100 100 1800 600], 'Color', 'w');
 for bIdx = 1:nBuilders
@@ -195,9 +200,11 @@ end
 annotation(fig, 'textbox', [0.1 0.92 0.8 0.07], 'String', ...
            sprintf('BWV 347 chord-pair similarity vs \\sigma_{ph} (\\sigma_{pc} = %g cents fixed)', SIGMA_PC), ...
            'HorizontalAlignment', 'center', 'FontSize', 20, 'EdgeColor', 'none');
-print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_2_sweep.png'));
-print(fig, '-dpdf', fullfile(figDir, 'demo_jmm_1_2_sweep.pdf'));
-fprintf('Saved figures/demo_jmm_1_2_sweep.png\n');
+if SAVE_FIGURES
+    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_2_sweep.png'));
+    print(fig, '-dpdf', fullfile(figDir, 'demo_jmm_1_2_sweep.pdf'));
+    fprintf('Saved figures/demo_jmm_1_2_sweep.png\n');
+end
 
 % ---------------------------------------------------------------------------
 % Appendix: N x N event-pair heat maps
@@ -275,7 +282,9 @@ if HEATMAPS
                         N, GRID_STEP_QN, SIGMA_PC), ...
                 'Rows: \sigma_{ph} snapshots. Columns: encodings.'}, ...
                'HorizontalAlignment', 'center', 'FontSize', 18, 'EdgeColor', 'none');
-    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_2_heatmaps.png'));
-    print(fig, '-dpdf', fullfile(figDir, 'demo_jmm_1_2_heatmaps.pdf'));
-    fprintf('Saved figures/demo_jmm_1_2_heatmaps.png\n');
+    if SAVE_FIGURES
+        print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_2_heatmaps.png'));
+        print(fig, '-dpdf', fullfile(figDir, 'demo_jmm_1_2_heatmaps.pdf'));
+        fprintf('Saved figures/demo_jmm_1_2_heatmaps.png\n');
+    end
 end

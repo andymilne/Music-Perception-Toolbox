@@ -29,7 +29,7 @@
 % Data: jmm.bwv347Grid (the score sampled on the sixteenth-note grid,
 % repeats expanded). Toolbox: addSpectra, windowedEntropy. Runtime: a few
 % minutes (the differential estimator refines its grid at every centre).
-% A figure is written to figures/.
+% The figures stay on screen unless SAVE_FIGURES is set.
 %
 % The Python mirror is demos/jmm/demo_jmm_1_1_entropy.py.
 
@@ -46,6 +46,11 @@ end
 thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
+
+% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% figures/ folder beside this script; false leaves them on screen only.
+SAVE_FIGURES = false;
+
 mptDefaults('showHints', false, ...
             'truncationSigmas', 3.0, ...        % truncate Gaussian tails at 3 sigma
             'kernelPrecision', 'single');       % 32-bit kernel arithmetic
@@ -149,11 +154,13 @@ end
 
 % Checkpoint: save H so the figure can be rebuilt without re-computing.
 figDir = fullfile(thisDir, 'figures');
-if ~exist(figDir, 'dir'), mkdir(figDir); end
-H_rect = H(1, :); H_gauss = H(2, :); %#ok<NASGU>
-window_labels = {WINDOWS.label}; %#ok<NASGU>
-save(fullfile(figDir, 'demo_jmm_1_1_H.mat'), 'times', 'H_rect', 'H_gauss', ...
-     'window_labels');
+if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
+if SAVE_FIGURES
+    H_rect = H(1, :); H_gauss = H(2, :); %#ok<NASGU>
+    window_labels = {WINDOWS.label}; %#ok<NASGU>
+    save(fullfile(figDir, 'demo_jmm_1_1_H.mat'), 'times', 'H_rect', 'H_gauss', ...
+         'window_labels');
+end
 
 % ---------------------------------------------------------------------------
 % Metric-class classification
@@ -280,5 +287,7 @@ annotation(fig, 'textbox', [0.05 0.93 0.9 0.06], 'String', ...
            sprintf(['BWV 347 windowed differential pitch entropy (\\sigma_{pitch} = %.0f cents, ' ...
                     'harmonic \\times %d with 1/n rolloff)'], SIGMA_PITCH, H_PARTIALS), ...
            'HorizontalAlignment', 'center', 'FontSize', 18, 'EdgeColor', 'none');
-print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_1_entropy.png'));
-fprintf('Saved figures/demo_jmm_1_1_entropy.png.\n');
+if SAVE_FIGURES
+    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_1_entropy.png'));
+    fprintf('Saved figures/demo_jmm_1_1_entropy.png.\n');
+end

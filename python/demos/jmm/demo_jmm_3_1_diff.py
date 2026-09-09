@@ -3,8 +3,8 @@
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
 from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
-(the rendered Piano Phase voices); a figure is written to figures/ when
-matplotlib is available.
+(the rendered Piano Phase voices); the figures stay on screen unless
+SAVE_FIGURES is set.
 
 Analysis 3.1: joint differencing on pitch and time in Reich's *Piano Phase*.
 
@@ -63,6 +63,11 @@ from mpt import (difference_events, build_exp_tens, eval_exp_tens,
                  windowed_entropy)
 
 import piano_phase as pe
+
+# Set True to write the figures to a figures/ folder beside this script;
+# False shows them instead.
+SAVE_FIGURES = False
+FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 SIGMA_DP    = 0.5            # semitones
 SIGMA_JND   = 0.006         # seconds: IOI JND in an isochronous sequence
@@ -173,6 +178,10 @@ axH.spines['top'].set_visible(False)
 axD.spines[['top', 'right']].set_visible(False)
 
 fig.tight_layout()
-os.makedirs('figures', exist_ok=True)
-fig.savefig('figures/demo_jmm_3_1_diff.png', dpi=140, bbox_inches='tight')
-print('saved figures/demo_jmm_3_1_diff.png')
+if SAVE_FIGURES:
+    os.makedirs(FIG_DIR, exist_ok=True)
+    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_3_1_diff.png'),
+                dpi=140, bbox_inches='tight')
+    print('Saved figures/demo_jmm_3_1_diff.png')
+else:
+    plt.show()

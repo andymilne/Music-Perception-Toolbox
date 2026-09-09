@@ -5,8 +5,8 @@
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
 % from the jmm package (BWV 347 read from the bundled MusicXML) or
-% jmm.pianoPhase (the rendered Piano Phase voices); a figure is written to
-% figures/.
+% jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
+% SAVE_FIGURES is set.
 %
 % Analysis 1.3: structural matching of the four cadence tonics of BWV 347
 % at increasing tuple size r, on a single chord (no nesting).
@@ -51,6 +51,11 @@ end
 thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
+
+% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% figures/ folder beside this script; false leaves them on screen only.
+SAVE_FIGURES = false;
+
 mptDefaults('showHints', false);
 
 % ---------------------------------------------------------------------------
@@ -170,8 +175,10 @@ annotation(fig, 'textbox', [0.05 0.905 0.9 0.09], 'String', ...
            'HorizontalAlignment', 'center', 'FontSize', 11, 'EdgeColor', 'none');
 
 figDir = fullfile(thisDir, 'figures');
-if ~exist(figDir, 'dir'), mkdir(figDir); end
-outPng = fullfile(figDir, 'demo_jmm_1_3_tonic_tuple_size.png');
-print(fig, '-dpng', '-r140', outPng);
-fprintf('Saved figures/demo_jmm_1_3_tonic_tuple_size.png\n');
+if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
+if SAVE_FIGURES
+    print(fig, '-dpng', '-r140', ...
+          fullfile(figDir, 'demo_jmm_1_3_tonic_tuple_size.png'));
+    fprintf('Saved figures/demo_jmm_1_3_tonic_tuple_size.png\n');
+end
 

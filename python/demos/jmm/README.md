@@ -9,8 +9,10 @@ the package importable, for example
 
     PYTHONPATH=../.. python demo_jmm_1_1_entropy.py
 
-Figures are written to `figures/` when matplotlib is available; the
-numbers print either way.
+Figures are shown when matplotlib is available; the numbers print
+either way. Set `SAVE_FIGURES = True` at the top of a script to write
+them to `figures/` beside it instead, which is what makes the scripts
+useful headless.
 
 ## Data
 

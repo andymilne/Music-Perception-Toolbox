@@ -4,8 +4,8 @@
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
 % from the jmm package (BWV 347 read from the bundled MusicXML) or
-% jmm.pianoPhase (the rendered Piano Phase voices); a figure is written to
-% figures/.
+% jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
+% SAVE_FIGURES is set.
 %
 % Analysis 3.2: phase as local texture in Reich's Piano Phase.
 %
@@ -65,6 +65,11 @@ end
 thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
+
+% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% figures/ folder beside this script; false leaves them on screen only.
+SAVE_FIGURES = false;
+
 mptDefaults('showHints', false, 'truncationSigmas', 3.0, 'kernelPrecision', 'double');
 
 % --- fixed parameters --------------------------------------------------------
@@ -157,6 +162,8 @@ annotation(fig, 'textbox', [0.05 0.93 0.9 0.06], 'String', ...
            'HorizontalAlignment', 'center', 'FontSize', 18, 'EdgeColor', 'none');
 
 figDir = fullfile(thisDir, 'figures');
-if ~exist(figDir, 'dir'), mkdir(figDir); end
-print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_2_texture.png'));
-fprintf('saved figures/demo_jmm_3_2_texture.png\n');
+if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
+if SAVE_FIGURES
+    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_2_texture.png'));
+    fprintf('Saved figures/demo_jmm_3_2_texture.png\n');
+end

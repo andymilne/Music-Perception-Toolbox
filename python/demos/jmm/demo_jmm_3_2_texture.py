@@ -3,8 +3,8 @@
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
 from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
-(the rendered Piano Phase voices); a figure is written to figures/ when
-matplotlib is available.
+(the rendered Piano Phase voices); the figures stay on screen unless
+SAVE_FIGURES is set.
 
 Analysis 3.2: phase as local texture in Reich's *Piano Phase*.
 
@@ -47,6 +47,7 @@ Pre-MAET structure (both panels)::
     sweep offset, time retained (drop_window_attr=False); estimator: Renyi-2.
 """
 
+import os
 import numpy as np
 try:
     import matplotlib.pyplot as plt
@@ -61,6 +62,11 @@ mpt.set_default(show_hints=False, truncation_sigmas=3.0, kernel_precision='doubl
 from mpt import show_pre_maet, windowed_entropy
 
 import piano_phase as pe
+
+# Set True to write the figures to a figures/ folder beside this script;
+# False shows them instead.
+SAVE_FIGURES = False
+FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 # --- fixed parameters ------------------------------------------------------
 SIGMA_PITCH = 0.15          # semitone (= 15 cents)
@@ -144,5 +150,10 @@ fig.suptitle('Texture entropy (voices pooled, Gaussian 3 s window): '
              'coincidence vs redundancy', y=1.0)
 fig.tight_layout()
 fig.subplots_adjust(hspace=0.10)
-fig.savefig('figures/demo_jmm_3_2_texture.png', dpi=140, bbox_inches='tight')
-print('saved figures/demo_jmm_3_2_texture.png')
+if SAVE_FIGURES:
+    os.makedirs(FIG_DIR, exist_ok=True)
+    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_3_2_texture.png'),
+                dpi=140, bbox_inches='tight')
+    print('Saved figures/demo_jmm_3_2_texture.png')
+else:
+    plt.show()

@@ -16,19 +16,19 @@ function hit = selfIpMemoised(cache)
 %   off each route's own memo, and that is deliberate. The memoised
 %   *values* are per route (see INTERNAL.SELFIPKEY), so a route that finds
 %   only another route's memo will still recompute its own self matrices
-%   on this call. Pricing each route against its own memo nonetheless
+%   on this call. Estimating each route against its own memo nonetheless
 %   makes the comparison unfair in a way that compounds: the first call
 %   seeds only the winner's memo, so on the second call the winner is
-%   priced at one matrix and the loser at three, and the choice locks in
+%   estimated at one matrix and the loser at three, and the choice locks in
 %   even where the loser, once warm, is the cheaper route. Sharing the
 %   flag prices the comparison on the routes' per-matrix costs, which is
 %   what the selector is meant to decide on.
 %
 %   The trade is per-call: on the one call where the comparison flips, the
-%   newly chosen route does pay for the self matrices the flag priced as
+%   newly chosen route does compute the self matrices the flag treated as
 %   free. It memoises them, so the flag is honest from the next call
-%   onwards; the mispricing is bounded by a single call per crossover, and
-%   it buys amortised correctness over the repeated calls a sweep makes.
+%   onwards; the misestimation is bounded by a single call per crossover, and
+%   it yields amortised correctness over the repeated calls a sweep makes.
 %
 %   Twin of the Python cosine._self_ip_memoised.
 %

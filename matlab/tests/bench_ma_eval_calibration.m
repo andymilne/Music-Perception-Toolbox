@@ -81,7 +81,7 @@ fprintf('Run twice in one session (no clear all); read the SECOND run.\n\n');
 rng(0, 'twister');
 nReps = 3;
 
-% Centres is not timed where it would cost too much to be worth the wall
+% Centres is not timed where it would cost too much to justify the wall
 % time. Two bounds, whichever bites first: the joint tuple count, beyond
 % which centres is decisively the wrong pick; and the work the centres
 % arm actually does, which is the joint count times the query count.
@@ -109,7 +109,7 @@ KValsB = [12 24];
 
 % Section C: the relative-mode node-count trace. The Mobius relative
 % evaluator integrates over a grid whose node count is set by the period
-% (or the source span) over sigma, and the cost model prices its
+% (or the source span) over sigma, and the cost model estimates its
 % per-query work linearly in that count. Holding the shape fixed and
 % walking sigma widely is what separates the node-count exponent from
 % everything else that moves with sigma; three sigma values cannot do

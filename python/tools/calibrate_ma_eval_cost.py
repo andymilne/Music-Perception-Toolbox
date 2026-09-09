@@ -42,7 +42,7 @@ that factor: it fixes the quantity the term is a function of.
 
 Section C traces the relative-mode node count alone. The Moebius
 relative evaluator integrates over a grid whose node count is set by the
-period (or the source span) over sigma, and the cost model prices its
+period (or the source span) over sigma, and the cost model estimates its
 per-query work linearly in that count. Measurement on the MATLAB side
 puts the exponent nearer 0.55, so this section holds the shape fixed and
 walks sigma over a wide range, which is what separates the node-count
@@ -77,7 +77,7 @@ PERIOD = 1200.0
 SIGMA_REF = 15.0
 SPAN_REF = 3600.0
 
-# Centres is not timed where it would cost too much to be worth the
+# Centres is not timed where it would cost too much to justify the
 # wall time. Two bounds, whichever bites first: the joint tuple count,
 # beyond which centres is decisively the wrong pick; and the work the
 # centres arm actually does, which is the joint count times the query
@@ -99,7 +99,7 @@ def _time_ms(fn):
     Stops early once the budget is spent and at least three timed runs
     are in hand, mirroring internal.timeRepeated on the MATLAB side.
     The warm-up count is cut to one where a single call already costs
-    more than the budget: on those cells the repeats buy nothing --- the
+    more than the budget: on those cells the repeats gain nothing --- the
     scatter they remove is a fixed overhead whose share of a call that
     long is negligible --- and paying three of them dominates the run.
     """

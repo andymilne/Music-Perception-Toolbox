@@ -45,7 +45,7 @@ P = 12.0
 TAGS = np.repeat(np.arange(3), 3)
 SPEC = dict(r=[2, 2], sym=[True, True], tags=TAGS, rel=[0, 1])
 #: A smaller nested attribute the cost race prefers to keep on the centres
-#: route, so the measure rule is what moves it, not the price.
+#: route, so the measure rule is what moves it, not the estimated cost.
 TAGS_S = np.repeat(np.arange(2), 2)
 SPEC_S = dict(r=[2, 2], sym=[True, True], tags=TAGS_S, rel=[0, 1])
 
@@ -103,7 +103,7 @@ def _forced(monkeypatch, route):
 def test_auto_is_the_all_image_measure_above_the_threshold(monkeypatch, ts,
                                                            spec, vx, vy):
     """Above the sigma/P threshold ``auto`` equals the tau-grid reference
-    exactly --- the centres route is not admissible there at any price."""
+    exactly --- the centres route is not admissible there whatever its estimated cost."""
     mpt.set_default(truncation_sigmas=ts)
     limit = _orbit_sigma_over_p_threshold(ts)
     for sop in [s for s in SOPS if s > limit]:
@@ -146,7 +146,7 @@ def test_sigma_over_p_sweep_tracks_one_measure(method, extra):
     the tau-grid (all-image) reference throughout --- exactly above the
     threshold, and to within the truncation floor below it, where the
     minimum-image centres route is admitted. A cost-driven flip broke that by
-    ~1e-3 to ~1e-2 wherever the shape crossed the price crossover.
+    ~1e-3 to ~1e-2 wherever the shape crossed the cost crossover.
 
     ``extra`` runs the same sweep through the multi-attribute path.
     """
@@ -174,7 +174,7 @@ def test_sigma_over_p_sweep_tracks_one_measure(method, extra):
 @pytest.mark.parametrize("sop", [0.05, 0.2, 0.4])
 def test_single_image_above_the_threshold_takes_the_centres_route(sop):
     """Above the threshold (A) has exactly one carrier, so ``single-image``
-    pins the centres route however the cost model would price it."""
+    pins the centres route however the cost model would estimate it."""
     assert sop > _orbit_sigma_over_p_threshold(None)
     dx = _dens(_VX, sop * P, wrap='single-image')
     dy = _dens(_VY, sop * P, wrap='single-image')
@@ -189,7 +189,7 @@ def test_single_image_below_the_threshold_admits_either_route(sop):
     threshold.
 
     What is pinned is that the choice is free and cannot change the answer:
-    whichever route the price picks, the value is the minimum-image (centres)
+    whichever route the estimated cost picks, the value is the minimum-image (centres)
     value to within the truncation floor.
     """
     from mpt._defaults import truncation_floor
@@ -263,7 +263,7 @@ def test_contract_is_rejected_on_a_flat_density():
 def test_ma_nested_self_inner_products_are_memoised():
     """The multi-attribute nested path memoises <X,X> and <Y,Y> on their
     densities, as the one-attribute nested plan does: a second call against the
-    same pair (or a sweep against one prototype) pays for the cross term
+    same pair (or a sweep against one prototype) computes the cross term
     alone."""
     extra_x, extra_y = [0.3, 1.1, 2.0], [0.5, 1.3, 2.2]
     vx = np.tile(_VX.reshape(-1, 1), (1, 3))

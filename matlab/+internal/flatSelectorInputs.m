@@ -91,7 +91,7 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
     % attributes are relative, and each one's translation-grid node
     % estimate (matching the grid rules of the batched rel helper).
     % The per-call truncation width sizes the grids the routes are
-    % priced on, as it sizes the kernels they run: pricing at the global
+    % estimated on, as it sizes the kernels they run: estimating at the global
     % default while truncating at the per-call width would race the
     % routes on a grid neither of them uses.
     tsSel = internal.accuracyFloor('resolve', truncationSigmas);
@@ -120,7 +120,7 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
 
     % A self inner product costs nothing at call time when it is
     % memoised, or (for <X,X>) when the requested normalisation does
-    % not consume it; tell the selector so its pricing reflects the
+    % not consume it; tell the selector so its cost estimation reflects the
     % work this call will actually perform. The flags are *shared* by
     % the two routes' prices --- see INTERNAL.SELFIPMEMOISED for why a
     % per-route flag makes the comparison unfair, and INTERNAL.SELFIPKEY

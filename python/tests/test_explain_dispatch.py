@@ -74,7 +74,7 @@ class TestReportsTheQuantities:
             _dens(is_rel=False, is_per=False), n_q=200).sigma_over_p is None
 
     def test_both_routes_are_priced_when_the_cost_model_decides(self):
-        # Non-periodic, so no measure rule pre-empts the pricing.
+        # Non-periodic, so no measure rule pre-empts the cost estimation.
         e = mpt.explain_dispatch(_dens(is_per=False, sigma=15.0), n_q=200)
         assert all(r.predicted_ms is not None and r.predicted_ms > 0
                    for r in e.routes)

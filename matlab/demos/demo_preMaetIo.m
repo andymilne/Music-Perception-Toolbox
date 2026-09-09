@@ -119,7 +119,7 @@ fprintf('=== 4. Overriding what the pre-MAET carries ===\n\n');
 % will use rather than what the file said.
 showPreMaet(pm, 'sigma', [0.6 0.1], 'title', '  with sigma = [0.6 0.1]:');
 
-% What the width buys is visible against a semitone shift: the wider the
+% The effect of the width is visible against a semitone shift: the wider the
 % pitch kernel, the more nearly the shifted cadence matches the original.
 pmUp = preMaet({pm.pAttr{1} + 1, pm.pAttr{2}}, [], pm.specs);
 

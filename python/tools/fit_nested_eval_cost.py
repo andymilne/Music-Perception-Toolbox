@@ -6,7 +6,7 @@ Each file is the console output of ``tools/bench_nested_eval.py`` or
 ``matlab/tools/benchNestedEval.m`` (the ``BEGIN_CSV`` / ``END_CSV``
 lines and any preamble are skipped). For every file the script fits the
 two closed-form laws that ``mpt._tensor.dispatch._nested_eval_costs_ms``
-and MATLAB ``internal.nestedEvalCostsMs`` price a nested attribute
+and MATLAB ``internal.nestedEvalCostsMs`` estimate a nested attribute
 with, in log space (so every cell counts by its ratio, not its size):
 
     centres_ms = C0 + C1 * T + n_q * C2 * T**gamma * d**delta
@@ -72,7 +72,7 @@ def timed_both(d, exclude_pathological=False):
         # Python before the bucket-cull guard of September 2026 paid
         # 3**d neighbour lookups per query however few tuples there were;
         # those cells no longer describe the route (the guard makes them
-        # dense truncated sums, priced by the tuple term like the rest).
+        # dense truncated sums, estimated by the tuple term like the rest).
         c = c[~((c.per == 0) & (3.0 ** c.d >= c["T"]))]
     return c
 

@@ -77,7 +77,7 @@ nmr_floor = internal.truncationFloor([]);
 nmr_sops  = [0.005 0.02 0.05 0.1 0.2 0.3];
 
 % --- the measure rule: which route is taken, and why -------------------
-% Above the threshold the centres route is not admissible at any price, so
+% Above the threshold the centres route is not admissible whatever its estimated cost, so
 % the route must be the tau grid whatever the tuple counts say; below it
 % either route carries the declared measure and the cost race decides.
 for nmr_ii = 1:numel(nmr_sops)
@@ -101,7 +101,7 @@ end
 
 % ABOVE the threshold wrap = 'single-image' declares the minimum-image
 % measure and the centres route is the only route that computes it, so it
-% is taken however the cost model would price it.
+% is taken however the cost model would estimate it.
 nmr_ok = true;
 for nmr_sop = [0.05 0.2 0.4]
     nmr_sigma = nmr_sop * nmr_P;
@@ -118,7 +118,7 @@ results{end, 2} = nmr_ok;
 % BELOW the threshold the two readings agree inside the floor, so
 % 'single-image' is raced exactly as 'full-image' is -- the same rule the
 % flat path follows. What is pinned is that the choice is free and cannot
-% change the answer: whichever route the price picks, the value is the
+% change the answer: whichever route the estimated cost picks, the value is the
 % minimum-image (forced-centres) value to within the truncation floor.
 nmr_ok = true;
 nmr_worst = 0;
@@ -149,7 +149,7 @@ results{end, 2} = nmr_ok && nmr_worst <= max(nmr_floor, 1e-9);
 % the all-image reference throughout -- exactly above the threshold, and to
 % within the truncation floor below it, where the minimum-image centres
 % route is admitted. A cost-driven flip broke that wherever the shape
-% crossed the price crossover.
+% crossed the cost crossover.
 for nmr_ii = 1:numel(nmr_sops)
     nmr_sop = nmr_sops(nmr_ii);
     nmr_sigma = nmr_sop * nmr_P;

@@ -1,4 +1,4 @@
-"""Timing grid for pricing the per-level Möbius evaluator on nested densities.
+"""Timing grid for estimating the cost of the per-level Möbius evaluator on nested densities.
 
 Twin of matlab/tools/benchNestedEval.m. ``eval_exp_tens`` on a nested
 density has two routes: the tuple-centres route (materialise every

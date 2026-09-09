@@ -134,7 +134,7 @@ print("=== 4. Overriding what the pre-MAET carries ===\n")
 mpt.show_pre_maet(pm, sigma=[0.6, 0.1],
                   title="  with sigma = [0.6, 0.1]:")
 
-# What the width buys is visible against a semitone shift: the wider the
+# The effect of the width is visible against a semitone shift: the wider the
 # pitch kernel, the more nearly the shifted cadence matches the original.
 pm_up = mpt.pre_maet([pm["p_attr"][0] + 1.0, pm["p_attr"][1]],
                      specs=pm["specs"])

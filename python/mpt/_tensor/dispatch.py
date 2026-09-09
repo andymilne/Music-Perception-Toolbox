@@ -232,7 +232,7 @@ _ORBIT_REL_FLOOR_MS = {2: (0.05, 0.067), 3: (0.09, 0.17), 4: (0.0, 2.65)}
 # routes is cheaper per event pair (see
 # cosine._ma_rel_attr_prefers_centres): the pairwise closed form over
 # materialised tuple-centres, or the slab-batched translation-grid
-# contraction. The cost model prices both and takes the same minimum
+# contraction. The cost model estimates both and takes the same minimum
 # the orchestrator takes; three matrices (cross plus both self-norms)
 # per attribute.
 #: Cost model for the method comparison: one power law per route and
@@ -243,7 +243,7 @@ _ORBIT_REL_FLOOR_MS = {2: (0.05, 0.067), 3: (0.09, 0.17), 4: (0.0, 2.65)}
 #: on the quantity each route works over --- Bulger's method and the
 #: tuple-centres route on the tuple-pair entries they materialise, the
 #: translation grid on the node count times the larger value count. Every
-#: term carries the event-pair count, since both methods price per pair.
+#: term carries the event-pair count, since both methods estimate per pair.
 #: The Möbius side takes the smaller of its two routes, as the
 #: orchestrator does. Each law is fitted against the quantity the caller
 #: passes, not an idealisation of it, so the intercepts absorb the
@@ -319,7 +319,7 @@ def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None,
     times the cross term; where they do not, the larger density's self
     matrix dominates. For a five-value density against an 80-value one at
     r = 2 -- the ordinary shape of a chord compared against a scale -- the
-    second self matrix holds 19971200 of the 20034600 entries, so pricing
+    second self matrix holds 19971200 of the 20034600 entries, so cost estimation
     the cross matrix alone understates the work by 317.
 
     ``k_vec`` and ``k_vec_y`` are the two densities' per-attribute value
@@ -329,7 +329,7 @@ def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None,
     ``skip_xx`` / ``skip_yy`` exclude the corresponding self matrix from
     the count: a self inner product that is already memoised on the
     density, or that the requested normalisation does not consume, costs
-    nothing at call time and must not be priced (mispricing it steers
+    nothing at call time and must not be estimated (misestimating it steers
     near-crossover routing away from Bulger's method on exactly the
     repeated-context sweeps where Bulger's marginal cost is lowest).
     """
@@ -391,27 +391,27 @@ def _predict_orbit_cost_ms(
     density carries more values. The grid term reads the first count
     alone, matching :func:`_mobius_inner._ma_rel_attr_prefers_centres`,
     the gate this function is predicting the outcome of; that leaves the
-    grid route under-priced for unequal counts, and so the Möbius side
-    under-priced wherever the grid route is the cheaper of its two, which
+    grid route underestimated for unequal counts, and so the Möbius side
+    underestimated wherever the grid route is the cheaper of its two, which
     is a bias toward the Möbius method. Whether the grid estimate should
     depend on the value count at all is the subject of the pending
     bench_ip_unit_cost extension.
     """
     # No flat relative base is *added*: each route's law carries its own
     # multiplicative intercept, so adding one would double-count the
-    # setup it already prices. A per-attribute floor is applied instead
+    # setup it already estimates. A per-attribute floor is applied instead
     # (``_ORBIT_REL_FLOOR_MS``), because a multiplicative intercept is
     # not a fixed cost and the laws extrapolate below the route's
     # measured per-call minimum once the term is small.
     #
     # ``skip_xx`` / ``skip_yy`` exclude the corresponding self matrix
-    # from the pricing (memoised on the density, or not consumed by the
+    # from the cost estimation (memoised on the density, or not consumed by the
     # requested normalisation), mirroring
     # :func:`_predict_pairwise_kernel_size`. The relative-attribute
     # terms drop the skipped self work exactly; the per-order absolute
     # constants were fitted on the full three-matrix computation, so
     # they are scaled by the fraction of matrices still to be computed
-    # --- an approximation, and one that under-discounts (setup is not
+    # --- an approximation, and one that understates the reduction (setup is not
     # per-matrix), which biases near-crossover routing toward Bulger's
     # method, the cheap-to-mispick side.
     n_matrices = 1 + (0 if skip_xx else 1) + (0 if skip_yy else 1)
@@ -426,10 +426,10 @@ def _predict_orbit_cost_ms(
         if bool(rel_vec[a]) and r_a >= 2:
             # The centres route is measure-blocked above the sigma/P
             # threshold (the orchestrator keeps the all-image grid
-            # there), so above it the grid route is priced alone.
+            # there), so above it the grid route is estimated alone.
             # The smaller of the two routes, as the orchestrator takes.
             # Both terms read each density's own value count and carry the
-            # event-pair count, since both routes price per pair.
+            # event-pair count, since both routes estimate per pair.
             per_pair = _rel_route_cost_ms(
                 "grid", r_a,
                 pairs * float(nu_vec[a]) * max(K_a, K_y_a)
@@ -490,7 +490,7 @@ def _select_ma_inner_product_method(
     4. Working-set guard: below the rel-per σ/P threshold, a density
        whose perm-side working set exceeds
        ``_CENTRES_WORKING_SET_SOFT_BUDGET`` routes to the Möbius method
-       regardless of price, because Bulger's method would materialise
+       regardless of cost, because Bulger's method would materialise
        that working set.
     5. Wrap/measure rule for relative-periodic attributes above the
        σ/P threshold of :func:`_orbit_sigma_over_p_threshold`: the two
@@ -510,7 +510,7 @@ def _select_ma_inner_product_method(
     selector does not route on the presence of NaN entries either.
 
     The four modes (abs+nonper, abs+per, rel+nonper, rel+per) are
-    priced as follows:
+    estimated as follows:
 
     - Bulger's method, all modes: ``_REL_COST_LAW['bulger']`` on the
       tuple-pair count of the three kernel matrices
@@ -556,12 +556,12 @@ def _select_ma_inner_product_method(
         Whether ``<X,X>`` / ``<Y,Y>`` costs this call nothing --- because
         some route has already memoised it on the density, or (for
         ``<X,X>``) because the requested normalisation does not consume
-        it. Both routes are priced with the same pair of flags; see
+        it. Both routes are estimated with the same pair of flags; see
         :func:`~mpt._tensor.cosine._self_ip_memoised`.
     return_costs : bool, default False
         Also return the two predicted wall times in milliseconds that the
         comparison rests on, as ``(chosen, pw_cost_ms, orbit_cost_ms)``.
-        Both are NaN on the returns that decide without pricing, so a
+        Both are NaN on the returns that decide without cost estimation, so a
         caller can tell a structural decision from a costed one. Exposed
         for calibration: fitting the cost model needs the prediction
         beside the measurement.
@@ -665,10 +665,10 @@ def _select_ma_inner_product_method(
     # A self inner product that is memoised on its density, or that the
     # requested normalisation does not consume, costs nothing at call
     # time; ``skip_xx`` / ``skip_yy`` exclude it from *both* routes'
-    # prices. The flags are shared rather than per route: the memoised
+    # estimates. The flags are shared rather than per route: the memoised
     # values are route-keyed (the routes' scales are related in closed
     # form but their truncated numbers are not the same number --- see
-    # :func:`~mpt._tensor.cosine._self_ip_cache_key`), but pricing each
+    # :func:`~mpt._tensor.cosine._self_ip_cache_key`), but estimating each
     # route against its own memo would decide the comparison on which
     # route ran first rather than on what the routes cost, and would
     # lock that first choice in. See
@@ -676,7 +676,7 @@ def _select_ma_inner_product_method(
     pw_size = _predict_pairwise_kernel_size(
         r_vec, k_vec, A, N_x, N_y, k_vec_y=k_vec_y,
         skip_xx=skip_xx, skip_yy=skip_yy)
-    # Priced by the same fitted law. The per-entry form this replaces
+    # Estimated by the same fitted law. The per-entry form this replaces
     # assumed a fixed cost per kernel entry; measurement contradicts that,
     # the per-entry cost falling as the arrays grow, which is what the
     # fitted exponent below 1 carries.
@@ -684,7 +684,7 @@ def _select_ma_inner_product_method(
     # Aggregate-only callers (the legacy selector API) supply no
     # per-attribute vectors; reconstruct conservative defaults. Marking
     # every r_a >= 2 attribute as relative whenever either rel flag is
-    # set over-prices the Möbius side, biasing near-crossover routing
+    # set overestimates the Möbius side, biasing near-crossover routing
     # toward Bulger's method — the cheap-to-mispick side; the
     # representative grid size matters only where the grid route is
     # already the cheaper Möbius branch (large K), where routing is
@@ -1178,7 +1178,7 @@ _BELL_NUMBERS = {
 #: the refit. Fit quality on those cells, predicted over measured:
 #: centres geometric mean 0.92 (spread 1.48, worst 4.7), Möbius 0.92
 #: (spread 1.60, worst 13.5 --- the residual is rel-per r = 4, K >= 24
-#: at high n_q, under-priced 6--13x but routed to Möbius regardless, so
+#: at high n_q, underestimated 6--13x but routed to Möbius regardless, so
 #: it costs estimate accuracy rather than routing). Routing regret
 #: against the measured oracle, geometric mean over cells with both arms
 #: timed: 1.026 (13 cells beyond 1.3x, worst 3.55x) against 1.053 (22,
@@ -1254,7 +1254,7 @@ _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 2.191e-06
 #: 1.05 at dimensions 2, 3 and 4 --- while the relative-periodic one is
 #: markedly superlinear: 1.07 at dimension 1 and 1.31, 1.33 at
 #: dimensions 2 and 3. Sharing one linear term between them is what
-#: under-priced large relative-periodic shapes: predicted over actual on
+#: underestimated large relative-periodic shapes: predicted over actual on
 #: rel-per r = 3 fell from about 0.3 at K = 12 to 0.08 at K = 34, and no
 #: refit of a shared linear constant can remove that, because the two
 #: halves pull the same constant in opposite directions.
@@ -1341,7 +1341,7 @@ _MA_COST_MOBIUS_QUERY_PER_OP_MS = 1.269e-06
 #: The non-periodic direct node also carries a fixed per-node cost,
 #: independent of the op count: each u-grid node pays a setup (the
 #: alignment shift and read-back) that dominates at low op counts. The
-#: pure per-op form underprices small-r relative attributes, whose node
+#: pure per-op form underestimates small-r relative attributes, whose node
 #: cost is floor-bound rather than op-bound, so a base term is carried
 #: alongside the per-op slope.
 _MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS = 0
@@ -1351,7 +1351,7 @@ _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 5.52e-05
 
 #: u-grid tabulation setup, paid once per call: building the interpolation
 #: table costs K source evaluations over the N_u grid nodes. In Python the
-#: per-query node cost is large and already prices small-n_q calls
+#: per-query node cost is large and already estimates small-n_q calls
 #: near-realistically, so the measured tabulation setup is negligible and
 #: this constant is ~0; MATLAB's lean per-query readback leaves the setup
 #: as the dominant Möbius cost at small n_q, so its twin constant is
@@ -1656,7 +1656,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     eval path selector :func:`_select_ma_eval` (which compares the two)
     and by the up-front time estimate (which scales the chosen one by a
     per-session machine factor). Keeping one implementation guarantees
-    the estimate and the dispatch decision price identical work.
+    the estimate and the dispatch decision cover identical work.
 
     ``consts`` overrides individual calibration constants (see
     :func:`_ma_cost_constants`); ``_track`` additionally returns the two
@@ -1677,12 +1677,12 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
     n_q_eff = float(max(int(n_q), 1))
-    # Nested attributes are priced by _nested_eval_costs_ms; here they
+    # Nested attributes are estimated by _nested_eval_costs_ms; here they
     # are skipped (their r is the leaf-slot total, not a flat order).
     nested = getattr(dens, "nested", None) or [None] * A
     flat_attrs = [a for a in range(A) if nested[a] is None]
     if not flat_attrs and not _track:
-        return 0.0, 0.0                     # nothing flat to price
+        return 0.0, 0.0                     # nothing flat to estimate
     joint_tuples = 1.0
     for a in flat_attrs:
         r_a, K_a = r_vec[a], k_vec[a]
@@ -1695,10 +1695,10 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     # bucket grid and each query evaluates only its neighbouring buckets,
     # so the near-centre fraction is min(1, c * sigma / spread). The
     # multi-attribute factored centres route evaluates each attribute
-    # through the same culled kernel, so the discount applies per
+    # through the same culled kernel, so the reduction applies per
     # attribute there; the joint-materialisation fallback and the periodic
     # single-multiset route run dense (the pairwise wrap is not a
-    # tail-truncatable ball) and take no discount.
+    # tail-truncatable ball) and take no such reduction.
     def _attr_spread(a):
         p_attr = getattr(dens, "p_attr", None)
         if p_attr is not None and a < len(p_attr) and p_attr[a] is not None:
@@ -1714,8 +1714,8 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         a ball of radius ``k * sigma`` about the query, so the surviving
         share is a volume ratio in the attribute's own dimension,
         ``r_a - [rel]_a``. The periodic kernel is not truncated --- it
-        sums over images rather than discarding a tail --- so it takes
-        no discount.
+        sums over images rather than discarding a tail --- so it is not
+        reduced.
         """
         if is_per[a] or sigma[a] <= 0:
             return 1.0
@@ -1729,7 +1729,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     # materialises the joint tuple set: cost is the SUM of per-attribute
     # tuple counts through the culled per-attribute kernels, plus a small
     # per-attribute per-query overhead (bucket lookup and gather). The
-    # joint-materialisation pricing applies only where that route is
+    # joint-materialisation cost estimation applies only where that route is
     # unsupported (any r_a < 2, or a matrix kernel covariance), mirroring
     # the support predicate of the evaluator that actually runs.
     factored_supported = (
@@ -1785,7 +1785,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
             # The spectral (Fourier) strategy engages inside the mobius
             # relative evaluator for r_a in 2..4 above its query
             # thresholds (see the gate in mpt._mobius.eval_orbit_rel);
-            # where it would engage, price the per-query cost with its
+            # where it would engage, estimate the per-query cost with its
             # measured, K-free slope. The slope scales with the mode
             # count, i.e. with window/sigma (session-calibrated: at
             # window/sigma ~ 270, measured ~0.06, ~0.6, and ~1.8
@@ -1829,18 +1829,18 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
             # kernel budget; it never builds an (r_a - 1)-dimensional mode
             # grid, so --- unlike the inner-product spectral route, which
             # has a ``_SPECTRAL_IP_MAX_POINTS`` decline --- there is no
-            # grid-size decline to price here. (The evaluator also
+            # grid-size decline to estimate here. (The evaluator also
             # requires the periodic query span to fit in half the circle;
             # that depends on the queries, which the cost model does not
             # see, and it holds for the ordinary evaluation grid.)
             if (r_a in _four_per_mode and n_q >= _four_minq[r_a]
                     and k_vec[a] >= (2, 8, 16)[r_a - 2]):
-                # The K-free slope prices the per-pair matmul, but the
+                # The K-free slope estimates the per-pair matmul, but the
                 # per-event spectrum build A_m(eta) = sum_i w^m
                 # exp(-i eta p_i) carries K. In periodic mode the window
                 # is fixed at the period, so that K-dependence is not
                 # already absorbed through the window and shows up as an
-                # underprice growing with K (measured pred/actual ~0.1 by
+                # underestimation growing with K (measured pred/actual ~0.1 by
                 # K = 48). Add the fitted periodic K term (zero at r = 4,
                 # where no periodic cell was measured).
                 four_ms = (_four_per_mode[r_a]
@@ -2202,7 +2202,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     if _has_ordered_attr(dens):
         return "centres", "ordered ([sym]=0) attribute (no orbit to collapse)"
 
-    # ---- Nested attributes: priced by their own row (the per-level
+    # ---- Nested attributes: estimated by their own row (the per-level
     # Möbius evaluator against the tag-tree centres enumeration; see
     # ``_NESTED_COST_*``). A density that is nested throughout is decided
     # here on that row alone; a mixed density falls through to the
@@ -2233,7 +2233,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     for a in range(A):
         r_a = r_vec[a]
         if r_a < 2 or nested[a] is not None:
-            continue  # r_a = 1 factor is exact either way; nested priced above
+            continue  # r_a = 1 factor is exact either way; nested estimated above
         if r_a > _ORBIT_R_MAX_FEASIBLE:
             force_centres_reason = (
                 f"attr {a}: r = {r_a} exceeds orbit feasibility bound")
@@ -2279,7 +2279,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # ---- Cost model: two closed-form per-call time estimates (ms),
     # each a per-call setup term plus per-query work scaled by n_q. The
     # functional forms and constants live in :func:`_ma_eval_costs_ms`,
-    # shared with the up-front time estimate so both price identical
+    # shared with the up-front time estimate so both estimate identical
     # work. Centres cost grows with the joint tuple count (product
     # across attributes); Möbius cost is the summed per-attribute
     # distinct-block work, with relative attributes multiplied by a

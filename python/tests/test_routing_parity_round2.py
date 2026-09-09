@@ -140,7 +140,7 @@ def test_selector_working_set_guard_routes_to_mobius():
     chosen, pw, orb = _select_ma_inner_product_method(
         user_method='auto', return_costs=True, **common)
     assert chosen == 'mobius' and math.isnan(pw) and math.isnan(orb)
-    # The same shape at 5 events (49 MB) is priced instead.
+    # The same shape at 5 events (49 MB) is estimated instead.
     chosen, pw, orb = _select_ma_inner_product_method(
         user_method='auto', return_costs=True,
         **{**common, 'N_x': 5, 'N_y': 5})

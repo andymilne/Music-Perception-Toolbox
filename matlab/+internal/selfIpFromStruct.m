@@ -7,7 +7,7 @@ function cache = selfIpFromStruct(d)
 %   produce a wrong value). Shared by cosSimExpTens, which seeds its
 %   per-call caches from the operand structs, and by
 %   INTERNAL.FLATSELECTORINPUTS, which reads the same caches when
-%   explainDispatch asks what the call would price.
+%   explainDispatch asks what the call would cost.
 %
 %   See also INTERNAL.SELFIPMEMOISED, INTERNAL.SELFIPKEY.
 

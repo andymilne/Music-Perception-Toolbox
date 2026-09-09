@@ -64,7 +64,7 @@ dens_y = mpt.build_exp_tens(p_y, w_y, SIGMA, R, False, False, 1200.0, verbose=Fa
 # BLAS is so fast at modest scales that the kernel matmul is in the
 # tens of ms range, where the fixed-cost overhead of truncation's
 # spatial index and the float32 cast can be comparable to the
-# variable-cost savings they buy. N=50 (with 1000 query points
+# variable-cost savings they produce. N=50 (with 1000 query points
 # below) pushes the kernel matmul into the hundreds-of-ms range, so
 # the savings dominate and the features show clearly. Section 1
 # stays at N=20 because that's already enough to make Bulger's

@@ -34,11 +34,11 @@ Protocol notes (these matter for comparability):
   `TOL` are flagged but the cell is still timed.
 * Timing uses truncation_sigmas=inf so that the three methods do the
   same arithmetic. A separate pass (--truncation) re-times the routed
-  default (6 sigma) to quantify what truncation buys.
+  default (6 sigma) to quantify the effect of truncation.
 * Densities are built once per cell, outside the timed region: the timed
   unit is the similarity call alone, so construction is charged to no
   method. The memoised self inner products are cleared before each timed
-  call, so every call pays for the full triple <X,Y>, <X,X>, <Y,Y> that
+  call, so every call computes the full triple <X,Y>, <X,X>, <Y,Y> that
   a similarity requires, rather than for the cross term alone once the
   self terms have been cached (see clear_self_ip).
 * Repetitions are auto-scaled so each timed unit takes ~TARGET_MS,
@@ -82,7 +82,7 @@ import numpy as np
 import mpt
 
 # Silence one-time hints, and switch off the post-hoc guards: with guards
-# on, a route that diverts pays for both routes, so the measured cost
+# on, a route that diverts incurs the cost of both routes, so the measured cost
 # would not be the cost of the route being forced.
 try:
     mpt.set_default(show_hints=False)
@@ -252,7 +252,7 @@ def clear_self_ip(*densities):
 
     Timings are taken with the process warm -- orbit tables built, einsum
     paths cached -- but with <X,X> and <Y,Y> NOT carried over from the
-    previous call, so each timed call pays for the full triple a
+    previous call, so each timed call computes the full triple a
     similarity actually requires.
 
     Without this the first call on a pair computes all three products and
@@ -286,7 +286,7 @@ def timed(fn, target_ms=TARGET_MS, budget_s=None):
 
     The warm-up is timed, and if it alone exceeds ``budget_s`` the cell is
     reported from that single call with the repetitions skipped. A
-    predicted-cost budget can only skip what its model prices correctly;
+    predicted-cost budget can only skip what its model estimates correctly;
     this guard is model-free, so a cell the predictor underestimates
     cannot run away. Such cells carry reps = 1 in the CSV, marking them
     as single-shot and therefore noisier than the rest.

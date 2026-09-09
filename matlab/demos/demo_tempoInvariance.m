@@ -67,7 +67,7 @@
 %
 %    1. Material     The motif, the candidate cells, and the stream.
 %    2. Constructor  The three covariance terms, printed, and the
-%                    price each pure kernel puts on three canonical
+%                    penalty each pure kernel puts on three canonical
 %                    perturbations of the motif.
 %    3. The search   windowedSimilarity sweeps over every trigram
 %                    under six kernels; the candidate table contrasts
@@ -223,7 +223,7 @@ fprintf(['  sdPosition = 0.05 with sdShift = 0.25 -- onset jitter ' ...
 fprintf('  common-shift ridge (rank-one, added to every entry):\n');
 disp(sRdg);
 
-% Price table: perturb the motif along three canonical directions and
+% Penalty table: perturb the motif along three canonical directions and
 % read the similarity of the perturbed trigram to the original under
 % each kernel. The directions, in log-IOI units (eps = 0.10):
 %   displaced onset:  (0, +eps, -eps)  one interior onset displaced
@@ -263,17 +263,17 @@ fprintf('  - position: the displaced onset is CHEAPER than the single\n');
 fprintf('    stretched interval despite having twice its squared norm\n');
 fprintf('    -- anticorrelated perturbation of adjacent intervals is\n');
 fprintf('    exactly what shared-endpoint noise generates, and the\n');
-fprintf('    -sd^2 off-diagonals price it accordingly. The tempo shift\n');
+fprintf('    -sd^2 off-diagonals penalize it accordingly. The tempo shift\n');
 fprintf('    is all but forbidden: the sum of the r intervals equals\n');
 fprintf('    the difference of the two endpoint positions, so its\n');
 fprintf('    variance under position noise is 2 sd^2 regardless of r\n');
 fprintf('    -- a common drift of all intervals is highly atypical of\n');
 fprintf('    position noise.\n');
-fprintf('  - interval: pricing is by Euclidean norm alone (the two\n');
+fprintf('  - interval: the penalty is by Euclidean norm alone (the two\n');
 fprintf('    marginals are matched to the position column), so the\n');
 fprintf('    ordering of the first two rows reverses.\n');
 fprintf('  - pos+shift: the ridge makes the tempo shift the cheapest\n');
-fprintf('    direction while leaving the within-shape prices\n');
+fprintf('    direction while leaving the within-shape penalties\n');
 fprintf('    essentially unchanged.\n');
 
 %% ===== 3. The search: positional sigma vs tempo sigma =====
@@ -376,7 +376,7 @@ fprintf('    sigma does (''timing'' gives 0.832). The two tolerances\n');
 fprintf('    are separate currencies: in log-IOI space a tempo change\n');
 fprintf('    moves the trigram''s point ALONG the all-ones diagonal,\n');
 fprintf('    timing jitter moves it off that line, and the kernel\n');
-fprintf('    prices the two components independently.\n');
+fprintf('    penalizes the two components independently.\n');
 fprintf('  - jit + faster: needs both currencies at once -- only the\n');
 fprintf('    kernels carrying both, ''timing+tempo'' (0.742),\n');
 fprintf('    ''large-shift'', and ''rel'' (0.777 each), admit it.\n');

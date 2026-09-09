@@ -8,7 +8,7 @@
 %  multiplicative in their term, so they carry no fixed setup cost and
 %  extrapolate below the route's wall time at small value counts. The
 %  floor guards against that: for each tuple order it holds
-%  [fixed, perMatrix] in ms, applied with max to the per-attribute price
+%  [fixed, perMatrix] in ms, applied with max to the per-attribute cost estimate
 %  of a call computing nMatrices of the three inner matrices.
 %
 %  For each order r = 2, 3, 4 this times the cosine call alone (the

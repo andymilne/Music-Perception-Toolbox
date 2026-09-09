@@ -4,7 +4,7 @@
 %  and may then recompute by another route: the nested accuracy guard in
 %  nestedContract/combinePair and the impossible-value check in the flat cosine
 %  path. With either active the measured cost of the Mobius route is not
-%  the cost of choosing it, because a diverting check pays for both
+%  the cost of choosing it, because a diverting check incurs the cost of both
 %  routes. The default switches them off so the routes can be timed as
 %  the alternatives they are.
 %

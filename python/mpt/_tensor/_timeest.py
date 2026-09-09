@@ -1,7 +1,7 @@
 """Self-calibrated up-front time estimate for ``eval_exp_tens``.
 
 The dispatch cost model (:func:`mpt._tensor.dispatch._ma_eval_costs_ms`)
-prices each evaluation path in milliseconds on the machine whose timings
+estimates each evaluation path in milliseconds on the machine whose timings
 its constants were fitted to. Absolute wall-clock time on the user's
 machine differs from that by a hardware scale factor. The factor cancels
 in the dispatch *ratio* (centres versus Möbius), which is why the
@@ -52,7 +52,7 @@ def _build_reference():
 
     A single-multiset (single-attribute) relative density: it runs
     through the tight ``_eval_core`` centres kernel, whose cost the
-    culling cost model prices consistently, so the measured-over-
+    culling cost model estimates consistently, so the measured-over-
     predicted ratio isolates the machine scale. Multi-attribute shapes
     are deliberately avoided here --- their factored centres route runs
     far faster than the joint cost model predicts, which would corrupt

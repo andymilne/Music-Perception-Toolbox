@@ -38,10 +38,10 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 %   [CHOSEN, REASON, CENTRESMS, MOBIUSMS] = ... also returns the two
 %   predicted wall times in milliseconds. They are NaN on the hard rules,
 %   which return before the cost model is consulted. The rel-per measure
-%   rule does not return early: it prices both routes and then overrides
-%   the choice, so a report can show what the price would have settled
+%   rule does not return early: it estimates both routes and then overrides
+%   the choice, so a report can show what the estimated cost would have settled
 %   had the measure not settled it first. ROUTINGREASON, not the
-%   finiteness of these two, is what distinguishes a priced decision from
+%   finiteness of these two, is what distinguishes a cost-based decision from
 %   a structural one.
 %
 %   Twin of python _select_ma_eval.
@@ -115,7 +115,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         return;
     end
 
-    % ---- Nested attributes: priced by their own row (the per-level
+    % ---- Nested attributes: estimated by their own row (the per-level
     % Möbius evaluator against the tag-tree centres enumeration; see
     % internal.nestedEvalCostsMs). A density that is nested throughout
     % is decided here on that row alone; a mixed density falls through
@@ -193,10 +193,10 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     % selector applies the same rule via
     % internal.selectMaInnerProductMethod.
     %
-    %  The rule does not return here. Both routes are priced first, so a
+    %  The rule does not return here. Both routes are estimated first, so a
     %  report can say what the cost model would have chosen and the
-    %  reader can see that the measure, not the price, settled it. The
-    %  choice is overridden after pricing, below. ----
+    %  reader can see that the measure, not the estimated cost, settled it. The
+    %  choice is overridden after cost estimation, below. ----
     measureForcesMobius = false;
     measureForcesCentres = false;
     hasWrap = isfield(dens, 'wrap') && ~isempty(dens.wrap);
@@ -219,7 +219,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     % ---- Cost model: the two closed-form per-call time estimates
     % (ms). The functional forms and the calibrated constants live in
     % internal.maEvalCostsMs, which EXPLAINDISPATCH also calls so that
-    % the report and the decision price identical work. ----
+    % the report and the decision estimate identical work. ----
     [centresMs, mobiusMs] = internal.maEvalCostsMs(dens, nQ);
     if any(nestedMask)
         [cN, mN] = internal.nestedEvalCostsMs(dens, nQ);

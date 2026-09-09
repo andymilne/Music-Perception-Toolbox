@@ -31,7 +31,7 @@ function [terms, bulger, info] = nestedCostTerms(densX, densY, a, ...
 %   A may name a NESTED attribute or a flat one. A flat attribute reads
 %   the r!*C(K, r) / C(K, r) pair the build enumerates, with the r!
 %   dropped on an ordered attribute, and its contraction work is the
-%   product of the two counts -- which is how the cost model prices an
+%   product of the two counts -- which is how the cost model estimates an
 %   ordered flat companion of a nested attribute on the centres law.
 %
 %   This is a thin accessor over INTERNAL.NESTEDCONTRACT's opts.termsOnly

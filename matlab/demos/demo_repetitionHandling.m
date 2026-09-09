@@ -228,9 +228,9 @@ for t = 2:3   % prolong, count
 end
 fprintf('\n');
 fprintf('  With intervals in beats the two are already distinct under\n');
-fprintf('  every treatment; the confound is a price of tempo invariance,\n');
+fprintf('  every treatment; the confound is a consequence of tempo invariance,\n');
 fprintf('  and the count attribute -- dimensionless, so invariant to\n');
-fprintf('  both scalings for free -- is what pays it off.\n');
+fprintf('  both scalings at no extra cost -- is what resolves it.\n');
 
 mptDefaults(prevDefaults);
 

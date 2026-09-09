@@ -5,7 +5,7 @@ function [t, nTimed] = timeRepeated(fn, opts)
 %   first few away, and returns the median of the rest.
 %
 %   Timings do not settle until a few calls have been made: the first
-%   pays for JIT compilation, the next for cache and allocator warm-up.
+%   absorbs JIT compilation, the next for cache and allocator warm-up.
 %   Averaging over three calls including those is not enough to see
 %   through it, and a mean lets a single slow call dominate. So: discard
 %   the first NDISCARD, time up to NMAX more, and report the median.
@@ -43,7 +43,7 @@ function [t, nTimed] = timeRepeated(fn, opts)
     %   The warm-up runs answer to the same budget as the timed ones. A
     %   route whose single call already costs the whole budget has paid
     %   the JIT and allocator costs the discards exist to absorb, so
-    %   three of them buy nothing and treble the cost of the cell.
+    %   three of them gain nothing and treble the cost of the cell.
     tWarm = 0;
     for i = 1:opts.nDiscard
         wTic = tic;

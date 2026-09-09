@@ -27,7 +27,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %       truncationSigmas (~ 6). Passing 'truncationSigmas', 3 loosens
 %       the convergence tolerance to exp(-9/2) ~= 1.1e-2 and brings
 %       differential to comparable cost to the discrete methods, at
-%       the price of fifth-decimal drift in the returned value
+%       the expense of fifth-decimal drift in the returned value
 %       (consonance ordering is preserved). For consonance comparisons
 %       across many chords, prefer 'normalized' (faster and the
 %       method established in the consonance literature).

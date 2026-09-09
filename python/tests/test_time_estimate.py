@@ -80,7 +80,7 @@ class TestCullingCorrection:
 
     def test_multi_attribute_centres_pricing(self):
         # The MA factored centres route (all r_a >= 2, scalar sigma)
-        # is priced per attribute: SUM of per-attribute tuple counts
+        # is estimated per attribute: SUM of per-attribute tuple counts
         # through culled kernels plus a per-attribute per-query base,
         # never the joint product.
         K, nq = 12, 500
@@ -136,7 +136,7 @@ class TestCullingCorrection:
     @pytest.mark.parametrize("is_rel", [True, False])
     def test_periodic_single_multiset_is_unculled(self, is_rel):
         # Periodic single-multiset runs dense (the pairwise wrap is not a
-        # tail-truncatable ball), so it takes no culling discount: its
+        # tail-truncatable ball), so it takes no culling reduction: its
         # centres cost must equal the plain unculled form. The per-query
         # slope and the exponent on the tuple count are the periodic
         # kernel's own, and relative and absolute carry different ones ---

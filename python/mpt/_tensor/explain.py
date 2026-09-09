@@ -33,7 +33,7 @@ class Route:
     """One candidate route and how it fared.
 
     Feasibility is not reported per route: the selector excludes an
-    infeasible route before pricing, and says so in the chosen route's
+    infeasible route before estimating, and says so in the chosen route's
     reason rather than marking the excluded one.
     """
 
@@ -189,18 +189,18 @@ def _explain_cosine_nested(dens_x, dens_y, ts, sop, limit, limit_set_by,
     """Route report for a cosine on a nested density.
 
     A nested attribute never reaches the flat orbit (Möbius) entry point, so
-    the two routes the flat report prices are not the two on offer here. The
+    the two routes the flat report estimates are not the two on offer here. The
     candidates are the hierarchical contraction plan --- which itself picks a
     route per nested attribute --- and the joint-tuple enumeration.
 
     Both are priced, as the flat report prices Bulger's method against the
     Möbius method: each nested attribute's admissible routes are costed in
     milliseconds by :mod:`~mpt._tensor._nested_cost`, the chosen ones summed
-    with the flat companions' cost to give the plan's price, and that compared
+    with the flat companions' cost to give the plan's estimated cost, and that compared
     with the enumeration's. The per-attribute prices are reported as the
     contraction route's reason, an ``inf`` there marking a centres route
     diverted by the working-set guard. Where the measure rule leaves a nested
-    attribute one admissible route the price is still shown, but the decision
+    attribute one admissible route the estimated cost is still shown, but the decision
     was not a cost decision and the report says so.
     """
     from .cosine import (_nested_admissible_routes, _nested_attr_route,
@@ -299,7 +299,7 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
     --- and the ordered-attribute override is applied after it. The
     report therefore names the route the call takes, including the
     rel-per wrap rule above the sigma/P threshold, which decides
-    without pricing.
+    without cost estimation.
     """
     from .cosine import _flat_selector_inputs
     from .dispatch import _select_ma_inner_product_method

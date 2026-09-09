@@ -13,7 +13,7 @@
 %      the sigma/P threshold the report follows the declared wrap as the
 %      call does, and on an ordered pair it names Bulger's method under
 %      any method;
-%    D-6   the eval cost model prices the spectral branch of the Möbius
+%    D-6   the eval cost model estimates the spectral branch of the Möbius
 %      relative evaluator wherever that branch engages (no mode-grid
 %      decline, since the evaluator has none);
 %    B-16  the Möbius per-attribute matrix has one abs r >= 2 route,
@@ -44,7 +44,7 @@ rp3_warnCleanup = onCleanup(@() cellfun(@warning, ...
 
 % --- explainDispatch follows the wrap rule above the threshold ---
 % r = 3, K = 4 vs 5, rel-per at sigma/P = 0.5: above the threshold the
-% declared wrap decides without pricing. The report used to omit the
+% declared wrap decides without cost estimation. The report used to omit the
 % wrap vector and so named the cost model's pick. The route the call
 % took is read off the memo key it wrote on the second operand.
 rp3_wraps = {'full-image', 'single-image'};
@@ -89,8 +89,8 @@ for rp3_i = 1:3
 end
 
 % --- explainDispatch uses the memo flags the call uses ---
-% After a call has memoised both self inner products, the report prices
-% the cross matrix alone, as the call does: its Bulger price drops.
+% After a call has memoised both self inner products, the report estimates
+% the cross matrix alone, as the call does: its Bulger estimate drops.
 x = rp3Flat(5, 1.0, 3, true, false, 'full-image', rp3_P, 6, 3);
 y = rp3Flat(6, 1.0, 3, true, false, 'full-image', rp3_P, 6, 3);
 repCold = explainDispatch(x, y);
@@ -129,7 +129,7 @@ results{end, 2} = isequal(selIn.wrapVec, {'single-image'}) ...
 % --- D-6: the eval cost model has no mode-grid decline ---
 % A periodic r = 4 relative attribute at small sigma/P passes the
 % evaluator's spectral gate; the model prices that branch, whose r = 4
-% periodic K term is zero, so the price is the same at K = 16 and 48
+% periodic K term is zero, so the estimated cost is the same at K = 16 and 48
 % (the node path it used to fall back to carries a K-proportional
 % tabulation term).
 rp3_sig = 0.004 * rp3_P;

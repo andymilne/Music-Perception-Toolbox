@@ -1,5 +1,5 @@
 function out = lastNestedCosts(costs)
-%INTERNAL.LASTNESTEDCOSTS  Prices behind the most recent nested
+%INTERNAL.LASTNESTEDCOSTS  Estimates behind the most recent nested
 %   plan-versus-enumeration decision.
 %
 %   INTERNAL.LASTNESTEDCOSTS(COSTS) records COSTS, a struct with fields

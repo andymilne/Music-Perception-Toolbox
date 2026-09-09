@@ -8,7 +8,7 @@
 %  translation grid or the tuple-centres closed form), and, for a nested
 %  attribute, the per-level contraction --- and each memoises <X,X> and
 %  <Y,Y> in the density struct's selfIP field, so a repeated call or a
-%  sweep pays for the cross term alone.
+%  sweep computes the cross term alone.
 %
 %  Two questions follow, with different answers.
 %
@@ -30,10 +30,10 @@
 %  it --- a call's answer must not depend on which route warmed the memo,
 %  which the call-order block below pins.
 %
-%  What IS shared is the pricing: INTERNAL.SELFIPMEMOISED reports whether
+%  What IS shared is the cost estimation: INTERNAL.SELFIPMEMOISED reports whether
 %  ANY route has paid for a density's self inner product, and both sides of
-%  every route comparison are priced against it. Otherwise the first route
-%  to run is priced at one matrix and its rival at three, and that first
+%  every route comparison are estimated against it. Otherwise the first route
+%  to run is estimated at one matrix and its rival at three, and that first
 %  choice locks in however cheap the rival becomes once warm.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
@@ -125,7 +125,7 @@ results{end+1, 1} = ['selfIpShare: the rel-per tau grid is a different ' ...
 results{end, 2} = sms_gaps(1) > 1e-6 && sms_gaps(2) > 20 * sms_gaps(1);
 
 
-%% --- 2. The pricing flag reads any route; the values stay route-keyed --
+%% --- 2. The cost-estimation flag reads any route; the values stay route-keyed --
 
 sms_empty = struct('keys', {{}}, 'vals', []);
 results{end+1, 1} = 'selfIpShare: an empty memo is not memoised';
@@ -134,7 +134,7 @@ results{end, 2} = ~internal.selfIpMemoised(sms_empty);
 sms_cache = struct('keys', {{internal.selfIpKey('mobius', 6.0, '1')}}, ...
                    'vals', 1.0);
 results{end+1, 1} = ['selfIpShare: a Moebius memo counts for the ' ...
-                     'shared pricing flag'];
+                     'shared cost-estimation flag'];
 results{end, 2} = internal.selfIpMemoised(sms_cache);
 
 % The sweep's own memo is produced by a different evaluator and consumed by
@@ -185,11 +185,11 @@ smsRoutesOf = @(d) unique(cellfun(@(k) strtok(k, '|'), d.selfIP.keys, ...
                                   'UniformOutput', false));
 
 % Warm each cell on every route the cold call did NOT take, then call auto
-% again. Before the pricing flags were shared, the memo made the route that
-% wrote it free and left its rival priced at three matrices, so whichever
+% again. Before the cost-estimation flags were shared, the memo made the route that
+% wrote it free and left its rival estimated at three matrices, so whichever
 % route ran first locked itself in and the route the cold model prefers
-% could never be reached again on that pair. What shared pricing
-% guarantees is that a warm auto call prices both routes against the same
+% could never be reached again on that pair. What shared cost estimation
+% guarantees is that a warm auto call estimates both routes against the same
 % flags, so its choice cannot depend on WHICH route warmed the pair. The
 % warm choice may legitimately differ from the cold one --- a call with
 % both self products memoised is a different workload, and the Moebius

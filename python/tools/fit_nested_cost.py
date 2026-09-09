@@ -58,7 +58,7 @@ with a per-key floor applied by ``max``. The objective is the *log ratio* of
 predicted to measured, for the reason the multi-attribute eval fitter gives:
 the routing decision depends only on the ratio of two estimates, so a cell
 costing 1 ms deserves the same weight as one costing 4 s, and a cell
-over-priced three-fold is exactly as wrong as one under-priced three-fold.
+overestimated three-fold is exactly as wrong as one underestimated three-fold.
 
 For a pure power law that objective is *linear* in ``(a, b)`` after taking
 logarithms, so ordinary least squares on ``log t = a + b log term`` is its
@@ -80,8 +80,8 @@ The floor is read from the smallest-term cells of each key, as
 route cannot go under. The harness always computes all three inner matrices,
 so the split between the fixed and the per-matrix half of the floor is not
 identified by these measurements; the whole floor is assigned to the
-per-matrix half, which is the conservative reading (it discounts a
-memoised-self call rather than over-charging it).
+per-matrix half, which is the conservative reading (it understates a
+memoised-self call rather than overstating it).
 
 WHAT IT REPORTS
 ---------------
@@ -200,7 +200,7 @@ def _fit_shared_exp(rows, floor_cells, passes=4):
     only by a constant factor. Five intercepts and one slope replace the
     twenty intercepts and twenty slopes of the per-key form. The floors stay
     per route --- they are measurements, not fitted parameters, and pooling
-    them would price a route's setup at another route's.
+    them would estimate a route's setup at another route's.
     """
     data = {}
     for route in ROUTES:
@@ -467,7 +467,7 @@ def cv_scores(rows, pooling, min_cells, floor_cells, repeats, seed=20260904):
     difference between two forms is a difference at all.
 
     Regret is the quantity to read. It is what routing consumes --- the ratio
-    of two predictions decides the pick, and a form that mis-prices both arms
+    of two predictions decides the pick, and a form that misestimates both arms
     by the same factor routes perfectly --- so a form can lose on log-ratio
     error and still be the one to ship.
     """

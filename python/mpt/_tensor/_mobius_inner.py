@@ -648,7 +648,7 @@ _SPECTRAL_IP_MAX_POINTS = 4_000_000
 #:
 #: The form was re-tested outside the fitted range, on the specific
 #: charge that it omits the translation-node count ``N_u`` and so
-#: under-prices the grid route where the data span many sigmas: 145
+#: underestimates the grid route where the data span many sigmas: 145
 #: cells, r = 2..4, K = 6..200, event counts 1..16, both periodic modes,
 #: span/sigma from 4 to 360 (three octaves at sigma = 10). Every subset
 #: of {log gridSize, log K, log nPairs, log N_u, isPer, r} was refitted

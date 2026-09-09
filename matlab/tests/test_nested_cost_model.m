@@ -1,4 +1,4 @@
-%% test_nested_cost_model.m — the nested IP is routed by a priced cost model
+%% test_nested_cost_model.m — the nested IP is routed by a fitted cost model
 %
 %  Mirror of the Python tests/test_nested_cost_model.py.
 %
@@ -6,7 +6,7 @@
 %  analytic operation counts --- materialised kernel entries against
 %  quadrature nodes times contraction work --- as though a kernel entry and
 %  a unit of contraction work cost the same, and it never considered the
-%  joint-tuple enumeration on price at all. It now prices every candidate
+%  joint-tuple enumeration on cost at all. It now estimates every candidate
 %  in milliseconds from the fitted laws of INTERNAL.NESTEDCOST, guards the
 %  materialising route with the same working-set budget the flat selector
 %  uses, and compares the whole contraction plan against the enumeration
@@ -15,15 +15,15 @@
 %
 %  What these tests pin is the COST MODEL. The measure rule is pinned by
 %  tests/test_nested_measure_rule.m and is deliberately upstream of
-%  everything here: the prices are stubbed to absurd values throughout, and
+%  everything here: the estimates are stubbed to absurd values throughout, and
 %  no stub is allowed to move a route that carries a different measure.
 %
 %  Where the Python tests monkeypatch nested_route_cost_ms, this file
-%  installs a price stub through INTERNAL.NESTEDCOSTOVERRIDE --- a
+%  installs a cost stub through INTERNAL.NESTEDCOSTOVERRIDE --- a
 %  TEST-ONLY persistent that INTERNAL.NESTEDCOST consults before
 %  evaluating a law, and that nothing in the toolbox ever installs. It is
 %  cleared on cleanup below (and after every block that sets it), so a
-%  failure part-way through cannot leave the session priced by a stub.
+%  failure part-way through cannot leave the session running on a stub.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
 %  mptTestIsolateDefaults sets truncationSigmas = Inf (accuracy floor).
@@ -74,7 +74,7 @@ results{end+1, 1} = sprintf( ...
      '(%.3g > %.3g bytes)'], ncm_ws, ncm_BUDGET); %#ok<*SAGROW>
 results{end, 2} = ncm_ws > ncm_BUDGET;
 
-% Price centres as free and the contraction as ruinous: only the guard can
+% Stub centres at zero and the contraction as ruinous: only the guard can
 % move the route now.
 internal.nestedCostOverride(struct('centres', 1e-6, ...
                                    'contract_relnonper', 1e9));
@@ -88,7 +88,7 @@ results{end, 2} = isinf(ncm_prices.centres) ...
     && strcmp(ncm_route, 'contract_relnonper') ...
     && strcmp(ncm_planned, 'contract_relnonper');
 
-% The guard is a guard, not a policy: below the budget the price decides.
+% The guard is a guard, not a policy: below the budget the estimated cost decides.
 ncm_sx = ncmDens(ncm_VX, 0.1, 3, true, false, ncm_P, []);
 ncm_sy = ncmDens(ncm_VY, 0.1, 3, true, false, ncm_P, []);
 ncm_wsSmall = internal.nestedCost('centresWorkingSetBytes', ncm_sx, ncm_sy, 1);
@@ -115,7 +115,7 @@ results{end+1, 1} = ['nested cost model: full-image below the threshold ' ...
 results{end, 2} = strcmp(ncm_r1, 'taugrid') && strcmp(ncm_r2, 'centres');
 
 % Above the threshold the full-image measure admits the tau grid alone, so
-% pricing centres at nothing changes nothing.
+% estimating centres at nothing changes nothing.
 ncm_hx = ncmDens(ncm_VX, ncm_above, 3, true, true, ncm_P, []);
 ncm_hy = ncmDens(ncm_VY, ncm_above, 3, true, true, ncm_P, []);
 internal.nestedCostOverride(struct('centres', 1e-9, 'taugrid', 1e9));
@@ -126,7 +126,7 @@ results{end+1, 1} = ['nested cost model: above the threshold no price ' ...
 results{end, 2} = strcmp(ncm_r1, 'taugrid');
 
 % Above the threshold the minimum-image measure has one carrier, so
-% pricing the tau grid at nothing changes nothing.
+% estimating the tau grid at nothing changes nothing.
 ncm_ok = true;
 for ncm_sop = [0.05 0.2 0.4]
     ncm_sx2 = ncmDens(ncm_VX, ncm_sop * ncm_P, 3, true, true, ncm_P, ...
@@ -142,7 +142,7 @@ results{end+1, 1} = ['nested cost model: single-image above the threshold ' ...
 results{end, 2} = ncm_ok;
 
 % Below the threshold the two readings agree inside the floor, so
-% single-image is priced exactly as full-image is.
+% single-image is estimated exactly as full-image is.
 ncm_sx2 = ncmDens(ncm_VX, ncm_below, 3, true, true, ncm_P, 'single-image');
 ncm_sy2 = ncmDens(ncm_VY, ncm_below, 3, true, true, ncm_P, 'single-image');
 internal.nestedCostOverride(struct('centres', 100.0, 'taugrid', 1.0));
@@ -182,7 +182,7 @@ results{end, 2} = strcmp(ncm_r1, 'contract');
 
 
 %% --- the plan against the enumeration --------------------------------
-% Price the enumeration at a millionth of everything else.
+% Stub the enumeration at a millionth of everything else.
 ncm_cheapEnum = struct('bulger', 1e-6, 'centres', 1.0, 'taugrid', 1.0, ...
                        'contract', 1.0, 'contract_relnonper', 1.0);
 
@@ -231,7 +231,7 @@ results{end+1, 1} = 'nested cost model: a near tie keeps the plan';
 results{end, 2} = strcmp(ncm_costs.chosen, 'contract');
 
 % Above the threshold the enumeration computes the minimum-image reading,
-% so no price buys it.
+% so no cost estimate can select it.
 internal.nestedCostOverride(ncm_cheapEnum);
 cosSimExpTens( ...
     ncmDens(ncm_VX, ncm_above, 3, true, true, ncm_P, []), ...
@@ -255,10 +255,10 @@ internal.nestedCostOverride([]);
 results{end+1, 1} = 'nested cost model: a forced method is never diverted';
 results{end, 2} = ~isempty(ncm_r1);
 
-% The multi-attribute plan is priced too, companions included. A flat
+% The multi-attribute plan is estimated too, companions included. A flat
 % SYMMETRIC r = 2 companion: the flat model absorbs an r = 1 attribute
-% into its base and prices it at nothing, so an r = 1 companion could not
-% show that companions are priced at all.
+% into its base and estimates it at nothing, so an r = 1 companion could not
+% show that companions are estimated at all.
 ncm_ex = [0.3 1.1 2.0; 0.7 1.5 2.6; 1.2 2.1 3.3];
 ncm_ey = ncm_ex + 0.2;
 ncm_maX = repmat(ncm_VX, 1, 3);
@@ -368,7 +368,7 @@ end
 % ----------------------------------------------------------------------
 function d = ncmDensMA(v, extra, sigma, P)
     % The same nested attribute tensored with a flat SYMMETRIC r = 2
-    % companion, which the flat orbit model prices at more than nothing.
+    % companion, which the flat orbit model estimates at more than nothing.
     nGroup = size(v, 1) / 3;
     tags = repelem((0:nGroup - 1).', 3, 1);
     spec = struct('tags', tags, 'r', [2 2], 'sym', [true true], 'rel', [0 1]);

@@ -105,7 +105,7 @@ SIGMA_OVER_P = [0.02, 0.03, 0.04, 0.05, 0.055, 0.06, 0.065, 0.07,
 # The search evaluates the cosine over ordered r-tuples, so its cost
 # grows as (K permute r) squared; at r = 5 with K = r + 2 that is 2520
 # tuples a side and a single evaluation already costs a fifth of a
-# second, which a hill-climb cannot afford. The onset is a property of
+# second, which is too slow for a hill-climb. The onset is a property of
 # the kernel rather than of a particular order, and r = 2 to 4 covers
 # the orders the measure is actually used at.
 R_VALUES = [2, 3, 4]

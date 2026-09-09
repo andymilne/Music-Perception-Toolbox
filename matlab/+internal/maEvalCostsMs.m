@@ -8,10 +8,10 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
 %   Depends only on the density shape (r_a, K_a, N), the geometry, and
 %   the query count NQ --- no probe, no timing. Shared by the eval path
 %   selector INTERNAL.SELECTMAEVAL, which compares the two, and by
-%   EXPLAINDISPATCH, which reports both prices even where a hard rule
+%   EXPLAINDISPATCH, which reports both estimates even where a hard rule
 %   settled the route without consulting them. One implementation
-%   guarantees that the report and the dispatch decision price identical
-%   work.
+%   guarantees that the report and the dispatch decision estimate
+%   identical work.
 %
 %   Twin of the Python _ma_eval_costs_ms.
 %
@@ -24,7 +24,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % second run in one MATLAB session on the maintainer's Mac. Fit
     % quality, predicted over measured: centres geometric mean 0.94
     % (spread 1.41, worst 3.0), Moebius 0.90 (spread 1.61, worst 6.3 ---
-    % the residual is rel-per r = 4, K >= 24 at high nQ, under-priced
+    % the residual is rel-per r = 4, K >= 24 at high nQ, underestimated
     % 5--6x but routed to Moebius regardless). Routing regret against the
     % measured oracle, geometric mean over the 328 cells with both arms
     % timed: 1.007 (3 cells beyond 1.3x, worst 1.94x) against 1.018 (9,
@@ -68,7 +68,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % per-tuple costs differ by an order of magnitude and grow
     % differently --- absolute essentially linear in the tuple count,
     % relative going as count^1.3 over counts from 30 to 1e5 --- and
-    % sharing one linear term between them under-priced large
+    % sharing one linear term between them underestimated large
     % relative-periodic shapes badly enough to misroute them.
     %
     % The form is carried here so the twins stay structurally identical;
@@ -194,7 +194,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % spread is unknown at selection time, so the source spread stands in
     % for the alignment window). ----
     nQeff = max(double(nQ), 1);
-    % Nested attributes are priced by internal.nestedEvalCostsMs; here
+    % Nested attributes are estimated by internal.nestedEvalCostsMs; here
     % they are skipped (their r is the leaf-slot total, not a flat order).
     flatAttrs = 1:A;
     if isfield(dens, 'nested') && ~isempty(dens.nested)
@@ -204,7 +204,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
         end
         flatAttrs = find(keep);
         if isempty(flatAttrs)
-            centresMs = 0;  mobiusMs = 0;   % nothing flat to price
+            centresMs = 0;  mobiusMs = 0;   % nothing flat to estimate
             return;
         end
     end
@@ -221,10 +221,10 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % materialises the joint tuple set: cost is the SUM of per-attribute
     % tuple counts through the culled per-attribute kernels, plus a small
     % per-attribute per-query overhead (bucket lookup and gather). The
-    % joint-materialisation pricing applies only where that route is
+    % joint-materialisation cost estimation applies only where that route is
     % unsupported (any r_a < 2, or a matrix kernel covariance), mirroring
     % localMaEvalFactored's support predicate. Non-periodic attributes
-    % take the bucket-grid culling discount min(1, c*sigma/spread);
+    % take the bucket-grid culling factor min(1, c*sigma/spread);
     % periodic ones run dense (the pairwise wrap is not a
     % tail-truncatable ball).
     factoredSupported = (A > 1) && all(rVec(flatAttrs) >= 2) ...
@@ -306,7 +306,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             % The spectral (Fourier) strategy engages inside the mobius
             % relative evaluator for r_a in 2..4 above its query
             % thresholds (see the gate in mobius.evalOrbitRel); where it
-            % would engage, price the per-query cost with its measured,
+            % would engage, estimate the per-query cost with its measured,
             % K-free slope. The slope scales with the mode count, i.e.
             % with window/sigma (session-calibrated on the Python side;
             % re-derive here via bench_ma_eval_calibration if picks
@@ -340,7 +340,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             % the kernel budget; it never builds an (r_a - 1)-dimensional
             % mode grid, so --- unlike the inner-product spectral route
             % (mobius.spectralRelInnerMatrix), which has a MAX_POINTS
-            % decline --- there is no grid-size decline to price here.
+            % decline --- there is no grid-size decline to estimate here.
             % (The evaluator also requires the periodic query span to fit
             % in half the circle; that depends on the queries, which the
             % cost model does not see, and holds for the ordinary
@@ -419,8 +419,8 @@ function cullA = localCentresCull(dens, a, isPerA, sigmaA, r_a, isRelA, cullC)
 %
 %   SPREAD is the attribute's value range, which stands in for the
 %   extent the centres occupy. The periodic kernel is not truncated ---
-%   it sums over images rather than discarding a tail --- so it takes no
-%   discount and CULLA is 1.
+%   it sums over images rather than discarding a tail --- so it is not
+%   reduced and CULLA is 1.
     cullA = 1.0;
     if isPerA || sigmaA <= 0
         return;

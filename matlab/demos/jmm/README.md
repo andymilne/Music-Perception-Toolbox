@@ -4,9 +4,10 @@ Each script here reproduces one worked analysis of *Music Perception
 Toolbox* (Journal of Mathematics and Music) or its Online Supplement,
 lightly edited from the article's own analysis scripts so that its
 header comment says what question the analysis asks, how the toolbox
-answers it, and which functions do the work. Each script adds its own
-folder and the toolbox root to the path, so it can be run from anywhere,
-for example
+answers it, and which functions do the work. Each script locates this
+folder from the toolbox root and adds it to the path, so it can be run
+from anywhere once the toolbox's `matlab` folder is on the path, for
+example
 
     run('demos/jmm/demo_jmm_1_1_entropy.m')
 

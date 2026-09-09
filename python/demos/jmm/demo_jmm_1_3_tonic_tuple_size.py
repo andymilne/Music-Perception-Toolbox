@@ -18,7 +18,7 @@ Because the comparison is on one attribute (not a role product), raising
 r tightens the match informatively rather than annihilating it: pitch
 content (r = 1) -> dyad/interval content (r = 2) -> triad content (r = 3).
 
-The payoff is the relative, periodic row. At r = 2 the interval-class
+The relative, periodic row is the informative one. At r = 2 the interval-class
 content cannot separate a major triad from a minor one (they are
 inversionally related, and the unordered relative pair content is
 inversion-invariant): the three major tonics and the minor tonic all read

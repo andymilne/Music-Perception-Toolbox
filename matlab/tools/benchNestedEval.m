@@ -1,5 +1,5 @@
 function benchNestedEval(outFile)
-%BENCHNESTEDEVAL  Timing grid for pricing the per-level Möbius evaluator.
+%BENCHNESTEDEVAL  Timing grid for estimating the per-level Möbius evaluator.
 %
 %   benchNestedEval()            prints the CSV to the console
 %   benchNestedEval('file.csv')  writes it to a file

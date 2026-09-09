@@ -331,8 +331,8 @@ for tr in ("prolong", "count"):
     print(f"    {tr:<8}: doubled figure vs closed-up figure = {s:.3f}")
 print()
 print("  With intervals in beats the two are already distinct under")
-print("  every treatment; the confound is a price of tempo invariance,")
+print("  every treatment; the confound is a consequence of tempo invariance,")
 print("  and the count attribute -- dimensionless, so invariant to")
-print("  both scalings for free -- is what pays it off.")
+print("  both scalings at no extra cost -- is what resolves it.")
 
 mpt.set_default(**_prev_defaults)

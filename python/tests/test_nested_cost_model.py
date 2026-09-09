@@ -4,7 +4,7 @@ The nested path used to choose its per-attribute route by comparing raw
 analytic operation counts --- materialised kernel entries against quadrature
 nodes times contraction work --- as though a kernel entry and a unit of
 contraction work cost the same, and it never considered the joint-tuple
-enumeration on price at all. It now prices every candidate in milliseconds
+enumeration on cost at all. It now estimates every candidate in milliseconds
 from the fitted laws of :mod:`mpt._tensor._nested_cost`, guards the
 materialising route with the same working-set budget the flat selector uses,
 and compares the whole contraction plan against the enumeration the way
@@ -13,7 +13,7 @@ Möbius method against Bulger's.
 
 What these tests pin is the *cost model*. The measure rule is pinned by
 ``tests/test_nested_measure_rule.py`` and is deliberately upstream of
-everything here: the prices are stubbed to absurd values throughout, and no
+everything here: the estimates are stubbed to absurd values throughout, and no
 stub is allowed to move a route that carries a different measure.
 """
 import numpy as np
@@ -78,7 +78,7 @@ _VY = np.sort(_RNG.uniform(0.0, P, 9))
 
 
 def _stub_prices(monkeypatch, prices):
-    """Replace the fitted laws by a fixed price per route."""
+    """Replace the fitted laws by a fixed cost per route."""
     monkeypatch.setattr(
         _nc, "nested_route_cost_ms",
         lambda route, order, term, n_matrices=3: float(prices[route]))
@@ -109,7 +109,7 @@ def test_the_memory_guard_diverts_a_huge_shape(monkeypatch):
     dx, dy = _big_pair(4)
     ws = _nc.nested_centres_working_set_bytes(dx, dy, 0)
     assert ws > _CENTRES_WORKING_SET_SOFT_BUDGET
-    # Price centres as free and the contraction as ruinous: only the guard
+    # Stub centres at zero and the contraction as ruinous: only the guard
     # can move the route now.
     _stub_prices(monkeypatch, {"centres": 1e-6, "contract_relnonper": 1e9})
     route, cost, prices, _info = _nc.price_nested_attr(
@@ -120,7 +120,7 @@ def test_the_memory_guard_diverts_a_huge_shape(monkeypatch):
 
 
 def test_a_small_shape_is_under_the_budget_and_stays_priced(monkeypatch):
-    """The guard is a guard, not a policy: below the budget the price
+    """The guard is a guard, not a policy: below the budget the estimated cost
     decides."""
     dx, dy = _big_pair(1)
     small_x, small_y = _dens(_VX, 0.1, is_per=False), _dens(_VY, 0.1,
@@ -154,7 +154,7 @@ def test_full_image_below_the_threshold_races_the_two_routes(monkeypatch):
 def test_above_the_threshold_the_price_cannot_reach_the_centres_route(
         monkeypatch):
     """Above the threshold the full-image measure admits the tau-grid alone,
-    so pricing centres at nothing changes nothing."""
+    so estimating centres at nothing changes nothing."""
     sigma = 0.3 * P
     assert 0.3 > _orbit_sigma_over_p_threshold(
         mpt.get_default("truncation_sigmas"))
@@ -168,7 +168,7 @@ def test_above_the_threshold_the_price_cannot_reach_the_centres_route(
 def test_single_image_above_the_threshold_is_centres_at_any_price(
         monkeypatch, sop):
     """Above the threshold the minimum-image measure has one carrier, so
-    pricing the tau-grid at nothing changes nothing."""
+    estimating the tau-grid at nothing changes nothing."""
     dx = _dens(_VX, sop * P, wrap='single-image')
     dy = _dens(_VY, sop * P, wrap='single-image')
     assert _nested_admissible_routes(dx, dy, 0) == ["centres"]
@@ -262,7 +262,7 @@ def test_a_near_tie_keeps_the_plan(monkeypatch):
 
 
 def test_the_enumeration_is_inadmissible_above_the_threshold(monkeypatch):
-    """It computes the minimum-image reading, so no price buys it there."""
+    """It computes the minimum-image reading, so no cost estimate can select it there."""
     sigma = 0.3 * P
     dx, dy = _dens(_VX, sigma), _dens(_VY, sigma)
     assert not _cos._nested_enumeration_admissible(dx, dy)
@@ -291,8 +291,8 @@ def vy0():
 def test_the_multi_attribute_plan_is_priced_too(monkeypatch):
     sigma = _below_threshold_sigma()
     # A flat *symmetric* r = 2 companion: the flat model absorbs an r = 1
-    # attribute into its base and prices it at nothing, so an r = 1
-    # companion could not show that companions are priced at all.
+    # attribute into its base and estimates it at nothing, so an r = 1
+    # companion could not show that companions are estimated at all.
     ex = np.array([[0.3, 1.1, 2.0], [0.7, 1.5, 2.6], [1.2, 2.1, 3.3]])
     ey = ex + 0.2
     kw = dict(extra_r=2)
@@ -305,7 +305,7 @@ def test_the_multi_attribute_plan_is_priced_too(monkeypatch):
                            _dens(vy0(), sigma, extra=ey, **kw),
                            verbose=False)
     assert _LAST_NESTED_COSTS["chosen"] == "bulger"
-    # The flat companion is priced alongside the nested attribute.
+    # The flat companion is estimated alongside the nested attribute.
     assert _LAST_NESTED_COSTS["detail"]["flat"] > 0.0
     assert got == pytest.approx(reference, rel=1e-9, abs=1e-12)
 
@@ -342,7 +342,7 @@ def test_explain_dispatch_shows_the_prices():
     exp = explain_dispatch(dx, dy)
     text = str(exp)
     assert "nested cost model" in text
-    # Both candidates carry a predicted time, and the per-attribute prices
+    # Both candidates carry a predicted time, and the per-attribute estimates
     # of every admissible route are quoted.
     by_name = {r.name: r for r in exp.routes}
     assert by_name["contract"].predicted_ms > 0.0

@@ -13,9 +13,9 @@ languages keep agreeing:
   declared wrap as the call does (it used to name the cost model's
   pick), and on an ordered pair it names Bulger's method under any
   ``method``;
-* the eval cost model prices the spectral branch of the Möbius
+* the eval cost model estimates the spectral branch of the Möbius
   relative evaluator wherever that branch engages: the evaluator has no
-  mode-grid size decline, so the model no longer prices one (D-6);
+  mode-grid size decline, so the model no longer estimates one (D-6);
 * the Möbius per-attribute matrix has one abs r >= 2 route: the
   safe/unsafe partition and its direct-enumeration fill are gone, and
   the batched route agrees with the enumerated reference at K = r;
@@ -88,7 +88,7 @@ def _route_taken(monkeypatch):
 def test_explain_follows_the_wrap_rule_above_the_threshold(
         monkeypatch, wrap, expected):
     """r = 3, K = 4 vs 5, rel-per at sigma/P = 0.5: above the threshold
-    the declared wrap decides without pricing. The report used to omit
+    the declared wrap decides without cost estimation. The report used to omit
     the wrap vector and so named the cost model's pick."""
     x = _flat(1, 0.5 * P, r=3, is_rel=True, is_per=True, K=4, wrap=wrap)
     y = _flat(2, 0.5 * P, r=3, is_rel=True, is_per=True, K=5, wrap=wrap)
@@ -119,7 +119,7 @@ def test_explain_applies_the_ordered_attribute_rule(monkeypatch, method):
 
 def test_explain_uses_the_memo_flags_the_call_uses():
     """After a call has memoised both self inner products, the report
-    prices the cross matrix alone, as the call does: its Bulger price
+    estimates the cross matrix alone, as the call does: its Bulger estimated cost
     drops below the cold report's."""
     x = _flat(5, 1.0, r=3, is_rel=True, is_per=False, K=6, N=3)
     y = _flat(6, 1.0, r=3, is_rel=True, is_per=False, K=6, N=3)
@@ -163,7 +163,7 @@ def test_selector_inputs_are_shared_with_the_call():
 
 
 # ---------------------------------------------------------------------
-# D-6: the eval cost model prices the spectral branch that runs
+# D-6: the eval cost model estimates the spectral branch that runs
 # ---------------------------------------------------------------------
 
 def test_eval_cost_model_has_no_mode_grid_decline():
@@ -178,7 +178,7 @@ def test_eval_cost_model_has_no_mode_grid_decline():
     _c1, m_small = _disp._ma_eval_costs_ms(small, n_q)
     _c2, m_large = _disp._ma_eval_costs_ms(large, n_q)
     assert math.isfinite(m_small) and math.isfinite(m_large)
-    # The r = 4 periodic K term is zero, so the spectral price is the
+    # The r = 4 periodic K term is zero, so the spectral estimated cost is the
     # same for both value counts; the node path it used to fall back to
     # carries a K-proportional tabulation term.
     assert m_large == pytest.approx(m_small, rel=1e-12)

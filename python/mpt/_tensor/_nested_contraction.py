@@ -327,7 +327,7 @@ def _combine_pair(M, r, sym, use_orbit, *, cost_check=True):
             return vals
         if not budget["enabled"]:
             # ``post_hoc_guards`` is off. The check below inspects a result
-            # that has already been computed and, when it diverts, pays for
+            # that has already been computed and, when it diverts, computes
             # the enumerated route on top of this one --- so with it active
             # the measured cost of the Möbius route is not the cost of
             # choosing it. Calibration runs switch it off so the two routes
@@ -355,7 +355,7 @@ def _combine_pair(M, r, sym, use_orbit, *, cost_check=True):
                             "admit the Mobius route here.")
                 elif orbit_cost_model(r, max(gx, gy), M.shape[0])[0]:
                     # The Mobius route is the cheaper one at this level's
-                    # sizes, so trading accuracy for it does buy speed.
+                    # sizes, so trading accuracy for it does reduce the cost.
                     tail = (f" Setting truncationSigmas to {admit:.3g} or "
                             f"below would admit the Mobius route, which is "
                             f"the faster of the two at r={r}, K={max(gx, gy)},"
@@ -608,7 +608,7 @@ def auto_ntau_default(period, sigma, truncation_sigmas=None):
     ``truncation_sigmas`` is the per-call width where the caller has one
     (``None`` takes the global default). Every route that honours a
     per-call width on its kernel cutoff must size its tau grid from the
-    same width, or the grid density and the route price stay pinned to
+    same width, or the grid density and the route cost stays pinned to
     the default while the kernel moves; the MATLAB twin
     ``internal.autoNtauDefault`` takes the same optional argument.
     """

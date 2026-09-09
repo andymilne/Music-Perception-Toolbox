@@ -22,10 +22,10 @@ N_u and the permutation-side tuple count M = r!·C(K, r).
 Agreement is checked before any timing, so a comparison is never made
 between two computations that disagree.
 
-Three things keep the runtime affordable. An arm the running estimate
+Three things keep the runtime manageable. An arm the running estimate
 puts over budget is never started; a call slower than ``--repeat-below``
 is measured from its single warm run rather than repeated, since
-repeating a call that already ran for a second buys nothing; and the
+repeating a call that already ran for a second gains nothing; and the
 unforced Möbius arm is not timed, because ``gate_route`` says which
 route column already holds its time.
 
@@ -81,7 +81,7 @@ SHAPES = ("equal", "asym")
 # flat, decaying towards one end, and concentrated at both ends.
 WEIGHT_PROFILES = ("flat", "decay", "bimodal")
 
-# Event counts. Both methods price per event pair, but they do not scale
+# Event counts. Both methods estimate per event pair, but they do not scale
 # with the pair count the same way: Bulger's method builds one joint
 # tuple-pair kernel over all events at once, so its working set grows
 # with the product, while the Möbius method repeats a per-pair cost. A
@@ -399,7 +399,7 @@ def main(argv=None):
                                         max(span, 1.0) / sigma * sps)))
                                     sop = 0.0
 
-                                # Predictors price by the larger side, since
+                                # Predictors estimate by the larger side, since
                                 # that is what dominates each route.
                                 M_big = max(M_x, M_y)
                                 K_big = max(K_x, K_y)

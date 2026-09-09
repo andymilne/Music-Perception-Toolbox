@@ -124,7 +124,7 @@ def spectral_entropy(
       ``truncation_sigmas`` (≈ 6). Passing ``truncation_sigmas=3``
       loosens the tolerance to ``exp(-9/2) ≈ 1.1e-2`` and brings
       differential to comparable cost to the discrete methods, at the
-      price of fifth-decimal drift (consonance ordering is preserved).
+      expense of fifth-decimal drift (consonance ordering is preserved).
       For consonance comparisons across many chords, prefer
       ``'normalized'`` (faster and the method established in the
       consonance literature).

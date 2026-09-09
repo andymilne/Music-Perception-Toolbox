@@ -5,7 +5,7 @@ joint-tuple enumeration, the unrestricted tuple-centres enumeration, the
 per-attribute Möbius matrices (themselves either a translation grid or the
 tuple-centres closed form), and, for a nested attribute, the per-level
 contraction -- and each memoises the self inner products ``<X,X>`` and
-``<Y,Y>`` on the densities so a repeated call or a sweep pays for the cross
+``<Y,Y>`` on the densities so a repeated call or a sweep computes the cross
 term alone.
 
 Two questions follow, and they have different answers.
@@ -19,9 +19,9 @@ in different units. :func:`test_routes_do_not_agree_to_working_precision`
 measures that gap, and the cache keys stay route-specific because of it --- a
 call's answer must not depend on which route happened to warm the memo.
 
-What *is* shared is the pricing. A selector comparing two routes must price
+What *is* shared is the cost estimation. A selector comparing two routes must estimated cost
 both against the same statement of what a self inner product costs this call,
-or the first route to run is priced at one matrix and its rival at three, and
+or the first route to run is estimated at one matrix and its rival at three, and
 that first choice locks in however cheap the rival becomes once warm. The
 lock-in tests below pin the fix and the value-invariance it preserves.
 """
@@ -196,7 +196,7 @@ def test_routes_do_not_agree_to_working_precision():
 
 
 # ----------------------------------------------------------------------
-# 2. Values stay route-keyed; the pricing flag is shared
+# 2. Values stay route-keyed; the cost-estimation flag is shared
 # ----------------------------------------------------------------------
 
 
@@ -215,7 +215,7 @@ def test_memo_keys_stay_route_specific():
 
 
 def test_self_ip_memoised_reports_any_route():
-    """The pricing flag asks whether *any* route has paid, not which one."""
+    """The cost-estimation flag asks whether *any* route has paid, not which one."""
     dx = _flat(6, 3, 2, True, True, 0.25, seed=1)
     dy = _flat(6, 4, 2, True, True, 0.25, seed=2)
     assert not _self_ip_memoised(dx)
@@ -299,10 +299,10 @@ def test_cold_auto_takes_one_definite_route_on_the_lockin_cell(K, N):
 def test_a_memo_on_another_route_no_longer_locks_the_route_in(K, N):
     """A memo left by one route does not divert ``auto`` from its own.
 
-    Before the pricing flags were shared, a memo made the route that wrote it
-    free and left its rival priced at three matrices, so whichever route ran
+    Before the cost-estimation flags were shared, a memo made the route that wrote it
+    free and left its rival estimated at three matrices, so whichever route ran
     first locked itself in and the route the cold model prefers could never be
-    reached again on that pair. What shared pricing guarantees is that a warm
+    reached again on that pair. What shared cost estimation guarantees is that a warm
     ``auto`` call prices both routes against the same flags, so its choice
     cannot depend on *which* route warmed the pair. The warm choice may
     legitimately differ from the cold one --- a call with both self products
@@ -337,7 +337,7 @@ def test_a_memo_on_another_route_no_longer_locks_the_route_in(K, N):
 def test_call_order_does_not_change_the_value():
     """Whatever ran first, ``auto`` returns the number its route returns.
 
-    Route-keyed memos are what buys this: a value computed under one route's
+    Route-keyed memos are what guarantee this: a value computed under one route's
     truncation treatment is never consumed by another.
     """
     dx, dy = _lockin_pair()

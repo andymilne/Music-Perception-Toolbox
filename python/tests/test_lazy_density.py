@@ -129,7 +129,7 @@ def test_cos_sim_orbit_does_not_materialise():
 def test_entropy_renyi2_does_not_materialise():
     # Rényi-2 is the self inner product through the ordinary selector, so
     # it materialises exactly when the selector picks a materialising
-    # route; at this size it picks the Möbius route (at K = 10 it prices
+    # route; at this size it picks the Möbius route (at K = 10 it estimates
     # Bulger's enumeration cheaper, and that route materialises, as it
     # does for a cosine).
     T = _make_dens(K=16, r=3)

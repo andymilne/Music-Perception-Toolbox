@@ -66,7 +66,7 @@ reading of the same trigrams.
 Four sections:
 
   1. Material     The motif, the candidate cells, and the stream.
-  2. Constructor  The three covariance terms, printed, and the price
+  2. Constructor  The three covariance terms, printed, and the penalty
                   each pure kernel puts on three canonical
                   perturbations of the motif.
   3. The search   `windowed_similarity` sweeps over every trigram
@@ -229,7 +229,7 @@ print("  sd_position = 0.05 with sd_shift = 0.25 -- onset jitter plus a")
 print("  common-shift ridge (rank-one, added to every entry):")
 print("   ", str(S_RDG).replace("\n", "\n    "))
 
-# Price table: perturb the motif along three canonical directions and
+# Penalty table: perturb the motif along three canonical directions and
 # read the similarity of the perturbed trigram to the original under
 # each kernel. The directions, in log-IOI units (eps = 0.10):
 #   displaced onset:  (0, +eps, -eps)  one interior onset displaced
@@ -269,17 +269,17 @@ print("""
   - position: the displaced onset is CHEAPER than the single stretched
     interval despite having twice its squared norm -- anticorrelated
     perturbation of adjacent intervals is exactly what shared-endpoint
-    noise generates, and the -sd^2 off-diagonals price it accordingly.
+    noise generates, and the -sd^2 off-diagonals penalize it accordingly.
     The tempo shift is all but forbidden: the sum of the r intervals
     equals the difference of the two endpoint positions, so its
     variance under position noise is 2 sd^2 regardless of r -- a
     common drift of all intervals is highly atypical of position
     noise.
-  - interval: pricing is by Euclidean norm alone (the two marginals
+  - interval: the penalty is by Euclidean norm alone (the two marginals
     are matched to the position column), so the ordering of the first
     two rows reverses.
   - pos+shift: the ridge makes the tempo shift the cheapest direction
-    while leaving the within-shape prices essentially unchanged.""")
+    while leaving the within-shape penalties essentially unchanged.""")
 
 
 # ===== 3. The search: positional sigma vs tempo sigma =====
@@ -388,7 +388,7 @@ print("""
     gives 0.832). The two tolerances are separate currencies: in
     log-IOI space a tempo change moves the trigram's point ALONG the
     all-ones diagonal, timing jitter moves it off that line, and the
-    kernel prices the two components independently.
+    kernel penalizes the two components independently.
   - jit + faster: needs both currencies at once -- only the kernels
     carrying both, 'timing+tempo' (0.742), 'large-shift', and 'rel'
     (0.777 each), admit it. Under 'rel' the two jittered rows are

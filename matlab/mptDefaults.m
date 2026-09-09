@@ -21,7 +21,7 @@ function varargout = mptDefaults(varargin)
 %   route's output after computing it and may then recompute by another
 %   route. Switch it off for calibration runs: with it on, the measured
 %   cost of a route is not the cost of choosing it, because a diverting
-%   check pays for both routes. showHints gates
+%   check incurs the cost of both routes. showHints gates
 %   one-time informational tips. Per-call name-value arguments always
 %   override the defaults set here.
 %

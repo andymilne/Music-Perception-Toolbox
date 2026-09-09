@@ -33,9 +33,19 @@
 %
 % The Python mirror is demos/jmm/demo_jmm_1_1_entropy.py.
 
-thisDir = fileparts(mfilename('fullpath'));
+% The demo folder is located from the toolbox root, which is always
+% reachable, rather than from the script itself: in a script neither
+% mfilename nor dbstack reports the file, and the current folder need not
+% be the script's own. Adding it puts the +jmm helper package in scope.
+mptRoot = which('buildExpTens');
+if isempty(mptRoot)
+    error('demoJmm:toolboxNotFound', ...
+        ['The toolbox is not on the path. Add the matlab folder of the ' ...
+         'Music Perception Toolbox, then run this demo again.']);
+end
+thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
-addpath(fullfile(thisDir, '..', '..'));
+clear mptRoot
 mptDefaults('showHints', false, ...
             'truncationSigmas', 3.0, ...        % truncate Gaussian tails at 3 sigma
             'kernelPrecision', 'single');       % 32-bit kernel arithmetic

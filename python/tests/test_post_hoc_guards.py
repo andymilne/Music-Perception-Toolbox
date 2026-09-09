@@ -4,7 +4,7 @@ Two checks in the toolbox inspect a route's output after computing it
 and may then recompute by another route: the nested accuracy guard in
 ``_combine_pair`` and the corruption check in the flat cosine path. With
 either active the measured cost of the Möbius route is not the cost of
-choosing it, because a diverting check pays for both routes. The default
+choosing it, because a diverting check incurs the cost of both routes. The default
 switches them off so the routes can be timed as the alternatives they
 are.
 

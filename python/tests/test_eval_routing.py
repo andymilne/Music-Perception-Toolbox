@@ -334,7 +334,7 @@ def test_per_call_overrides_global():
 # The battery above tops out at sigma/P = 0.021, below the limit at
 # which the wrapped-difference form ceases to be admissible, so nothing
 # in this file exercised the canonical form or the regime where the
-# measure rather than the price decides the route. These do.
+# measure rather than the estimated cost decides the route. These do.
 
 
 def _transposition_average(p, w, sigma, r, x, n_tau):
@@ -401,8 +401,8 @@ def test_beyond_the_limit_the_measure_decides_the_route():
 
     The wrapped-difference form is inadmissible there, so the Mobius
     route is taken whatever the cost model says. At r=3 K=12 the joint
-    centres route is priced the cheaper of the two, which is what makes
-    this a test of the measure rule rather than of the price.
+    centres route is estimated the cheaper of the two, which is what makes
+    this a test of the measure rule rather than of the estimated cost.
     """
     from mpt._tensor.dispatch import _orbit_sigma_over_p_threshold
     sigma = 0.05 * P_REL

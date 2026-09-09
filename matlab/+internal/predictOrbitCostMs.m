@@ -1,23 +1,23 @@
 function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                                   nuVec, centresOk, kVecY, ...
                                   skipXX, skipYY)
-%INTERNAL.PREDICTORBITCOSTMS  Flat orbit (Moebius) route price, in ms.
+%INTERNAL.PREDICTORBITCOSTMS  Flat orbit (Moebius) route cost estimate, in ms.
 %
 %   MS = INTERNAL.PREDICTORBITCOSTMS(RVEC, KVEC, A, NX, NY, RELVEC,
-%   NUVEC, CENTRESOK, KVECY, SKIPXX, SKIPYY) prices the flat
+%   NUVEC, CENTRESOK, KVECY, SKIPXX, SKIPYY) estimates the flat
 %   per-attribute orbit route over A attributes.
 %
 %   Promoted out of INTERNAL.SELECTMAINNERPRODUCTMETHOD's local function
 %   of the same name: INTERNAL.NESTEDCOST prices a nested density's
 %   flat companion attributes with exactly this model, as the Python
-%   _nested_cost._flat_companion_cost_ms prices them with
+%   _nested_cost._flat_companion_cost_ms estimates them with
 %   _predict_orbit_cost_ms. The selector delegates here, so the flat
 %   selector and the nested cost model cannot drift apart.
 %
 %   See also INTERNAL.SELECTMAINNERPRODUCTMETHOD, INTERNAL.NESTEDCOST.
 
     % Per-attribute sum, mirror of Python _predict_orbit_cost_ms:
-    % relative attributes are priced at the cheaper of the
+    % relative attributes are estimated at the cheaper of the
     % tuple-centres closed form and the batched grid contraction
     % (three matrices each) by the fitted laws of
     % INTERNAL.RELROUTECOSTMS, with the centres term blocked above the
@@ -30,13 +30,13 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
     % per-order absolute constants were fitted on the full
     % three-matrix computation, so they are scaled by the fraction of
     % matrices still to be computed --- an approximation that
-    % under-discounts (setup is not per-matrix), biasing near-crossover
+    % understates the reduction (setup is not per-matrix), biasing near-crossover
     % routing toward Bulger's method, the cheap-to-mispick side.
-    % Defaults false reproduce the full-triple pricing exactly.
+    % Defaults false reproduce the full-triple cost estimation exactly.
     ABS        = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0];
     % No flat relative base is added: each route's law carries its own
     % multiplicative intercept, so adding one would double-count the
-    % setup it already prices; the per-attribute floor below is applied
+    % setup it already estimates; the per-attribute floor below is applied
     % with max instead.
     % Setup floor for the Moebius route on one relative attribute, in
     % ms, as [fixed, perMatrix] by tuple order (rows r = 2, 3, 4; higher

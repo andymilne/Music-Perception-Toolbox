@@ -1,4 +1,4 @@
-"""The grid-bucket spatial index is used only where it pays for itself.
+"""The grid-bucket spatial index is used only where it reduces the total time.
 
 ``gaussian_kernel_sum`` skips centres outside the truncation ball through
 a bucket grid whose neighbour expansion costs ``3**dim`` lookups per

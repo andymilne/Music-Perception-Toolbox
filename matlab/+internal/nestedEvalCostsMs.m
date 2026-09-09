@@ -1,12 +1,12 @@
 function [centresMs, mobiusMs] = nestedEvalCostsMs(dens, nQ)
 %NESTEDEVALCOSTSMS  Cost row for the nested attributes of a density.
 %
-%   [centresMs, mobiusMs] = internal.nestedEvalCostsMs(dens, nQ) prices,
+%   [centresMs, mobiusMs] = internal.nestedEvalCostsMs(dens, nQ) estimates,
 %   in milliseconds on the calibration machine, the tag-tree centres
 %   enumeration and the per-level Möbius evaluator
 %   (mobius.evalNestedAttrOrbit) over the nested attributes of dens for
 %   nQ query points. Flat attributes contribute nothing here (they are
-%   priced by internal.maEvalCostsMs); a density without nested
+%   estimated by internal.maEvalCostsMs); a density without nested
 %   attributes returns zeros. Twin of the Python
 %   mpt._tensor.dispatch._nested_eval_costs_ms.
 %

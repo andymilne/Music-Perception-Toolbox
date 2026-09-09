@@ -3,7 +3,7 @@
 %  Mirrors python/tests/test_dispatcher_ip_probe.py. The dispatcher
 %  (internal.selectMaInnerProductMethod) decides between the Möbius
 %  method and Bulger's method. Hard rules decide first (correctness /
-%  feasibility); otherwise the fitted cost model prices both routes and
+%  feasibility); otherwise the fitted cost model estimates both routes and
 %  the cheaper is picked.
 %
 %  Standalone-runnable.

@@ -43,7 +43,7 @@ function key = selfIpKey(route, tsResolved, extra)
 %   value another route produced, so two identical calls with the same
 %   forced METHOD would return different numbers depending on what ran
 %   before them. Route-keyed values keep each route's answer
-%   reproducible; the *pricing* is shared instead, via
+%   reproducible; the *cost estimation* is shared instead, via
 %   INTERNAL.SELFIPMEMOISED.
 %
 %   One case is a difference of measure rather than of accuracy, and is

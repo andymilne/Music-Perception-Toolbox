@@ -271,7 +271,7 @@ mptDefaults('relAttrRoute', prevRoute);
 % timed, and beside them the two wall times the selector's comparison
 % actually rests on. The ratio of predicted to measured is the quantity
 % to calibrate against; the sign of the disagreement says which side is
-% mispriced.
+% misestimated.
 %
 % Relative mode only, both periodicities, since that is where the
 % misprediction lives. The node count is reconstructed the way

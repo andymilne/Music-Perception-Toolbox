@@ -196,7 +196,7 @@ end
 % =========================================================================
 
 function tf = localBucketIndexWorthwhile(dim, nJ, nQ)
-%LOCALBUCKETINDEXWORTHWHILE  Whether the grid-bucket index pays for itself.
+%LOCALBUCKETINDEXWORTHWHILE  Whether the grid-bucket index reduces the total time.
 %
 %   Bucketing replaces a scan of all nJ centres per query by 3^dim
 %   neighbour-bucket lookups, so it is worthwhile only when 3^dim < nJ;

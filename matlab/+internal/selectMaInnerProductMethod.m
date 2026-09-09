@@ -5,9 +5,9 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         skipXX, skipYY, symVec, guardForcedBulger, perVec)
 %   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
 %   wall times in milliseconds that the comparison rests on. They are
-%   NaN on the early returns that decide without pricing (an explicit
+%   NaN on the early returns that decide without cost estimation (an explicit
 %   userMethod, r_max <= 1, r above the shipped orbit order, and the
-%   memory guard), so a caller can tell a priced decision from a
+%   memory guard), so a caller can tell a cost-based decision from a
 %   structural one. Exposed for calibration: fitting the cost model
 %   needs the prediction beside the measurement.
 %SELECTMAINNERPRODUCTMETHOD  Pick the MA inner-product method (cost model).
@@ -24,7 +24,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 %   the wrap axis decides which is wanted; below it they agree and cost
 %   decides.
 %
-%   The Möbius side is priced per attribute: absolute r_a >= 2
+%   The Möbius side is estimated per attribute: absolute r_a >= 2
 %   attributes cost the vectorised-batch constant for their order;
 %   relative attributes cost three (Nx, Ny) matrices -- the cross
 %   matrix and one self matrix per density -- at the cheaper of the two
@@ -35,7 +35,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 %   translation-grid contraction (MOBIUS.MAPERATTRINNERMATRIX,
 %   nu_a * K_a^2 ops per matrix). The centres route is measure-blocked
 %   above the sigma/P threshold (the orchestrator keeps the all-image
-%   grid there), so above it the grid route is priced alone.
+%   grid there), so above it the grid route is estimated alone.
 %
 %   KVEC and KVECY are the two densities' per-attribute value counts.
 %   They need not agree, and both Bulger's tuple-pair size and the
@@ -46,14 +46,14 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 %
 %   RELVEC (logical, per attribute) and NUVEC (grid node estimates,
 %   per attribute) are optional; omitted, every r_a >= 2 attribute is
-%   treated as relative whenever either rel flag is set (over-pricing
+%   treated as relative whenever either rel flag is set (overestimation
 %   the Möbius side -> near-crossover bias toward Bulger's method,
 %   the cheap-to-mispick side) with a representative node count.
 %
 %   SKIPXX and SKIPYY say whether <X,X> and <Y,Y> cost this call
 %   nothing --- because some route has already memoised the value on the
 %   density, or (for <X,X>) because the requested normalisation does not
-%   consume it. Both routes are priced with the same pair of flags; see
+%   consume it. Both routes are estimated with the same pair of flags; see
 %   INTERNAL.SELFIPMEMOISED.
 %
 %   The cost laws are per-language (INTERNAL.RELROUTECOSTMS, refit with
@@ -82,11 +82,11 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % flags are shared rather than per route: the memoised values are
     % route-keyed (the routes' scales are related in closed form but
     % their truncated numbers are not the same number --- see
-    % localSelfIpKey in cosSimExpTens), yet pricing each route against
+    % localSelfIpKey in cosSimExpTens), yet estimating each route against
     % its own memo would decide the comparison on which route ran first
     % rather than on what the routes cost, and would lock that first
     % choice in. Twin of the Python selector's skip_xx / skip_yy.
-    % Defaults false reproduce the full-triple pricing exactly.
+    % Defaults false reproduce the full-triple cost estimation exactly.
     if nargin < 17 || isempty(skipXX); skipXX = false; end
     if nargin < 18 || isempty(skipYY); skipYY = false; end
     % Per-attribute [sym] flags for the forced-Bulger feasibility guard
@@ -102,7 +102,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % callers) treats every relative attribute as periodic, the pre-fix
     % reading. Twin of the Python selector's per_vec.
     if nargin < 21; perVec = []; end
-    % NaN until the priced comparison sets them, so a caller can tell a
+    % NaN until the cost comparison sets them, so a caller can tell a
     % structural decision from a costed one.
     pwCostOut = NaN;
     orbitCostOut = NaN;
@@ -233,7 +233,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 
     pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY, ...
                                        skipXX, skipYY);
-    % Priced by the same fitted law. The per-entry form this replaces
+    % Estimated by the same fitted law. The per-entry form this replaces
     % assumed a fixed cost per kernel entry; measurement contradicts
     % that, the per-entry cost falling as the arrays grow, which is what
     % the fitted exponent below 1 carries.
@@ -267,10 +267,10 @@ function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY, ...
     % and the total is three times the cross term; where they do not, the
     % larger density's self matrix dominates. For a five-value density
     % against an 80-value one at r = 2 the second self matrix holds
-    % 19971200 of the 20034600 entries, so pricing the cross matrix alone
+    % 19971200 of the 20034600 entries, so estimating the cross matrix alone
     % understates the work by 317. SKIPXX / SKIPYY exclude a self matrix
     % that is memoised or not consumed by the requested normalisation;
-    % pricing it anyway would steer near-crossover routing away from
+    % estimating it anyway would steer near-crossover routing away from
     % Bulger's method on exactly the repeated-context sweeps where
     % Bulger's marginal cost is lowest.
     if nargin < 6 || isempty(kVecY)

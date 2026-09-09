@@ -73,7 +73,7 @@ class TestCentresChunking:
         must produce the same values as forced 'centres' to within the
         accuracy floor.
 
-        Auto is free to route to whichever path the cost model prices
+        Auto is free to route to whichever path the cost model estimates
         cheaper (for this shape the Möbius path is measured several
         times faster than centres, so auto legitimately returns Möbius
         values); the invariant is routing-independent correctness, not

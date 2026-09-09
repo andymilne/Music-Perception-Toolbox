@@ -21,7 +21,7 @@ function varargout = nestedCost(cmd, varargin)
 %       route above CENTRES_WORKING_SET_SOFT_BUDGET, as the flat eval
 %       selector's guard does;
 %     * the self-inner-product skip flags, so a memoised <X,X> or <Y,Y>
-%       is not priced.
+%       is not estimated.
 %
 %   THE MEASURE RULE IS NOT PART OF THIS MODEL. The routes admissible
 %   for an attribute are settled first, by NESTEDADMISSIBLEROUTES inside
@@ -47,7 +47,7 @@ function varargout = nestedCost(cmd, varargin)
 %     [ROUTE, COSTMS, PRICES, INFO] = INTERNAL.NESTEDCOST( ...
 %         'priceNestedAttr', DENSX, DENSY, A, ADMISSIBLE, TS, SKIPXX,
 %         SKIPYY)
-%         Price the admissible routes (a cell row, in the order the
+%         Estimate the cost of the admissible routes (a cell row, in the order the
 %         caller wants ties broken) for nested attribute A. PRICES is a
 %         struct with one field per admissible route; Inf there marks a
 %         materialising route diverted by the working-set guard, which
@@ -68,13 +68,13 @@ function varargout = nestedCost(cmd, varargin)
 %         sigma/period threshold rules it out, exactly as the flat
 %         selector rules Bulger's method out there. DETAIL carries the
 %         per-attribute (route, costMs, prices, info) in DETAIL.attr and
-%         the flat companions' price in DETAIL.flat. Twin of
+%         the flat companions' cost in DETAIL.flat. Twin of
 %         select_nested_method with return_costs.
 %
 %         The two sides share one pair of self-inner-product skip flags,
 %         as the flat selector's two routes do. They memoise under
 %         different cache keys, so a warm plan memo does not literally
-%         spare the enumeration its self matrices; pricing each side
+%         spare the enumeration its self matrices; estimating each side
 %         against its own memo nonetheless decides the comparison on
 %         which side happened to run first rather than on what the two
 %         sides cost, and locks that first choice in. See
@@ -98,7 +98,7 @@ function varargout = nestedCost(cmd, varargin)
 %     'centres'   kernel entries: per event pair the route forms one
 %                 (mCombX, mPermY) array where Bulger's orbit
 %                 restriction holds and one (mPermX, mPermY) array where
-%                 it does not, and the restriction is priced only in the
+%                 it does not, and the restriction is estimated only in the
 %                 cases MOBIUS.CLOSEDFORMATTRCENTRES admits it.
 %     'taugrid'   nTau * work: transposition-average nodes times the
 %                 per-level contraction work of the recipe (the larger
@@ -197,8 +197,8 @@ function varargout = nestedCost(cmd, varargin)
     % computes all three inner matrices, so the split between the fixed
     % and the per-matrix half is not identified by the measurements and
     % the whole floor sits in the per-matrix half --- the conservative
-    % reading, which discounts a memoised-self call rather than
-    % over-charging it. Fitted with the laws above.
+    % reading, which understates a memoised-self call rather than
+    % overstating it. Fitted with the laws above.
     NESTED_FLOOR_FIXED_CENTRES = [0, 0, 0, 0];
     NESTED_FLOOR_PER_MATRIX_CENTRES = [0.1373, 0.1437, 0.1437, 0.2328];
     NESTED_FLOOR_FIXED_TAUGRID = [0, 0, 0, 0];
@@ -335,7 +335,7 @@ function ms = localRouteCostMs(laws, keys, route, totalOrder, term, nMatrices)
 %
 %   TEST-ONLY HOOK: an override installed by INTERNAL.NESTEDCOSTOVERRIDE
 %   replaces the law outright. Nothing in the toolbox installs one; it
-%   exists so TESTS/TEST_NESTED_COST_MODEL can stub the prices, as the
+%   exists so TESTS/TEST_NESTED_COST_MODEL can stub the estimates, as the
 %   Python tests monkeypatch nested_route_cost_ms.
     if nargin < 6 || isempty(nMatrices); nMatrices = 3; end
     ov = internal.nestedCostOverride();
@@ -374,7 +374,7 @@ end
 % ----------------------------------------------------------------------
 function [best, bestMs, prices, info] = localPriceAttr(laws, keys, budget, ...
         densX, densY, a, admissible, ts, skipXX, skipYY)
-%LOCALPRICEATTR  Price the admissible routes for nested attribute A.
+%LOCALPRICEATTR  Estimate the cost of the admissible routes for nested attribute A.
 %
 %   ADMISSIBLE has already been settled by the measure rule, so nothing
 %   here can change the number computed. Twin of price_nested_attr.
@@ -420,7 +420,7 @@ function [chosen, planMs, enumMs, detail] = localSelect(laws, keys, budget, ...
 %   The plan and the enumeration share one pair of self-inner-product
 %   skip flags. They memoise under different cache keys, so a warm plan
 %   memo does not literally spare the enumeration its self matrices;
-%   pricing each side against its own memo nonetheless decides the
+%   estimating each side against its own memo nonetheless decides the
 %   comparison on which side happened to run first rather than on what
 %   the two sides cost, and locks that first choice in. See
 %   INTERNAL.SELFIPMEMOISED.
@@ -442,7 +442,7 @@ function [chosen, planMs, enumMs, detail] = localSelect(laws, keys, budget, ...
 
     % The plan's non-nested attributes. Flat-symmetric and r = 1
     % attributes go through the flat per-attribute orbit matrix, so they
-    % are priced by INTERNAL.PREDICTORBITCOSTMS on exactly those
+    % are estimated by INTERNAL.PREDICTORBITCOSTMS on exactly those
     % attributes. An ordered flat attribute goes through the
     % materialised centres, so it is priced by this file's 'centres' law
     % on the same kernel-entry term the nested centres route uses. Twin

@@ -46,7 +46,7 @@ function [intercept, detail] = calibrateOrbitIntercept(varargin)
 %   one place that times the two routes. A cell is skipped when
 %   enumeration is predicted to exceed the budget: at high r and K it runs
 %   for minutes, and the Mobius route wins there by default, so timing it
-%   buys nothing. Only the absolute mode is used, since the two modes time
+%   gains nothing. Only the absolute mode is used, since the two modes time
 %   identically and counting both would double-weight every shape.
 %
 %   Example:

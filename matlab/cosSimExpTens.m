@@ -1074,9 +1074,9 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         if any(strcmp(method, {'auto', 'contract', 'mobius', 'centres'}))
             % Built field by field: struct() with a struct-valued field
             % is safe but reads ambiguously beside the cell-valued case.
-            % Clear the price record first, so the announce below cannot
+            % Clear the estimated cost record first, so the announce below cannot
             % read a stale decision from an earlier call when this one
-            % declines before it is ever priced.
+            % declines before it is ever estimated.
             internal.lastNestedCosts([]);
             ncOpts = struct();
             ncOpts.methodName = method;
@@ -1091,10 +1091,10 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         end
         % An empty triple here means method = 'auto' and either the case
         % is not covered by the plan (the forced methods raise instead)
-        % or the plan lost the price comparison against the joint-tuple
+        % or the plan lost the estimated cost comparison against the joint-tuple
         % enumeration inside INTERNAL.NESTEDCONTRACT --- the nested twin
         % of the flat selector's Bulger-versus-Moebius choice, whose
-        % prices INTERNAL.LASTNESTEDCOSTS records. Either way the
+        % estimates INTERNAL.LASTNESTEDCOSTS records. Either way the
         % enumeration takes it.
         chosen = 'bulger';
     end
@@ -1112,7 +1112,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     if nestedAny && isempty(contractTriple) && strcmp(method, 'auto')
         % A nested density that reaches the enumeration under 'auto' did
         % not get here through the flat MA selector: either the plan
-        % declined the case or it lost the nested price comparison (the
+        % declined the case or it lost the nested estimated cost comparison (the
         % forced methods raise rather than fall back, and
         % method = 'bulger' never asks the plan at all). Say which,
         % rather than crediting a selector that never ran. (Python leaves its
@@ -1168,7 +1168,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         % and <Y,Y> on every call while the other routes reuse theirs,
         % so a repeated comparison would time three products against
         % one, and a forced 'centres' call would leave no memo for the
-        % shared pricing flag to see. Twin of the Python
+        % shared cost-estimation flag to see. Twin of the Python
         % _cos_sim_exp_tens_ma_centres.
         centresKey = localSelfIpKey('centres', tsKeyResolved, kpKeyExtra);
         [xxHit, xxVal] = localSelfIpGet(cacheX, centresKey);
@@ -1203,7 +1203,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         % accuracy is governed by truncationSigmas, so no route is
         % diverted on the size of the result. postHocGuards off skips it:
         % the check inspects a result already computed and, when it
-        % diverts, pays for Bulger's method on top of this one, so with it
+        % diverts, computes Bulger's method on top of this one, so with it
         % active the measured cost of the Mobius route is not the cost of
         % choosing it.
         impossible = false; badReason = '';

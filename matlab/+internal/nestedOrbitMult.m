@@ -21,7 +21,7 @@ function mult = nestedOrbitMult(rLevels, symLevels)
 %   (checked structurally as nJ == |G| * nK wherever it is used), which
 %   is what makes Bulger's X-side restriction exact on a nested
 %   attribute; it is also the factor by which that restriction lowers
-%   the centres route's price, so the nested dispatch's cost race must
+%   the centres route's estimated cost, so the nested dispatch's cost race must
 %   know it.
 %
 %   Mirror of Python _mobius_inner._nested_orbit_mult.

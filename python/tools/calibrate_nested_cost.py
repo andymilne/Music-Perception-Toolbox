@@ -67,7 +67,7 @@ A  Shape sweep: every level shape against every legal chord size and chord
    count, at two events, in all four modes. This is what determines the
    exponents.
 B  Event sweep: one and four events on a reduced shape set, in all four
-   modes. Both sides price per event pair but do not scale with it alike ---
+   modes. Both sides estimate per event pair but do not scale with it alike ---
    the enumeration builds one joint kernel over all events, the contraction
    repeats a per-pair cost --- so a grid at one event count leaves that
    unconstrained.

@@ -129,7 +129,7 @@ def test_spectral_cost_gate_declines_unprofitable_shapes():
     Wx = np.ones((4, 1))
     assert _spectral_rel_inner_matrix(
         Px, Wx, Px, Wx, 3.0, 3, True, P) is None
-    # The same sigma with many values is profitable and must be taken.
+    # The same sigma with many values reduces the cost and must be taken.
     Px2 = np.sort(rng.uniform(0, P, (40, 1)), axis=0)
     Wx2 = np.ones((40, 1))
     assert _spectral_rel_inner_matrix(

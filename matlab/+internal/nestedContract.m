@@ -83,20 +83,20 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
 %       centres route under wrap = 'single-image' (declaring (A)). A cheaper
 %       route to a different number is not a cheaper route.
 %     * at or below the threshold the two agree inside the floor, so BOTH
-%       routes serve EITHER declaration and the price decides. This is what
+%       routes serve EITHER declaration and the estimated cost decides. This is what
 %       the flat selector does with Bulger's method and the Moebius method:
 %       its wrap override is reached only above the threshold, and below it
 %       the two are raced whatever wrap says.
 %
 %   Relative-non-periodic and absolute attributes offer only same-measure
 %   choices and stay cost-driven throughout. Where more than one route
-%   survives the measure rule, INTERNAL.NESTEDCOST prices each survivor in
+%   survives the measure rule, INTERNAL.NESTEDCOST estimates each survivor in
 %   milliseconds from its fitted law and diverts the materialising centres
 %   route where its bundle exceeds the working-set soft budget; that model
 %   replaced a raw operation-count comparison which weighed a kernel entry
 %   against a unit of quadrature work as though the two cost the same.
 %
-%   The whole plan is then priced against the joint-tuple enumeration, as the
+%   The whole plan is then estimated against the joint-tuple enumeration, as the
 %   flat selector prices Bulger's method against the Moebius method. Where
 %   the enumeration wins, this returns [] and the caller runs it --- which is
 %   what a [] has always meant here. A forced method is never diverted.
@@ -238,16 +238,16 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
     % Per-attribute route and shared quadrature grid (see the header and
     % nestedAttrPlan). The skip flags say which self inner products this
     % call will actually compute, so a memoised (or unconsumed) one is not
-    % priced; they are derived from the caches the caller threaded in.
+    % estimated; they are derived from the caches the caller threaded in.
     [skipXX, skipYY] = selfIpSkipFlags(cacheX, cacheY, normalize);
     [route, quad] = nestedAttrPlan(densX, densY, 1, forceRoute, ts, ...
                                    skipXX, skipYY);
     % The plan is a candidate, not a conclusion: under method = 'auto' it
-    % is priced against the joint-tuple enumeration and the cheaper is
+    % is estimated against the joint-tuple enumeration and the cheaper is
     % taken, mirroring the flat selector's Bulger-versus-Moebius
     % comparison. Declining here returns the caller to the enumeration,
     % which is what a [] has always meant. A forced method is never
-    % diverted, and neither is a routes-only plan (EXPLAINDISPATCH prices
+    % diverted, and neither is a routes-only plan (EXPLAINDISPATCH estimates
     % the two sides itself, and wants the plan's routes either way).
     if ~force && ~routesOnly && nestedPrefersEnumeration(densX, densY, ...
             {route}, ts, skipXX, skipYY)
@@ -264,7 +264,7 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
 
     % The two self inner products are memoised on their densities, as the
     % flat Bulger, centres and Moebius routes already do -- a sweep against
-    % one prototype, or any repeated call on the same pair, then pays for
+    % one prototype, or any repeated call on the same pair, then computes
     % the cross term alone. The key carries the route *and* the shared
     % quadrature grid, because the grid routes discretise the self inner
     % product too: a different partner can widen the grid (the relative-
@@ -375,7 +375,7 @@ function [route, quad] = nestedAttrPlan(densX, densY, a, forceRoute, ts, ...
 %   materialises tuples instead and needs no grid.
 %
 %   SKIPXX / SKIPYY are passed to the cost model so a memoised (or
-%   unconsumed) self inner product is not priced, mirroring the flat
+%   unconsumed) self inner product is not estimated, mirroring the flat
 %   selector's per-route skip flags.
     if nargin < 6 || isempty(skipXX); skipXX = false; end
     if nargin < 7 || isempty(skipYY); skipYY = false; end
@@ -420,7 +420,7 @@ function admissible = nestedAdmissibleRoutes(densX, densY, a, ts)
 %       one is admissible --- the tau grid under wrap = 'full-image',
 %       the centres under wrap = 'single-image';
 %     * below it they agree inside the floor, so BOTH routes are
-%       admissible under EITHER declaration and the price decides. This
+%       admissible under EITHER declaration and the estimated cost decides. This
 %       is what INTERNAL.SELECTMAINNERPRODUCTMETHOD does with Bulger's
 %       method and the Moebius method: its wrap override is reached only
 %       above the threshold, and below it the two are raced whatever
@@ -459,7 +459,7 @@ function route = nestedAttrRoute(densX, densY, a, forceRoute, ts, ...
 %   in this file's header and in NESTEDADMISSIBLEROUTES.
 %
 %   The measure rule settles the admissible set first. Where it leaves
-%   more than one route, INTERNAL.NESTEDCOST prices each survivor in
+%   more than one route, INTERNAL.NESTEDCOST estimates each survivor in
 %   milliseconds from its fitted law and diverts the materialising
 %   centres route where its bundle exceeds the working-set soft budget.
 %   That model replaced RELCONTRACTCHEAPER's raw operation-count
@@ -477,7 +477,7 @@ function route = nestedAttrRoute(densX, densY, a, forceRoute, ts, ...
 %   that has no meaning for this attribute's (rel, per) pair.
 %
 %   SKIPXX / SKIPYY name the self inner products this call will not
-%   compute, so the cost model does not price them.
+%   compute, so the cost model does not estimate them.
     if nargin < 6 || isempty(skipXX); skipXX = false; end
     if nargin < 7 || isempty(skipYY); skipYY = false; end
     isRel = logical(densX.isRel(a));
@@ -594,7 +594,7 @@ function [skipXX, skipYY] = selfIpSkipFlags(cacheX, cacheY, normalize)
 %
 %   A self inner product that is already memoised on its density, or that
 %   the requested normalisation does not consume, costs nothing at call
-%   time and must not be priced. As on the flat path the flags are shared
+%   time and must not be estimated. As on the flat path the flags are shared
 %   by the two sides of the comparison --- the contraction plan and the
 %   joint-tuple enumeration --- rather than read off each side's own
 %   memo; see INTERNAL.SELFIPMEMOISED for why an asymmetric flag locks
@@ -640,16 +640,16 @@ end
 
 function tf = nestedPrefersEnumeration(densX, densY, routesByAttr, ...
                                        ts, skipXX, skipYY)
-%NESTEDPREFERSENUMERATION  True when the enumeration is priced cheaper
+%NESTEDPREFERSENUMERATION  True when the enumeration is estimated cheaper
 %   than the planned routes. Mirror of the Python
 %   cosine._nested_prefers_enumeration.
 %
 %   ROUTESBYATTR is a 1-by-A cell array holding, for each nested
 %   attribute, the route already chosen for it by the measure rule and
 %   the per-attribute cost model, and '' or '-' for an attribute that is
-%   not nested; the plan is therefore priced as what would actually run
+%   not nested; the plan is therefore estimated as what would actually run
 %   rather than re-raced here. The comparison mirrors the flat selector's
-%   Bulger-versus-Moebius one and records its prices in
+%   Bulger-versus-Moebius one and records its estimates in
 %   INTERNAL.LASTNESTEDCOSTS.
     A = double(densX.nAttrs);
     admByAttr = cell(1, A);
@@ -660,10 +660,10 @@ function tf = nestedPrefersEnumeration(densX, densY, routesByAttr, ...
         end
         admByAttr{a} = {rt};
     end
-    % The plan and the enumeration are priced against one pair of skip
+    % The plan and the enumeration are estimated against one pair of skip
     % flags, as the flat selector's two routes are: they memoise into
     % different cache keys, so a warm plan memo does not literally spare
-    % the enumeration its self matrices, but pricing each side against
+    % the enumeration its self matrices, but estimating each side against
     % its own memo decides the comparison on which side ran first and
     % locks that first choice in (INTERNAL.SELFIPMEMOISED).
     [chosen, planMs, enumMs, detail] = internal.nestedCost( ...
@@ -1074,7 +1074,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
     attrRoutes = cell(1, A);
     quads = cell(1, A);
     % The skip flags say which self inner products this call will
-    % actually compute, so a memoised (or unconsumed) one is not priced.
+    % actually compute, so a memoised (or unconsumed) one is not estimated.
     [skipXX, skipYY] = selfIpSkipFlags(cacheX, cacheY, normalize);
     for a = 1:A
         isNestedX = isfield(densX, 'nested') && iscell(densX.nested) ...
@@ -1112,12 +1112,12 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
             attrRoutes{a} = '-';
         end
     end
-    % The plan is priced against the joint-tuple enumeration, as in the
+    % The plan is estimated against the joint-tuple enumeration, as in the
     % one-attribute plan: the per-attribute routes chosen above are
     % what the plan would run, and their prices plus the flat companions'
     % are what the enumeration has to beat. Declining here returns the
     % caller to the enumeration. A forced method is never diverted, and
-    % neither is a routes-only plan (EXPLAINDISPATCH prices the two sides
+    % neither is a routes-only plan (EXPLAINDISPATCH estimates the two sides
     % itself, and wants the plan's routes either way).
     if ~force && ~routesOnly && nestedPrefersEnumeration(densX, densY, ...
             attrRoutes, ts, skipXX, skipYY)
@@ -1240,7 +1240,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
     end
 
     % The enumeration was already offered its chance, above: the plan is
-    % priced against it before any matrix is formed, and a plan that
+    % estimated against it before any matrix is formed, and a plan that
     % reaches here won that comparison (or was forced). method = 'bulger'
     % on an MA nested density agrees with this route to floating point in
     % every mode, which tests/test_nested_measure_rule.m checks, so the
@@ -1780,7 +1780,7 @@ function v = combinePair(M, r, sym, useOrbit)
         if isempty(budget); return; end
         if ~budget.enabled
             % postHocGuards is off. The check below inspects a result that
-            % has already been computed and, when it diverts, pays for the
+            % has already been computed and, when it diverts, computes the
             % enumerated route on top of this one -- so with it active the
             % measured cost of the Mobius route is not the cost of choosing
             % it. Calibration runs switch it off so the two routes can be
@@ -1811,7 +1811,7 @@ function v = combinePair(M, r, sym, useOrbit)
                             'admit the Mobius route here.'];
                 elseif internal.orbitCostModel(r, max(gx, gy), size(M, 1))
                     % The Mobius route is the cheaper one at this level's
-                    % sizes, so trading accuracy for it does buy speed.
+                    % sizes, so trading accuracy for it does reduce the cost.
                     tail = sprintf([' Setting truncationSigmas to %.3g or ' ...
                         'below would admit the Mobius route, which is the ' ...
                         'faster of the two at r = %d, K = %d, at the cost ' ...
@@ -2189,7 +2189,7 @@ function out = localNestedTerms(densX, densY, a, ts, skipXX, skipYY)
 %   A may be a nested attribute or a flat one. A flat attribute reads
 %   the r!*C(K, r) / C(K, r) counts (the r! dropped when it is ordered)
 %   and takes their product as its contraction work, mirroring the
-%   Python _attr_tuple_counts / works fallback; that is what prices an
+%   Python _attr_tuple_counts / works fallback; that is what estimates an
 %   ordered flat companion on the centres law.
     if nargin < 5 || isempty(skipXX); skipXX = false; end
     if nargin < 6 || isempty(skipYY); skipYY = false; end

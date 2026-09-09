@@ -6,7 +6,7 @@ function results = calibrateRelIpCost(varargin)
 % (internal.selectMaInnerProductMethod). On relative-mode densities that
 % comparison misroutes: measured on a small grid it sends between a third
 % and a half of cells to the slower method, and the Mobius side is
-% over-priced by up to three orders at r = 2 while under-priced at r = 4.
+% overestimated by up to three orders at r = 2 while underestimated at r = 4.
 %
 % Refitting it has so far failed for want of data, not want of candidates.
 % Fitted on twenty-odd cells, no replacement form beat the shipped one by
@@ -50,7 +50,7 @@ function results = calibrateRelIpCost(varargin)
 %   'repeatBelowSec' repeat-time only calls faster than this; slower ones
 %                    are measured from their single warm call (default
 %                    0.25). Repeating a call that already ran for a
-%                    second buys nothing: timing scatter is a fixed
+%                    second gains nothing: timing scatter is a fixed
 %                    overhead, so its share of a long call is negligible,
 %                    and the repeats cost several times the measurement.
 %   'period'      periodic-mode period in cents (default 1200)
@@ -66,7 +66,7 @@ function results = calibrateRelIpCost(varargin)
 % Runtime. 171 combinations of tuple order, value counts, weight profile
 % and event count x 2 widths x 2 periodicities x 1 seed = 684 cells, each
 % timing three arms. The same 684 as the twin sweep in
-% tools/calibrate_rel_ip_cost.py. Three things keep that affordable: an
+% tools/calibrate_rel_ip_cost.py. Three things keep the runtime manageable: an
 % arm the running estimate puts over budget is never started; a call
 % slower than repeatBelowSec is measured from its single warm run rather
 % than repeated; and the unforced Mobius arm is not timed at all, since
@@ -101,7 +101,7 @@ function results = calibrateRelIpCost(varargin)
     cleanup = onCleanup(@() localRestore(prevHints, prevRoute));
 
     % Value counts per tuple order. Bulger's method builds K!/(K-r)!
-    % tuples per side, so the affordable range narrows sharply with r.
+    % tuples per side, so the feasible range narrows sharply with r.
     % K = 100 at r = 2 is dropped: through the MA path its Bulger arm runs
     % for seconds, and the r = 2 curve is already determined by K = 64.
     % Three value counts per order rather than six: the event count is
@@ -125,7 +125,7 @@ function results = calibrateRelIpCost(varargin)
     % Three shapes, each jittered per seed so no cell is a special case.
     profiles = {'flat', 'decay', 'bimodal'};
 
-    % Event counts. Both methods price per event pair, but they do not
+    % Event counts. Both methods estimate per event pair, but they do not
     % scale with the pair count the same way: Bulger's method builds one
     % joint tuple-pair kernel over all events at once, so its working set
     % grows with the product, while the Mobius method repeats a per-pair
@@ -180,7 +180,7 @@ function results = calibrateRelIpCost(varargin)
     nCell = 0;
     % Running per-arm, per-order cost estimate, built from the cells
     % already timed in this run and used to skip an arm whose predicted
-    % time exceeds the budget. Each arm is priced by the quantity it
+    % time exceeds the budget. Each arm is estimated by the quantity it
     % scales with -- Bulger's method and the centres route by the
     % permutation-side tuple count, the translation grid by the node
     % count -- and the constant is the running median of measured over
@@ -274,7 +274,7 @@ function [row, est] = localCell(ra, Kx, Ky, N, shape, profile, isPer, sg, ...
         sop = 0;
     end
 
-    % Predictors price by the larger side, since that is what dominates
+    % Predictors estimate by the larger side, since that is what dominates
     % each route.
     % Both sides scale per event pair, so the predictors carry it.
     Mbig = max(row.Mx, row.My);

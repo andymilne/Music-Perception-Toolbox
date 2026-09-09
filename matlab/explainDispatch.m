@@ -103,11 +103,11 @@ end
 
 function report = localEval(dens, nQ, ts, floorV, sop, limit, setBy, method)
     [chosen, reason] = internal.selectMaEval(dens, nQ, ts);
-    % Price both routes unconditionally, not just where the selector
-    % consulted the cost model. A hard rule returns before pricing, so the
+    % Estimate the cost of both routes unconditionally, not just where the selector
+    % consulted the cost model. A hard rule returns before cost estimation, so the
     % selector's own CENTRESMS/MOBIUSMS are NaN there --- but the reader
     % wants to know what the rule cost or saved. Guarded: this is a
-    % report, so a cost model that cannot price this shape must leave the
+    % report, so a cost model that cannot estimate this shape must leave the
     % column blank rather than fail the call. Mirrors the Python
     % explain_dispatch, which calls _ma_eval_costs_ms in a try/except.
     try
@@ -147,7 +147,7 @@ function report = localCosine(dX, dY, ts, floorV, sop, limit, setBy, ...
 %   the ordered-attribute override is applied after it. The report
 %   therefore names the route the call takes, including the rel-per
 %   wrap rule above the sigma/P threshold, which decides without
-%   pricing. Twin of the Python explain._explain_cosine.
+%   cost estimation. Twin of the Python explain._explain_cosine.
     if localAnyNested(dX) || localAnyNested(dY)
         report = localCosineNested(dX, dY, ts, floorV, sop, limit, ...
                                    setBy, method);
@@ -223,7 +223,7 @@ function report = localCosineNested(dX, dY, ts, floorV, sop, limit, ...
 %LOCALCOSINENESTED  Route report for a cosine on a nested density.
 %
 %   A nested attribute never reaches the flat orbit (Möbius) entry
-%   point, so the two routes the flat report prices are not the two on
+%   point, so the two routes the flat report estimates are not the two on
 %   offer here. The candidates are the hierarchical contraction plan ---
 %   which itself picks a route per nested attribute --- and the
 %   joint-tuple enumeration.
@@ -231,11 +231,11 @@ function report = localCosineNested(dX, dY, ts, floorV, sop, limit, ...
 %   Both are priced, as the flat report prices Bulger's method against
 %   the Moebius method: each nested attribute's admissible routes are
 %   costed in milliseconds by INTERNAL.NESTEDCOST, the chosen ones summed
-%   with the flat companions' cost to give the plan's price, and that
+%   with the flat companions' cost to give the plan's estimated cost, and that
 %   compared with the enumeration's. The per-attribute prices are
 %   reported as the contraction route's reason, an Inf there marking a
 %   centres route diverted by the working-set guard. Where the measure
-%   rule leaves a nested attribute one admissible route the price is
+%   rule leaves a nested attribute one admissible route the estimated cost is
 %   still shown, but the decision was not a cost decision and the report
 %   says so. Twin of the Python explain._explain_cosine_nested.
 
@@ -273,10 +273,10 @@ function report = localCosineNested(dX, dY, ts, floorV, sop, limit, ...
     priced = false;
     enumWhy = 'not selected';
     if isempty(blocked) && any(~cellfun(@isempty, admByAttr))
-        % Price the plan as it would run, and the enumeration against it.
-        % Guarded: this is a report, so a cost model that cannot price
+        % Estimate the cost of the plan as it would run, and the enumeration against it.
+        % Guarded: this is a report, so a cost model that cannot estimate
         % this shape must leave the column blank rather than fail the
-        % call, as the eval report's pricing is guarded.
+        % call, as the eval report's cost estimation is guarded.
         try
             enumOk = localNestedEnumOk(dX, ts);
             [~, planMs, enumMs] = internal.nestedCost( ...
@@ -294,7 +294,7 @@ function report = localCosineNested(dX, dY, ts, floorV, sop, limit, ...
             % Quote every route the measure rule admits, not only the one
             % taken: an attribute with a single admissible route was not
             % a cost decision, and the reader should see that it had no
-            % alternative to price.
+            % alternative to estimate.
             adm = localNestedAdmissible(dX, a, ts);
             [~, ~, prices] = internal.nestedCost('priceNestedAttr', ...
                 dX, dY, a, adm, ts);

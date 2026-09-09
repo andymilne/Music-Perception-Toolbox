@@ -10,7 +10,7 @@ function n = autoNtauDefault(period, sigma, truncationSigmas)
 %   the tolerance from the given per-call width instead ([] = the
 %   default). Every route that honours a per-call width on its kernel
 %   cutoff must size its tau grid from the same width, or the grid
-%   density and the route price stay pinned to the default while the
+%   density and the route cost stays pinned to the default while the
 %   kernel moves; the Python twin takes the same optional argument.
 %
 %   This is the single shared source of the relative-periodic node count for

@@ -9,7 +9,7 @@
 %  not transliterate is the Python file's monkeypatched proof that
 %  explaining a call does not evaluate it; the MATLAB analogue is
 %  check 10, which explains a shape whose joint-centres route the cost
-%  model prices in minutes and asserts a report comes back anyway.
+%  model estimates in minutes and asserts a report comes back anyway.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
 
@@ -84,8 +84,8 @@ results{end+1, 1} = 'explainDispatch: sigma/P absent when not relative-periodic'
 xdRepNp = explainDispatch(xdDnp, 200);
 results{end, 2}   = isempty(xdRepNp.sigmaOverP);
 
-% --- 6. Both routes are priced when the cost model decides ------------
-%  Non-periodic, so no measure rule pre-empts the pricing.
+% --- 6. Both routes are estimated when the cost model decides ------------
+%  Non-periodic, so no measure rule pre-empts the cost estimation.
 xdRep = explainDispatch( ...
     buildExpTens(xdPts(12), [], 15, 3, true, false, 0, 'verbose', false), ...
     200);
@@ -115,7 +115,7 @@ results{end, 2}   = contains(xdText, 'chosen') && ...
 
 % --- 10. Explaining a call does not evaluate it -----------------------
 %  r = 7 over K = 60 would materialise C(60, 7) = 386 million tuples on
-%  the joint-centres route; the cost model prices that route in minutes.
+%  the joint-centres route; the cost model estimates that route in minutes.
 %  A report still comes back, so the explanation is not the call.
 xdBig = buildExpTens(xdPts(60), [], 20, 7, false, false, 0, ...
                      'verbose', false);
@@ -125,11 +125,11 @@ results{end+1, 1} = 'explainDispatch: explaining a prohibitive call still return
 results{end, 2}   = ischar(xdRep.chosen) && ~isempty(xdRep.chosen) && ...
                     xdCentres > 6e4;
 
-% --- 11. Past the sigma/P limit the measure overrides the price -------
+% --- 11. Past the sigma/P limit the measure overrides the estimated cost -------
 %  At sigma = 60 over P = 1200 the wrapped-difference form is
 %  inadmissible, so the transposition average is computed even though
-%  the joint-centres route is priced cheaper. Both routes are priced so
-%  the report can show that; the decision itself is not a priced one.
+%  the joint-centres route is estimated cheaper. Both routes are estimated so
+%  the report can show that; the decision itself is not a cost-based one.
 %  Without the report this reads as a routing bug.
 xdRep = explainDispatch(xdD, 200);
 xdCentres = xdRep.routeMs(strcmp(xdRep.routeNames, 'centres'));
@@ -151,12 +151,12 @@ results{end+1, 1} = 'explainDispatch: within the sigma/P limit the approximation
 results{end, 2}   = xdRep.sigmaOverP <= xdRep.sigmaOverPLimit && ...
                     strcmp(xdRep.measure, 'wrapped-difference approximation');
 
-% --- 13. A hard rule is priced too -----------------------------------
+% --- 13. A hard-rule decision is costed too -----------------------------------
 %  The selector returns on a hard rule before consulting the cost model,
-%  so its own route times are NaN there. The report prices both routes
+%  so its own route times are NaN there. The report estimates both routes
 %  regardless, because the reader wants to know what the rule cost or
 %  saved. At r = 1 the Möbius decomposition is degenerate and the rule
-%  fires; both prices must still come back finite.
+%  fires; both estimates must still come back finite.
 xdRep = explainDispatch( ...
     buildExpTens(xdPts(12), [], 15, 1, false, false, 0, 'verbose', false), ...
     200);

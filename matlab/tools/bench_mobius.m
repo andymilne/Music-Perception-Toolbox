@@ -223,7 +223,7 @@ if ~isempty(opt.rs), RS = opt.rs(:)'; end
 if ~isempty(opt.ks), KS = opt.ks(:)'; end
 
 % Silence one-time informational hints and switch off the post-hoc
-% guards: with guards on, a route that diverts pays for both routes, so
+% guards: with guards on, a route that diverts incurs the cost of both routes, so
 % the measured cost would not be the cost of the route being forced.
 % Both are restored on exit, including on error.
 prevDefaults = mptDefaults('showHints', false, 'postHocGuards', false, ...
@@ -684,7 +684,7 @@ function v = callSim(A, B, method, trunc)
 %
 %   The memoised self inner products are NOT carried between calls: they
 %   travel on the optional second and third outputs (densXOut, densYOut),
-%   which are deliberately not captured, so each timed call pays for the
+%   which are deliberately not captured, so each timed call computes the
 %   full triple <X,Y>, <X,X>, <Y,Y> that a similarity requires. The
 %   Python twin clears its densities' caches explicitly to match, since
 %   there the density is an object whose cache would otherwise persist
@@ -736,7 +736,7 @@ function [t, n, guarded] = timeIt(fn, targetMs, budgetS)
 %
 %   The warm-up is timed, and if it alone exceeds budgetS the cell is
 %   reported from that single call with the repetitions skipped. A
-%   predicted-cost budget can only skip what its model prices correctly;
+%   predicted-cost budget can only skip what its model estimates correctly;
 %   this guard is model-free, so a cell the predictor underestimates
 %   cannot run away. Such cells carry reps = 1 in the CSV, marking them
 %   as single-shot and therefore noisier than the rest.

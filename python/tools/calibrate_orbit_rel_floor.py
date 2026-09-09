@@ -5,7 +5,7 @@ The two relative-route cost laws in ``mpt._tensor.dispatch``
 fixed setup cost and extrapolate below the route's wall time at small
 value counts. ``_ORBIT_REL_FLOOR_MS`` guards against that: for each tuple
 order it holds ``(fixed, per_matrix)`` in milliseconds, applied with
-``max`` to the per-attribute price of a call computing ``n_matrices`` of
+``max`` to the per-attribute cost of a call computing ``n_matrices`` of
 the three inner matrices.
 
 This script measures the pair of coefficients for r = 2, 3, 4 on the

@@ -18,7 +18,7 @@ module supplies the missing half, in the same shape as the flat model of
 * a working-set guard that diverts away from the materialising route above
   ``_CENTRES_WORKING_SET_SOFT_BUDGET``, as the flat selector's guard does;
 * the self-inner-product skip flags, so a memoised ``<X,X>`` or ``<Y,Y>`` is
-  not priced.
+  not estimated.
 
 **The measure rule is not part of this model.** The routes admissible for an
 attribute are settled first, by
@@ -30,7 +30,7 @@ The nested rule is the flat one. ``wrap`` is consulted only above the
 sigma/period threshold, where the two readings of "periodic" differ by more
 than the truncation floor and each declaration has a single carrier; below it
 they agree inside the floor, so both routes serve either declaration and the
-price decides. The rule is pinned by ``tests/test_nested_measure_rule.py``.
+the estimated cost decides. The rule is pinned by ``tests/test_nested_measure_rule.py``.
 
 Terms
 -----
@@ -50,8 +50,8 @@ attribute (:func:`~mpt._tensor._nested_contraction.tuple_counts`):
     level ordered), when the global ``_COMB_RESTRICTION_ENABLED`` switch is
     off, and when the build's perm side is not the free orbit tiling
     ``m_perm = |G| * m_comb`` of its comb side; in each of those cases the
-    unrestricted ``m_perm_X * m_perm_Y`` is the price. Pricing the
-    unrestricted form unconditionally over-priced the centres route by
+    unrestricted ``m_perm_X * m_perm_Y`` is the cost. Estimating the
+    unrestricted form unconditionally overestimated the centres route by
     ``|G|`` and sent shapes to the tau-grid that the centres route would
     have computed more cheaply.
 
@@ -285,7 +285,7 @@ def _matrix_pairs(N_x, N_y, skip_xx, skip_yy):
 
     ``side`` is 0 for the X density and 1 for the Y density. Each matrix
     carries its own event-pair count, which is where this differs from the
-    flat model's shorthand of pricing every matrix at ``N_x * N_y``.
+    flat model's shorthand of estimating every matrix at ``N_x * N_y``.
     """
     out = [(0, 1, float(N_x) * float(N_y))]
     if not skip_xx:
@@ -426,7 +426,7 @@ def price_nested_attr(dens_x, dens_y, a, admissible, *,
     return best, prices[best], prices, info
 
 
-# ------------------------------------------------- whole-density pricing
+# ------------------------------------------------- whole-density cost estimation
 
 
 def predict_nested_pairwise_kernel_size(dens_x, dens_y, *,
@@ -467,7 +467,7 @@ def _flat_companion_cost_ms(dens_x, dens_y, flat_a, ordered_a, *,
     """Cost of the plan's non-nested attributes, priced by the flat model.
 
     Flat-symmetric and ``r = 1`` attributes go through the flat
-    per-attribute orbit matrix, so they are priced by
+    per-attribute orbit matrix, so their cost is estimated by
     :func:`~mpt._tensor.dispatch._predict_orbit_cost_ms` on exactly those
     attributes. An ordered flat attribute goes through the materialised
     centres, so it is priced by this module's ``centres`` law on the same
@@ -532,15 +532,15 @@ def select_nested_method(dens_x, dens_y, *, admissible_by_attr,
     flat selector's two routes do. The contraction and the enumeration
     memoise their self inner products under different cache keys, so a warm
     contraction memo does not literally spare the enumeration its self
-    matrices; pricing each side against its own memo nonetheless decides the
+    matrices; estimating each side against its own memo nonetheless decides the
     comparison on which side happened to run first rather than on what the
     two sides cost, and locks that first choice in. See
     :func:`~mpt._tensor.cosine._self_ip_memoised` for the full argument and
-    for what the shared flag trades away (one call's under-pricing at each
+    for what the shared flag trades away (one call's underestimation at each
     crossover).
 
     ``truncation_sigmas`` is the per-call width (``None`` takes the
-    default); it sizes the quadrature grids the routes are priced on.
+    default); it sizes the quadrature grids the routes are estimated on.
     """
     A = int(dens_x.n_attrs)
     nested_a = set(admissible_by_attr)

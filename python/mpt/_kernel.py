@@ -216,7 +216,7 @@ def gaussian_kernel_sum(
 
 
 def _bucket_index_worthwhile(dim: int, nJ: int, nQ: int) -> bool:
-    """Whether the grid-bucket spatial index pays for itself.
+    """Whether the grid-bucket spatial index reduces the total time.
 
     Bucketing replaces a scan of all ``nJ`` centres per query by
     ``3**dim`` neighbour-bucket lookups, so it is worthwhile only when

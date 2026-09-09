@@ -44,7 +44,7 @@ would have cost over the oracle's --- beside the held-out prediction
 log-ratio error of each route.
 
 Regret is the number to read. Routing compares two estimates, so a form that
-mis-prices both arms by one common factor routes perfectly; a form can lose
+misestimates both arms by one common factor routes perfectly; a form can lose
 on log-ratio error and still be the one to ship, and a form can win on it
 and route worse.
 
@@ -65,7 +65,7 @@ The model is *linear* in every constant except ``CENTRES_CULL_C`` (which
 sits inside a power) and ``CENTRES_QUERY_JOINT_EXP_PER`` (which is a
 power). The linear part is solved by non-negative least squares --- no
 constant in this model can be negative and an unconstrained solve
-happily returns negative setup terms that then misprice small shapes ---
+happily returns negative setup terms that then misestimate small shapes ---
 and the two non-linear parameters are profiled over a grid, the linear
 solve being redone at each grid point.
 
@@ -271,10 +271,10 @@ def log_rms(pred, meas, mask):
 
     The objective the fit actually minimises, and the one the routing
     decision cares about: selection compares the two estimates, so what
-    matters is the ratio, and a cell over-priced 3x is exactly as wrong
-    as one under-priced 3x. Plain relative error is not that measure ---
+    matters is the ratio, and a cell overestimated 3x is exactly as wrong
+    as one underestimated 3x. Plain relative error is not that measure ---
     it is bounded by 1 below and unbounded above, so it punishes
-    over-pricing and shrugs at under-pricing, and a least-squares fit in
+    overestimation and shrugs at underestimation, and a least-squares fit in
     that metric lands systematically low. Which is the failure mode this
     model already had.
     """
@@ -451,9 +451,9 @@ def score_held_out(rows, sel, consts):
     """``(regret, centres log-ratio rms, Moebius log-ratio rms)`` on ``sel``.
 
     Regret is the number to read: routing compares the two estimates, so a
-    form that mis-prices both arms by one factor routes as well as a form
-    that prices them exactly. The two log-ratio errors are reported beside it
-    because a form can buy regret with a wild fit that happens to keep the
+    form that misestimates both arms by one factor routes as well as a form
+    that estimates them exactly. The two log-ratio errors are reported beside it
+    because a form can incur regret with a wild fit that happens to keep the
     ratio, and that is worth seeing.
     """
     sub = [r for r, m in zip(rows, sel) if m]

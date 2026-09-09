@@ -228,7 +228,7 @@ def test_ma_cost_model_rel_ma_crossover_placed_correctly(A, r, K, seed, expect):
     times sit.
 
     This guards the direction the asymmetric centres-only contract above
-    cannot: an under-priced Möbius estimate that picks Möbius when centres
+    cannot: an underestimated Möbius estimate that picks Möbius when centres
     is several times faster. With the factored centres route (per-attribute
     culled kernels; cost is the sum, not the product, of per-attribute
     tuple counts), centres wins throughout this non-periodic relative span

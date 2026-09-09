@@ -1,7 +1,7 @@
 function ms = relRouteCostMs(route, r_a, term)
 %INTERNAL.RELROUTECOSTMS  Predicted wall time (ms) for one flat route.
 %
-%   MS = INTERNAL.RELROUTECOSTMS(ROUTE, R_A, TERM) prices one route of
+%   MS = INTERNAL.RELROUTECOSTMS(ROUTE, R_A, TERM) estimates one route of
 %   the flat multi-attribute inner product from its fitted power law.
 %
 %   Promoted out of INTERNAL.SELECTMAINNERPRODUCTMETHOD's local function
@@ -19,7 +19,7 @@ function ms = relRouteCostMs(route, r_a, term)
 %   on the quantity each route works over -- Bulger's method and the
 %   tuple-centres route on the tuple-pair entries they materialise, the
 %   translation grid on the node count times the larger value count.
-%   Every term carries the event-pair count, since both methods price
+%   Every term carries the event-pair count, since both methods estimate
 %   per pair. The Mobius side takes the smaller of its two routes, as
 %   the orchestrator does. Each law is fitted against the quantity the
 %   caller passes, not an idealisation of it, so the intercepts absorb

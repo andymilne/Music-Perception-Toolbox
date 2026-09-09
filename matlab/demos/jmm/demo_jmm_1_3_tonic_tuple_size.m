@@ -19,7 +19,7 @@
 % r tightens the match informatively rather than annihilating it: pitch
 % content (r = 1) -> dyad/interval content (r = 2) -> triad content (r = 3).
 %
-% The payoff is the relative, periodic row. At r = 2 the interval-class
+% The relative, periodic row is the informative one. At r = 2 the interval-class
 % content cannot separate a major triad from a minor one (they are
 % inversionally related, and the unordered relative pair content is
 % inversion-invariant): the three major tonics and the minor tonic all read
@@ -38,9 +38,19 @@
 %
 % The Python mirror is demos/jmm/demo_jmm_1_3_tonic_tuple_size.py.
 
-thisDir = fileparts(mfilename('fullpath'));
+% The demo folder is located from the toolbox root, which is always
+% reachable, rather than from the script itself: in a script neither
+% mfilename nor dbstack reports the file, and the current folder need not
+% be the script's own. Adding it puts the +jmm helper package in scope.
+mptRoot = which('buildExpTens');
+if isempty(mptRoot)
+    error('demoJmm:toolboxNotFound', ...
+        ['The toolbox is not on the path. Add the matlab folder of the ' ...
+         'Music Perception Toolbox, then run this demo again.']);
+end
+thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
-addpath(fullfile(thisDir, '..', '..'));
+clear mptRoot
 mptDefaults('showHints', false);
 
 % ---------------------------------------------------------------------------

@@ -404,7 +404,7 @@ def cos_sim_exp_tens(*args,
         global default; ``inf`` resolves to the accuracy-floor width).
         Honoured on every route, flat and nested, and forwarded through
         every input form; it also sizes the quadrature grids the routes
-        are priced on.
+        are estimated on.
     kernel_precision : {'double', 'single'}, optional
         Forwarded through every input form, but consumed by one
         inner-product leaf only: the single-attribute kernel-sum helper
@@ -1611,8 +1611,8 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     # for absolute attributes, where no grid exists).
     from ._nested_contraction import auto_ntau_default
     from .._defaults import resolve_truncation_sigmas as _resolve_ts
-    # The per-call truncation width sizes the grids the routes are priced
-    # on, as it sizes the kernels they run: pricing at the global default
+    # The per-call truncation width sizes the grids the routes are estimated
+    # on, as it sizes the kernels they run: estimating at the global default
     # while truncating at the per-call width would race the routes on a
     # grid neither of them uses (MATLAB: cosSimExpTens nuVecSel).
     _ts_sel = _resolve_ts(truncation_sigmas)
@@ -1656,7 +1656,7 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     # A self inner product costs nothing at call time when it is
     # memoised on its density, or (for <X,X>) when the requested
     # normalisation does not consume it; tell the selector so its
-    # pricing reflects the work this call will actually perform. The
+    # cost estimation reflects the work this call will actually perform. The
     # flags are *shared* by the two routes' prices --- see
     # :func:`_self_ip_memoised` for why a per-route flag makes the
     # comparison unfair, and :func:`_self_ip_cache_key` for why the
@@ -1858,7 +1858,7 @@ def _cos_sim_exp_tens_ma(
         # value rather than an inaccurate one.
         #
         # ``post_hoc_guards`` off skips it: the check inspects a result
-        # already computed and, when it diverts, pays for Bulger's method
+        # already computed and, when it diverts, computes Bulger's method
         # on top of this one, so with it active the measured cost of the
         # Möbius route is not the cost of choosing it.
         from .._defaults import get_default as _gd_guard
@@ -2588,7 +2588,7 @@ def _nested_admissible_routes(dens_x, dens_y, a, ts=None):
       --- the tau-grid under ``wrap='full-image'``, the centres under
       ``wrap='single-image'``;
     * below it they agree inside the floor, so **both** routes are admissible
-      under **either** declaration and the price decides. This is what
+      under **either** declaration and the estimated cost decides. This is what
       :func:`~mpt._tensor.dispatch._select_ma_inner_product_method` does with
       Bulger's method and the Möbius method: its ``wrap`` override is reached
       only above the threshold, and below it the two are raced whatever
@@ -2629,7 +2629,7 @@ def _nested_attr_plan(dens_x, dens_y, a, force_route=None,
     ``force_route`` may ask for.
 
     ``skip_xx`` / ``skip_yy`` are passed to the cost model so a memoised (or
-    unconsumed) self inner product is not priced, mirroring the flat
+    unconsumed) self inner product is not estimated, mirroring the flat
     selector's per-route skip flags. ``ts`` is the resolved per-call
     truncation width (``None`` resolves the default); it sets the
     quadrature tolerance and the tau-grid node count.
@@ -2672,7 +2672,7 @@ def _nested_attr_plan(dens_x, dens_y, a, force_route=None,
 #: assert which route ran without timing it. Nothing routes on it.
 _LAST_NESTED_ROUTES: list = []
 
-#: Prices behind the most recent nested plan-versus-enumeration decision:
+#: Estimates behind the most recent nested plan-versus-enumeration decision:
 #: ``chosen``, ``plan_ms``, ``enum_ms`` and the per-attribute ``detail`` of
 #: :func:`~mpt._tensor._nested_cost.select_nested_method`. Diagnostic only,
 #: like ``_LAST_NESTED_ROUTES``; :func:`~mpt._tensor.explain.explain_dispatch`
@@ -2686,7 +2686,7 @@ def _nested_self_ip_skip_flags(dens_x, dens_y, normalize):
 
     A self inner product that is already memoised on its density, or that the
     requested normalisation does not consume, costs nothing at call time and
-    must not be priced. As on the flat path the flags are shared by the two
+    must not be estimated. As on the flat path the flags are shared by the two
     sides of the comparison --- the contraction plan and the joint-tuple
     enumeration --- rather than read off each side's own memo; see
     :func:`_self_ip_memoised` for why an asymmetric flag locks the first
@@ -2731,7 +2731,7 @@ def _nested_prefers_enumeration(dens_x, dens_y, routes_by_attr, *,
 
     ``routes_by_attr`` maps each nested attribute to the route already chosen
     for it by the measure rule and the per-attribute cost model, so the plan
-    is priced as what would actually run rather than re-raced here. The
+    is estimated as what would actually run rather than re-raced here. The
     comparison mirrors the flat selector's Bulger-versus-Möbius one and
     records its prices in ``_LAST_NESTED_COSTS``.
     """
@@ -2791,11 +2791,11 @@ def _nested_attr_route(dens_x, dens_y, a, force_route=None,
       costs: the centres route under (A), the tau-grid under (C). A cheaper
       route to a different number is not a cheaper route.
     - At or below the threshold the two agree inside the floor, so both routes
-      serve either declaration and the price decides --- as on the flat path,
+      serve either declaration and the estimated cost decides --- as on the flat path,
       whose ``wrap`` override is likewise reached only above the threshold.
 
     Only where both routes carry the declared measure does the cost model of
-    :mod:`~mpt._tensor._nested_cost` decide, by pricing each survivor in
+    :mod:`~mpt._tensor._nested_cost` decide, by estimating each survivor in
     milliseconds from its fitted law and diverting the materialising centres
     route where its bundle exceeds
     ``dispatch._CENTRES_WORKING_SET_SOFT_BUDGET``. That model prices in wall
@@ -2994,7 +2994,7 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
                                       truncation_sigmas=ts).sum())
     # The two self inner products are memoised on their densities, as the
     # flat Bulger, centres and Möbius routes already do -- a sweep against
-    # one prototype, or any repeated call on the same pair, then pays for
+    # one prototype, or any repeated call on the same pair, then computes
     # the cross term alone. The key carries the route *and* the shared
     # quadrature grid, because the grid routes discretise the self inner
     # product too: a different partner can widen the grid (the
@@ -3119,7 +3119,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
             plans.append(("ordered", a, None, None))
         else:
             plans.append(("flat", a, None, None))
-    # The plan is priced against the joint-tuple enumeration, as in the
+    # The plan is estimated against the joint-tuple enumeration, as in the
     # one-attribute plan (_try_nested_contract): the per-attribute routes chosen above are what
     # the plan would run, and their prices plus the flat companions' are what
     # the enumeration has to beat. A forced method is never diverted.
@@ -3215,7 +3215,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
 
     # The two self inner products are memoised on their densities, as the
     # single-nested-attribute path and the flat Bulger, centres and Möbius
-    # routes already do: a sweep against one prototype then pays for the
+    # routes already do: a sweep against one prototype then computes the
     # cross term alone.
     if _have_xx:
         ip_xx = dens_x._self_ip_cache[_ma_key]
@@ -3237,7 +3237,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
     # declining still costs nothing. ``method='bulger'`` on a multi-attribute
     # nested density agrees with this route to floating point in every mode
     # (``tests/test_nested_measure_rule.py``), so the choice between them is
-    # a matter of price and of per-attribute measure control, not of shape.
+    # a matter of cost and of per-attribute measure control, not of shape.
     return float(P_xy.sum()), ip_xx, ip_yy
 
 
@@ -3259,19 +3259,19 @@ def _self_ip_memoised(dens):
     off each route's own memo, and that is deliberate. The memoised
     *values* are per route (see :func:`_self_ip_cache_key`), so a route
     that finds only another route's memo will still recompute its own self
-    matrices on this call. Pricing each route against its own memo
+    matrices on this call. Estimating each route against its own memo
     nonetheless makes the comparison unfair in a way that compounds: the
     first call seeds only the winner's memo, so on the second call the
-    winner is priced at one matrix and the loser at three, and the choice
+    winner is estimated at one matrix and the loser at three, and the choice
     locks in even where the loser, once warm, is the cheaper route. Sharing
     the flag prices the comparison on the routes' per-matrix costs, which
     is what the selector is meant to decide on.
 
     The trade is per-call: on the one call where the comparison flips, the
-    newly chosen route does pay for the self matrices the flag priced as
+    newly chosen route does compute the self matrices the flag estimated as
     free. It memoises them, so the flag is honest from the next call
-    onwards; the mispricing is bounded by a single call per crossover, and
-    it buys amortised correctness over the repeated calls a sweep makes.
+    onwards; the misestimation is bounded by a single call per crossover, and
+    it yields amortised correctness over the repeated calls a sweep makes.
     """
     return any(isinstance(k, tuple) and len(k) > 0 and k[0] in _SELF_IP_ROUTES
                for k in dens._self_ip_cache)
@@ -3318,7 +3318,7 @@ def _self_ip_cache_key(route, truncation_sigmas, kernel_precision=None,
     consumed a value another route produced, so two identical calls with
     the same forced ``method`` would return different numbers depending
     on what ran before them. Route-keyed values keep each route's answer
-    reproducible; the *pricing* is shared instead, via
+    reproducible; the *cost estimation* is shared instead, via
     :func:`_self_ip_memoised`.
 
     The one case where sharing is not even arithmetically available is

@@ -1,8 +1,5 @@
 """Serial-position features for ordered sequences.
 
-This module provides two utilities for analyses of ordered event
-sequences:
-
 :func:`continuity`
     Expected length and signed magnitude of the backward
     same-direction run leading up to each query, under Gaussian
@@ -12,16 +9,15 @@ sequences:
     but reads it as an ordered sequence with a directional gate and
     a break condition rather than aggregating it order-free into a
     tensor.
-:func:`seq_weights`
-    Constructor for length-*N* position-weight vectors from named
-    specifications (``'flat'``, ``'primacy'``, ``'recency'``,
-    ``'exponentialFromStart'``, ``'exponentialFromEnd'``,
-    ``'uShape'``) or explicit vectors, with optional time-based
-    decay. The output is a plain non-negative numeric vector,
-    usable anywhere a weight argument is accepted — e.g. as the
-    event weights of :func:`~mpt.build_exp_tens`, the ``w`` argument
-    of :func:`~mpt.add_spectra`, or the ``w`` argument of
-    :func:`continuity`.
+:func:`interval_kernel_cov`
+    Constructor for the matrix-valued kernel covariance of an
+    ordered tuple of consecutive differences, consumed as the
+    ``sigma`` of the tensor functions.
+
+Serial-position weight profiles are built with
+:func:`~mpt.weight_events`, whose named and callable profiles apply
+decay over any attribute — an event-number attribute, dropped
+afterwards, gives the position-indexed case.
 """
 
 from __future__ import annotations
@@ -111,7 +107,7 @@ def continuity(
 
     See Also
     --------
-    difference_events, seq_weights
+    difference_events, weight_events
     """
     seq = np.asarray(seq, dtype=np.float64).ravel()
     x_arr = np.atleast_1d(np.asarray(x, dtype=np.float64)).ravel()
@@ -215,200 +211,7 @@ def _normalise_continuity_weights(w, N: int):
 
 
 # =====================================================================
-#  seq_weights — position-weight vector constructor
-# =====================================================================
-
-
-def seq_weights(
-    w,
-    spec,
-    *,
-    n=None,
-    decay_rate: float = 1.0,
-    decay_rate_start=None,
-    decay_rate_end=None,
-    alpha: float = 0.5,
-    t=None,
-) -> np.ndarray:
-    """Apply a position-weighting profile to an existing weight vector.
-
-    Constructs a length-N profile from the named, callable, or explicit
-    specification and returns its pointwise product with ``w``.
-
-    The length N of the output is inferred from ``w`` when ``w`` is a
-    non-empty, non-scalar array-like. When ``w`` is ``None`` or scalar,
-    ``n`` must be supplied explicitly as a keyword argument.
-
-    Parameters
-    ----------
-    w : array-like, scalar, or None
-        Length-N vector of per-position weights, ``None`` for all
-        ones — requires ``n`` —, or a scalar broadcast to length
-        N — requires ``n``.
-    spec : str, callable, or array-like
-        Named specification — ``'flat'``, ``'primacy'``, ``'recency'``,
-        ``'exponentialFromStart'``, ``'exponentialFromEnd'``,
-        ``'uShape'``, ``'uAsym'`` — a callable ``f(t) -> profile`` of
-        length N applied to the (possibly user-supplied) time vector,
-        or an explicit length-N numeric vector (passthrough with
-        length validation).
-    n : int or None, optional
-        Output length. Required when ``w`` is ``None`` or scalar;
-        otherwise inferred from ``len(w)`` and validated if also
-        supplied.
-    decay_rate : float, optional
-        Non-negative decay rate for ``'exponentialFromStart'``,
-        ``'exponentialFromEnd'``, and ``'uShape'``. Used as a default
-        for ``'uAsym'`` when ``decay_rate_start`` or ``decay_rate_end``
-        are not supplied. Zero gives a uniform component. Default 1.0.
-    decay_rate_start : float or None, optional
-        Decay rate for the primacy component of ``'uAsym'``. Falls
-        back to ``decay_rate`` when None. Default None.
-    decay_rate_end : float or None, optional
-        Decay rate for the recency component of ``'uAsym'``. Falls
-        back to ``decay_rate`` when None. Default None.
-    alpha : float, optional
-        Mixing in [0, 1] for ``'uShape'`` and ``'uAsym'``. ``alpha = 1``
-        gives pure primacy; ``alpha = 0`` gives pure recency;
-        ``alpha = 0.5`` gives a balanced mix. Default 0.5.
-    t : array-like or None, optional
-        Strictly increasing time index of length N. When supplied,
-        decay operates over elapsed time from the relevant endpoint
-        rather than over position index. Default None (unit spacing).
-
-    Returns
-    -------
-    ndarray
-        Length-N non-negative weight vector equal to
-        ``profile(spec) * w``.
-
-    Notes
-    -----
-    For ``'uAsym'``, ``decay_rate_start`` has no effect when
-    ``alpha = 0`` (pure recency) and ``decay_rate_end`` has no effect
-    when ``alpha = 1`` (pure primacy).
-    """
-    # Determine N and normalise w to a length-N array
-    if w is None:
-        if n is None:
-            raise ValueError(
-                "n must be supplied as a keyword argument "
-                "when w is None (all ones)."
-            )
-        n = int(n)
-        if n < 1:
-            raise ValueError(f"n must be >= 1 (got {n}).")
-        w_arr = np.ones(n, dtype=np.float64)
-    elif np.isscalar(w):
-        if n is None:
-            raise ValueError(
-                "n must be supplied as a keyword argument "
-                "when w is a scalar."
-            )
-        n = int(n)
-        if n < 1:
-            raise ValueError(f"n must be >= 1 (got {n}).")
-        w_arr = np.full(n, float(w), dtype=np.float64)
-    else:
-        w_arr = np.asarray(w, dtype=np.float64).ravel()
-        inferred_n = w_arr.size
-        if inferred_n < 1:
-            raise ValueError("w must be non-empty.")
-        if n is None:
-            n = inferred_n
-        else:
-            n = int(n)
-            if n < 1:
-                raise ValueError(f"n must be >= 1 (got {n}).")
-            if n != inferred_n:
-                raise ValueError(
-                    f"n = {n} does not match length of w ({inferred_n}). "
-                    f"Either omit n or supply a consistent value."
-                )
-
-    if t is None:
-        t_arr = np.arange(n, dtype=np.float64)
-    else:
-        t_arr = np.asarray(t, dtype=np.float64).ravel()
-        if t_arr.size != n:
-            raise ValueError(
-                f"t must have length {n} (got {t_arr.size})."
-            )
-        if np.any(np.diff(t_arr) <= 0):
-            raise ValueError("t must be strictly increasing.")
-        t_arr = t_arr - t_arr[0]
-
-    if callable(spec):
-        profile = np.asarray(spec(t_arr), dtype=np.float64).ravel()
-        if profile.size != n:
-            raise ValueError(
-                f"Callable spec returned length {profile.size}; "
-                f"expected {n}."
-            )
-        return profile * w_arr
-
-    if not isinstance(spec, str):
-        profile = np.asarray(spec, dtype=np.float64).ravel()
-        if profile.size != n:
-            raise ValueError(
-                f"Profile vector length must be {n} "
-                f"(got {profile.size})."
-            )
-        return profile * w_arr
-
-    if decay_rate < 0:
-        raise ValueError(
-            f"decay_rate must be non-negative (got {decay_rate})."
-        )
-    if not (0.0 <= alpha <= 1.0):
-        raise ValueError(f"alpha must be in [0, 1] (got {alpha}).")
-
-    # Resolve uAsym decay rates with fallback to decay_rate
-    if spec == "uAsym":
-        d_start = decay_rate if decay_rate_start is None else float(decay_rate_start)
-        d_end   = decay_rate if decay_rate_end   is None else float(decay_rate_end)
-        if d_start < 0:
-            raise ValueError(
-                f"decay_rate_start must be non-negative (got {d_start})."
-            )
-        if d_end < 0:
-            raise ValueError(
-                f"decay_rate_end must be non-negative (got {d_end})."
-            )
-
-    if spec == "flat":
-        profile = np.ones(n, dtype=np.float64)
-    elif spec == "primacy":
-        profile = np.zeros(n, dtype=np.float64)
-        profile[0] = 1.0
-    elif spec == "recency":
-        profile = np.zeros(n, dtype=np.float64)
-        profile[-1] = 1.0
-    elif spec == "exponentialFromStart":
-        profile = np.exp(-decay_rate * t_arr)
-    elif spec == "exponentialFromEnd":
-        profile = np.exp(-decay_rate * (t_arr[-1] - t_arr))
-    elif spec == "uShape":
-        v_s = np.exp(-decay_rate * t_arr)
-        v_e = np.exp(-decay_rate * (t_arr[-1] - t_arr))
-        profile = alpha * v_s + (1.0 - alpha) * v_e
-    elif spec == "uAsym":
-        v_s = np.exp(-d_start * t_arr)
-        v_e = np.exp(-d_end * (t_arr[-1] - t_arr))
-        profile = alpha * v_s + (1.0 - alpha) * v_e
-    else:
-        raise ValueError(
-            f"Unknown weight specification {spec!r}. Expected "
-            f"'flat', 'primacy', 'recency', 'exponentialFromStart', "
-            f"'exponentialFromEnd', 'uShape', 'uAsym', a callable, "
-            f"or an explicit vector."
-        )
-
-    return profile * w_arr
-
-
-# =====================================================================
-#  interval_kernel_cov — anisotropic kernel covariance constructor
+#  interval_kernel_cov — kernel covariance for consecutive differences
 # =====================================================================
 
 

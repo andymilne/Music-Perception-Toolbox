@@ -81,7 +81,7 @@ from ._tensor.premaet_io import read_pre_maet, write_pre_maet
 from .audio import AudioPeaksDetail, audio_peaks
 
 # --- Serial / sequential analysis ---
-from .serial import continuity, interval_kernel_cov, seq_weights
+from .serial import continuity, interval_kernel_cov
 
 # --- Global defaults ---
 from ._defaults import (
@@ -154,7 +154,6 @@ __all__ = [
     # serial
     "continuity",
     "interval_kernel_cov",
-    "seq_weights",
     # defaults
     "get_default",
     "get_defaults",

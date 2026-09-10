@@ -1,4 +1,4 @@
-%% bench_cost_model.m — skip-flag pricing audit and Möbius per-matrix costs
+%% bench_cost_model.m — skip flags and Möbius per-matrix costs
 %
 %  MATLAB counterpart of bench_cost_model.py. Three parts:
 %
@@ -11,7 +11,7 @@
 %     densities under cosine-fresh (three matrices), oneSidedDenom-fresh
 %     (cross + one self), and cosine-warm-selves (cross only; the memo
 %     threaded via the cache-carrying outputs), giving measured
-%     per-matrix costs to hold against the pricing's nMatrices/3
+%     per-matrix costs to hold against the cost model's nMatrices/3
 %     scaling of the fitted whole-triple constants.
 %  3. Flip-cell behavioural check: both forced routes timed in the
 %     warm-selves regime; the flags-on choice should be the faster.
@@ -69,7 +69,7 @@ end
 
 %% ---- Part 1b: selector audit, asymmetric (the broadcast regime) ----
 % A large shared X against a small fixed query (K_y = 4, N_y = 3): the
-% shared self matrix dominates the full-triple Bulger price, so
+% shared self matrix dominates the full-triple Bulger estimated cost, so
 % skipping it (a later broadcast pair) is where the routing genuinely
 % moves.
 fprintf('\n== selector audit, asymmetric (K_y=4, N_y=3) ==\n');

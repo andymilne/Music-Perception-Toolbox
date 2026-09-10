@@ -1180,6 +1180,10 @@ def weight_events(
     specs=None,
     sd=None,
     width=None,
+    decay_rate=None,
+    decay_rate_start=None,
+    decay_rate_end=None,
+    alpha=0.5,
     is_per=False,
     period=0.0,
     drop_input_attr,
@@ -1187,9 +1191,8 @@ def weight_events(
     r"""Apply a per-event weight via an input-to-target window factor.
 
     Per-event preprocessing for multi-attribute tensor input. Reads the
-    K=1 value at every event from ``input_attr``, evaluates a window
-    function :math:`h` centred at ``centre`` with shape parameter
-    ``shape`` (:math:`= \gamma`), and writes the resulting
+    K=1 value at every event from ``input_attr``, evaluates the profile
+    ``shape`` over those values, and writes the resulting
     :math:`(1, N)` per-event factor into the weight entry of
     ``target_attr``, multiplied into any existing weight already there.
     ``target_attr`` may differ from ``input_attr`` (the typical case
@@ -1319,6 +1322,18 @@ def weight_events(
         units. Exactly one of ``sd`` or ``width`` must be supplied.
     width : float, keyword-only
         Full support of the rectangle at ``shape = 1``, ``> 0``, in
+    decay_rate : float, optional
+        Positive decay rate for the named exponential profiles, the
+        reciprocal of the decay constant in the input attribute's
+        units. The default for ``'uAsym'`` when ``decay_rate_start`` or
+        ``decay_rate_end`` are not given. Default 1.
+    decay_rate_start, decay_rate_end : float, optional
+        Rates for the primacy and recency components of ``'uAsym'``,
+        each falling back to ``decay_rate``.
+    alpha : float
+        Mixing parameter in [0, 1] for ``'uShape'`` and ``'uAsym'``:
+        1 is pure primacy, 0 pure recency, 0.5 a balanced mix.
+        Default 0.5.
         the input attribute's units. Internally translated to a
         standard deviation as ``sd = width / (2 sqrt(3))``. Exactly
         one of ``sd`` or ``width`` must be supplied.
@@ -1451,39 +1466,132 @@ def weight_events(
             f"drop_input_attr=False, or choose a different target_attr."
         )
 
-    # --- Validate centre, sd/width (XOR), shape, is_per, period (scalars) ---
-    centre_f = _scalarize(centre, "centre", dtype=float)
-    # Exactly one of sd or width must be supplied. Convert width →
-    # sd internally; the rest of the body operates on sd_f.
-    if (sd is None) == (width is None):
-        raise TypeError(
-            "weight_events requires exactly one of `sd` or `width` "
-            "(keyword-only). `sd` is the window standard deviation; "
-            "`width` is the full support of the rectangle at "
-            "shape=1, equivalent to sd * 2 * sqrt(3). Got "
-            f"sd={sd!r}, width={width!r}."
-        )
-    if sd is not None:
-        sd_f = _scalarize(sd, "sd", dtype=float)
-        if not np.isfinite(sd_f) or sd_f <= 0:
-            raise ValueError(f"sd must be finite and > 0; got {sd_f}.")
+    # --- Validate centre, the profile and its scale, is_per, period ---
+    centre_f = (float("nan") if centre is None
+                else _scalarize(centre, "centre", dtype=float))
+    # Three profile kinds. A numeric shape is the rectangle-Gaussian
+    # family and takes exactly one of `sd` or `width`. A named
+    # exponential takes `sd` alone, having no finite support for a
+    # width to describe. A callable carries its own scale, so neither
+    # is accepted.
+    is_callable = callable(shape)
+    is_named = isinstance(shape, str)
+    is_anchored = is_named and shape in _ANCHORED_PROFILES
+    alpha_f = _scalarize(alpha, "alpha", dtype=float)
+    if not (0.0 <= alpha_f <= 1.0):
+        raise ValueError(f"alpha must lie in [0, 1]; got {alpha_f}.")
+    opts = {"tau": float("nan"), "tau_start": float("nan"),
+            "tau_end": float("nan"), "alpha": alpha_f}
+    if is_callable:
+        if sd is not None or width is not None or decay_rate is not None:
+            raise TypeError(
+                "A profile function carries its own scale, so `sd`, "
+                "`width`, and `decay_rate` are not accepted with one."
+            )
+        sd_f = float("nan")
+        shape_f = shape
+    elif is_named:
+        if shape not in _WEIGHT_PROFILES:
+            raise ValueError(
+                f"Unknown profile {shape!r}. Named profiles are "
+                f"{sorted(_WEIGHT_PROFILES)}; a numeric shape in [0, 1] "
+                f"selects the rectangle-Gaussian family, and a callable "
+                f"supplies any other profile."
+            )
+        if width is not None:
+            raise TypeError(
+                "`width` describes the support of the rectangle and does "
+                f"not apply to profile {shape!r}. Give `sd` (the profile "
+                f"standard deviation) or `decay_rate` (its reciprocal)."
+            )
+        if sd is not None and decay_rate is not None:
+            raise TypeError(
+                "`sd` and `decay_rate` are two spellings of one scale; "
+                "give one, not both."
+            )
+        # The decay constant tau, in the input attribute's own units.
+        # sd is its standard deviation and decay_rate its reciprocal;
+        # neither given, the rate is 1.
+        if sd is not None:
+            sd_f = _scalarize(sd, "sd", dtype=float)
+            if not np.isfinite(sd_f) or sd_f <= 0:
+                raise ValueError(f"sd must be finite and > 0; got {sd_f}.")
+            tau = sd_f / np.sqrt(2.0) if shape == "exponential" else sd_f
+        else:
+            rate = 1.0 if decay_rate is None else _scalarize(
+                decay_rate, "decay_rate", dtype=float)
+            if not np.isfinite(rate) or rate <= 0:
+                raise ValueError(
+                    f"decay_rate must be finite and > 0; got {rate}.")
+            tau = 1.0 / rate
+            sd_f = tau
+        opts["tau"] = tau
+        opts["tau_start"] = tau
+        opts["tau_end"] = tau
+        if shape == "uAsym":
+            for key, val, name in (
+                ("tau_start", decay_rate_start, "decay_rate_start"),
+                ("tau_end", decay_rate_end, "decay_rate_end"),
+            ):
+                if val is not None:
+                    r = _scalarize(val, name, dtype=float)
+                    if not np.isfinite(r) or r <= 0:
+                        raise ValueError(
+                            f"{name} must be finite and > 0; got {r}.")
+                    opts[key] = 1.0 / r
+        elif decay_rate_start is not None or decay_rate_end is not None:
+            raise TypeError(
+                "`decay_rate_start` and `decay_rate_end` apply to 'uAsym' "
+                f"alone; profile {shape!r} has one rate."
+            )
+        shape_f = shape
     else:
-        width_f = _scalarize(width, "width", dtype=float)
-        if not np.isfinite(width_f) or width_f <= 0:
-            raise ValueError(f"width must be finite and > 0; got {width_f}.")
-        sd_f = width_f / (2.0 * np.sqrt(3.0))
-    shape_f = _scalarize(shape, "shape", dtype=float)
+        if decay_rate is not None or decay_rate_start is not None \
+                or decay_rate_end is not None:
+            raise TypeError(
+                "`decay_rate` and its asymmetric companions apply to the "
+                "named exponential profiles; the rectangle-Gaussian family "
+                "is scaled by `sd` or `width`."
+            )
+        # Exactly one of sd or width must be supplied. Convert width →
+        # sd internally; the rest of the body operates on sd_f.
+        if (sd is None) == (width is None):
+            raise TypeError(
+                "weight_events requires exactly one of `sd` or `width` "
+                "(keyword-only). `sd` is the window standard deviation; "
+                "`width` is the full support of the rectangle at "
+                "shape=1, equivalent to sd * 2 * sqrt(3). Got "
+                f"sd={sd!r}, width={width!r}."
+            )
+        if sd is not None:
+            sd_f = _scalarize(sd, "sd", dtype=float)
+            if not np.isfinite(sd_f) or sd_f <= 0:
+                raise ValueError(f"sd must be finite and > 0; got {sd_f}.")
+        else:
+            width_f = _scalarize(width, "width", dtype=float)
+            if not np.isfinite(width_f) or width_f <= 0:
+                raise ValueError(
+                    f"width must be finite and > 0; got {width_f}.")
+            sd_f = width_f / (2.0 * np.sqrt(3.0))
+        shape_f = _scalarize(shape, "shape", dtype=float)
+        if not (0.0 <= shape_f <= 1.0):
+            raise ValueError(
+                f"shape (gamma) must lie in [0, 1]: gamma = 0 is pure "
+                f"Gaussian, gamma = 1 is pure rectangle, intermediate "
+                f"values are the fixed-variance convolution family. Got "
+                f"{shape_f}."
+            )
     is_per_b = _scalarize(is_per, "is_per", dtype=bool)
     period_f = _scalarize(period, "period", dtype=float)
 
-    if not np.isfinite(centre_f):
+    if is_anchored:
+        if centre is not None and np.isfinite(centre_f):
+            raise ValueError(
+                f"Profile {shape!r} anchors itself at the first and last "
+                f"events' values, so centre does not apply; pass None."
+            )
+    elif not np.isfinite(centre_f):
         raise ValueError(f"centre must be finite; got {centre_f}.")
-    if not (0.0 <= shape_f <= 1.0):
-        raise ValueError(
-            f"shape (gamma) must lie in [0, 1]: gamma = 0 is pure Gaussian, "
-            f"gamma = 1 is pure rectangle, intermediate values are the "
-            f"fixed-variance convolution family. Got {shape_f}."
-        )
     if is_per_b and period_f <= 0:
         raise ValueError(
             f"period must be > 0 when is_per is True; got {period_f}."
@@ -1491,10 +1599,10 @@ def weight_events(
 
     # --- Compute factor h(delta) from input attribute values ---
     val_row = p_attr[input_attr_int].astype(np.float64, copy=False)  # (1, N)
-    delta = val_row - centre_f
+    delta = val_row if is_anchored else val_row - centre_f
     if is_per_b:
         delta = delta - period_f * np.floor(delta / period_f + 0.5)
-    factor = _evaluate_shape(delta, sd_f, shape_f)  # (1, N)
+    factor = _evaluate_weight_profile(val_row, delta, sd_f, shape_f, opts)  # (1, N)
 
     # Truncate: zero factor entries whose distance exceeds
     # truncation_sigmas · sd. Uniform convention with the kernel
@@ -1507,7 +1615,8 @@ def weight_events(
     # so truncation always applies --- never a "disabled" state.
     from .._defaults import get_default, resolve_truncation_sigmas
     trunc_sig = resolve_truncation_sigmas(get_default('truncation_sigmas'))
-    factor[np.abs(delta) > trunc_sig * sd_f] = 0.0
+    if not is_callable and not is_anchored:
+        factor[np.abs(delta) > trunc_sig * sd_f] = 0.0
 
     # --- Normalise w to length-A list; multiply factor into target entry ---
     w_out = _normalise_weights_to_list(w, A)
@@ -1527,6 +1636,77 @@ def weight_events(
         specs_out = list(specs_in)
 
     return pre_maet(p_attr_out, w_out_kept, specs_out)
+
+
+_WEIGHT_PROFILES = (
+    "exponential", "exponentialBefore", "exponentialAfter",
+    "exponentialFromStart", "exponentialFromEnd", "uShape", "uAsym",
+)
+
+#: Profiles anchored at the first and last events' values rather than
+#: at a centre.
+_ANCHORED_PROFILES = (
+    "exponentialFromStart", "exponentialFromEnd", "uShape", "uAsym",
+)
+
+
+def _evaluate_weight_profile(vals, delta, sd, shape, opts):
+    """Per-event weight profile.
+
+    ``shape`` selects one of four families: a numeric ``gamma`` in
+    [0, 1] gives the fixed-variance rectangle-Gaussian family of
+    :func:`_evaluate_shape`, centred at the caller's centre; the
+    centre-anchored exponentials decay away from that centre in both
+    directions (``'exponential'``) or in one (``'exponentialBefore'``
+    / ``'exponentialAfter'``, zero on the other side); the
+    serial-position profiles (``'exponentialFromStart'``,
+    ``'exponentialFromEnd'``, ``'uShape'``, ``'uAsym'``) anchor
+    themselves at the first and last events' values, ``opts['alpha']``
+    weighting the primacy component against the recency one; and a
+    callable gives any user profile ``f(delta)``. Decay constants come
+    from ``opts`` in the attribute's own units.
+    """
+    if callable(shape):
+        h = np.asarray(shape(delta), dtype=np.float64)
+        if h.shape != np.shape(delta):
+            raise ValueError(
+                f"The profile function must return one factor per event: "
+                f"expected {np.shape(delta)}, got {h.shape}."
+            )
+        if not np.all(np.isfinite(h)) or np.any(h < 0):
+            raise ValueError(
+                "The profile function must return finite, non-negative "
+                "factors."
+            )
+        return h
+    if not isinstance(shape, str):
+        return _evaluate_shape(delta, sd, shape)
+
+    if shape == "exponential":
+        return np.exp(-np.abs(delta) / opts["tau"])
+    if shape in ("exponentialBefore", "exponentialAfter"):
+        h = np.zeros_like(delta, dtype=np.float64)
+        if shape == "exponentialBefore":
+            m = delta <= 0
+            h[m] = np.exp(delta[m] / opts["tau"])
+        else:
+            m = delta >= 0
+            h[m] = np.exp(-delta[m] / opts["tau"])
+        return h
+
+    flat = np.asarray(vals, dtype=np.float64).ravel()
+    h_start = np.exp(-np.abs(vals - flat[0]) / opts["tau_start"])
+    h_end = np.exp(-np.abs(flat[-1] - vals) / opts["tau_end"])
+    if shape == "exponentialFromStart":
+        return h_start
+    if shape == "exponentialFromEnd":
+        return h_end
+    if shape in ("uShape", "uAsym"):
+        return opts["alpha"] * h_start + (1.0 - opts["alpha"]) * h_end
+    raise ValueError(
+        f"Unknown profile {shape!r}; expected one of "
+        f"{sorted(_WEIGHT_PROFILES)}."
+    )
 
 
 def _evaluate_shape(delta, width, gamma):

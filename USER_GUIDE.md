@@ -39,7 +39,7 @@ The toolbox's focus is the multi-attribute expectation tensor (MAET) and the mea
 
 **Scale and rhythm structure** (Section 3.5). Structural and perceptual features of multisets of points on a circle, most obviously applicable to pitches and rhythmic positions, organized by output granularity: period-level measures (balance, evenness, DFT coefficients, coherence, sameness, n-tuple entropy), integer-position measures (circular autocorrelation phase matrix, Markov prediction), and continuous-position measures (edge detection, projected centroid, mean offset).
 
-**Sequential-analysis utilities** (Section 3.6). Two utilities for analyses of ordered event sequences: a smoothed direction-continuity measure (`continuity`) that shares the difference-event substrate with the MAET-with-differencing pipeline but reads it as an ordered sequence with a directional gate rather than aggregating it into a tensor, and a flexible position-weight constructor (`seqWeights`) usable anywhere a weight argument is accepted.
+**Sequential-analysis utilities** (Section 3.6). A smoothed direction-continuity measure (`continuity`) that shares the difference-event substrate with the MAET-with-differencing pipeline but reads it as an ordered sequence with a directional gate rather than aggregating it into a tensor.
 
 **Version 2.0.0** was a major rewrite of the v1 toolbox. Analytical methods replaced the previous numerical approximations wherever feasible: in v1, analytical computation was available only for the cosine similarity inner product (`cosSimExpTens`, by David Bulger); in v2, this analytical approach was extended to the construction and evaluation of individual expectation tensors via `buildExpTens` and `evalExpTens`, eliminating the discretization error and resolution trade-offs of v1's grid-based `expectationTensor`. The `cosSimExpTens` computation itself was substantially optimized — the original double loop over r-ad combinations replaced by fully vectorized operations over pre-calculated r-ads, with automatic memory-aware chunking for large problems. Entropy computation remains discretized, as the differential entropy of a Gaussian mixture has no known closed-form solution. The expectation tensor core was restructured around precomputed density objects, and the toolbox was substantially expanded with new consonance, structural, and sequential measures.
 
@@ -148,7 +148,7 @@ Structural and perceptual features of points distributed around a cycle — pitc
 
 ### 3.6 Sequential-analysis utilities
 
-Two utilities for ordered sequences: `continuity` summarizes the recent trend in a sequence of pitches, interonset intervals, or their differences, leading up to a query point; `seqWeights` generates the recency and primacy weight profiles that make a measure attend more to recent or to initial events. Functions in §6.6.
+One utility for ordered sequences: `continuity` summarizes the recent trend in a sequence of pitches, interonset intervals, or their differences, leading up to a query point. Serial-position weight profiles are not a separate function: `weightEvents` applies them over any attribute (§7.3.5). Functions in §6.6.
 
 ### 3.7 Where to go next
 
@@ -288,7 +288,7 @@ print(f'Spectral entropy = {H:.3f}')
 
 ### Probe-tone fit to a context
 
-In the classic probe-tone paradigm a listener hears a context sequence followed by a probe, and rates how well the probe fits. The simplest model of this fit is a single similarity value (SPCS) between the probe and the pooled spectrum of the context. The example below computes this fit directly with `cosSimExpTens` on two single-attribute tensors. Context events are recency-weighted using `seqWeights`, reflecting the intuition that later events are more salient in working memory.
+In the classic probe-tone paradigm a listener hears a context sequence followed by a probe, and rates how well the probe fits. The simplest model of this fit is a single similarity value (SPCS) between the probe and the pooled spectrum of the context. The example below computes this fit directly with `cosSimExpTens` on two single-attribute tensors. Context events are recency-weighted, reflecting the intuition that later events are more salient in working memory; at this bare-array level the profile is one line of arithmetic, and §8.4 shows the same idea inside a pre-MAET with `weightEvents`.
 
 **MATLAB:**
 ```matlab
@@ -296,7 +296,7 @@ context = transformAttributes([60 64 67 72], [], {'midi', 'cents'});   % C E G C
 probeE  = transformAttributes(64, [], {'midi', 'cents'});              % probe: E
 
 % Recency decay: weights later events more heavily
-w = seqWeights([], 'exponentialFromEnd', 'N', 4, 'decayRate', 0.5);
+w = exp(-0.5 * (4 - (1:4)));
 
 % Apply spectral enrichment, folding the decay weights into the pitch weights
 spec = {'harmonic', 12, 'powerlaw', 1};
@@ -313,7 +313,7 @@ import numpy as np
 context = mpt.transform_attributes(np.array([60, 64, 67, 72]), None, ('midi', 'cents'))
 probe_E = mpt.transform_attributes(np.array([64]), None, ('midi', 'cents'))
 
-w = mpt.seq_weights(None, 'exponentialFromEnd', n=4, decay_rate=0.5)
+w = np.exp(-0.5 * (4 - np.arange(1, 5)))
 
 spec = ('harmonic', 12, 'powerlaw', 1.0)
 ctx_p, ctx_w = mpt.add_spectra(context, w, *spec)
@@ -461,7 +461,7 @@ Functions that accept a weight argument `w` treat it as a *broadcast specificati
 | Per-row (broadcast across events) | $K \times 1$ column | `(K, 1)`, or 1-D length-$K$ |
 | Full per-row-per-event | $K \times N$ matrix | `(K, N)` |
 
-The per-row and full forms are meaningful only when $K > 1$ — pitch attributes with multiple pitches per event (chords with exchangeable voices), or spectrally-enriched pitches where each fundamental is represented by $K$ partials. Functions operating on a 1-D event sequence (`continuity`, `seqWeights`, `differenceEvents`) accept only the first three forms.
+The per-row and full forms are meaningful only when $K > 1$ — pitch attributes with multiple pitches per event (chords with exchangeable voices), or spectrally-enriched pitches where each fundamental is represented by $K$ partials. Functions operating on a 1-D event sequence (`continuity`, `differenceEvents`) accept only the first three forms.
 
 Different inputs that specify the same underlying weight function are semantically equivalent: a scalar $c$ and a length-$N$ vector of $c$s produce identical downstream output, as do a $K \times 1$ column and its $K \times N$ broadcast. Functions preserve the compact representation where they can, for efficiency, but the output of one function fed into another is interpreted under this same convention, so the compact and broadcast-out forms are interchangeable in chained calls. Weights are non-negative; the standard reading is $w_i$ = probability that event (or element) $i$ is perceived, with `differenceEvents` and `continuity` propagating weights consistently with this interpretation.
 
@@ -726,7 +726,6 @@ In MATLAB, query-point arguments (`X`, `x`) are row vectors or matrices whose co
 | `markovS` | `markov_s` | Circular |
 | `positionVariance` | `mpt._utils.position_variance` | Circular (helper) |
 | `continuity` | `continuity` | Serial |
-| `seqWeights` | `seq_weights` | Serial |
 | `audioPeaks` | `audio_peaks` | Audio |
 | `readScore` | `read_score` | Score input |
 | `preMaetFromScore` | `pre_maet_from_score` | Score input |
@@ -765,7 +764,7 @@ The functions below group into four layers: *core* (constructs, evaluates, or co
 | `bindEvents` | `bind_events` | *Preprocessing:* gather L consecutive events into one nested super-event attribute |
 | `translateAttributes` | `translate_attributes` | *Preprocessing:* shift selected attributes' values by an offset; single translation or an $M$-offset sweep in one call |
 | `transformAttributes` | `transform_attributes` | *Preprocessing:* map selected attributes' values through a named transform, a scale conversion, or a user function |
-| `weightEvents` | `weight_events` | *Preprocessing:* multiply a per-event window factor read from one attribute into another attribute's weights |
+| `weightEvents` | `weight_events` | *Preprocessing:* multiply a per-event profile factor read from one attribute into another attribute's weights |
 | `windowedSimilarity` | `windowed_similarity` | *Preprocessing composition:* sliding-window similarity profile by event weighting (magnitude-aware or cosine) |
 | `windowedEntropy` | `windowed_entropy` | *Preprocessing composition:* sliding-window entropy profile by event weighting |
 | `nTupleEntropy` | `n_tuple_entropy` | *Preprocessing composition:* entropy of n-tuples of consecutive step sizes (full entry in [§6.5](#65-scale-and-rhythm-structure)) |
@@ -1041,18 +1040,15 @@ All functions in this group operate on multisets of pitches or positions distrib
 
 **markovS(p, w, period [, S])** — Optimal S-step Markov predictor (default S = 3). For each position in the cycle, finds all positions with an identical S-step future context and returns their average weight. Originally by David Bulger.
 
-### 6.6 Ordered sequences
+### 6.6 Direction continuity
 
-Two utilities that read an ordered event sequence directly, rather than aggregating it into a tensor: a smoothed direction-continuity measure and a position-weight constructor. Both are independent of the MAET machinery, though `seqWeights` is commonly used to supply the event weights a MAET is built from. Position-sensitive similarity of two sequences is instead computed via the core tensor functions on pitch-and-time-attributed multi-attribute tensors; see Sections 3.1, 3.7, and 6.1 for `buildExpTens`, `cosSimExpTens` (including its batched-raw and list dispatch forms for many-pair scanning), and `windowedSimilarity`.
+One utility that reads an ordered event sequence directly, rather than aggregating it into a tensor: a smoothed direction-continuity measure. Position-sensitive similarity of two sequences is instead computed via the core tensor functions on pitch-and-time-attributed multi-attribute tensors; see Sections 3.1, 3.7, and 6.1 for `buildExpTens`, `cosSimExpTens` (including its batched-raw and list dispatch forms for many-pair scanning), and `windowedSimilarity`.
 
 | MATLAB | Python | Description |
 |:---|:---|:---|
 | `continuity` | `continuity` | Backward same-direction run |
-| `seqWeights` | `seq_weights` | Position-weight vector constructor |
 
 **continuity(seq, x, sigma [, 'w', w] [, 'mode', mode] [, 'theta', theta])** — Expected length and signed magnitude of the backward same-direction run leading up to each query, under Gaussian pitch uncertainty. Returns `[count, magnitude]`: `count` is non-negative, `magnitude` is signed (positive for ascending trends, negative for descending). The ratio `magnitude / count` gives a trend-slope measure. Modes `'strict'` (θ = 0) and `'lenient'` (θ = −1) set the break threshold; an explicit `'theta'` in [−1, +1] overrides. Optional per-event salience weights `w` (`[]` / `None` for all ones, a non-negative scalar, or a length-$N$ non-negative vector) scale each interval's contribution to `count` and `magnitude` by the difference-event salience $w_k \cdot w_{k+1}$ — the same rolling-product rule as `differenceEvents` at order 1. The break threshold acts on the unweighted sign-product, so weights modulate contribution size without shifting the halt condition. Defined only on linearly ordered domains.
-
-**seqWeights(w, spec [, 'N', N] [, 'decayRate', d] [, 'decayRateStart', ds] [, 'decayRateEnd', de] [, 'alpha', a] [, 't', t])** — Apply a position-weighting profile to an existing weight vector. Constructs a length-N profile from `spec` and returns its pointwise product with `w`. `w` is a length-N vector of per-position weights, `[]` (MATLAB) / `None` (Python) for all ones — requires `'N'`, or a scalar broadcast to length N — requires `'N'`. The output length `N` is inferred from `numel(w)` when `w` is a non-empty, non-scalar vector; it must be supplied explicitly via the `'N'` name-value argument when `w` is empty or scalar. A mismatch between supplied `N` and `numel(w)` raises an error. `spec` is a named specification (`'flat'`, `'primacy'`, `'recency'`, `'exponentialFromStart'`, `'exponentialFromEnd'`, `'uShape'`, `'uAsym'`), a callable `f(t)` returning a profile over the (possibly user-supplied) time vector, or an explicit length-N numeric vector (passthrough with length validation). `'flat'` produces a uniform profile; `'primacy'` and `'recency'` are point masses on the first and last positions. For the exponential, `'uShape'`, and `'uAsym'` specs, `'decayRate'` is the non-negative decay (default 1; zero decay recovers `'flat'`), and `'alpha'` (default 0.5) controls the mixing of the primacy and recency components: `alpha = 1` recovers `'exponentialFromStart'`, `alpha = 0` recovers `'exponentialFromEnd'`. `'uShape'` applies one decay rate to both components; `'uAsym'` allows them to differ, taking the primacy rate from `'decayRateStart'` and the recency rate from `'decayRateEnd'`, each falling back to `'decayRate'` when unset — the asymmetry of the serial-position curve is then a free parameter. When a strictly-increasing time index `t` is supplied, decay operates over elapsed time from the relevant endpoint; when omitted, unit spacing is used. The returned vector can be passed as the event weights of `buildExpTens` (including in its MAET form, as per-event weights for a time-attributed tensor), or fed into `cosSimExpTens` via `addSpectra` for a position-weighted SPCS computation.
 
 ### 6.7 Utility
 
@@ -1225,6 +1221,12 @@ When any entry implies a sweep ($M > 1$), the output is a length-$M$ list (Pytho
 The two extremes are the pure Gaussian ($\gamma = 0$: $h(\delta) = \exp(-\delta^2 / (2 w^2))$) and the pure rectangle ($\gamma = 1$: $h(\delta) = \mathbf{1}[\,|\delta| \le w \sqrt{3}\,]$); intermediate $\gamma$ interpolates continuously between them. The parameter $w$ always means the standard deviation, not the half-extent.
 
 For periodic input attributes, only the centred difference $\delta = v - c$ used inside $h$ is wrapped to $[-P/2, P/2]$; the stored values stay raw. The kernel in `buildExpTens` handles the value-axis periodicity downstream via the attribute's `[per]` flag.
+
+**Profiles beyond the window family.** The shape argument also accepts a named exponential or a function of the centred difference, so the factor need not be a symmetric window. `'exponentialBefore'` decays for $\delta \le 0$ and is zero above the centre, `'exponentialAfter'` mirrors it, and `'exponential'` decays in both directions; each takes `sd` alone, since an exponential has no finite support for a `width` to describe, and each is scaled so its standard deviation is `sd`, as the convolution family is. A centre at the last event's value with `'exponentialBefore'` is a recency profile, and a centre at the first with `'exponentialAfter'` a primacy profile. A function handle (Python: any callable) receives $\delta$ and returns one non-negative factor per event; it carries its own scale, so neither `sd` nor `width` is accepted with it, and the kernel truncation is not applied to it, since an arbitrary profile need not decay.
+
+**Serial-position profiles.** Four further names anchor themselves at the first and last events' values rather than at a centre, which must then be `NaN` (Python: `None`): `'exponentialFromStart'` and `'exponentialFromEnd'` decay away from one anchor, and `'uShape'` and `'uAsym'` mix both, `alpha` weighting the primacy component against the recency one — `alpha = 1` is pure primacy, `alpha = 0` pure recency. `'uAsym'` takes `decayRateStart` and `decayRateEnd` separately, each falling back to `decayRate`; the others take one rate. Every named profile is scaled by either `sd` or `decayRate`, its reciprocal, and defaults to a rate of 1.
+
+Applied to an event-number attribute — add $1, \dots, N$ as an attribute, drive the profile from it, and drop it with `dropInputAttr` in the same call — these are profiles over position. Applied to a time attribute they are profiles over elapsed time, which needs no extra attribute where a time attribute is already present and is usually the better model: a recency profile over onsets weights a held final chord more heavily than a rapid passing note, which position indexing cannot express.
 
 **`deleteInput` (mandatory keyword).** A boolean flag — keyword-only, no default — selects whether the input attribute is retained in the returned pre-MAET or removed. When `deleteInput = true` and `inputAttr != targetAttr`, the input attribute is dropped from all three output components and the higher attribute indices are decremented to keep numbering contiguous. When `deleteInput = false`, the input attribute is preserved unchanged in the output. `deleteInput = true` paired with `inputAttr == targetAttr` raises an error: deleting the input would discard the factor just written to it. The auto-delete pattern is the standard idiom for windowed-entropy and local-mass analyses where the input attribute (typically time) provides the scaffolding for the window and is no longer needed downstream once its positions have been transferred to the target's weights.
 
@@ -1540,7 +1542,7 @@ The Quick Start example of probe-tone fitting treated the context as an unordere
 
 Two complementary approaches are available. The first is the pooled-context approach of the Quick Start: treat the context as a weighted multiset and compute a single similarity. The second is a *time-resolved* approach: represent the context as a multi-attribute tensor carrying both pitch and time, and sweep a window along the time axis to obtain a similarity *profile* showing how probe fit evolves moment by moment. The two approaches answer different questions — "what is the aggregate fit?" versus "where and when does the probe fit best?" — and both are naturally expressed in the v3 framework.
 
-The example below scans twelve chromatic probes against a short melodic line `C F G C` representing a I–IV–V–I cadence, using the pooled-context approach. The final tonic is held for two beats (irregular time grid); the first and last events are metrically accented (irregular salience). Both effects are encoded by a pre-built weight vector from `seqWeights`, and each probe is compared against the same weighted context via `cosSimExpTens` in list mode — the context density (a single struct) is broadcast against the cell / list of twelve probe densities in one call (v3+), avoiding an explicit loop.
+The example below scans twelve chromatic probes against a short melodic line `C F G C` representing a I–IV–V–I cadence, using the pooled-context approach. The final tonic is held for two beats (irregular time grid); the first and last events are metrically accented (irregular salience). Both effects are carried in a two-attribute pre-MAET: the salience sits on the pitch weights, and `weightEvents` multiplies in an exponential recency profile over elapsed time, dropping the time attribute once it has done its work. Each probe is compared against the same weighted context via `cosSimExpTens` in list mode — the context density (a single struct) is broadcast against the cell / list of twelve probe densities in one call (v3+), avoiding an explicit loop.
 
 **MATLAB:**
 ```matlab
@@ -1553,13 +1555,19 @@ t_events = [0 1 2 4];
 % Per-event salience: accented first and last events
 salience = [1.0; 0.6; 0.6; 1.3];
 
-% Combine salience with exponential-from-end decay over elapsed time
-w = seqWeights(salience, 'exponentialFromEnd', ...
-               'decayRate', 0.4, 't', t_events);
+% Salience on the pitch weights, time as a second attribute
+pm = preMaet({context, t_events}, {salience(:).', []});
+
+% Exponential decay before the final onset, over elapsed time
+% (sd = 1 / 0.4 is the decay's time constant); the time attribute is
+% dropped once it has weighted the pitches
+pm = weightEvents(pm, 2, 1, t_events(end), 'exponentialBefore', ...
+                  'sd', 2.5, 'dropInputAttr', true);
+[ctxVals, w] = unpackPreMaet(pm);
 
 % Apply spectral enrichment and build the context density once
 spec = {'harmonic', 12, 'powerlaw', 1};
-[ctx_p, ctx_w] = addSpectra(context, w, spec{:});
+[ctx_p, ctx_w] = addSpectra(ctxVals{1}, w{1}, spec{:});
 ctx_dens = buildExpTens(ctx_p, ctx_w, 10, 1, false, true, 1200);
 
 % Build all 12 chromatic probe densities up front
@@ -1587,11 +1595,13 @@ context  = mpt.transform_attributes(np.array([60, 65, 67, 60]), None, ('midi', '
 t_events = np.array([0.0, 1.0, 2.0, 4.0])
 salience = np.array([1.0, 0.6, 0.6, 1.3])
 
-w = mpt.seq_weights(salience, 'exponentialFromEnd',
-                     decay_rate=0.4, t=t_events)
+pm = mpt.pre_maet([context, t_events], [salience[None, :], None])
+pm = mpt.weight_events(pm, 1, 0, t_events[-1], 'exponentialBefore',
+                       sd=2.5, drop_input_attr=True)
+ctx_vals, w, _ = mpt.unpack_pre_maet(pm)
 
 spec = ('harmonic', 12, 'powerlaw', 1.0)
-ctx_p, ctx_w = mpt.add_spectra(context, w, *spec)
+ctx_p, ctx_w = mpt.add_spectra(ctx_vals[0], w[0], *spec)
 ctx_dens = mpt.build_exp_tens(ctx_p, ctx_w, 10., 1, False, True, 1200.)
 
 probes = mpt.transform_attributes(np.arange(60, 72), None, ('midi', 'cents'))
@@ -1606,7 +1616,7 @@ for i in range(12):
 fit = mpt.cos_sim_exp_tens(ctx_dens, probe_dens, verbose=False)
 ```
 
-The resulting profile peaks at C (the tonic, present at both endpoints and carried by the most heavily weighted final event), with a secondary peak at G. The emphasis on the final tonic and the decay of the intermediate events fall out of the `seqWeights` profile — primacy and recency accents, plus time-aware exponential decay — composed into a single plain numeric vector that enters `buildExpTens` as the per-event pitch weights via `addSpectra`.
+The resulting profile peaks at C (the tonic, present at both endpoints and carried by the most heavily weighted final event), with a secondary peak at G. The emphasis on the final tonic and the decay of the intermediate events fall out of the recency profile composed with the metrical salience already on the pitch weights — the decay measured in elapsed time rather than in event count, because the profile reads the time attribute's values.
 
 For a time-resolved view — how probe fit varies moment by moment along the context, rather than aggregated to a single number — the context can be carried with both pitch and time as attributes and scanned with `windowedSimilarity`. The following uses a single probe (C) to show the pattern. The probe is a single event, so the time window is placed only (`dropWindowAttr = true`): at each centre the context's events are reweighted by a window in time, the time axis is marginalized, and the probe's pitch is compared with what remains.
 
@@ -1724,7 +1734,7 @@ Downstream aggregations on the returned profile are one-line computations:
 best_centre = t_centres(idx);
 
 % Recency-weighted typicality over the profile
-w_prof = seqWeights([], 'exponentialFromEnd', 'N', numel(S), 'decayRate', 0.5);
+w_prof = exp(-0.5 * (numel(S) - (1:numel(S))));
 typicality = (w_prof(:).' * S(:)) / sum(w_prof);
 ```
 

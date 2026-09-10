@@ -1,6 +1,6 @@
 """Join the Python and MATLAB sweep / cost-model CSVs.
 
-Usage (from bench_xlang/, after running both languages' benches):
+Usage (from tools/bench_xlang/, after running both languages' benches):
 
     python compare_sweep.py
 

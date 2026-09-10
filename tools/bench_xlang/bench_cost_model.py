@@ -1,5 +1,4 @@
-"""Cross-language cost-model audit: skip-flag pricing and Möbius
-per-matrix costs.
+"""Cross-language cost-model audit: skip flags and per-matrix costs.
 
 Part 1 (deterministic, no timing): calls the Bulger-vs-Möbius selector
 across a (r, K, N) grid with the self-matrix skip flags off (a first
@@ -10,7 +9,7 @@ choice flips are the cells the skip flags exist for.
 Part 2 (timing): times ``method='mobius'`` on absolute densities under
 three memo regimes -- ``cosine`` fresh (three matrices), ``oneSidedDenom``
 fresh (cross + one self), ``cosine`` warm selves (cross only) -- giving
-measured per-matrix costs to hold against the pricing's
+measured per-matrix costs to hold against the cost model's
 ``n_matrices / 3`` scaling of the fitted whole-triple constants.
 
 Part 3 (timing): at each flip cell from part 1, times both forced
@@ -98,7 +97,7 @@ def main():
 
     # Asymmetric cells: the broadcast regime. A large shared X against
     # a small fixed query (K_y = 4, N_y = 3): the shared self matrix
-    # dominates the full-triple Bulger price, so skipping it (a later
+    # dominates the full-triple Bulger estimated cost, so skipping it (a later
     # broadcast pair) is where the routing genuinely moves.
     print("\n== selector audit, asymmetric (K_y=4, N_y=3) ==")
     for r in (2, 3):

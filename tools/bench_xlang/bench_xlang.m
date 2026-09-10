@@ -1,5 +1,4 @@
-%% bench_xlang.m
-%  Cross-language benchmark runner (MATLAB side).
+%% bench_xlang.m — cross-language benchmark runner (MATLAB side)
 %
 %  Generates deterministic inputs (identical to bench_xlang.py), times
 %  evalExpTens and cosSimExpTens across a small grid varying one axis
@@ -18,7 +17,7 @@
 %  disagree at method='bulger', the bulger path itself has a
 %  cross-language mismatch.
 %
-%  See BENCH_SPEC.md for the grid and input formulae.
+%  See README.md for the grid and input formulae.
 
 function bench_xlang(outPath, method)
     if nargin < 1 || isempty(outPath)

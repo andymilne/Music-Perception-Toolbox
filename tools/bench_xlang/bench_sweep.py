@@ -13,7 +13,7 @@ normalisations:
   pair (each pair pays its own self terms; the steady per-pair cost
   with no cross-pair reuse).
 
-Inputs are deterministic formulae (BENCH_SPEC conventions), identical
+Inputs are deterministic formulae (README conventions), identical
 in ``bench_sweep.m``, so the ``checksum`` column doubles as a
 cross-language value-parity check.
 

@@ -17,7 +17,7 @@ dispatchers picked, not the routes themselves. If they still
 disagree at method='bulger', the bulger path itself has a
 cross-language mismatch.
 
-See BENCH_SPEC.md for the grid and input formulae.
+See README.md for the grid and input formulae.
 """
 import argparse
 import csv

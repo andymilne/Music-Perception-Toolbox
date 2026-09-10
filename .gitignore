@@ -18,9 +18,9 @@ python/progress.txt
 # Benchmark, audit, and demo run outputs. Each is written by a script
 # that lives in the repository, so a committed copy is a stale run the
 # next invocation silently overwrites.
-bench_xlang/*.csv
-bench_xlang/*.log
-bench_xlang/bench_mobius_log.txt
+tools/bench_xlang/*.csv
+tools/bench_xlang/*.log
+tools/bench_xlang/bench_mobius_log.txt
 bench_mobius_*.csv
 python/tests/precision_audit/*.out.txt
 python/figures/

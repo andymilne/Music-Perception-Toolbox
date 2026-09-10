@@ -107,7 +107,7 @@ The consumer wrappers compose the tier-2 primitives into measures with musical i
 
 - **Circular measures**: `balance`, `evenness`, `coherence`, `sameness`, `edges`, `proj_centroid`, `mean_offset`, `circ_apm`, `markov_s`, with the DFT engine `dft_circular` and `dft_circular_simulate`. Some compose tensor primitives; others are direct DFT-based or symbolic computations independent of the tensor stack.
 
-- **Sequential utilities**: `continuity` (smoothed direction-continuity) and `seq_weights` (named or callable position-weight profiles, with symmetric and asymmetric serial-position shapes). `serial.py` also holds `interval_kernel_cov`, which belongs to the tensor stack rather than to these: it constructs the matrix-valued `sigma` an ordered difference attribute is built with, giving graded control over the position, interval, and shift variances that `is_rel` fixes at their limiting values.
+- **Sequential utilities**: `continuity` (smoothed direction-continuity). `serial.py` also holds `interval_kernel_cov`, which belongs to the tensor stack rather than to these: it constructs the matrix-valued `sigma` an ordered difference attribute is built with, giving graded control over the position, interval, and shift variances that `is_rel` fixes at their limiting values. Serial-position weight profiles are `weight_events`' named and callable shapes, applied over any attribute.
 
 - **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `cos_sim_exp_tens` recognizes and reduces to a sweep.
 
@@ -186,7 +186,7 @@ mpt/
 ├── entropy.py             entropy_exp_tens, n_tuple_entropy
 ├── harmony.py             spectral_entropy, template_harmonicity,
 │                          tensor_harmonicity, roughness, virtual_pitches
-├── serial.py              continuity, seq_weights, interval_kernel_cov
+├── serial.py              continuity, interval_kernel_cov
 ├── spectra.py             add_spectra
 ├── audio.py               audio_peaks, AudioPeaksDetail
 ├── score.py               read_score, pre_maet_from_score (MIDI, MusicXML)
@@ -281,6 +281,17 @@ matlab/tests/              ~90 test_*.m files mirroring the Python tests
                            and calibration benches (not CI)
 
 matlab/tools/              Calibration scripts (calibrateRelIpCost.m, …)
+
+tools/bench_xlang/         The cross-language benches: paired MATLAB and
+                           Python runners over identical deterministic
+                           inputs, and the scripts that join their CSVs
+                           (compare_bench.py, compare_sweep.py). This is
+                           where the numerical-parity and relative-timing
+                           claims come from, and where a cost model is
+                           re-measured after a routing change. README.md
+                           in that folder specifies the grid and the input
+                           formulae. Outputs are gitignored: each CSV is a
+                           run, not a record.
 ```
 
 Tests are predominantly organized by feature rather than by module – e.g. the canonical-key tests cover deduplication across the single-multiset inner product, batched cosine, and harmony wrappers. `python/tests/README.md` documents the file groupings.

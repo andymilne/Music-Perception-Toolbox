@@ -90,15 +90,15 @@ warm regimes seed the memo once outside the timed closure via the
 cache-carrying outputs.
 
 `bench_cost_model.{py,m}` audit the self-matrix skip flags added to the
-Bulger-vs-Möbius pricing. Part 1 is deterministic: the selector is
+Bulger-vs-Möbius cost estimation. Part 1 is deterministic: the selector is
 called across symmetric and asymmetric (broadcast-shaped: a large
 shared operand against a small fixed query) grids with the flags off
 and on, and the rows where the routing flips are the cells the flags
-exist for — on the symmetric grid both prices shrink near-
+exist for — on the symmetric grid both estimates shrink near-
 proportionally, so flips concentrate on the asymmetric grid, where the
-shared self matrix dominates the full-triple Bulger price. Part 2
+shared self matrix dominates the full-triple Bulger estimated cost. Part 2
 times `method='mobius'` under three memo regimes (three, two, and one
-matrices computed) to measure per-matrix costs against the pricing's
+matrices computed) to measure per-matrix costs against the cost model's
 `n_matrices / 3` scaling of the fitted whole-triple constants. Part 3
 times both forced routes at each flip cell in the warm-selves regime;
 a `MISPICK` verdict means the flags-on choice was not the measured

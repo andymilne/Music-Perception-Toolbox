@@ -3,7 +3,7 @@
 difference_events applies the k-th finite difference along the event axis,
 position by position. It is well-defined exactly when the positions have stable
 identity --- an
-ordered attribute ([sym]=0) or a singleton (K=1) --- so a symmetric multiset
+ordered attribute ([exch]=0) or a singleton (K=1) --- so a symmetric multiset
 (K>1) raises, and the rule extends per level for a nested attribute. The spec
 passes through unchanged (values change, structure does not); NaN propagates
 (absent value). With order = L the differenced-then-bound and bound-then-
@@ -15,7 +15,7 @@ import pytest
 
 import mpt
 from mpt import unpack_pre_maet
-from mpt import (build_exp_tens, eval_exp_tens, difference_events,
+from mpt import (build_maet, eval_maet, difference_events,
                  bind_events, flat_specs)
 
 
@@ -30,11 +30,11 @@ def test_returns_three_tuple_with_specs():
 
 def test_specs_synthesised_when_none():
     _, _, sd = unpack_pre_maet(difference_events([np.array([[0.0, 2.0, 5.0]])], None, 1))
-    assert sd == [{"r": 1, "rel": False, "sym": True}]
+    assert sd == [{"r": 1, "rel": False, "exch": True}]
 
 
 def test_spec_passes_through_unchanged():
-    s_in = flat_specs([np.zeros((1, 4))], r=2, rel=True, sym=False)
+    s_in = flat_specs([np.zeros((1, 4))], r=2, rel=True, exch=False)
     _, _, s_out = unpack_pre_maet(difference_events([np.array([[0.0, 2.0, 5.0, 9.0]])], None,
                                     1, specs=s_in))
     assert s_out == s_in
@@ -76,33 +76,33 @@ def test_weight_rolling_product():
 def test_ordered_multislot_differences_slotwise():
     """K>1 ordered attribute differences position by position (the lifted K=1 rule)."""
     M = np.array([[0.0, 2.0, 5.0], [10.0, 13.0, 17.0]])   # K=2, N=3
-    pd, _, _ = unpack_pre_maet(difference_events([M], None, 1, specs=flat_specs([M], sym=False)))
+    pd, _, _ = unpack_pre_maet(difference_events([M], None, 1, specs=flat_specs([M], exch=False)))
     np.testing.assert_allclose(pd[0], [[2.0, 3.0], [3.0, 4.0]])
 
 
 def test_symmetric_multislot_rejected():
     M = np.array([[0.0, 2.0, 5.0], [10.0, 13.0, 17.0]])
     with pytest.raises(ValueError):
-        difference_events([M], None, 1, specs=flat_specs([M], sym=True))
+        difference_events([M], None, 1, specs=flat_specs([M], exch=True))
 
 
 def test_symmetric_multislot_order_zero_ok():
     """Order 0 never triggers the guard (no differencing happens)."""
     M = np.array([[0.0, 2.0, 5.0], [10.0, 13.0, 17.0]])
-    pd, _, _ = unpack_pre_maet(difference_events([M], None, 0, specs=flat_specs([M], sym=True)))
+    pd, _, _ = unpack_pre_maet(difference_events([M], None, 0, specs=flat_specs([M], exch=True)))
     np.testing.assert_allclose(pd[0], M)
 
 
-def test_singleton_differences_regardless_of_sym():
+def test_singleton_differences_regardless_of_exch():
     """K=1 is always differenceable (a singleton has trivial position identity)."""
     M = np.array([[0.0, 2.0, 5.0]])
-    pd, _, _ = unpack_pre_maet(difference_events([M], None, 1, specs=flat_specs([M], sym=True)))
+    pd, _, _ = unpack_pre_maet(difference_events([M], None, 1, specs=flat_specs([M], exch=True)))
     np.testing.assert_allclose(pd[0], [[2.0, 3.0]])
 
 
 def test_nan_propagates_as_absent_slot():
     M = np.array([[0.0, 2.0, 5.0], [10.0, np.nan, 17.0]])
-    pd, _, _ = unpack_pre_maet(difference_events([M], None, 1, specs=flat_specs([M], sym=False)))
+    pd, _, _ = unpack_pre_maet(difference_events([M], None, 1, specs=flat_specs([M], exch=False)))
     out = pd[0]
     np.testing.assert_allclose(out[0], [2.0, 3.0])
     assert np.all(np.isnan(out[1]))     # both differences touching NaN are NaN
@@ -120,9 +120,9 @@ def test_nested_difference_slotwise_spec_passthrough():
 
 
 def test_nested_symmetric_outer_rejected():
-    """A bag outer level (sym_outer=1) cannot be differenced."""
+    """A bag outer level (exch_outer=1) cannot be differenced."""
     raw = np.array([[0.0, 2.0, 5.0, 9.0, 14.0]])
-    pb, wb, specs = unpack_pre_maet(bind_events([raw], None, 2, sym_outer=True))
+    pb, wb, specs = unpack_pre_maet(bind_events([raw], None, 2, exch_outer=True))
     with pytest.raises(ValueError):
         difference_events(pb, wb, 1, specs=specs)
 
@@ -137,7 +137,7 @@ def test_bind_difference_commute_values_and_specs():
     pB, wB, sB = unpack_pre_maet(bind_events([P], None, L))
     pBD, wBD, sBD = unpack_pre_maet(difference_events(pB, wB, 1, specs=sB))
     np.testing.assert_allclose(pDB[0], pBD[0], equal_nan=True)
-    for key in ("tags", "r", "sym", "rel"):
+    for key in ("tags", "r", "exch", "rel"):
         assert list(np.ravel(sDB[0][key])) == list(np.ravel(sBD[0][key]))
 
 
@@ -149,14 +149,14 @@ def test_bind_difference_commute_density_identical():
     pDB, wDB, sDB = unpack_pre_maet(bind_events(pD, wD, L, specs=sD))
     pB, wB, sB = unpack_pre_maet(bind_events([P], None, L))
     pBD, wBD, sBD = unpack_pre_maet(difference_events(pB, wB, 1, specs=sB))
-    d1 = build_exp_tens(pDB, wDB, specs=sDB, sigma=[30.0], is_per=[False],
+    d1 = build_maet(pDB, wDB, specs=sDB, sigma=[30.0], is_per=[False],
                         period=[0.0], verbose=False)
-    d2 = build_exp_tens(pBD, wBD, specs=sBD, sigma=[30.0], is_per=[False],
+    d2 = build_maet(pBD, wBD, specs=sBD, sigma=[30.0], is_per=[False],
                         period=[0.0], verbose=False)
     rng = np.random.default_rng(0)
     xs = rng.uniform(-5, 5, size=(2, 6))
-    v1 = np.ravel(eval_exp_tens(d1, xs, verbose=False))
-    v2 = np.ravel(eval_exp_tens(d2, xs, verbose=False))
+    v1 = np.ravel(eval_maet(d1, xs, verbose=False))
+    v2 = np.ravel(eval_maet(d2, xs, verbose=False))
     np.testing.assert_allclose(v1, v2, atol=1e-12)
 
 

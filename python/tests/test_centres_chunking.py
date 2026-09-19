@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, eval_exp_tens
+from mpt import build_maet, eval_maet
 
 
 class TestCentresChunking:
@@ -32,12 +32,12 @@ class TestCentresChunking:
         """
         K = 72
         p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 12.0, 3,
+        dens = build_maet(p, np.ones(K), 12.0, 3,
                               True, False, 0.0, verbose=False)
         rng = np.random.default_rng(42)
         x = rng.uniform(0, 1200, (2, 300))
 
-        v = eval_exp_tens(dens, x, method='centres', verbose=False)
+        v = eval_maet(dens, x, method='centres', verbose=False)
         assert v.shape == (300,)
         assert np.all(np.isfinite(v))
 
@@ -51,17 +51,17 @@ class TestCentresChunking:
         """
         K = 72
         p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 12.0, 3,
+        dens = build_maet(p, np.ones(K), 12.0, 3,
                               True, False, 0.0, verbose=False)
         rng = np.random.default_rng(42)
         x = rng.uniform(0, 1200, (2, 300))
 
-        v_full = eval_exp_tens(dens, x, method='centres', verbose=False)
+        v_full = eval_maet(dens, x, method='centres', verbose=False)
 
         mid = x.shape[1] // 2
-        v_half1 = eval_exp_tens(dens, x[:, :mid],
+        v_half1 = eval_maet(dens, x[:, :mid],
                                 method='centres', verbose=False)
-        v_half2 = eval_exp_tens(dens, x[:, mid:],
+        v_half2 = eval_maet(dens, x[:, mid:],
                                 method='centres', verbose=False)
         v_manual = np.concatenate([v_half1, v_half2])
 
@@ -84,7 +84,7 @@ class TestCentresChunking:
         """
         K = 48
         p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 10.0, 3,
+        dens = build_maet(p, np.ones(K), 10.0, 3,
                               True, True, 1200.0, verbose=False)
         rng = np.random.default_rng(42)
         x = rng.uniform(0, 1200, (2, 300))
@@ -95,8 +95,8 @@ class TestCentresChunking:
         # factory state on teardown.
         mpt.set_default(kernel_chunk_bytes=200_000_000)
 
-        v_auto = eval_exp_tens(dens, x, verbose=False)
-        v_centres = eval_exp_tens(dens, x, method='centres', verbose=False)
+        v_auto = eval_maet(dens, x, verbose=False)
+        v_centres = eval_maet(dens, x, method='centres', verbose=False)
 
         peak = float(np.max(np.abs(v_centres)))
         np.testing.assert_allclose(v_auto, v_centres,

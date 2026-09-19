@@ -3,7 +3,7 @@
 The single centres-path numerical kernel used directly by the single-multiset
 centres evaluator and the single-multiset centres-IP path in :mod:`mpt.tensor`, and
 by the relative-mode orbit evaluator in :mod:`mpt._mobius`. All other
-centres-path consumers (``entropy_exp_tens``, the harmony measures,
+centres-path consumers (``entropy_maet``, the harmony measures,
 etc.) reach it indirectly through those entry points. Routing every
 centres-path computation through this single helper is what lets the
 ``truncation_sigmas`` and ``kernel_precision`` options be applied
@@ -20,7 +20,12 @@ from typing import Any
 import numpy as np
 
 from ._defaults import get_default
-from ._utils import kernel_chunk_bytes_resolved
+from ._utils import (
+    kernel_chunk_bytes_resolved,
+    kernel_thread_count,
+    run_in_kernel_threads,
+    split_ranges,
+)
 from ._tensor.dispatch import _compute_Q
 
 
@@ -248,18 +253,33 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
     bytes_per_scalar = C.dtype.itemsize
     bytes_needed = (2 * dim + 2) * nJ * nQ * bytes_per_scalar
     BUDGET = kernel_chunk_bytes_resolved()
-    if bytes_needed <= BUDGET:
+    # Each query's sum runs over every centre independently of the other
+    # queries, so contiguous spans of the query range go to the shared
+    # kernel thread pool. Threads hold their chunks at the same time, so
+    # the budget is divided among them and the peak transient is what it
+    # was serially; the chunk is then capped again so that no thread is
+    # left without one.
+    n_threads = kernel_thread_count(nQ * nJ)
+    if bytes_needed <= BUDGET and n_threads <= 1:
         return _eval_chunk(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
                            truncation_sigmas, wrap)
 
-    chunk = max(1, BUDGET // ((2 * dim + 2) * nJ * bytes_per_scalar))
+    chunk = max(1, (BUDGET // max(1, n_threads))
+                // ((2 * dim + 2) * nJ * bytes_per_scalar))
+    if n_threads > 1:
+        chunk = min(chunk, max(1, -(-nQ // n_threads)))
     out = np.zeros(nQ, dtype=C.dtype)
-    for c0 in range(0, nQ, chunk):
-        c1 = min(c0 + chunk, nQ)
-        out[c0:c1] = _eval_chunk(
-            C, wJ, X[:, c0:c1], is_rel, r, is_per, period, inv2s2, sigma,
-            truncation_sigmas, wrap
-        )
+
+    def span(bounds):
+        lo, hi = bounds
+        for c0 in range(lo, hi, chunk):
+            c1 = min(c0 + chunk, hi)
+            out[c0:c1] = _eval_chunk(
+                C, wJ, X[:, c0:c1], is_rel, r, is_per, period, inv2s2, sigma,
+                truncation_sigmas, wrap
+            )
+
+    run_in_kernel_threads(span, split_ranges(nQ, max(1, n_threads)))
     return out
 
 
@@ -320,7 +340,7 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
     # Use the direct division (Q / (2*sigma^2)) rather than Q * inv2s2,
     # to match v2.0 ULP-for-ULP at default settings (in all modes
     # except rel+per, where v2.X corrects an inherited v1 single-axis-
-    # wrap form to the pairwise-wrap form, in line with cosSimExpTens).
+    # wrap form to the pairwise-wrap form, in line with simMaet).
     E = np.exp(-Q / (2 * sigma ** 2))      # (nJ, nQc)
     return wJ @ E                          # (nQc,)
 
@@ -351,6 +371,22 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
     if nJ == 0:
         return np.zeros(nQ, dtype=C.dtype)
 
+    # The bucket lattice is pitched on the centres alone, and a query's
+    # sum runs over its own neighbourhood in an order that does not
+    # depend on the other queries, so evaluating a contiguous span of
+    # queries in isolation gives exactly the values that span would have
+    # had. Spans therefore go to the shared kernel thread pool, each
+    # rebuilding the (centre-sized, and by now small relative to the
+    # query set) lattice for itself. A thread inside the pool resolves
+    # to one thread, so this recurses once and no further.
+    n_threads = kernel_thread_count(nQ * nJ)
+    if n_threads > 1 and nQ >= 2 * n_threads:
+        parts = run_in_kernel_threads(
+            lambda b: _truncated_kernel_sum(
+                C, wJ, X[:, b[0]:b[1]], sigma, is_rel, r, k_sigma, inv2s2),
+            split_ranges(nQ, n_threads))
+        return np.concatenate(parts)
+
     # Coordinate transform to make Q-ball spherical (rel-mode only).
     if is_rel:
         e = np.ones(dim, dtype=np.float64)
@@ -376,10 +412,24 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
         np.ceil((cmax - cmin) / bucket_size).astype(np.int64) + 1,
     )
 
-    # Centre bucket coords (0-indexed).
+    # One empty bucket of margin on every face, so that no neighbour of
+    # an occupied-region bucket can fall off the lattice. Without the
+    # margin the neighbour expansion needs a bounds test and a
+    # coordinate array to test; with it, a bucket's linear index is the
+    # dot product of its coordinates with the lattice strides, and the
+    # whole neighbourhood is one broadcast addition. A neighbour that
+    # would have failed the bounds test now lands in a padded bucket,
+    # which holds no centres and is discarded by the occupancy test
+    # instead, in the same place in the same sequence.
+    padded = n_buckets + 2
+    strides = np.ones(dim, dtype=np.int64)
+    for axis in range(dim - 2, -1, -1):
+        strides[axis] = strides[axis + 1] * padded[axis + 1]
+
+    # Centre bucket coords, shifted into the padded interior.
     buck_c = np.floor((Ct - cmin[:, None]) / bucket_size).astype(np.int64)
-    buck_c = np.clip(buck_c, 0, (n_buckets - 1)[:, None])
-    lin_c = _sub_to_ind(n_buckets, buck_c)
+    buck_c = np.clip(buck_c, 0, (n_buckets - 1)[:, None]) + 1
+    lin_c = strides @ buck_c
 
     # Sort centres by bucket linear index.
     order = np.argsort(lin_c, kind="stable")
@@ -402,30 +452,19 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
     offsets = _neighbour_offsets(dim)           # (dim, 3^dim)
     n_offsets = offsets.shape[1]
     buck_x = np.floor((Xt - cmin[:, None]) / bucket_size).astype(np.int64)
-    buck_x = np.clip(buck_x, 0, (n_buckets - 1)[:, None])
+    buck_x = np.clip(buck_x, 0, (n_buckets - 1)[:, None]) + 1
 
     out = np.zeros(nQ, dtype=C.dtype)
 
     # --- All queries at once ---
-    # Neighbour coords: (dim, nQ, n_offsets).
-    nb_all = buck_x[:, :, None] + offsets[:, None, :]
-
-    # In-bounds: shape (nQ, n_offsets).
-    in_bounds = np.all(
-        (nb_all >= 0) & (nb_all < n_buckets[:, None, None]),
-        axis=0,
-    )
-
-    # Linear bucket index for each (query, offset) pair.
-    nb_lin = _sub_to_ind(
-        n_buckets, nb_all.reshape(dim, nQ * n_offsets)
-    ).reshape(nQ, n_offsets)
+    # One linear index per query and one linear displacement per
+    # neighbour offset; their outer sum is the whole neighbourhood.
+    nb_lin = (strides @ buck_x)[:, None] + (strides @ offsets)[None, :]
 
     # Vectorised bucket lookup via searchsorted on the sorted run table.
     pos = np.searchsorted(run_lin, nb_lin)
     pos = np.minimum(pos, run_lin.size - 1)
-    bucket_exists = run_lin[pos] == nb_lin
-    valid = in_bounds & bucket_exists
+    valid = run_lin[pos] == nb_lin
 
     # For valid pairs, look up the run (start, count); zeros elsewhere.
     starts_grid = run_starts[pos]               # (nQ, n_offsets)

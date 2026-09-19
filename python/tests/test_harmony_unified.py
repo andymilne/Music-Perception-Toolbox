@@ -364,7 +364,7 @@ class TestTemplateHarmonicityVerboseEstimate:
     def test_verbose_default_is_true_but_silent_for_fast(self, capsys):
         # Default verbose=True still applies, but the 0.5 s threshold
         # means typical fast scalar calls produce no output. Behaviour
-        # parity with eval_exp_tens / cos_sim_exp_tens (which print
+        # parity with eval_maet / sim_maet (which print
         # unconditionally) is intentionally NOT preserved here — the
         # demo loops in templateHarmonicity-driven workflows generate
         # too much noise when each scalar call announces ~1 ms.
@@ -398,7 +398,7 @@ class TestTensorHarmonicityVerboseEstimate:
     estimate_comp_time when ``verbose=True`` (default), and is silent
     when ``verbose=False``.
 
-    Scalar mode forwards verbose to build_exp_tens, which prints its
+    Scalar mode forwards verbose to build_maet, which prints its
     own estimate. Batched mode runs an empirical calibration with a
     warm-up sample.
     """

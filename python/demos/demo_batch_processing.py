@@ -13,7 +13,7 @@ roughness), then tabulates and plots them.
 
 The point of method is that the trial table goes straight in. Every
 toolbox feature that accepts a 2-D pitch matrix (one row per trial,
-NaN-padded when the chords differ in size) — cos_sim_exp_tens in its
+NaN-padded when the chords differ in size) — sim_maet in its
 batched-raw mode, spectral_entropy, template_harmonicity,
 tensor_harmonicity, virtual_pitches — deduplicates its rows internally
 by a canonical key, so the 144 chord rows here cost 4 chord-type
@@ -123,15 +123,15 @@ print(f"Dataset: {n_pairs} trials "
       f"({n_scales} scales × {n_chords} chord types × {n_roots} roots).\n")
 
 # ===================================================================
-#  WORKFLOW 1: Paired measure (SPCS) via batched cos_sim_exp_tens
+#  WORKFLOW 1: Paired measure (SPCS) via batched sim_maet
 #  Two 2-D matrices, one row per trial, dispatch to batched-raw mode;
 #  repeated rows and repeated (scale, chord) pairs are deduplicated
 #  internally, and the spectrum is applied inside the call.
 # ===================================================================
 
-print("=== Workflow 1: SPCS via batched cos_sim_exp_tens ===\n")
+print("=== Workflow 1: SPCS via batched sim_maet ===\n")
 
-spcs = mpt.cos_sim_exp_tens(
+spcs = mpt.sim_maet(
     p_mat_a, None, p_mat_b, None,
     sigma, r, is_rel, is_per, period,
     spectrum=spec,
@@ -254,7 +254,7 @@ plt.tight_layout()
 #
 #  The exception that proves the rule is a translation sweep. Its
 #  entries DO share one geometry and differ only by an offset, so
-#  cos_sim_exp_tens reads the offsets translate_attributes carried and
+#  sim_maet reads the offsets translate_attributes carried and
 #  reduces the sweep to a mixture in the offset — a genuine collapse,
 #  and the one place where a multi-attribute batch is cheaper than the
 #  loop it replaces.
@@ -281,8 +281,8 @@ reference = items[0]
 
 # One call, one value per item. The same call with pre-built densities
 # would be identical; the pre-MAETs simply save building them.
-sims = mpt.cos_sim_exp_tens(reference, items, verbose=False)
-print("  cos_sim_exp_tens(reference, [pm_1, ..., pm_4])")
+sims = mpt.sim_maet(reference, items, verbose=False)
+print("  sim_maet(reference, [pm_1, ..., pm_4])")
 for i, s in enumerate(sims):
     print(f"    item {i + 1}: {float(s):.4f}")
 print("  (item 1 is the reference; item 4 repeats it.)")
@@ -294,8 +294,8 @@ print("  event count and content, so there is no repeated work to find.")
 # from translate_attributes, so the comparison reduces to a mixture.
 pm_sweep = mpt.translate_attributes(
     reference, [np.array([[0.0, 100.0, 200.0, 300.0]]), None])
-sweep_sims = mpt.cos_sim_exp_tens(reference, pm_sweep, verbose=False)
-print("\n  cos_sim_exp_tens(reference, translate_attributes(reference, ...))")
+sweep_sims = mpt.sim_maet(reference, pm_sweep, verbose=False)
+print("\n  sim_maet(reference, translate_attributes(reference, ...))")
 print("    offsets 0, 100, 200, 300 cents ->",
       ", ".join(f"{float(s):.4f}" for s in sweep_sims))
 print("  Here the entries DO share a geometry and differ by a known")

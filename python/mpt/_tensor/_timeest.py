@@ -1,4 +1,4 @@
-"""Self-calibrated up-front time estimate for ``eval_exp_tens``.
+"""Self-calibrated up-front time estimate for ``eval_maet``.
 
 The dispatch cost model (:func:`mpt._tensor.dispatch._ma_eval_costs_ms`)
 estimates each evaluation path in milliseconds on the machine whose timings
@@ -58,10 +58,10 @@ def _build_reference():
     far faster than the joint cost model predicts, which would corrupt
     the scale.
     """
-    from ..tensor import build_exp_tens
+    from ..tensor import build_maet
 
     p0 = np.linspace(0.0, 4000.0, 40).reshape(1, -1).T
-    return build_exp_tens(
+    return build_maet(
         [p0], None, [15.0], [2],
         [True], [False], [0.0], verbose=False,
     )
@@ -85,7 +85,7 @@ def _session_time_scale():
     _DEFAULTS["show_hints"] = False  # keep the reference call silent
     try:
         from .dispatch import _select_ma_eval, _predict_ma_eval_cost_ms
-        from ..tensor import eval_exp_tens
+        from ..tensor import eval_maet
 
         dens = _build_reference()
         rng = np.random.default_rng(0xC0FFEE)
@@ -93,11 +93,11 @@ def _session_time_scale():
         chosen, _ = _select_ma_eval(dens, _REF_N_Q, method="auto")
         pred_ms = _predict_ma_eval_cost_ms(dens, _REF_N_Q, chosen)
 
-        eval_exp_tens(dens, x, verbose=False)  # warm caches
+        eval_maet(dens, x, verbose=False)  # warm caches
         samples = []
         for _ in range(_REF_TIMING_REPEATS):
             t0 = time.perf_counter()
-            eval_exp_tens(dens, x, verbose=False)
+            eval_maet(dens, x, verbose=False)
             samples.append((time.perf_counter() - t0) * 1000.0)
         actual_ms = sorted(samples)[len(samples) // 2]  # median
         _SESSION_SCALE = (actual_ms / pred_ms) if pred_ms > 0 else 1.0

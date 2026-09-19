@@ -73,7 +73,7 @@ end
 
 
 function [U, wJ] = localBuildPerms(p, w, r)
-%LOCALBUILDPERMS  Mirror of buildExpTens's ordered-r-tuple construction.
+%LOCALBUILDPERMS  Mirror of buildMaet's ordered-r-tuple construction.
 
     K = numel(p);
     nC = nchoosek(K, r);

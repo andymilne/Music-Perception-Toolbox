@@ -65,11 +65,11 @@ The three computational tiers each correspond to a distinct mathematical operati
 
 A weighted multiset $(\mathbf{p}, \mathbf{w})$ of $K$ values at tuple order $r$ defines an *r-ad expectation tensor density* – a Gaussian-mixture probability density on the $r$-fold product space, with one Gaussian centred at each $r$-tuple of distinct source values. A multi-attribute expectation tensor (MAET) density generalizes this to $N$ events, each carrying $A$ attributes; the density is the sum over events of the tensor product over attributes of the per-attribute densities. The density object stores the source multisets and geometry and precomputes – lazily – the tuple indices, weight products, and tuple centres; subsequent operations read from it without revisiting the source.
 
-- `MaetDensity` (Python class; MATLAB struct with `tag == 'MaetDensity'`): $A$ attributes, $N$ events, per-attribute tuple order $r_a$, kernel width $\sigma_a$, periodicity flag and period, relativity flag, symmetry flag (`is_sym`: exchangeable tuples, or ordered), periodic measure declaration (`wrap`: `'full-image'` or `'single-image'`, §4), and an optional *nested* specification (a tag tree with per-level `r` and `sym` vectors, as produced by `bind_events`). An attribute may also carry an anisotropic kernel covariance (`kernel_cov`; the attribute's values are stored whitened with $\sigma = 1$). The effective space is the product of per-attribute effective spaces, each $\mathbb{R}^{r_a}$ (absolute) or its $(r_a - 1)$-dimensional translation quotient (relative).
+- `MaetDensity` (Python class; MATLAB struct with `tag == 'MaetDensity'`): $A$ attributes, $N$ events, per-attribute tuple order $r_a$, kernel width $\sigma_a$, periodicity flag and period, relativity flag, symmetry flag (`is_exch`: exchangeable tuples, or ordered), periodic measure declaration (`wrap`: `'full-image'` or `'single-image'`, §4), and an optional *nested* specification (a tag tree with per-level `r` and `exch` vectors, as produced by `bind_events`). An attribute may also carry an anisotropic kernel covariance (`kernel_cov`; the attribute's values are stored whitened with $\sigma = 1$). The effective space is the product of per-attribute effective spaces, each $\mathbb{R}^{r_a}$ (absolute) or its $(r_a - 1)$-dimensional translation quotient (relative).
 
 - The **single-multiset corner** is `A = N = 1` with a flat first attribute. `is_single_multiset` tests exactly that shape; `single_multiset_view` exposes the flat names (`p`, `w`, scalar `sigma`, `r`, `is_rel`, `is_per`, `period`, and the per-tuple arrays) over the underlying `MaetDensity` so that the single-multiset kernels read one layout. The view is idempotent and, in Python, cached on the density by weak reference so that batch deduplication (which pairs operands by identity) stays stable. The `A = 1, r = 1, N > 1` case never reaches the corner as such: the build collapses it into one pooled event, so every downstream consumer meets the canonical `N = 1` form. Evaluation strategy for the corner is *shape-gated, not type-gated*: the corner offers speed (the direct kernel-sum leaf in evaluation, the single-attribute helper route in the Python inner product, canonical-key deduplication in batched forms), never a different value.
 
-The build step (`build_exp_tens` / `buildExpTens`) is where the source multiset is consumed. The expensive per-tuple fields (`n_j`, `n_k`, `centres`, `u_perm`, `v_comb`, `w_j`, `wv_comb`, `event_of_j`, `event_of_k`) are *lazy*. In Python they are materialized on first attribute access and cached (`materialised` reports the state without triggering the build); in MATLAB, where structs have value semantics, `buildExpTens` returns a skinny struct by default (`'lazy', true`) and pairwise and centres consumers call `internal.ensureExpTensExpensive` before reading the per-tuple fields. Deferring the build keeps construction cheap and lets calls that route through the Möbius method – which reads only the cheap fields – skip the tuple-centres array entirely, whose footprint at high $r$ or high $K$ would otherwise dominate memory. See [§5](#5-the-orbit-table-system) for why this matters.
+The build step (`build_maet` / `buildMaet`) is where the source multiset is consumed. The expensive per-tuple fields (`n_j`, `n_k`, `centres`, `u_perm`, `v_comb`, `w_j`, `wv_comb`, `event_of_j`, `event_of_k`) are *lazy*. In Python they are materialized on first attribute access and cached (`materialised` reports the state without triggering the build); in MATLAB, where structs have value semantics, `buildMaet` returns a skinny struct by default (`'lazy', true`) and pairwise and centres consumers call `internal.ensureMaetExpensive` before reading the per-tuple fields. Deferring the build keeps construction cheap and lets calls that route through the Möbius method – which reads only the cheap fields – skip the tuple-centres array entirely, whose footprint at high $r$ or high $K$ would otherwise dominate memory. See [§5](#5-the-orbit-table-system) for why this matters.
 
 ### Tier 2: Tensor analysis primitives
 
@@ -99,17 +99,17 @@ The decompositions are alternatives for the same analytical integral; their resu
 
 The consumer wrappers compose the tier-2 primitives into measures with musical interpretation:
 
-- **Similarity**: `cos_sim_exp_tens`, `sweep_cos_sim_exp_tens` (one density against uniformly translated copies of another, as a Gaussian mixture in the offset), and `windowed_similarity` (a pre-MAET sliding window over raw events – the window reweights the events before each build – with each position routed through `cos_sim_exp_tens`) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
+- **Similarity**: `sim_maet`, `sweep_sim_maet` (one density against uniformly translated copies of another, as a Gaussian mixture in the offset), and `windowed_similarity` (a pre-MAET sliding window over raw events – the window reweights the events before each build – with each position routed through `sim_maet`) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
 
 - **Harmonicity and consonance**: `template_harmonicity` cross-correlates a chord's composite spectrum against a harmonic template; `tensor_harmonicity` queries the density of interval patterns within a single harmonic series; `spectral_entropy` computes Shannon entropy of a spectral density; `roughness` (sensory roughness) is a direct frequency-pair calculation independent of the tensor framework; `virtual_pitches` extracts likely fundamentals via template harmonicity.
 
-- **Entropy**: `entropy_exp_tens` evaluates the density's entropy (Shannon or normalized Shannon by cell masses on absolute densities or by grid evaluation on relative ones, differential by adaptive grid refinement with Richardson extrapolation, or Rényi-2 in closed form as the self inner product `cos_sim_exp_tens(dens, dens, normalize='none')` — through the inner-product selector, so every route and cost model of §4 serves it — over the squared closed-form total mass); `windowed_entropy` sweeps it across a window; `n_tuple_entropy` is a convenience wrapper composing `difference_events` + `bind_events` + `build_exp_tens` + `entropy_exp_tens` for the integer-step n-gram entropy of Milne & Dean (2016).
+- **Entropy**: `entropy_maet` evaluates the density's entropy (Shannon or normalized Shannon by cell masses on absolute densities or by grid evaluation on relative ones, differential by adaptive grid refinement with Richardson extrapolation, or Rényi-2 in closed form as the self inner product `sim_maet(dens, dens, normalize='none')` — through the inner-product selector, so every route and cost model of §4 serves it — over the squared closed-form total mass); `windowed_entropy` sweeps it across a window; `n_tuple_entropy` is a convenience wrapper composing `difference_events` + `bind_events` + `build_maet` + `entropy_maet` for the integer-step n-gram entropy of Milne & Dean (2016).
 
 - **Circular measures**: `balance`, `evenness`, `coherence`, `sameness`, `edges`, `proj_centroid`, `mean_offset`, `circ_apm`, `markov_s`, with the DFT engine `dft_circular` and `dft_circular_simulate`. Some compose tensor primitives; others are direct DFT-based or symbolic computations independent of the tensor stack.
 
-- **Sequential utilities**: `continuity` (smoothed direction-continuity). `serial.py` also holds `interval_kernel_cov`, which belongs to the tensor stack rather than to these: it constructs the matrix-valued `sigma` an ordered difference attribute is built with, giving graded control over the position, interval, and shift variances that `is_rel` fixes at their limiting values. Serial-position weight profiles are `weight_events`' named and callable shapes, applied over any attribute.
+- **Sequential utilities**: `continuity` (smoothed direction-continuity). `serial.py` also holds `kernel_cov`, which belongs to the tensor stack rather than to these: it constructs the matrix-valued `sigma` an ordered difference attribute is built with, giving graded control over the position, interval, and shift variances that `is_rel` fixes at their limiting values. Serial-position weight profiles are `weight_events`' named and callable shapes, applied over any attribute.
 
-- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `cos_sim_exp_tens` recognizes and reduces to a sweep.
+- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `sim_maet` recognizes and reduces to a sweep.
 
 - **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `pre_maet_from_score` (MIDI and MusicXML input, returning a pre-MAET), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
 
@@ -132,7 +132,7 @@ mpt/
 │   ├── density.py         MaetDensity, is_single_multiset,
 │   │                      single_multiset_view, and the MA-input preprocessing
 │   │                      helpers
-│   ├── build.py           build_exp_tens (single-multiset and multi-attribute
+│   ├── build.py           build_maet (single-multiset and multi-attribute
 │   │                      input forms; both produce a MaetDensity)
 │   ├── premaet.py         pre_maet, unpack_pre_maet: the pre-MAET as one
 │   │                      object, and the argument front end the operators share
@@ -146,11 +146,11 @@ mpt/
 │   │                      σ/P admissibility threshold, feasibility guards, and
 │   │                      shared helpers (_normalize_density_input,
 │   │                      _resolve_list_list_mode, _compute_Q)
-│   ├── eval.py            eval_exp_tens: input forms, the centres branch
+│   ├── eval.py            eval_maet: input forms, the centres branch
 │   │                      (single-multiset leaf, factored MA, joint MA), and
 │   │                      normalization
 │   ├── _ma_eval_orbit.py  Factored Möbius point evaluator for a flat MAET
-│   ├── cosine.py          cos_sim_exp_tens: input forms, the flat MA
+│   ├── cosine.py          sim_maet: input forms, the flat MA
 │   │                      dispatcher, the Bulger, centres, and Möbius arms,
 │   │                      the nested plan (_try_nested_contract), self-IP
 │   │                      memoisation, and the deprecated shims
@@ -167,7 +167,7 @@ mpt/
 │   │                      vs enumeration, the accuracy guard
 │   ├── _nested_cost.py    Fitted cost model for the nested plan and the
 │   │                      plan-vs-enumeration race
-│   ├── sweep.py           sweep_cos_sim_exp_tens: translation sweeps as a
+│   ├── sweep.py           sweep_sim_maet: translation sweeps as a
 │   │                      Gaussian mixture in the offset, with an orbit route
 │   ├── windowed.py        Pre-MAET windowed sweeps: windowed_similarity,
 │   │                      windowed_entropy
@@ -183,10 +183,10 @@ mpt/
 │   │                      (non-Fourier): coherence, sameness
 │   └── pulse.py           Per-position pulse-level measures (non-Fourier):
 │                          edges, mean_offset, circ_apm, markov_s
-├── entropy.py             entropy_exp_tens, n_tuple_entropy
+├── entropy.py             entropy_maet, n_tuple_entropy
 ├── harmony.py             spectral_entropy, template_harmonicity,
 │                          tensor_harmonicity, roughness, virtual_pitches
-├── serial.py              continuity, interval_kernel_cov
+├── serial.py              continuity, kernel_cov
 ├── spectra.py             add_spectra
 ├── audio.py               audio_peaks, AudioPeaksDetail
 ├── score.py               read_score, pre_maet_from_score (MIDI, MusicXML)
@@ -212,12 +212,12 @@ mpt/
 
 ```
 matlab/
-├── *.m                    One file per public function (cosSimExpTens,
-│                          evalExpTens, entropyExpTens, sweepCosSimExpTens,
+├── *.m                    One file per public function (simMaet,
+│                          evalMaet, entropyMaet, sweepSimMaet,
 │                          windowedSimilarity, explainDispatch, mptDefaults,
 │                          …) – MATLAB requires one top-level function per
-│                          file. The large entry points (cosSimExpTens.m,
-│                          evalExpTens.m, entropyExpTens.m) carry their
+│                          file. The large entry points (simMaet.m,
+│                          evalMaet.m, entropyMaet.m) carry their
 │                          arms and kernel cores as local functions.
 ├── +internal/             Helpers reachable only via internal.helperName,
 │                          mirroring Python's _-prefix convention: the
@@ -231,7 +231,7 @@ matlab/
 │                          kernels (gaussianKernelSum, wrappedGaussian1d),
 │                          the single-multiset corner
 │                          (isSingleMultiset, singleMultisetView,
-│                          ensureExpTensExpensive), memo keys (selfIpKey,
+│                          ensureMaetExpensive), memo keys (selfIpKey,
 │                          selfIpMemoised), canonical keys, and the
 │                          call-scope guards (callGuard, dispatchScope,
 │                          kernelChunkBytesResolved)
@@ -308,7 +308,7 @@ Four points are useful to internalize before reading the dispatch code:
 
 2. Every selector applies the same three tests, in order: is a route *feasible* (memory, table availability, structural admissibility); is it *accurate enough* for the accuracy the caller asked for (the σ/P threshold derived from `truncation_sigmas`); and, if more than one route survives, which is *fastest* (a fitted cost model). `explain_dispatch` reports the three for a given call by invoking the very same selectors.
 
-3. There is **no timing probe**. Routing is decided entirely from structure and the cost models; the hardware scale factor cancels in the cost *ratio*, which is why the dispatchers need no timing (the one place a timing is taken – `_timeest.py`'s self-calibration – serves the absolute up-front time estimate, not routing). The former `cancellation_threshold` keyword on `cos_sim_exp_tens` / `cosSimExpTens` has been removed; the alternating-sum cancellation it once guarded is handled by the accuracy floor (§6) and by the post-hoc guards below.
+3. There is **no timing probe**. Routing is decided entirely from structure and the cost models; the hardware scale factor cancels in the cost *ratio*, which is why the dispatchers need no timing (the one place a timing is taken – `_timeest.py`'s self-calibration – serves the absolute up-front time estimate, not routing). The former `cancellation_threshold` keyword on `sim_maet` / `simMaet` has been removed; the alternating-sum cancellation it once guarded is handled by the accuracy floor (§6) and by the post-hoc guards below.
 
 4. Two guards act *after* a route has run. On the cosine Möbius arm, an *impossible value* – a non-finite inner product, a negative self-inner-product, or $|\langle X, Y \rangle| > 1.000001\sqrt{\langle X, X \rangle \langle Y, Y \rangle}$ – triggers a warning, purges the Möbius memo entries on both densities, and re-runs the call through Bulger's method. On the nested contraction, a per-level orbit reduction whose error bound exceeds the accuracy floor falls back to enumeration when the enumeration is affordable and otherwise keeps the value with a warning. On the point-evaluation Möbius route, non-finite output triggers a warning and a re-run through the centres branch, in both languages and for every density shape (the single-multiset corner inherits the guard from the general path). All post-hoc guards are disabled by the `post_hoc_guards` default.
 
@@ -324,15 +324,15 @@ The threshold is `_orbit_sigma_over_p_threshold` / `internal.relPerSigmaOverPThr
 
 The same pattern recurs in five places; the flat cosine selector is the canonical instance.
 
-**The flat selector** (`_select_ma_inner_product_method` / `internal.selectMaInnerProductMethod`) chooses among the Bulger, centres, and Möbius arms for a density pair without nested attributes. Its rules fire in order: (1) a user `method` other than `'auto'` is returned unchanged, bypassing everything below; (2) if every $r_a \leq 1$, Bulger; (3) if any $r_a$ exceeds the shipped-table ceiling of 8, Bulger, after a feasibility guard that raises `SingleImageInfeasibleError` / `mpt:dispatch:singleImageInfeasible` when the joint tuple-pair kernel would exceed the memory budget (4 GiB fixed in Python; half of available memory clamped to 1–4 GiB in MATLAB); (4) Python only: a working-set guard sends a large flat density to Möbius when its tuple-centres working set would exceed 256 MiB; (5) the measure rule above; (6) the cost race – the predicted Bulger cost from the fitted law against the predicted Möbius cost, which itself takes, per relative attribute, the cheaper of the tuple-centres and grid realizations, floored by a per-order set-up cost. Ties go to Bulger. After the selector, an *ordered* attribute (`is_sym == false`, $r_a > 1$) on either side silently overrides the answer to Bulger, including an explicit `'mobius'` or `'centres'`.
+**The flat selector** (`_select_ma_inner_product_method` / `internal.selectMaInnerProductMethod`) chooses among the Bulger, centres, and Möbius arms for a density pair without nested attributes. Its rules fire in order: (1) a user `method` other than `'auto'` is returned unchanged, bypassing everything below; (2) if every $r_a \leq 1$, Bulger; (3) if any $r_a$ exceeds the shipped-table ceiling of 8, Bulger, after a feasibility guard that raises `SingleImageInfeasibleError` / `mpt:dispatch:singleImageInfeasible` when the joint tuple-pair kernel would exceed the memory budget (4 GiB fixed in Python; half of available memory clamped to 1–4 GiB in MATLAB); (4) Python only: a working-set guard sends a large flat density to Möbius when its tuple-centres working set would exceed 256 MiB; (5) the measure rule above; (6) the cost race – the predicted Bulger cost from the fitted law against the predicted Möbius cost, which itself takes, per relative attribute, the cheaper of the tuple-centres and grid realizations, floored by a per-order set-up cost. Ties go to Bulger. After the selector, an *ordered* attribute (`is_exch == false`, $r_a > 1$) on either side silently overrides the answer to Bulger, including an explicit `'mobius'` or `'centres'`.
 
-**The Möbius arm** (`_cos_sim_exp_tens_ma_orbit` / `localCosSimMAOrbit`) decides, per relative attribute, between the tuple-centres closed form and the grid (`_ma_rel_attr_prefers_centres` / `mobius.maRelAttrPrefersCentres`): the closed form is inadmissible above the σ/P threshold (it carries the minimum-image reading) and when either side has fewer values than $r_a$; otherwise a small wall-time model races the two, an explicit `method='mobius'` pins the grid, and the calibration setting `rel_attr_route` pins either. Inside the grid branch a *spectral gate* substitutes the Fourier Gram matrix for $2 \leq r \leq 4$ when its mode grid is at most $4 \times 10^6$ points (a memory guard that is never bypassed) and cheaper than the grid by a cost gate (bypassed by `SPECTRAL_IP_FORCE` for testing). A *sparse gate* switches the absolute contraction and the periodic grid to sparse kernels when the kernel is large ($K_x K_y \geq 200{,}000$) and at most 20 % dense.
+**The Möbius arm** (`_sim_maet_ma_orbit` / `localCosSimMAOrbit`) decides, per relative attribute, between the tuple-centres closed form and the grid (`_ma_rel_attr_prefers_centres` / `mobius.maRelAttrPrefersCentres`): the closed form is inadmissible above the σ/P threshold (it carries the minimum-image reading) and when either side has fewer values than $r_a$; otherwise a small wall-time model races the two, an explicit `method='mobius'` pins the grid, and the calibration setting `rel_attr_route` pins either. Inside the grid branch a *spectral gate* substitutes the Fourier Gram matrix for $2 \leq r \leq 4$ when its mode grid is at most $4 \times 10^6$ points (a memory guard that is never bypassed) and cheaper than the grid by a cost gate (bypassed by `SPECTRAL_IP_FORCE` for testing). A *sparse gate* switches the absolute contraction and the periodic grid to sparse kernels when the kernel is large ($K_x K_y \geq 200{,}000$) and at most 20 % dense.
 
 **The nested plan** (`_try_nested_contract` / `internal.nestedContract`, with cost estimates from `_nested_cost.py` / `internal.nestedCost`) handles densities with a nested attribute. Per attribute it lists the admissible routes under the measure rule – `contract` for absolute attributes; `centres` and `contract_relnonper` for relative non-periodic; for relative-periodic, `centres` and `taugrid` below the threshold and, above it, whichever the `wrap` declaration admits – and picks by a fitted law with a 256 MiB memory guard on the centres route. It then races the whole plan against joint-tuple enumeration (Bulger), choosing enumeration only when it is predicted cheaper by a safety factor of 2 and is itself admissible. A forced `method` raises when the route it names has no carrier rather than silently substituting. Within a contraction, each symmetric level re-decides orbit-vs-enumeration with the power-law `orbit_cost_model` (`_orbit_cost.py` / `internal.orbitCostModel`), whose intercept is the `orbit_cost_intercept` default.
 
-**The eval selector** (`_select_ma_eval` / `internal.selectMaEval`) chooses between the centres branch and the Möbius evaluator for `eval_exp_tens`: `'centres'` returns at once; `'mobius'` returns after rejecting ordered attributes (on a nested density it runs the per-level Möbius evaluator, `_nested_mobius_eval.py` / `mobius.evalNestedAttrOrbit`, which applies the set-partition identity at every symmetric level of the tag tree and a dynamic programme at every ordered one, integrating a co-transposition unit over its own translation grid inside the recursion; it touches no tuple centre); under `'auto'`, ordered or all-$r_a \leq 1$ densities go to centres, and a nested density is decided by its own cost row (`_nested_eval_costs_ms` / `internal.nestedEvalCostsMs`: the tag-tree centres enumeration, counted by `nested_tuple_count` / `internal.nestedTupleCount`, against the per-level evaluator, fitted by `tools/fit_nested_eval_cost.py` on the `bench_nested_eval` grid; a mixed density adds that row to the flat law); $r_a > 10$ goes to centres after a feasibility guard on the joint working set; the measure rule on the first relative-periodic attribute above the threshold forces the arm; otherwise the cost model `_ma_eval_costs_ms` / `internal.maEvalCostsMs` estimates both, and the Möbius route is taken when it is predicted cheaper by a safety factor of 1.5 (when the centres working set exceeds 256 MiB) or 1.0. Inside the centres branch the shape rules pick the single-multiset kernel-sum leaf, the factored per-attribute form (every $r_a \geq 2$, no kernel covariance), or the joint materialization.
+**The eval selector** (`_select_ma_eval` / `internal.selectMaEval`) chooses between the centres branch and the Möbius evaluator for `eval_maet`: `'centres'` returns at once; `'mobius'` returns after rejecting ordered attributes (on a nested density it runs the per-level Möbius evaluator, `_nested_mobius_eval.py` / `mobius.evalNestedAttrOrbit`, which applies the set-partition identity at every symmetric level of the tag tree and a dynamic programme at every ordered one, integrating a co-transposition unit over its own translation grid inside the recursion; it touches no tuple centre); under `'auto'`, ordered or all-$r_a \leq 1$ densities go to centres, and a nested density is decided by its own cost row (`_nested_eval_costs_ms` / `internal.nestedEvalCostsMs`: the tag-tree centres enumeration, counted by `nested_tuple_count` / `internal.nestedTupleCount`, against the per-level evaluator, fitted by `tools/fit_nested_eval_cost.py` on the `bench_nested_eval` grid; a mixed density adds that row to the flat law); $r_a > 10$ goes to centres after a feasibility guard on the joint working set; the measure rule on the first relative-periodic attribute above the threshold forces the arm; otherwise the cost model `_ma_eval_costs_ms` / `internal.maEvalCostsMs` estimates both, and the Möbius route is taken when it is predicted cheaper by a safety factor of 1.5 (when the centres working set exceeds 256 MiB) or 1.0. Inside the centres branch the shape rules pick the single-multiset kernel-sum leaf, the factored per-attribute form (every $r_a \geq 2$, no kernel covariance), or the joint materialization.
 
-**The sweep chooser** (`_choose_sweep_route` in `sweep.py` / `sweepCosSimExpTens`) decides between the mixture and orbit routes on eligibility and a work-ratio rule; it is the one selector whose routes have different admissibility sets rather than different costs alone.
+**The sweep chooser** (`_choose_sweep_route` in `sweep.py` / `sweepSimMaet`) decides between the mixture and orbit routes on eligibility and a work-ratio rule; it is the one selector whose routes have different admissibility sets rather than different costs alone.
 
 ### Vocabulary of the routes
 
@@ -370,7 +370,7 @@ The four figures below are the selectors as decision trees, generated from `docs
 
 Reading them: a **rounded blue box** is a decision, stating a predicate or naming a group of rules expanded to its right; a **grey square box in typewriter type** is a leaf, the routine that finally does the arithmetic; a **white box with a red edge** is an error, where the call raises rather than routing anywhere. A **solid arrow** is an `'auto'` rule — within one selector the rules are tested top to bottom, and a rule below another is reached only when the one above did not fire — and a **dashed purple arrow** is a `method` override, labelled with the value that takes it, skipping the rules it is drawn past but not the structural guards. *Italic text on a child* gives the condition under which that branch is taken, or a remark about it.
 
-**Figure R1. Cosine similarity** (`cos_sim_exp_tens` / `cosSimExpTens`). The three rules above the flat selector are structural: an empty operand short-circuits, an ordered attribute removes the symmetry both decompositions exploit, and a nested attribute goes to the plan of Figure R3, which under `'auto'` may decline back to enumeration and under a named method raises instead. `normalize` does not appear in the tree because it does not choose a route: it chooses the denominator, and with it which self inner products are formed. A self product already memoized on its density is not recomputed, and rule 5 estimates only the work the call will actually do.
+**Figure R1. Cosine similarity** (`sim_maet` / `simMaet`). The three rules above the flat selector are structural: an empty operand short-circuits, an ordered attribute removes the symmetry both decompositions exploit, and a nested attribute goes to the plan of Figure R3, which under `'auto'` may decline back to enumeration and under a named method raises instead. `normalize` does not appear in the tree because it does not choose a route: it chooses the denominator, and with it which self inner products are formed. A self product already memoized on its density is not recomputed, and rule 5 estimates only the work the call will actually do.
 
 ![Figure R1: the cosine similarity dispatcher](docs/figures/routing_r1.png)
 
@@ -386,9 +386,9 @@ The centres route is blocked by measure when the attribute is relative and perio
 
 ![Figure R3: the nested contraction plan](docs/figures/routing_r3.png)
 
-The decline conditions named in the first node are the shapes the contraction does not cover: $A$ differing between the two densities, that is, their carrying different numbers of attributes; their nested attributes disagreeing on the per-level `[r]` or `[sym]` of the tag tree; or an inner or intermediate co-transposition unit, which is not yet implemented. Under `'auto'` a decline falls back to enumeration of the joint tuple pair; under `'contract'`, `'mobius'` or `'centres'` it is an error, since the named method could not be honoured.
+The decline conditions named in the first node are the shapes the contraction does not cover: $A$ differing between the two densities, that is, their carrying different numbers of attributes; their nested attributes disagreeing on the per-level `[r]` or `[exch]` of the tag tree; or an inner or intermediate co-transposition unit, which is not yet implemented. Under `'auto'` a decline falls back to enumeration of the joint tuple pair; under `'contract'`, `'mobius'` or `'centres'` it is an error, since the named method could not be honoured.
 
-**Figure R4. Point evaluation** (`eval_exp_tens` / `evalExpTens`). The selector chooses between materializing tuple centres and the Möbius evaluator. An explicit `method='mobius'` is refused on an ordered attribute but not on a nested one, which the per-level evaluator serves.
+**Figure R4. Point evaluation** (`eval_maet` / `evalMaet`). The selector chooses between materializing tuple centres and the Möbius evaluator. An explicit `method='mobius'` is refused on an ordered attribute but not on a nested one, which the per-level evaluator serves.
 
 ![Figure R4: the point-evaluation dispatcher](docs/figures/routing_r4.png)
 
@@ -412,7 +412,7 @@ Both self inner products are memoized on their densities (`_self_ip_cache` / the
 
 ### The user-facing `method` argument
 
-The `method` keyword on `cos_sim_exp_tens`, `eval_exp_tens`, `sweep_cos_sim_exp_tens`, and `entropy_exp_tens` (and the matching MATLAB functions) is listed in §2. Most users should leave it at `'auto'`. Hand-overriding is useful for benchmarking or for tests that need a specific method to exercise specific code paths; a forced method bypasses the cost race but never the structural guards, and on the cosine path it remains subject to the ordered-attribute override and the post-hoc guard. The density-list and batched forms forward `method`, `truncation_sigmas`, and `kernel_precision` to every entry in both languages.
+The `method` keyword on `sim_maet`, `eval_maet`, `sweep_sim_maet`, and `entropy_maet` (and the matching MATLAB functions) is listed in §2. Most users should leave it at `'auto'`. Hand-overriding is useful for benchmarking or for tests that need a specific method to exercise specific code paths; a forced method bypasses the cost race but never the structural guards, and on the cosine path it remains subject to the ordered-attribute override and the post-hoc guard. The density-list and batched forms forward `method`, `truncation_sigmas`, and `kernel_precision` to every entry in both languages.
 
 ---
 
@@ -536,7 +536,7 @@ At very small σ relative to the period $P$, the Gaussian kernel approaches a de
 
 ### Cross-language parity
 
-The cross-language golden tests (`test_cross_language_golden.py` and `.m`) hard-code the outputs of a fixed set of deterministic cases – single-multiset and multi-attribute cosine similarity on the Möbius method, Rényi-2 entropy, orbit-path `tensor_harmonicity`, orbit-path `eval_exp_tens`, and Shannon entropy – and require both languages to reproduce them to $10^{-8}$ relative ($10^{-12}$ absolute), the standard tolerance used throughout the v3 suite for orbit-vs-pairwise agreement on shared regimes. The cosine cases force `method='mobius'` so that the Möbius route is genuinely exercised rather than the cost model's fallback. Either language drifting fails its own suite.
+The cross-language golden tests (`test_cross_language_golden.py` and `.m`) hard-code the outputs of a fixed set of deterministic cases – single-multiset and multi-attribute cosine similarity on the Möbius method, Rényi-2 entropy, orbit-path `tensor_harmonicity`, orbit-path `eval_maet`, and Shannon entropy – and require both languages to reproduce them to $10^{-8}$ relative ($10^{-12}$ absolute), the standard tolerance used throughout the v3 suite for orbit-vs-pairwise agreement on shared regimes. The cosine cases force `method='mobius'` so that the Möbius route is genuinely exercised rather than the cost model's fallback. Either language drifting fails its own suite.
 
 Beyond the goldens, the parity commitment is that the two languages apply the *same rules and routes* to the same input (§7); the cases where they currently do not are enumerated with evidence in ROUTING_MAP §10.
 
@@ -554,12 +554,12 @@ Parity is defined at the level of *decisions*, not of constants. Every selector,
 
 | Style | MATLAB | Python |
 |:---|:---|:---|
-| Function names | `cosSimExpTens` (camelCase) | `cos_sim_exp_tens` (snake_case) |
+| Function names | `simMaet` (camelCase) | `sim_maet` (snake_case) |
 | Density tag / class | struct with `tag == 'MaetDensity'` | `MaetDensity` (CapWords) |
 | Constants in user code | `PERIOD = 1200` (UPPER_SNAKE) | `PERIOD = 1200` (UPPER_SNAKE) |
 | Private helpers | `+internal/helperName.m` | `_helper_name` |
 | Package internals | `+mobius/canonicalForm.m` | `_mobius.canonical_form` |
-| Local functions of an entry point | `localCosSimMA` inside `cosSimExpTens.m` | `_cos_sim_exp_tens_ma` in `_tensor/cosine.py` |
+| Local functions of an entry point | `localCosSimMA` inside `simMaet.m` | `_sim_maet_ma` in `_tensor/cosine.py` |
 
 The function-name mapping is the most consequential. Every public Python function `mpt.foo_bar` should have a MATLAB sibling `fooBar` with semantically identical inputs, outputs, and side effects (after applying the absence-sentinel and container-type conventions below). The known exceptions are the circular measures `balance` / `evenness`, whose MATLAB files are `balanceCircular.m` / `evennessCircular.m`, and `TranslatedSweep`, which has no MATLAB twin.
 
@@ -582,9 +582,9 @@ The function-name mapping is the most consequential. Every public Python functio
 | Per-row spectrum kwargs | cell array | list/tuple |
 | Density | struct with `.tag == 'MaetDensity'` | `MaetDensity` instance |
 | Single-multiset view | struct with `.tag == 'SingleMultisetView'` | `_SingleMultisetView` instance |
-| Self-IP memo | `selfIP` field keyed by `'route|ts|extra'` strings; the updated structs are returned as extra outputs (`[s, densXOut, densYOut] = cosSimExpTens(...)`) because structs have value semantics | `_self_ip_cache` dict keyed by `(route, ts, kp, extra)` tuples, updated in place |
+| Self-IP memo | `selfIP` field keyed by `'route|ts|extra'` strings; the updated structs are returned as extra outputs (`[s, densXOut, densYOut] = simMaet(...)`) because structs have value semantics | `_self_ip_cache` dict keyed by `(route, ts, kp, extra)` tuples, updated in place |
 
-MATLAB structs and Python instances are used interchangeably for the density data structure; field names match up to case convention (`n_attrs` ↔ `nAttrs`, `p_attr` ↔ `pAttr`, `is_rel` ↔ `isRel`). This is non-idiomatic Python (a real Python implementation would use `__slots__` and properties throughout), but is the path of least resistance for twin-language parity. The one structural difference follows from value semantics: Python densities materialize lazy fields in place, whereas MATLAB consumers must call `internal.ensureExpTensExpensive` and keep the returned struct.
+MATLAB structs and Python instances are used interchangeably for the density data structure; field names match up to case convention (`n_attrs` ↔ `nAttrs`, `p_attr` ↔ `pAttr`, `is_rel` ↔ `isRel`). This is non-idiomatic Python (a real Python implementation would use `__slots__` and properties throughout), but is the path of least resistance for twin-language parity. The one structural difference follows from value semantics: Python densities materialize lazy fields in place, whereas MATLAB consumers must call `internal.ensureMaetExpensive` and keep the returned struct.
 
 ### Weight broadcast
 
@@ -601,6 +601,20 @@ The same rules apply to MAET inputs at the per-attribute level. The full mapping
 ### Call-scope guards
 
 Both languages wrap every user-facing entry point in a scope guard (`_dispatch_scope` / `_with_dispatch_scope` in `_defaults.py`; `internal.callGuard`, combining `internal.dispatchScope` and the kernel-chunk-bytes pin, in MATLAB). On the outermost entry the guard resets the once-per-call throttle on dispatch messages and pins the `kernel_chunk_bytes` resolution (`'auto'` = half of currently available physical memory) so that recursive inner calls neither repeat announcements nor re-query the operating system. New entry points must take the guard as their first executable line.
+
+### Kernel-path culls
+
+Four evaluation paths, and which cull each takes:
+
+| mode | cull |
+|---|---|
+| absolute non-periodic, dim = 1 | sorted centres + binary search |
+| absolute / relative non-periodic, dim ≥ 2 | bucket lattice on the centres' bounding box, padded by one bucket on every face |
+| absolute periodic, dim = 1 | circular bucket window, valid while the window is narrower than the circle |
+| absolute periodic, dim ≥ 2 | none needed: the distinct-value table collapses the per-tuple kernel to one wrapped-Gaussian evaluation per distinct source value |
+| relative periodic | bucket lattice on the circle, neighbour indices modulo the bucket count, box half-width √2·k·σ |
+
+The two lattice culls differ only in how the neighbourhood is formed. The non-periodic one pads the lattice so a neighbour can never leave it and computes the whole neighbourhood as one broadcast addition on precomputed strides; the periodic one wraps instead of padding, so its indices are accumulated a coordinate at a time. Both then look buckets up by membership in the sorted list of occupied ones, evaluate the quadratic form exactly on the surviving pairs, and threshold it as the dense path does.
 
 ### Twin-language test parity
 
@@ -619,6 +633,11 @@ Twin-language parity is the default but not a rule. Acceptable divergences:
 - Language-idiomatic conveniences that do not change semantics (e.g., Python dataclass defaults, MATLAB `arguments` block validation, the Python `TranslatedSweep` reduction and per-density caches, which are speed-only).
 - Performance optimizations that exploit per-language strengths (e.g., Python's single-attribute helper route in the inner-product core versus MATLAB's log-kernel form). The output must agree within the accuracy floor.
 - The fitted constants of the cost models (above).
+- Shape rules that are idiomatic in one language and not in the other, where each language's rule is the one its users expect. The standing case is the batched-raw dispatch of `simMaet` / `sim_maet`, `evalMaet` / `eval_maet`, and `entropyMaet` / `entropy_maet`: MATLAB enters batched-raw on an operand that is a matrix with both dimensions greater than one, so a `K`-by-1 column is a vector and is broadcast as one shared multiset, while Python enters it on `ndim == 2`, so a `(K, 1)` array is K rows of one element each. Forcing either to the other's convention would make one side read as a translation of the other. The divergence is documented in each entry point's docstring and in USER_GUIDE §6, and pinned by `test_batched_shape_rule.py` / `.m`; a batch of one-element multisets is written the same way in both languages by padding to two columns with NaN, which the batched path strips per row.
+
+- Drawing methods one language's plotting library supports and the other's does not. The standing case is `plotMaet3d` / `plot_maet_3d`: both offer `ellipsoids`, which is geometry, and `points`, which is a scatter, but `slices` is MATLAB only. It draws the volume as a stack of texture-mapped surfaces with per-texel opacity, and matplotlib has no texture-mapped 3-D surface, so the Python side would need a different mechanism rather than a translation. The role each method serves is the same on both sides — the kernels, the density sampled, the density integrated — and only the third is missing. Related, and worth knowing before reimplementing either: MATLAB draws truecolour marks with unmapped opacity opaque once the figure settles while rendering them correctly during a drag, so `points` uses mapped colour and a scaled alphamap and `slices` uses a surface's `AlphaData`; both of those render dependably, and the obvious first implementation does not.
+
+- Parallelism the runtime provides in one language and not the other. MATLAB threads elementwise transcendental arithmetic in the runtime and gives each `parfor` worker a single computational thread; NumPy's `exp` is single-threaded whatever the environment, so the Python kernel paths spread that arithmetic over a thread pool themselves and expose the count as the `kernel_threads` default, which MATLAB has no use for. The split is by contiguous spans of evaluation points, and every point keeps its serial arithmetic, so the values are bit-identical at any thread count (`test_kernel_threads.py`). Measured on sixteen cores: about 7× on the kernel portion of a call, which is the bulk of most evaluations.
 
 Divergences that *do* change semantics or output values are never acceptable without explicit documentation; the ones that currently exist are recorded in ROUTING_MAP §10 with the side whose behaviour the other should adopt.
 
@@ -632,7 +651,7 @@ A walk-through for adding a new measure to the toolbox. The example: imagine add
 
 - *Tier 1 (density)*: no. A `tonality_index` is computed from a density, not a different density structure.
 - *Tier 2 (primitive)*: no. It does not introduce a new operation on densities – it composes existing primitives.
-- *Tier 3 (consumer wrapper)*: yes. Composes `cos_sim_exp_tens` with a reference template.
+- *Tier 3 (consumer wrapper)*: yes. Composes `sim_maet` with a reference template.
 
 ### 2. Decide which file it lives in
 
@@ -640,11 +659,11 @@ In Python: `harmony.py` if the measure is harmony-flavoured; a new module otherw
 
 ### 3. Decide which existing primitives it consumes
 
-For `tonality_index`: presumably it computes `cos_sim_exp_tens` against one or more reference tonal-centre templates and returns a scalar derived from the resulting similarity values. It should consume `cos_sim_exp_tens` rather than implementing its own inner product, and it should pass `method`, `truncation_sigmas`, and `kernel_precision` through rather than dropping them.
+For `tonality_index`: presumably it computes `sim_maet` against one or more reference tonal-centre templates and returns a scalar derived from the resulting similarity values. It should consume `sim_maet` rather than implementing its own inner product, and it should pass `method`, `truncation_sigmas`, and `kernel_precision` through rather than dropping them.
 
 ### 4. Single-multiset corner only, or general multi-attribute input?
 
-There is one density type, so the question is not which *path* to write but which *shapes* the measure accepts. Most consumer wrappers are introduced for single-multiset input (one attribute, one event: a chord, a rhythm) and reach the primitives through `build_exp_tens` on a 1-D array, which returns a `MaetDensity` at the `A = N = 1` corner. Write the measure against that density; do not special-case the corner yourself – the primitives do so where it is faster, and the numbers are the same either way. If the measure has a natural interpretation on general multi-attribute input, accept the list-of-attribute-matrices form as well and let the same primitives handle it. If it does not, validate the shape at entry and raise `ValueError` (Python) / `error('tonalityIndex:singleMultisetOnly', ...)` (MATLAB) for input that is not a single multiset, so that a caller learns the restriction from the message rather than from a wrong number.
+There is one density type, so the question is not which *path* to write but which *shapes* the measure accepts. Most consumer wrappers are introduced for single-multiset input (one attribute, one event: a chord, a rhythm) and reach the primitives through `build_maet` on a 1-D array, which returns a `MaetDensity` at the `A = N = 1` corner. Write the measure against that density; do not special-case the corner yourself – the primitives do so where it is faster, and the numbers are the same either way. If the measure has a natural interpretation on general multi-attribute input, accept the list-of-attribute-matrices form as well and let the same primitives handle it. If it does not, validate the shape at entry and raise `ValueError` (Python) / `error('tonalityIndex:singleMultisetOnly', ...)` (MATLAB) for input that is not a single multiset, so that a caller learns the restriction from the message rather than from a wrong number.
 
 ### 5. Decide whether canonical-form dedup applies
 
@@ -727,12 +746,7 @@ Deprecations follow a two-release cycle:
 
 2. *Release N+1 or later*: remove the deprecated function. The CHANGELOG `### Removed` section documents the removal.
 
-Active examples in v3:
-
-- `batch_cos_sim_exp_tens` (Python) / `batchCosSimExpTens` (MATLAB): deprecated as of v3, still functional as thin shims forwarding to `cos_sim_exp_tens` batched-raw mode.
-- `cos_sim_exp_tens_raw` and `eval_exp_tens_raw` (Python): deprecated as of v3, still functional as thin shims forwarding to the unified entry points.
-
-These shims will be removed in a future release; the timing is left open.
+In v3 this cycle completed for the v2.0 entry points: `batchCosSimExpTens` / `batch_cos_sim_exp_tens`, `cos_sim_exp_tens_raw`, and `eval_exp_tens_raw` were deprecated during the 2.1 and 2.2 milestones and are removed in 3.0, alongside the renaming of the five core entry points on the MAET. Nothing is currently deprecated: the toolbox ships no shims.
 
 ### Release artefact list
 

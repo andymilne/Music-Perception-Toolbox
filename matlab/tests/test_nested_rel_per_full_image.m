@@ -37,17 +37,17 @@ nrpf_P = 12.0;
 nrpf_chord = 2; nrpf_nCh = 2; nrpf_N = 2;
 nrpf_tags = repelem(0:nrpf_nCh - 1, nrpf_chord);
 nrpf_spec = struct('tags', nrpf_tags, 'r', [1 nrpf_nCh], ...
-                   'sym', [true true], 'rel', [0 1]);
+                   'exch', [true true], 'rel', [0 1]);
 
 nrpf_pts = @(seed) nrpfPts(seed, nrpf_P, nrpf_chord * nrpf_nCh, nrpf_N);
-nrpf_dens = @(p, sigma) buildExpTens({p}, {[]}, 'specs', {nrpf_spec}, ...
+nrpf_dens = @(p, sigma) buildMaet({p}, {[]}, 'specs', {nrpf_spec}, ...
     'sigma', sigma, 'isPer', true, 'period', nrpf_P, 'verbose', false);
 
 % --- contract == all-image brute force at every sigma/P ---
 for nrpf_sop = [0.02 0.05 0.1 0.2 0.3]
     nrpf_sigma = nrpf_sop * nrpf_P;
     px = nrpf_pts(1); py = nrpf_pts(2);
-    c = cosSimExpTens(nrpf_dens(px, nrpf_sigma), nrpf_dens(py, nrpf_sigma), ...
+    c = simMaet(nrpf_dens(px, nrpf_sigma), nrpf_dens(py, nrpf_sigma), ...
                       'method', 'contract', 'verbose', false);
     r = nrpfRefCos(px, py, nrpf_sigma, nrpf_P, nrpf_tags, nrpf_nCh, true);
     results{end+1, 1} = sprintf( ...

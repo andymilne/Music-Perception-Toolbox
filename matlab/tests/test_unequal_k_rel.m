@@ -34,13 +34,13 @@ for Kb = [5, 7, 12]
     scale = sort(1200 * rand(Kb, 1));
     for per = [true, false]
         P = 1200.0 * per;
-        dx = buildExpTens(triad, ones(3, 1), 30.0, 2, true, per, P, 'verbose', false);
-        dy = buildExpTens(scale, ones(Kb, 1), 30.0, 2, true, per, P, 'verbose', false);
+        dx = buildMaet(triad, ones(3, 1), 30.0, 2, true, per, P, 'verbose', false);
+        dy = buildMaet(scale, ones(Kb, 1), 30.0, 2, true, per, P, 'verbose', false);
         % Must not error, and orbit must match bulger.
         ok = false;
         try
-            sM = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
-            sB = cosSimExpTens(dx, dy, 'method', 'bulger', 'verbose', false);
+            sM = simMaet(dx, dy, 'method', 'mobius', 'verbose', false);
+            sB = simMaet(dx, dy, 'method', 'bulger', 'verbose', false);
             ok = isfinite(sM) && abs(sM - sB) < 1e-8;
         catch err
             fprintf('  unequal-K K3vsK%d per=%d errored: %s\n', Kb, per, err.message);
@@ -57,11 +57,11 @@ if exist(jsonPath, 'file')
     raw = jsondecode(fileread(jsonPath));
     for ci = 1:numel(raw)
         cc = raw(ci);
-        dx = buildExpTens(cc.triad(:), ones(numel(cc.triad), 1), 30.0, 2, ...
+        dx = buildMaet(cc.triad(:), ones(numel(cc.triad), 1), 30.0, 2, ...
             true, logical(cc.per), cc.period, 'verbose', false);
-        dy = buildExpTens(cc.scale(:), ones(cc.Kb, 1), 30.0, 2, ...
+        dy = buildMaet(cc.scale(:), ones(cc.Kb, 1), 30.0, 2, ...
             true, logical(cc.per), cc.period, 'verbose', false);
-        sM = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
+        sM = simMaet(dx, dy, 'method', 'mobius', 'verbose', false);
         results{end+1, 1} = sprintf('unequal-K rel K3 vs K%d per=%d: matches Python (1e-6)', ...
             cc.Kb, cc.per);
         results{end, 2} = abs(sM - cc.s) < 1e-6;
@@ -69,11 +69,11 @@ if exist(jsonPath, 'file')
 end
 
 %% ---- Symmetry: cos(A,B) == cos(B,A) with sizes swapped ----
-dxT = buildExpTens(triad, ones(3, 1), 30.0, 2, true, true, 1200, 'verbose', false);
+dxT = buildMaet(triad, ones(3, 1), 30.0, 2, true, true, 1200, 'verbose', false);
 scale7 = sort(1200 * rand(7, 1));
-dyS = buildExpTens(scale7, ones(7, 1), 30.0, 2, true, true, 1200, 'verbose', false);
-sAB = cosSimExpTens(dxT, dyS, 'method', 'mobius', 'verbose', false);
-sBA = cosSimExpTens(dyS, dxT, 'method', 'mobius', 'verbose', false);
+dyS = buildMaet(scale7, ones(7, 1), 30.0, 2, true, true, 1200, 'verbose', false);
+sAB = simMaet(dxT, dyS, 'method', 'mobius', 'verbose', false);
+sBA = simMaet(dyS, dxT, 'method', 'mobius', 'verbose', false);
 results{end+1, 1} = 'unequal-K rel: cos(A,B) == cos(B,A) (size order symmetric)';
 results{end, 2} = abs(sAB - sBA) < 1e-9;
 

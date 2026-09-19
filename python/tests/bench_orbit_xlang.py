@@ -11,7 +11,7 @@ heuristic in ``mobius.contract``).
 What we measure:
   - ``inner_product_orbit`` on a single (K_x, K_y) kernel.
   - ``inner_product_orbit_pw_batched`` on a batch of P pairs.
-  - End-to-end ``cos_sim_exp_tens`` single-multiset orbit (a sanity check that
+  - End-to-end ``sim_maet`` single-multiset orbit (a sanity check that
     includes dispatcher overhead).
 
 Each configuration runs a small warm-up to amortise import / cache
@@ -27,7 +27,7 @@ import numpy as np
 
 import mpt
 from mpt._mobius import inner_product_orbit, inner_product_orbit_pw_batched
-from mpt.tensor import cos_sim_exp_tens
+from mpt.tensor import sim_maet
 
 
 # ----------------------------------------------------------------------
@@ -107,13 +107,13 @@ def bench_orbit_batched(r, K, P):
 
 
 def bench_cossim_orbit_sm(r, K, P_unused):
-    """End-to-end cos_sim_exp_tens single-multiset orbit (with dispatcher overhead)."""
+    """End-to-end sim_maet single-multiset orbit (with dispatcher overhead)."""
     rng = np.random.default_rng(seed=r * 13 + K)
     p1 = np.sort(rng.uniform(0, 2000, K))
     p2 = np.sort(rng.uniform(0, 2000, K))
     w = np.ones(K)
     return _timed(
-        lambda: cos_sim_exp_tens(
+        lambda: sim_maet(
             p1, w, p2, w, 30.0, r, False, False, 0.0,
             method='mobius', verbose=False,
         ),
@@ -138,4 +138,4 @@ if __name__ == '__main__':
 
         print(f"python,inner_product_orbit,{r},{K},1,{t_single:.4f}")
         print(f"python,inner_product_orbit_pw_batched,{r},{K},{P},{t_batched:.4f}")
-        print(f"python,cos_sim_exp_tens_sa_orbit,{r},{K},1,{t_cossim:.4f}")
+        print(f"python,sim_maet_sa_orbit,{r},{K},1,{t_cossim:.4f}")

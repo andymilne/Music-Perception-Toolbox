@@ -40,7 +40,7 @@ def build_abs(K, N, r, seed_shift=0):
     j = np.arange(K * N, dtype=float) + 1 + seed_shift
     vals = (2000.0 * np.mod(11.0 * j * j + 5.0 * j, 397.0) / 397.0
             ).reshape(K, N)
-    return mpt.build_exp_tens([vals], None, [30.0], [r], [False],
+    return mpt.build_maet([vals], None, [30.0], [r], [False],
                               [False], [0.0], verbose=False)
 
 
@@ -130,12 +130,12 @@ def main():
 
             def t_cos_fresh():
                 clear_memos(d_x, d_y)
-                return mpt.cos_sim_exp_tens(d_x, d_y, method="mobius",
+                return mpt.sim_maet(d_x, d_y, method="mobius",
                                             verbose=False)
 
             def t_osd_fresh():
                 clear_memos(d_x, d_y)
-                return mpt.cos_sim_exp_tens(
+                return mpt.sim_maet(
                     d_x, d_y, method="mobius",
                     normalize="oneSidedDenom", verbose=False)
 
@@ -143,7 +143,7 @@ def main():
                 # Memo persists across calls on the same objects: after
                 # the first call, both self terms are cached and only
                 # the cross matrix is computed.
-                return mpt.cos_sim_exp_tens(d_x, d_y, method="mobius",
+                return mpt.sim_maet(d_x, d_y, method="mobius",
                                             verbose=False)
 
             regimes = (("cos_fresh_3mat", t_cos_fresh),
@@ -172,10 +172,10 @@ def main():
         d_y = build_abs(4, 3, r, seed_shift=137)
         forced = {}
         for meth in ("bulger", "mobius"):
-            mpt.cos_sim_exp_tens(d_x, d_y, method=meth, verbose=False)
+            mpt.sim_maet(d_x, d_y, method=meth, verbose=False)
 
             def fn(meth=meth):
-                return mpt.cos_sim_exp_tens(d_x, d_y, method=meth,
+                return mpt.sim_maet(d_x, d_y, method=meth,
                                             verbose=False)
             t, _, _ = adaptive_time(fn)
             forced[meth] = t * 1000.0

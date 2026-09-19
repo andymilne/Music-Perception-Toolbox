@@ -15,7 +15,7 @@ Tests :func:`mpt.tensor._chord_canonical_key` and
   r / period produce different keys for the same chord input).
 - Precision rounding collapses arithmetic noise.
 
-Tests are independent of `batch_cos_sim_exp_tens`'s integration with the
+Tests are independent of the batched-raw path's integration with the
 helpers — that integration is covered by the existing test suite, which
 runs unchanged after the refactor.
 """

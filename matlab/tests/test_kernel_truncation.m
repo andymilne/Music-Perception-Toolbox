@@ -282,7 +282,7 @@ rel_w1 = max(abs(v_w1 - ref_w1)) ./ max(max(abs(ref_w1)), eps);
 results{end+1, 1} = 'kernel: truncated path correct at maxWin == 1';
 results{end, 2} = rel_w1 < 200 * exp(-18);
 
-% (b) demo_expTensorPlots config 3, the exact failing inputs.
+% (b) demo_maetPlots config 3, the exact failing inputs.
 sigma_eff = 10 / sqrt(2);
 res = 481;
 x_1d = linspace(0, 1200, res);
@@ -295,7 +295,7 @@ ref_demo = local_ref_kernel_sum(C_big, wJ_big, mean_x, sigma_eff, ...
 v_demo = internal.gaussianKernelSum(C_big, wJ_big, mean_x, sigma_eff, ...
     'truncationSigmas', 6);
 rel_demo = max(abs(v_demo - ref_demo)) ./ max(max(abs(ref_demo)), eps);
-results{end+1, 1} = 'kernel: demo_expTensorPlots config 3 inputs';
+results{end+1, 1} = 'kernel: demo_maetPlots config 3 inputs';
 results{end, 2} = rel_demo < 200 * exp(-18);
 
 % Final reset so the test doesn't leak state.

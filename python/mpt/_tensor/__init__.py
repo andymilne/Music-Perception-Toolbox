@@ -6,7 +6,7 @@ re-export shim over this sub-package).
 
 Module layout:
   density.py        Density classes + MA-input helpers.
-  build.py          build_exp_tens (multi-attribute; the single-multiset
+  build.py          build_maet (multi-attribute; the single-multiset
                     density is its A = N = 1 corner).
   preprocessing.py  difference_events, bind_events, translate_attributes,
                     simplex_vertices.
@@ -15,8 +15,8 @@ Module layout:
   windowed.py       windowed_similarity, windowed_entropy (event weighting).
   canonical.py      Canonical-form key helpers for batched dedup.
   dispatch.py       Path-selection cost model + shared helpers.
-  eval.py           eval_exp_tens (joint centres / factored / Möbius).
-  cosine.py         cos_sim_exp_tens + batch_cos_sim_exp_tens.
+  eval.py           eval_maet (joint centres / factored / Möbius).
+  cosine.py         sim_maet and sweep_sim_maet.
   sweep.py          Translation sweeps as a mixture in the offset.
 
 See ARCHITECTURE.md §3 ("Code layering") for the layered design.
@@ -31,12 +31,12 @@ from .density import (
 )
 
 from .build import (
-    build_exp_tens,
+    build_maet,
     _looks_like_multi_attr,
 )
 
 from .sweep import (
-    sweep_cos_sim_exp_tens,
+    sweep_sim_maet,
     sweep_eligibility,
 )
 
@@ -69,23 +69,19 @@ from .dispatch import (
 )
 
 from .eval import (
-    eval_exp_tens,
-    eval_exp_tens_raw,
+    eval_maet,
 )
 
-from .cosine import (batch_cos_sim_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_raw)
+from .cosine import sim_maet
 
 
 __all__ = [
     # Density (public)
     "MaetDensity",
     # Build / eval / cosine (public)
-    "build_exp_tens",
-    "eval_exp_tens",
-    "eval_exp_tens_raw",
-    "cos_sim_exp_tens",
-    "cos_sim_exp_tens_raw",
-    "batch_cos_sim_exp_tens",
+    "build_maet",
+    "eval_maet",
+    "sim_maet",
     # Preprocessing (public)
     "bind_events",
     "difference_events",

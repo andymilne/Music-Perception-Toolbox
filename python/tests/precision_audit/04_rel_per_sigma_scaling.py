@@ -5,7 +5,7 @@ isn't exact at non-tiny σ/P), it should vanish as σ shrinks.
 """
 import numpy as np
 from mpt.tensor import (
-    build_exp_tens, _cos_sim_exp_tens_sa_orbit, _cos_sim_exp_tens_sa_pairwise,
+    build_maet, _sim_maet_sa_orbit, _sim_maet_sa_pairwise,
 )
 
 
@@ -15,10 +15,10 @@ def test_case(seed, r, K, sigma, period=1200.0):
     w_a = rng.uniform(0.1, 1.0, size=K)
     p_b = rng.uniform(0, period, size=K)
     w_b = rng.uniform(0.1, 1.0, size=K)
-    da = build_exp_tens(p_a, w_a, sigma, r, True, True, period, verbose=False)
-    db = build_exp_tens(p_b, w_b, sigma, r, True, True, period, verbose=False)
-    o_xy, o_xx, o_yy, _ = _cos_sim_exp_tens_sa_orbit(da, db)
-    p_xy, p_xx, p_yy = _cos_sim_exp_tens_sa_pairwise(da, db, verbose=False)
+    da = build_maet(p_a, w_a, sigma, r, True, True, period, verbose=False)
+    db = build_maet(p_b, w_b, sigma, r, True, True, period, verbose=False)
+    o_xy, o_xx, o_yy, _ = _sim_maet_sa_orbit(da, db)
+    p_xy, p_xx, p_yy = _sim_maet_sa_pairwise(da, db, verbose=False)
     cos_o = o_xy / np.sqrt(o_xx * o_yy)
     cos_p = p_xy / np.sqrt(p_xx * p_yy)
     return abs(cos_o - cos_p) / abs(cos_p)

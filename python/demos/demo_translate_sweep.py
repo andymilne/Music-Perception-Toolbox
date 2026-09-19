@@ -1,7 +1,7 @@
 """demo_translate_sweep.py
 
 Pre-tensor sliding-comparison sweep with ``translate_attributes`` and the
-raw-MA list mode of ``cos_sim_exp_tens``.
+raw-MA list mode of ``sim_maet``.
 
 Scenario: a 3-note motif (C E G) hidden inside a 7-note melody
 (D E F C E G A, one note per second). The motif appears exactly at
@@ -13,13 +13,13 @@ sweep should peak at (0 cents, 3 s) where the query aligns with the
 embedded C-E-G, and at (1200 cents, 3 s) by octave periodicity.
 
 The workflow is two function calls: one to ``translate_attributes``, one
-to ``cos_sim_exp_tens`` (raw-MA scalar-vs-list form, with the
+to ``sim_maet`` (raw-MA scalar-vs-list form, with the
 translated ``p_attr`` list as one operand and the reference
 ``p_attr`` as the other). The build step is internalised: the
 reference is built once, each translated query once. The sweep is
 specified as a length-A offsets list, one row of M candidate shifts per
 attribute; Section 3 builds it. Section 7 shows the same sweep as a
-single call to ``sweep_cos_sim_exp_tens``, which never builds the M
+single call to ``sweep_sim_maet``, which never builds the M
 translated queries at all.
 
 Compare ``windowed_similarity`` (see ``demo_helix_blend`` and
@@ -33,9 +33,9 @@ and does not require choosing a window family.
 See also
 --------
 mpt.translate_attributes
-mpt.cos_sim_exp_tens
-mpt.sweep_cos_sim_exp_tens
-mpt.build_exp_tens
+mpt.sim_maet
+mpt.sweep_sim_maet
+mpt.build_maet
 mpt.windowed_similarity
 """
 
@@ -122,7 +122,7 @@ offsets = [P_mesh.reshape(1, -1),     # pitch shifts (attribute 0)
 qry_pAttr_swept, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(qry_pAttr, None, offsets))
 
 # The returned list of translated copies carries its offsets with it (a
-# TranslatedSweep), so cos_sim_exp_tens below can recognise the sweep;
+# TranslatedSweep), so sim_maet below can recognise the sweep;
 # see Section 7.
 print(f"  qry_pAttr_swept: {type(qry_pAttr_swept).__name__}, "
       f"length {len(qry_pAttr_swept)}")
@@ -135,9 +135,9 @@ print()
 # 4. Raw-MA scalar-vs-list cosine similarity: one call
 # =====================================================================
 
-print("=== 4. cos_sim_exp_tens (raw-MA list mode) ===")
+print("=== 4. sim_maet (raw-MA list mode) ===")
 
-S_flat = np.asarray(mpt.cos_sim_exp_tens(
+S_flat = np.asarray(mpt.sim_maet(
     ref_pAttr, None, qry_pAttr_swept, None,
     sigma, r, is_rel, is_per, periods,
     verbose=False,
@@ -201,7 +201,7 @@ print()
 print("=== 6. Equivalent explicit build loop ===")
 print("  This is what the raw-MA list mode does internally; spelled")
 print("  out here so the relationship between translate_attributes,")
-print("  build_exp_tens, and cos_sim_exp_tens is transparent.")
+print("  build_maet, and sim_maet is transparent.")
 print()
 
 mpt.show_pre_maet(ref_pAttr, None, names=['pitch', 'time'], sigma=sigma,
@@ -210,15 +210,15 @@ mpt.show_pre_maet(qry_pAttr_swept[0], None, names=['pitch', 'time'],
                   sigma=sigma, is_rel=is_rel, is_per=is_per, period=periods)
 print()
 
-dens_ref = mpt.build_exp_tens(
+dens_ref = mpt.build_maet(
     ref_pAttr, None, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 S_manual = np.empty(M, dtype=np.float64)
 for m, pa in enumerate(qry_pAttr_swept):
-    dens_q = mpt.build_exp_tens(
+    dens_q = mpt.build_maet(
         pa, None, sigma, r, is_rel, is_per, periods, verbose=False,
     )
-    S_manual[m] = mpt.cos_sim_exp_tens(dens_ref, dens_q, verbose=False)
+    S_manual[m] = mpt.sim_maet(dens_ref, dens_q, verbose=False)
 
 discrepancy = float(np.max(np.abs(S_flat - S_manual)))
 print(f"  max |S_raw - S_manual| = {discrepancy:.2e} "
@@ -228,10 +228,10 @@ assert discrepancy < 1e-12, \
 
 
 # =====================================================================
-# 7. The same sweep without building M queries: sweep_cos_sim_exp_tens
+# 7. The same sweep without building M queries: sweep_sim_maet
 # =====================================================================
 
-print("\n=== 7. sweep_cos_sim_exp_tens (one call, no translated copies) ===")
+print("\n=== 7. sweep_sim_maet (one call, no translated copies) ===")
 print("  A uniform translation of the query enters the inner product only")
 print("  through the offset, so the whole sweep is one pass over the tuple")
 print("  pairs and then one evaluation per offset. The pitch attribute is")
@@ -239,16 +239,16 @@ print("  periodic, which the mixture route refuses; under method='auto'")
 print("  the orbit route carries the sweep instead (the wrapped kernel")
 print("  absorbs the periodicity), so the call is the same either way.")
 
-dens_qry = mpt.build_exp_tens(
+dens_qry = mpt.build_maet(
     qry_pAttr, None, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 offsets_am = np.vstack([P_mesh.ravel(), T_mesh.ravel()])      # (A, M)
-S_sweep = mpt.sweep_cos_sim_exp_tens(dens_ref, dens_qry, offsets_am,
+S_sweep = mpt.sweep_sim_maet(dens_ref, dens_qry, offsets_am,
                                      verbose=False)
 discrepancy_sweep = float(np.max(np.abs(S_flat - S_sweep)))
 print(f"  max |S_raw - S_sweep| = {discrepancy_sweep:.2e}")
 assert discrepancy_sweep < 1e-8, \
-    "sweep_cos_sim_exp_tens disagrees with the per-offset route."
+    "sweep_sim_maet disagrees with the per-offset route."
 
 print("\n=== Demo complete ===")
 plt.show()

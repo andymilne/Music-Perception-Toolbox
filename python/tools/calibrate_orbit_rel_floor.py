@@ -39,7 +39,7 @@ import time
 import numpy as np
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 P = 12.0
 SIGMA_OVER_P = 0.025
@@ -51,12 +51,12 @@ def _dens(seed, K, r):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, K))
     w = 0.2 + 0.8 * rng.random(K)
-    return build_exp_tens(p, w, SIGMA_OVER_P * P, r, True, True, P,
+    return build_maet(p, w, SIGMA_OVER_P * P, r, True, True, P,
                           verbose=False)
 
 
 def _cos(x, y):
-    return cos_sim_exp_tens(x, y, method='mobius', verbose=False)
+    return sim_maet(x, y, method='mobius', verbose=False)
 
 
 def main():

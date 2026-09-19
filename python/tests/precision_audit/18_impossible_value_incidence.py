@@ -21,7 +21,7 @@ import numpy as np
 
 import mpt._tensor.dispatch as D
 from mpt.tensor import (
-    build_exp_tens, _cos_sim_exp_tens_ma_orbit, _cos_sim_exp_tens_ma_pairwise,
+    build_maet, _sim_maet_ma_orbit, _sim_maet_ma_pairwise,
 )
 
 P = 1200.0
@@ -45,13 +45,13 @@ def probe(r, K, sigma, is_rel, is_per, seed):
     px = np.sort(rng.uniform(0, P, (K, 1)))
     py = np.sort(rng.uniform(0, P, (K, 1)))
     w = np.ones((K, 1))
-    dx = build_exp_tens([px], [w], *geom, verbose=False)
-    dy = build_exp_tens([py], [w], *geom, verbose=False)
+    dx = build_maet([px], [w], *geom, verbose=False)
+    dy = build_maet([py], [w], *geom, verbose=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with np.errstate(all="ignore"):
-            oxy, oxx, oyy = _cos_sim_exp_tens_ma_orbit(dx, dy)
-            pxy, pxx, pyy = _cos_sim_exp_tens_ma_pairwise(dx, dy, verbose=False)
+            oxy, oxx, oyy = _sim_maet_ma_orbit(dx, dy)
+            pxy, pxx, pyy = _sim_maet_ma_pairwise(dx, dy, verbose=False)
     fired = _orig(oxy, oxx, oyy)
     with np.errstate(all="ignore"):
         co = oxy / np.sqrt(oxx * oyy)

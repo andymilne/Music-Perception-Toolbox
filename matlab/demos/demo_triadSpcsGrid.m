@@ -16,7 +16,7 @@
 %  the reference triad. The Euclidean distance between any two grid points
 %  equals the voice-leading distance between the corresponding triads.
 %
-%  Uses: cosSimExpTens (batched-raw, broadcast form, with 'spectrum')
+%  Uses: simMaet (batched-raw, broadcast form, with 'spectrum')
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -60,10 +60,10 @@ refThird = refPitches(2);
 pMatB = [rootGrid(:), thirdGrid(:), rootGrid(:) + 700];
 
 % Single batch call. The reference triad is a single row vector that
-% cosSimExpTens broadcasts against all rows of pMatB.
+% simMaet broadcasts against all rows of pMatB.
 fprintf('Computing spectral pitch class similarities for %s reference (N=%d, rho=%.2f)...\n', ...
     refName, nHarm, rho);
-simVector = cosSimExpTens(refPitches, [], pMatB, [], ...
+simVector = simMaet(refPitches, [], pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
     'spectrum', {'harmonic', nHarm, 'powerlaw', rho}, ...
     'verbose', false);

@@ -1,12 +1,12 @@
 """Regression tests for the density-level live-event prune consumed by
 the inner-product / total-mass paths (``method='renyi2'`` on
-:func:`entropy_exp_tens` and :func:`cos_sim_exp_tens`).
+:func:`entropy_maet` and :func:`sim_maet`).
 
 A dead event --- one whose weight is zero or NaN on an attribute, so it
 contributes nothing to any inner product or total mass --- is dropped at
 the density level before the per-attribute IP / mass work, via
 ``MaetDensity.pruned()`` (the MATLAB
-counterpart is ``internal.prunedExpTens``). This is the sibling, one
+counterpart is ``internal.prunedMaet``). This is the sibling, one
 level up, of the cell-mass tuple prune in
 ``test_cell_mass_zero_weight_prune``: that one drops zero-weight tuples
 inside the grid path; this one drops whole events before the IP / mass
@@ -49,9 +49,9 @@ import pytest
 import mpt
 from mpt import unpack_pre_maet
 from mpt import (
-    build_exp_tens,
-    cos_sim_exp_tens,
-    entropy_exp_tens,
+    build_maet,
+    sim_maet,
+    entropy_maet,
     weight_events,
 )
 
@@ -70,12 +70,12 @@ def _quiet_and_restore():
 # ---------------------------------------------------------------------
 
 def _single_multiset_density(p, w):
-    return build_exp_tens(np.asarray(p, float), np.asarray(w, float),
+    return build_maet(np.asarray(p, float), np.asarray(w, float),
                           0.5, 1, False, False, 0.0, verbose=False)
 
 
 def _ma_density(p_attr, w, r=(1, 1)):
-    return build_exp_tens(
+    return build_maet(
         [np.asarray(P, float) for P in p_attr],
         None if w is None else [np.asarray(W, float) for W in w],
         [0.5, 0.15], list(r), [False, False], [False, False],
@@ -185,9 +185,9 @@ def test_renyi2_single_multiset_invariant_to_dead_events():
     keep = np.ones(len(p), bool)
     keep[dead] = False
 
-    h_with = entropy_exp_tens(_single_multiset_density(p, w_dead),
+    h_with = entropy_maet(_single_multiset_density(p, w_dead),
                               method='renyi2', verbose=False)
-    h_without = entropy_exp_tens(_single_multiset_density(p[keep], w[keep]),
+    h_without = entropy_maet(_single_multiset_density(p[keep], w[keep]),
                                  method='renyi2', verbose=False)
     assert h_with == pytest.approx(h_without, rel=0, abs=0.0)
 
@@ -208,8 +208,8 @@ def test_renyi2_ma_invariant_to_dead_events():
         [p_pitch[:, keep], p_time[:, keep]],
         [w_pitch[:, keep], np.ones((1, len(keep)))],
     )
-    h_with = entropy_exp_tens(d_with, method='renyi2', verbose=False)
-    h_without = entropy_exp_tens(d_without, method='renyi2', verbose=False)
+    h_with = entropy_maet(d_with, method='renyi2', verbose=False)
+    h_without = entropy_maet(d_without, method='renyi2', verbose=False)
     assert h_with == pytest.approx(h_without, rel=0, abs=0.0)
 
 
@@ -219,8 +219,8 @@ def test_cos_sim_single_multiset_invariant_to_dead_events():
     keep = wx != 0
     dy = _single_multiset_density([61., 63., 65.], [1., 1., 1.])
 
-    s_with = cos_sim_exp_tens(_single_multiset_density(px, wx), dy, verbose=False)
-    s_without = cos_sim_exp_tens(_single_multiset_density(px[keep], wx[keep]), dy,
+    s_with = sim_maet(_single_multiset_density(px, wx), dy, verbose=False)
+    s_without = sim_maet(_single_multiset_density(px[keep], wx[keep]), dy,
                                  verbose=False)
     assert s_with == pytest.approx(s_without, rel=0, abs=0.0)
 
@@ -244,8 +244,8 @@ def test_cos_sim_ma_invariant_to_dead_events():
         [px_pitch[:, keep], px_time[:, keep]],
         [wx_pitch[:, keep], np.ones((1, len(keep)))],
     )
-    s_with = cos_sim_exp_tens(dx_with, dy, verbose=False)
-    s_without = cos_sim_exp_tens(dx_without, dy, verbose=False)
+    s_with = sim_maet(dx_with, dy, verbose=False)
+    s_without = sim_maet(dx_without, dy, verbose=False)
     assert s_with == pytest.approx(s_without, rel=0, abs=0.0)
 
 
@@ -285,16 +285,16 @@ def test_renyi2_ma_windowed_matches_manual_prune():
     n_live = int((w_w[0].sum(axis=0) > 0).sum())
     assert 0 < n_live < 40              # narrow window keeps a handful
 
-    d_auto = build_exp_tens(p_w, w_w, [0.5], [1], 
+    d_auto = build_maet(p_w, w_w, [0.5], [1], 
                             [False], [False], [0.0], verbose=False)
     keep = w_w[0].sum(axis=0) > 0
-    d_manual = build_exp_tens(
+    d_manual = build_maet(
         [p[:, keep] for p in p_w], [ww[:, keep] for ww in w_w],
         [0.5], [1], 
         [False], [False], [0.0], verbose=False,
     )
-    h_auto = entropy_exp_tens(d_auto, method='renyi2', verbose=False)
-    h_manual = entropy_exp_tens(d_manual, method='renyi2', verbose=False)
+    h_auto = entropy_maet(d_auto, method='renyi2', verbose=False)
+    h_manual = entropy_maet(d_manual, method='renyi2', verbose=False)
     assert h_auto == pytest.approx(h_manual, rel=0, abs=0.0)
 
 
@@ -306,10 +306,10 @@ def test_renyi2_ma_windowed_bounded_time():
     mpt.set_default(truncation_sigmas=3.0)
     n_events = 3000
     p_w, w_w, g_w = _windowed_ma_inputs(n_events, seed=3)
-    d = build_exp_tens(p_w, w_w, [0.5], [1], 
+    d = build_maet(p_w, w_w, [0.5], [1], 
                        [False], [False], [0.0], verbose=False)
     t0 = time.time()
-    h = entropy_exp_tens(d, method='renyi2', verbose=False)
+    h = entropy_maet(d, method='renyi2', verbose=False)
     elapsed = time.time() - t0
     assert np.isfinite(h)
     assert elapsed < 20.0, (
@@ -331,7 +331,7 @@ def test_all_dead_ma_renyi2_is_nan():
                        [np.zeros((1, 3)), np.ones((1, 3))])
     assert int(dens.live_events.sum()) == 0
     assert dens.pruned().n == 0
-    assert np.isnan(entropy_exp_tens(dens, method='renyi2', verbose=False))
+    assert np.isnan(entropy_maet(dens, method='renyi2', verbose=False))
 
 
 def test_all_dead_single_multiset_renyi2_is_nan():
@@ -341,4 +341,4 @@ def test_all_dead_single_multiset_renyi2_is_nan():
     """
     dens = _single_multiset_density([60., 62., 64.], [0., 0., 0.])
     assert int(dens.live_events.sum()) == 0
-    assert np.isnan(entropy_exp_tens(dens, method='renyi2', verbose=False))
+    assert np.isnan(entropy_maet(dens, method='renyi2', verbose=False))

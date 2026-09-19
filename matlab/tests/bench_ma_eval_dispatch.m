@@ -1,7 +1,7 @@
 %% bench_ma_eval_dispatch.m
 %  Audit of the multi-attribute EVAL dispatcher: does the shipped cost
 %  model pick the arm that is actually faster? internal.selectMaEval
-%  routes evalExpTens between the factored Möbius evaluator and the
+%  routes evalMaet between the factored Möbius evaluator and the
 %  joint-centres accumulator, and this times both arms on a small shape
 %  grid spanning the crossover and reports where the pick disagrees with
 %  the measurement.
@@ -62,14 +62,14 @@ fprintf('%s\n', repmat('-', 1, 102));
 % over-reports Möbius cost until these are paid. Exercise both paths
 % once here, off the clock, so the grid times steady-state code.
 % Recalibration should keep this; without it the earliest cells mislead.
-warmDens = buildExpTens({100*rand(8,1); 100*rand(8,1)}, {[]; []}, ...
+warmDens = buildMaet({100*rand(8,1); 100*rand(8,1)}, {[]; []}, ...
     [30 25], [2 2], [false false], [false false], [0 0], 'verbose', false);
 warmX = 100 * rand(warmDens.dim, 50);
-evalExpTens(warmDens, warmX, 'method', 'centres', 'verbose', false);
-evalExpTens(warmDens, warmX, 'method', 'mobius', 'verbose', false);
-warmRel = buildExpTens(100*rand(8,1), ones(8,1), 30, 2, true, false, 0, ...
+evalMaet(warmDens, warmX, 'method', 'centres', 'verbose', false);
+evalMaet(warmDens, warmX, 'method', 'mobius', 'verbose', false);
+warmRel = buildMaet(100*rand(8,1), ones(8,1), 30, 2, true, false, 0, ...
     'verbose', false);
-evalExpTens(warmRel, 100*rand(1, 50), 'method', 'mobius', 'verbose', false);
+evalMaet(warmRel, 100*rand(1, 50), 'method', 'mobius', 'verbose', false);
 
 BELL = [1 2 5 15 52 203 877 4140 21147 115975];
 mismatch = 0; tested = 0;
@@ -81,7 +81,7 @@ for gi = 1:numel(grid)
     pas = cell(A, 1);
     for a = 1:A, pas{a} = 100 * rand(K, 1); end
     wpas = repmat({[]}, A, 1);
-    dens = buildExpTens(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
+    dens = buildMaet(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
     xq = 100 * rand(dens.dim, nQ);
 
     [pred, ~, predCen, predMob] = internal.selectMaEval(dens, nQ);
@@ -94,9 +94,9 @@ for gi = 1:numel(grid)
     end
 
     % time centres (guarded: skip if it would be hopeless)
-    tCen = timeMethod(@() evalExpTens(dens, xq, 'method', 'centres', ...
+    tCen = timeMethod(@() evalMaet(dens, xq, 'method', 'centres', ...
         'verbose', false), nReps);
-    tMob = timeMethod(@() evalExpTens(dens, xq, 'method', 'mobius', ...
+    tMob = timeMethod(@() evalMaet(dens, xq, 'method', 'mobius', ...
         'verbose', false), nReps);
 
     if tCen < tMob, faster = 'centres'; else, faster = 'mobius'; end

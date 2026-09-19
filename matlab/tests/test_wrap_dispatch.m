@@ -150,11 +150,11 @@ sops = [0.15, 0.20, 0.25, 0.30, 0.35];
 cosVals = zeros(size(sops));
 for k = 1:numel(sops)
     sig = sops(k) * dispPERIOD;
-    d1 = buildExpTens({pW}, {wW}, sig, 2, false, true, dispPERIOD, ...
+    d1 = buildMaet({pW}, {wW}, sig, 2, false, true, dispPERIOD, ...
         'verbose', false);
-    d2 = buildExpTens({qW}, {wW}, sig, 2, false, true, dispPERIOD, ...
+    d2 = buildMaet({qW}, {wW}, sig, 2, false, true, dispPERIOD, ...
         'verbose', false);
-    cosVals(k) = cosSimExpTens(d1, d2, 'verbose', false);
+    cosVals(k) = simMaet(d1, d2, 'verbose', false);
 end
 % Differences between adjacent sigma steps should be smooth; no
 % jump larger than the total range.

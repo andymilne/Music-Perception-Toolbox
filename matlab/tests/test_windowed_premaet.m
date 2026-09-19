@@ -2,7 +2,7 @@
 %
 %  Validates the pre-MAET windowedSimilarity and windowedEntropy against
 %  the equivalent inline pipeline (weightEvents / translateAttributes /
-%  buildExpTens / entropyExpTens / cosSimExpTens) they replace. Mirror of
+%  buildMaet / entropyMaet / simMaet) they replace. Mirror of
 %  Python's tests/test_windowed_premaet.py.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
@@ -50,8 +50,8 @@ for k = 1:size(methodsShapes, 1)
             [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), shape, ...
                 'sd', SD, 'dropInputAttr', true));
         end
-        dens = buildExpTens(pw, ww, SIGP, 1, false, false, 0.0, 'verbose', false);
-        ref(i) = entropyExpTens(dens, 'method', method, 'verbose', false);
+        dens = buildMaet(pw, ww, SIGP, 1, false, false, 0.0, 'verbose', false);
+        ref(i) = entropyMaet(dens, 'method', method, 'verbose', false);
     end
     got = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
         [false, false], [0.0, 0.0], centres, ...
@@ -66,9 +66,9 @@ ref = zeros(1, numel(centres));
 for i = 1:numel(centres)
     [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
         'width', WW, 'dropInputAttr', false));
-    dens = buildExpTens(pw, ww, [SIGP, SIGT], [1, 1], [false, false], ...
+    dens = buildMaet(pw, ww, [SIGP, SIGT], [1, 1], [false, false], ...
         [false, false], [0.0, 0.0], 'verbose', false);
-    ref(i) = entropyExpTens(dens, 'method', 'renyi2', 'verbose', false);
+    ref(i) = entropyMaet(dens, 'method', 'renyi2', 'verbose', false);
 end
 got = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
     [false, false], [0.0, 0.0], centres, ...
@@ -85,7 +85,7 @@ for nm = {'oneSidedDenom', 'cosine'}
             'width', qExt, 'dropInputAttr', false));
         offs = {[], centres(i) - muQ};
         [pq, wq] = unpackPreMaet(translateAttributes(query, [], offs));
-        ref(i) = cosSimExpTens(pc, wc, pq, wq, [SIGP, SIGT], [1, 1], ...
+        ref(i) = simMaet(pc, wc, pq, wq, [SIGP, SIGT], [1, 1], ...
             [false, false], [false, false], [0.0, 0.0], ...
             'normalize', normalize, 'verbose', false);
     end
@@ -108,7 +108,7 @@ for ia = 1:numel(anchors)
     for it = 1:numel(tau)
         offs = {[], (a - tau(it)) - muQ};
         [pq, wq] = unpackPreMaet(translateAttributes(query, [], offs));
-        ref(ia, it) = cosSimExpTens(pc, [], pq, wq, [SIGP, SIGT], [1, 1], ...
+        ref(ia, it) = simMaet(pc, [], pq, wq, [SIGP, SIGT], [1, 1], ...
             [false, false], [false, false], [0.0, 0.0], ...
             'normalize', 'oneSidedDenom', 'verbose', false);
     end

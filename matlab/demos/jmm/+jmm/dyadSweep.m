@@ -45,7 +45,7 @@ function [x, so] = dyadSweep(rInner, useFlag, mus, normalize)
     end
     % One batched call: density list vs single query, one-sided
     % (query-normalized) similarity.
-    vals = cell2mat(cosSimExpTens(wins, qd, 'normalize', normalize, ...
+    vals = cell2mat(simMaet(wins, qd, 'normalize', normalize, ...
                                   'verbose', false));
     so(idxs) = vals;
     x = jmm.b2bar(mus);

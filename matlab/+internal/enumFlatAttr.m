@@ -1,11 +1,11 @@
 function [permMat, combMat, permW, combW] = ...
-        enumFlatAttr(valCol, valid, r_a, isSym, wColOrig)
+        enumFlatAttr(valCol, valid, r_a, isExch, wColOrig)
 %ENUMFLATATTR  Per-(event, attribute) r-ad enumeration for one flat
 %   attribute. Returns the perm/comb value-index matrices and their
 %   per-tuple weight products for the non-NaN values `valid` of value
 %   column `valCol` at tuple size `r_a`. Applies the r = 1 equal-value
-%   collapse (summing weights). Shared by buildExpTens's per-(n, a) fill
-%   loop and evalExpTens's factored centres path so both produce
+%   collapse (summing weights). Shared by buildMaet's per-(n, a) fill
+%   loop and evalMaet's factored centres path so both produce
 %   identical tuples. Caller guarantees numel(valid) >= r_a. Twin of
 %   Python _enum_flat_attr.
     K_na = numel(valid);
@@ -34,10 +34,10 @@ function [permMat, combMat, permW, combW] = ...
         combMat = nchoosek(valid, r_a).';
     end
 
-    % Permutations: r_a x (r_a! * C) when symmetric; ordered (isSym = 0)
+    % Permutations: r_a x (r_a! * C) when symmetric; ordered (isExch = 0)
     % keeps each combination in listed order (perm side == comb side);
     % r_a = 1 has no order to symmetrise either way.
-    if r_a == 1 || ~isSym
+    if r_a == 1 || ~isExch
         permMat = combMat;
     else
         Pm = perms(1:r_a).';

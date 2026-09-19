@@ -1,6 +1,6 @@
 """Density construction: the build path.
 
-Public entry point :func:`build_exp_tens` precomputes an r-ad
+Public entry point :func:`build_maet` precomputes an r-ad
 expectation tensor density object, dispatching on input shape:
 
 * Numeric 1-D array / flat list of numbers -> single-multiset path,
@@ -92,21 +92,21 @@ def _resolve_kernel_param(given, from_specs, what, names, A, default=None):
             raise ValueError(
                 f"No {what} for attribute {who}: give it in the spec "
                 f"(specs[{a}]['{what}']) or pass {what}= to "
-                f"build_exp_tens.")
+                f"build_maet.")
         raise ValueError(
             f"{what} for attribute {who} is NA: a preprocessing step "
             f"could not carry it forward, so it must be supplied again "
             f"--- set specs[{a}]['{what}'] or pass {what}= to "
-            f"build_exp_tens.")
+            f"build_maet.")
     return out
 
 
-def _override_specs(specs, r, rel, sym, A):
-    """Apply the r / rel / sym keyword overrides to a specs list.
+def _override_specs(specs, r, rel, exch, A):
+    """Apply the r / rel / exch keyword overrides to a specs list.
 
     The kernel parameters sigma, is_per, and period are resolved after the
     specs are read, so a keyword can override them there. The tuple size
-    and the [rel] and [sym] flags are read out of the specs themselves, so
+    and the [rel] and [exch] flags are read out of the specs themselves, so
     an override has to be written into the specs first. A supplied keyword
     wins for every attribute, exactly as it does for the kernel
     parameters, which is what lets a sweep over any of the six per-
@@ -117,15 +117,15 @@ def _override_specs(specs, r, rel, sym, A):
     attribute it varies.
 
     Level-structured geometry is excluded: on a nested attribute r, rel,
-    and sym are per-level vectors whose meaning depends on the nesting, so
+    and exch are per-level vectors whose meaning depends on the nesting, so
     a scalar override has no unambiguous reading and the spec is the place
     to change them.
     """
-    if r is None and rel is None and sym is None:
+    if r is None and rel is None and exch is None:
         return specs
     out = list(specs)
     for name, value, cast in (("r", r, int), ("rel", rel, bool),
-                              ("sym", sym, bool)):
+                              ("exch", exch, bool)):
         if value is None:
             continue
         vals = _bcast_override(value, A, name)
@@ -135,11 +135,11 @@ def _override_specs(specs, r, rel, sym, A):
             spec = out[a]
             if not isinstance(spec, dict):
                 raise TypeError(
-                    f"build_exp_tens: {name}= needs specs entries to be "
+                    f"build_maet: {name}= needs specs entries to be "
                     f"dicts; attribute {a} is {type(spec).__name__}.")
             if "tags" in spec:
                 raise ValueError(
-                    f"build_exp_tens: {name}= cannot override a nested "
+                    f"build_maet: {name}= cannot override a nested "
                     f"attribute (attribute {a}); on a nested attribute "
                     f"{name} is per-level, so set it in the spec.")
             spec = dict(spec)
@@ -169,7 +169,7 @@ def _bcast_override(value, A, name):
         return [arr.reshape(-1)[0]] * A
     if arr.size != A:
         raise ValueError(
-            f"build_exp_tens: {name}= must be a scalar or have length "
+            f"build_maet: {name}= must be a scalar or have length "
             f"A = {A}; got {arr.size}.")
     return list(arr.reshape(-1))
 
@@ -179,20 +179,20 @@ def _normalise_specs(specs, A):
 
     ``specs`` is the canonical home for level-structured geometry (§6.4):
     each entry is a per-attribute dict. A **flat** attribute is a one-level
-    spec ``{r, rel?, sym?, name?}`` (scalar ``r``, bool ``rel``/``sym``); a
+    spec ``{r, rel?, exch?, name?}`` (scalar ``r``, bool ``rel``/``exch``); a
     **nested** attribute carries ``tags`` plus per-level vectors
-    ``{tags, r, sym, rel, name?, names?}``. The presence of ``tags`` is the
+    ``{tags, r, exch, rel, name?, names?}``. The presence of ``tags`` is the
     flat-vs-nested discriminant. Scalar per-attribute geometry that is not
     level-structured (``sigma``, ``is_per``, ``period``) stays outside the
     spec.
 
-    Returns ``(r_vec, is_rel_vec, is_sym_vec, nested_list, names,
+    Returns ``(r_vec, is_rel_vec, is_exch_vec, nested_list, names,
     kernel)``, ``kernel`` being a dict of the three per-attribute kernel
     parameters, each a length-A list whose entries are the spec's value,
     ``None`` where the field is absent, or NaN where it is NA. For a
     nested entry the geometry fields are placeholders: the nested machinery
-    in :func:`_build_exp_tens_ma` derives ``r`` from ``prod(level r)`` and
-    ``is_rel`` from the resolved projection, and uses the per-level ``sym``.
+    in :func:`_build_maet_ma` derives ``r`` from ``prod(level r)`` and
+    ``is_rel`` from the resolved projection, and uses the per-level ``exch``.
     """
     if not isinstance(specs, (list, tuple)):
         raise TypeError(
@@ -202,7 +202,7 @@ def _normalise_specs(specs, A):
         raise ValueError(
             f"specs must have length {A} (one per attribute), got {len(specs)}."
         )
-    r_vec, is_rel_vec, is_sym_vec, nested_list, names = [], [], [], [], []
+    r_vec, is_rel_vec, is_exch_vec, nested_list, names = [], [], [], [], []
     kernel = {"sigma": [], "is_per": [], "period": []}
     for a, s in enumerate(specs):
         if not isinstance(s, dict):
@@ -214,7 +214,7 @@ def _normalise_specs(specs, A):
             nested_list.append(s)
             r_vec.append(1)            # placeholder -> prod(level r)
             is_rel_vec.append(False)   # placeholder -> resolved projection
-            is_sym_vec.append(True)    # placeholder -> per-level sym
+            is_exch_vec.append(True)    # placeholder -> per-level exch
         else:
             if "r" not in s:
                 raise ValueError(
@@ -231,18 +231,18 @@ def _normalise_specs(specs, A):
             nested_list.append(None)
             r_vec.append(int(r_a[0]))
             is_rel_vec.append(bool(s.get("rel", False)))
-            is_sym_vec.append(bool(s.get("sym", True)))
-    return r_vec, is_rel_vec, is_sym_vec, nested_list, names, kernel
+            is_exch_vec.append(bool(s.get("exch", True)))
+    return r_vec, is_rel_vec, is_exch_vec, nested_list, names, kernel
 
 
-def _resolve_aniso_single_multiset(p, sigma, r, is_rel, is_per, period, is_sym):
+def _resolve_aniso_single_multiset(p, sigma, r, is_rel, is_per, period, is_exch):
     """Resolve a matrix-valued single-multiset sigma: validate, whiten, return
     ``(p_whitened, 1.0, Sigma, R)``."""
     from .aniso import (validate_kernel_cov, check_aniso_constraints,
                         whiten_values)
     p_arr = np.asarray(p, dtype=np.float64).ravel()
     check_aniso_constraints(
-        r=r, K=len(p_arr), is_rel=is_rel, is_per=is_per, is_sym=is_sym,
+        r=r, K=len(p_arr), is_rel=is_rel, is_per=is_per, is_exch=is_exch,
         name="sigma",
     )
     Sigma, R = validate_kernel_cov(sigma, dim=int(r), name="sigma")
@@ -251,7 +251,7 @@ def _resolve_aniso_single_multiset(p, sigma, r, is_rel, is_per, period, is_sym):
 
 
 def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
-                      is_sym_vec, nested):
+                      is_exch_vec, nested):
     """Resolve matrix-valued entries of an MA sigma vector.
 
     Returns ``(p_attr_out, sigma_out, cov_list, chol_list)`` where
@@ -290,13 +290,13 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
             is_rel_vec, (list, tuple, np.ndarray)) else is_rel_vec
         is_per_a = list(is_per_vec)[a] if isinstance(
             is_per_vec, (list, tuple, np.ndarray)) else is_per_vec
-        is_sym_a = (True if is_sym_vec is None
-                    else (list(is_sym_vec)[a] if isinstance(
-                        is_sym_vec, (list, tuple, np.ndarray))
-                        else is_sym_vec))
+        is_exch_a = (True if is_exch_vec is None
+                    else (list(is_exch_vec)[a] if isinstance(
+                        is_exch_vec, (list, tuple, np.ndarray))
+                        else is_exch_vec))
         check_aniso_constraints(
             r=r_a, K=K_a, is_rel=is_rel_a, is_per=is_per_a,
-            is_sym=is_sym_a, name=f"sigma[{a}]",
+            is_exch=is_exch_a, name=f"sigma[{a}]",
         )
         Sigma, R = validate_kernel_cov(
             sigma_out[a], dim=r_a, name=f"sigma[{a}]")
@@ -306,9 +306,9 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
     return p_out, sigma_out, cov_list, chol_list
 
 
-def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
+def build_maet(p, w=None, *args, specs=None, sigma=None,
                    is_per=None, period=None, r=None, rel=None,
-                   sym=None, nested=None, wrap=None,
+                   exch=None, nested=None, wrap=None,
                    verbose: bool = True) -> MaetDensity:
     """Precompute an r-ad expectation tensor density object.
 
@@ -328,26 +328,30 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
 
     Single-multiset signature (legacy, unchanged)::
 
-        build_exp_tens(p, w, sigma, r, is_rel, is_per, period, *, verbose=True)
+        build_maet(p, w, sigma, r, is_rel, is_per, period, *, verbose=True)
+        build_maet(p, w, sigma, r, is_rel, is_per, period, is_exch, *, ...)
 
     Pre-MAET signature (the canonical multi-attribute entry)::
 
-        build_exp_tens(pm)
-        build_exp_tens(pm, sigma=sigma_vec, r=r_vec, ...)
+        build_maet(pm)
+        build_maet(pm, sigma=sigma_vec, r=r_vec, ...)
 
     Multi-attribute positional signature::
 
-        build_exp_tens(p_attr, w_attr, sigma_vec, r_vec,
+        build_maet(p_attr, w_attr, sigma_vec, r_vec,
                        is_rel_vec, is_per_vec, period_vec, *, verbose=True)
+        build_maet(p_attr, w_attr, sigma_vec, r_vec,
+                       is_rel_vec, is_per_vec, period_vec, is_exch_vec, *, ...)
 
     A pre-MAET (:func:`~mpt.pre_maet`) stands in place of ``p`` and
     ``w``, bringing its specs with it. Any of the six per-attribute
     parameters --- ``sigma``, ``is_per``, ``period``, ``r``, ``rel``,
-    ``sym`` --- may be given alongside, and a supplied value wins over
+    ``exch`` --- may be given alongside, and a supplied value wins over
     the specs for every attribute, so a sweep over any of them is one
     call per value and leaves the pre-MAET untouched.
 
-    Both paths take seven positional arguments; they are distinguished
+    Both paths take seven positional arguments, or eight with the
+    exchangeability flag; they are distinguished
     purely by the type of the first argument (a list/tuple of attribute
     matrices selects the multi-attribute path). Every attribute is
     self-contained, carrying its own geometry, so all geometry vectors
@@ -375,6 +379,11 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
     period : float
         Period for periodic wrapping (e.g., 1200 for one octave in
         cents, or the cycle length for rhythmic analyses).
+    is_exch : bool, optional (default True)
+        If true, the multiset is exchangeable (unordered): the density
+        is invariant under permuting a tuple's coordinates. If false, it
+        is ordered, and position in the tuple carries identity (a
+        voicing, the coordinates of a categorical vertex).
 
     Parameters (multi-attribute path)
     ---------------------------------
@@ -392,10 +401,13 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
     r_vec : (A,) array-like of int
         Per-attribute tuple sizes.
     is_rel_vec, is_per_vec : (A,) array-like of bool
-        Per-attribute isRel and isPer flags.
+        Per-attribute is_rel and is_per flags.
     period_vec : (A,) array-like of float
         Per-attribute periods (use 0 for attributes that are not
         periodic).
+    is_exch_vec : (A,) array-like of bool, optional (default all True)
+        Per-attribute exchangeability flags; see ``is_exch`` above. An
+        ordered attribute (false) keeps the order of its values.
 
     Returns
     -------
@@ -404,22 +416,22 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
 
     See Also
     --------
-    MaetDensity, eval_exp_tens, cos_sim_exp_tens
+    MaetDensity, eval_maet, sim_maet
     """
     if is_pre_maet(p):
         pm = p
         if w is not None:
             raise TypeError(
-                "build_exp_tens: given a whole pre-MAET, the weights "
+                "build_maet: given a whole pre-MAET, the weights "
                 "are taken from it and must not be passed again.")
         p = pm["p_attr"]
         w = pm.get("w_attr")
         if specs is None:
             specs = pm.get("specs")
     if specs is None and (r is not None or rel is not None
-                          or sym is not None):
+                          or exch is not None):
         raise ValueError(
-            "build_exp_tens: r=, rel= and sym= override the specs, so "
+            "build_maet: r=, rel= and exch= override the specs, so "
             "they are only valid alongside specs=. In the positional "
             "form pass the geometry vectors positionally.")
     # --- Canonical specs form (level-structured geometry lives in specs;
@@ -434,7 +446,7 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
             raise ValueError(
                 "With specs=, do not pass positional geometry; supply "
                 "sigma=, is_per=, period= as keywords (level-structured "
-                "r / rel / sym live in specs)."
+                "r / rel / exch live in specs)."
             )
         if nested is not None:
             raise ValueError("Pass nesting via specs=, not nested=.")
@@ -445,7 +457,7 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
         # in the spec as readily as in the keyword, and the flat-geometry
         # rewrite below is driven by whether one is present, so it cannot
         # be decided from the keyword alone.
-        specs = _override_specs(specs, r, rel, sym, A)
+        specs = _override_specs(specs, r, rel, exch, A)
         _, _, _, _, names, spec_kernel = _normalise_specs(specs, A)
         # The pre-MAET's kernel geometry may come from the specs, from the
         # keywords, or from both. An explicit keyword wins outright and
@@ -466,26 +478,26 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
             # events) are order-isomorphic to flat ordered tuples and
             # are flattened here; non-degenerate nesting raises.
             specs = resolve_specs_for_kernel_cov(specs, sigma)
-        r_vec, is_rel_vec, is_sym_vec, nested_list, names, _ = \
+        r_vec, is_rel_vec, is_exch_vec, nested_list, names, _ = \
             _normalise_specs(specs, A)
         # The specs form takes wrap= exactly as the positional form does;
         # without this it was accepted, dropped, and never validated.
         wrap_vec = _normalise_wrap_ma(wrap, A)
         if has_kc:
             p, sigma, cov_list, chol_list = _resolve_aniso_ma(
-                p, sigma, r_vec, is_rel_vec, is_per, is_sym_vec,
+                p, sigma, r_vec, is_rel_vec, is_per, is_exch_vec,
                 nested_list,
             )
-            dens = _build_exp_tens_ma(
-                p, w, sigma, r_vec, is_rel_vec, is_per, period, is_sym_vec,
+            dens = _build_maet_ma(
+                p, w, sigma, r_vec, is_rel_vec, is_per, period, is_exch_vec,
                 nested=nested_list, names=names, wrap=wrap_vec,
                 verbose=verbose,
             )
             dens.kernel_cov = cov_list
             dens.kernel_chol = chol_list
             return dens
-        return _build_exp_tens_ma(
-            p, w, sigma, r_vec, is_rel_vec, is_per, period, is_sym_vec,
+        return _build_maet_ma(
+            p, w, sigma, r_vec, is_rel_vec, is_per, period, is_exch_vec,
             nested=nested_list, names=names, wrap=wrap_vec, verbose=verbose,
         )
     if sigma is not None or is_per is not None or period is not None:
@@ -504,29 +516,29 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
             raise ValueError(
                 f"Multi-attribute call expects 7 or 8 positional arguments "
                 f"(p_attr, w, sigma_vec, r_vec, is_rel_vec, is_per_vec, "
-                f"period_vec[, is_sym_vec]); got {2 + len(args)}."
+                f"period_vec[, is_exch_vec]); got {2 + len(args)}."
             )
         sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args[:5]
-        is_sym_vec = args[5] if len(args) == 6 else None
+        is_exch_vec = args[5] if len(args) == 6 else None
         wrap_vec = _normalise_wrap_ma(wrap, len(period_vec))
         from .aniso import sigma_vec_has_kernel_cov
         if sigma_vec_has_kernel_cov(sigma_vec):
             p, sigma_vec, cov_list, chol_list = _resolve_aniso_ma(
-                p, sigma_vec, r_vec, is_rel_vec, is_per_vec, is_sym_vec,
+                p, sigma_vec, r_vec, is_rel_vec, is_per_vec, is_exch_vec,
                 nested,
             )
-            dens = _build_exp_tens_ma(
+            dens = _build_maet_ma(
                 p, w, sigma_vec, r_vec,
-                is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+                is_rel_vec, is_per_vec, period_vec, is_exch_vec,
                 nested=nested, wrap=wrap_vec,
                 verbose=verbose,
             )
             dens.kernel_cov = cov_list
             dens.kernel_chol = chol_list
             return dens
-        return _build_exp_tens_ma(
+        return _build_maet_ma(
             p, w, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+            is_rel_vec, is_per_vec, period_vec, is_exch_vec,
             nested=nested, wrap=wrap_vec,
             verbose=verbose,
         )
@@ -534,26 +546,26 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
         if len(args) not in (5, 6):
             raise ValueError(
                 f"Single-multiset call expects 7 or 8 positional arguments "
-                f"(p, w, sigma, r, is_rel, is_per, period[, is_sym]); got "
+                f"(p, w, sigma, r, is_rel, is_per, period[, is_exch]); got "
                 f"{2 + len(args)}."
             )
         sigma, r, is_rel, is_per, period = args[:5]
-        is_sym = args[5] if len(args) == 6 else True
+        is_exch = args[5] if len(args) == 6 else True
         wrap_scalar = _normalise_wrap_scalar(wrap)
         from .aniso import is_kernel_cov
         if is_kernel_cov(sigma):
             p, sigma, Sigma, R = _resolve_aniso_single_multiset(
-                p, sigma, r, is_rel, is_per, period, is_sym,
+                p, sigma, r, is_rel, is_per, period, is_exch,
             )
-            dens = _build_exp_tens_single_multiset(
-                p, w, sigma, r, is_rel, is_per, period, is_sym,
+            dens = _build_maet_single_multiset(
+                p, w, sigma, r, is_rel, is_per, period, is_exch,
                 wrap=wrap_scalar, verbose=verbose,
             )
             dens.kernel_cov = Sigma
             dens.kernel_chol = R
             return dens
-        return _build_exp_tens_single_multiset(
-            p, w, sigma, r, is_rel, is_per, period, is_sym,
+        return _build_maet_single_multiset(
+            p, w, sigma, r, is_rel, is_per, period, is_exch,
             wrap=wrap_scalar, verbose=verbose,
         )
 
@@ -639,11 +651,11 @@ def _looks_like_multi_attr(p) -> bool:
 
 
 # -------------------------------------------------------------------
-#  _build_exp_tens_ma  (multi-attribute path)
+#  _build_maet_ma  (multi-attribute path)
 # -------------------------------------------------------------------
 
 
-def _build_exp_tens_ma(
+def _build_maet_ma(
     p_attr,
     w,
     sigma_vec,
@@ -651,7 +663,7 @@ def _build_exp_tens_ma(
     is_rel_vec,
     is_per_vec,
     period_vec,
-    is_sym_vec=None,
+    is_exch_vec=None,
     *,
     nested=None,
     names=None,
@@ -660,7 +672,7 @@ def _build_exp_tens_ma(
 ) -> MaetDensity:
     """Multi-attribute expectation tensor builder.
 
-    Private: users call :func:`build_exp_tens`, which dispatches here
+    Private: users call :func:`build_maet`, which dispatches here
     when given a list/tuple of attribute matrices as the first argument.
 
     Every attribute is self-contained: the geometry vectors
@@ -702,7 +714,7 @@ def _build_exp_tens_ma(
 
     # --- Nested attributes (representation B) -------------------------
     # A nested attribute carries its level breakdown in nested[a] (a dict
-    # with keys: tags (per-value source-event tag), r and sym (per-level
+    # with keys: tags (per-value source-event tag), r and exch (per-level
     # vectors, innermost-outward), and rel (the co-transposition-unit
     # selector: a per-level vector or 'innermost'/'outermost')) and a flat
     # flat K_total-value column; r_vec[a] is (re)derived to the total
@@ -746,21 +758,21 @@ def _build_exp_tens_ma(
             )
         r_levels = np.asarray(spec["r"], dtype=np.intp).ravel()
         L = int(r_levels.size)
-        if "sym" in spec and spec["sym"] is not None:
-            sym_levels = np.asarray(spec["sym"], dtype=bool).ravel()
+        if "exch" in spec and spec["exch"] is not None:
+            exch_levels = np.asarray(spec["exch"], dtype=bool).ravel()
         else:
             # Optional: default every level symmetric (matches the flat
-            # sym=True default). An ordered level is set explicitly.
-            sym_levels = np.ones(L, dtype=bool)
+            # exch=True default). An ordered level is set explicitly.
+            exch_levels = np.ones(L, dtype=bool)
         if L < 2:
             raise ValueError(
                 f"nested attribute {a}: a nested spec needs L >= 2 levels; "
                 f"got L = {L}. A single-level attribute is flat (no spec)."
             )
-        if sym_levels.size != L:
+        if exch_levels.size != L:
             raise ValueError(
-                f"nested attribute {a}: sym must have length {L} (one per "
-                f"level), got {sym_levels.size}."
+                f"nested attribute {a}: exch must have length {L} (one per "
+                f"level), got {exch_levels.size}."
             )
         if np.any(r_levels < 1):
             raise ValueError(
@@ -799,7 +811,7 @@ def _build_exp_tens_ma(
         rel_unit, proj = _canonicalise_nested_rel(spec.get("rel"), L, a)
         nested[a] = dict(spec)
         nested[a]["r"] = r_levels
-        nested[a]["sym"] = sym_levels
+        nested[a]["exch"] = exch_levels
         nested[a]["tags"] = tags          # 1-D (L=2) or (K_total, L-1)
         nested[a]["rel_unit"] = rel_unit
         nested[a]["proj"] = proj
@@ -813,20 +825,20 @@ def _build_exp_tens_ma(
     is_per_vec = np.asarray(is_per_vec, dtype=bool).ravel()
     period_vec = np.asarray(period_vec, dtype=np.float64).ravel()
 
-    # [sym] is per-attribute; default all-True preserves the legacy
-    # symmetrised (v2.0.0) semantics. [sym] = 1 symmetrises each
-    # r-sub-tuple over the tuple-position permutation (S_r) orbit; [sym] = 0
+    # [exch] is per-attribute; default all-True preserves the legacy
+    # symmetrised (v2.0.0) semantics. [exch] = 1 symmetrises each
+    # r-sub-tuple over the tuple-position permutation (S_r) orbit; [exch] = 0
     # keeps it ordered. (r_a = 1 makes the flag vacuous.)
-    if is_sym_vec is None:
-        is_sym_vec = np.ones(A, dtype=bool)
+    if is_exch_vec is None:
+        is_exch_vec = np.ones(A, dtype=bool)
     else:
-        is_sym_vec = np.asarray(is_sym_vec, dtype=bool).ravel()
+        is_exch_vec = np.asarray(is_exch_vec, dtype=bool).ravel()
 
     for name, vec in (("sigma_vec",  sigma_vec),
                       ("is_rel_vec", is_rel_vec),
                       ("is_per_vec", is_per_vec),
                       ("period_vec", period_vec),
-                      ("is_sym_vec", is_sym_vec)):
+                      ("is_exch_vec", is_exch_vec)):
         if vec.size != A:
             raise ValueError(
                 f"{name} must have length {A} (n attributes), got {vec.size}."
@@ -876,10 +888,10 @@ def _build_exp_tens_ma(
         tags_col = tags_a.ravel() if tags_a.ndim == 1 else tags_a[:, 0]
         if int(np.unique(tags_col).size) != int(K_a[a]):   # groups not all singletons
             continue
-        sym_levels_a = np.asarray(spec["sym"], dtype=bool).ravel()
+        exch_levels_a = np.asarray(spec["exch"], dtype=bool).ravel()
         nested[a] = None
         r_vec[a] = int(r_levels_a[1])
-        is_sym_vec[a] = bool(sym_levels_a[1])
+        is_exch_vec[a] = bool(exch_levels_a[1])
         is_rel_vec[a] = (spec.get("proj") == "outer")
 
     for a in range(A):
@@ -979,7 +991,7 @@ def _build_exp_tens_ma(
 
     if verbose:
         print(
-            f"build_exp_tens (MAET): {A} attributes, "
+            f"build_maet (MAET): {A} attributes, "
             f"{N} events (per-tuple arrays deferred to first access)."
         )
 
@@ -994,7 +1006,7 @@ def _build_exp_tens_ma(
     def _build_lazy():
         return _ma_build_perm_arrays(
             p_attr=p_attr, w_list=w_list, r_vec=r_vec,
-            is_rel_vec=is_rel_vec, is_sym_vec=is_sym_vec,
+            is_rel_vec=is_rel_vec, is_exch_vec=is_exch_vec,
             N=N, A=A, nested=nested,
         )
 
@@ -1010,7 +1022,7 @@ def _build_exp_tens_ma(
         is_rel=is_rel_vec,
         is_per=is_per_vec,
         period=period_vec,
-        is_sym=is_sym_vec,
+        is_exch=is_exch_vec,
         dim=dim,
         dim_per_attr=dim_per_attr,
         nested=nested,
@@ -1046,7 +1058,7 @@ def _nested_feasible(vals, tags_mat, r_levels, level):
     return feasible >= need
 
 
-def _nested_enum_indices(valid_values, tags_valid, r_levels, sym_levels):
+def _nested_enum_indices(valid_values, tags_valid, r_levels, exch_levels):
     """Tag-scoped nested r-tuple enumeration (representation B, L levels).
 
     Generalises the two-level enumeration to arbitrary nesting depth by
@@ -1068,8 +1080,8 @@ def _nested_enum_indices(valid_values, tags_valid, r_levels, sym_levels):
         Per-level read-arities, innermost-outward: ``r_levels[0]`` is the
         leaf (within-finest-group) tuple size, ``r_levels[g]`` (``g >= 1``) the
         number of level-``g`` groups to read.
-    sym_levels : (L,) bool
-        Per-level symmetrisation, innermost-outward. ``sym_levels[-1]``
+    exch_levels : (L,) bool
+        Per-level symmetrisation, innermost-outward. ``exch_levels[-1]``
         (outermost) is 0 for ordinary binding (the bound events carry
         sequence order); 1 pools that level as an unordered bag.
 
@@ -1078,7 +1090,7 @@ def _nested_enum_indices(valid_values, tags_valid, r_levels, sym_levels):
     perm_idx, comb_idx : (D, M) intp, ``D = prod(r_levels)``
         Value-index arrays. ``perm_idx`` is the symmetrised deposit (the
         density's kernel centres): at each level the chosen sub-units are
-        permuted into their orbit when that level's ``sym`` is set, else
+        permuted into their orbit when that level's ``exch`` is set, else
         kept in listed order. ``comb_idx`` is the canonical
         one-per-combination side (combinations at every level, listed
         order) used for inner-product pairing. Columns are concatenated
@@ -1092,7 +1104,7 @@ def _nested_enum_indices(valid_values, tags_valid, r_levels, sym_levels):
     if tags_valid.ndim == 1:
         tags_valid = tags_valid.reshape(-1, 1)
     r_levels = [int(x) for x in np.asarray(r_levels).ravel()]
-    sym_levels = [bool(x) for x in np.asarray(sym_levels).ravel()]
+    exch_levels = [bool(x) for x in np.asarray(exch_levels).ravel()]
     L = len(r_levels)
 
     # Map a value index to its row in tags_valid (values are a subset of
@@ -1125,7 +1137,7 @@ def _nested_enum_indices(valid_values, tags_valid, r_levels, sym_levels):
         return out
 
     D = int(np.prod(r_levels)) if r_levels else 0
-    perm_cols = enum_side(valid_values, L - 1, sym_levels)
+    perm_cols = enum_side(valid_values, L - 1, exch_levels)
     comb_cols = enum_side(valid_values, L - 1, [False] * L)
     perm_idx = (np.array(perm_cols, dtype=np.intp).T if perm_cols
                 else np.empty((D, 0), dtype=np.intp))
@@ -1139,7 +1151,7 @@ def _canonicalise_nested_rel(rel, L, a):
 
     Returns ``(rel_unit, proj)`` where ``rel_unit`` is ``None`` (absolute)
     or a 0-based level index (innermost-outward, matching the ``r`` and
-    ``sym`` vectors) of the finest selected co-transposition unit, and
+    ``exch`` vectors) of the finest selected co-transposition unit, and
     ``proj`` is one of ``'absolute'``, ``'inner'``, ``'outer'``,
     ``'intermediate'``.
 
@@ -1198,7 +1210,7 @@ def _canonicalise_nested_rel(rel, L, a):
     return unit, proj
 
 
-def _enum_flat_attr(val_col, valid, r_a, is_sym, w_col_orig):
+def _enum_flat_attr(val_col, valid, r_a, is_exch, w_col_orig):
     """Per-(event, attribute) r-ad enumeration for one flat attribute.
 
     Returns ``(perm_mat, comb_mat, perm_w, comb_w)`` for the non-NaN
@@ -1225,7 +1237,7 @@ def _enum_flat_attr(val_col, valid, r_a, is_sym, w_col_orig):
     comb_list = list(combinations(valid.tolist(), r_a))
     comb_mat = np.array(comb_list, dtype=np.intp).T  # r_a x C
 
-    if r_a == 1 or not is_sym:
+    if r_a == 1 or not is_exch:
         perm_mat = comb_mat.copy()
     else:
         all_perms = np.array(
@@ -1254,14 +1266,14 @@ def _ma_build_perm_arrays(
     w_list,
     r_vec,
     is_rel_vec,
-    is_sym_vec,
+    is_exch_vec,
     N,
     A,
     nested=None,
 ):
     """Heavy per-event / per-attribute r-ad enumeration and assembly.
 
-    Extracted from the the eager-build ``_build_exp_tens_ma`` body so it can be
+    Extracted from the the eager-build ``_build_maet_ma`` body so it can be
     invoked lazily on first access of a per-tuple field. Returns a
     dict of the nine lazy-target fields:
     ``n_j, n_k, centres, u_perm, v_comb, w_j, wv_comb,
@@ -1336,7 +1348,7 @@ def _ma_build_perm_arrays(
                     f"value(s) but r_a = {r_a}."
                 )
             perm_mat, comb_mat, perm_w, comb_w = _enum_flat_attr(
-                val_col, valid, r_a, is_sym_vec[0], W[:, 0])
+                val_col, valid, r_a, is_exch_vec[0], W[:, 0])
             n_j = perm_mat.shape[1]
             n_k = comb_mat.shape[1]
             u0 = val_col[perm_mat]
@@ -1352,7 +1364,7 @@ def _ma_build_perm_arrays(
                 for n in range(1, N)))
             if reuse:
                 perm_mat, comb_mat, _, _ = _enum_flat_attr(
-                    P[:, 0], valid0, r_a, is_sym_vec[0], W[:, 0])
+                    P[:, 0], valid0, r_a, is_exch_vec[0], W[:, 0])
                 nje = perm_mat.shape[1]
                 nke = comb_mat.shape[1]
                 n_j = nje * N
@@ -1386,7 +1398,7 @@ def _ma_build_perm_arrays(
                             f"non-NaN value(s) but r_a = {r_a}."
                         )
                     pm, cm, pw, cw = _enum_flat_attr(
-                        val, valid, r_a, is_sym_vec[0], W[:, n])
+                        val, valid, r_a, is_exch_vec[0], W[:, n])
                     u_bl.append(val[pm])
                     v_bl.append(val[cm])
                     wj_bl.append(pw)
@@ -1434,7 +1446,7 @@ def _ma_build_perm_arrays(
                 perm_mat, comb_mat = _nested_enum_indices(
                     valid, tags_valid,
                     np.asarray(spec["r"]).ravel(),
-                    np.asarray(spec["sym"]).ravel(),
+                    np.asarray(spec["exch"]).ravel(),
                 )
                 perm_idx[n][a] = perm_mat
                 comb_idx[n][a] = comb_mat
@@ -1452,7 +1464,7 @@ def _ma_build_perm_arrays(
 
             (perm_idx[n][a], comb_idx[n][a],
              perm_w[n][a], comb_w[n][a]) = _enum_flat_attr(
-                val_col, valid, r_a, is_sym_vec[a], w_list[a][:, n])
+                val_col, valid, r_a, is_exch_vec[a], w_list[a][:, n])
 
     n_j_per = np.array(
         [int(np.prod([perm_idx[n][a].shape[1] for a in range(A)]))
@@ -1558,11 +1570,11 @@ def _ma_build_perm_arrays(
 
 
 # -------------------------------------------------------------------
-#  _build_exp_tens_single_multiset  (single-multiset legacy path)
+#  _build_maet_single_multiset  (single-multiset legacy path)
 # -------------------------------------------------------------------
 
 
-def _build_exp_tens_single_multiset(
+def _build_maet_single_multiset(
     p: np.ndarray,
     w: np.ndarray | None,
     sigma: float,
@@ -1570,7 +1582,7 @@ def _build_exp_tens_single_multiset(
     is_rel: bool,
     is_per: bool,
     period: float,
-    is_sym: bool = True,
+    is_exch: bool = True,
     *,
     wrap: str = 'full-image',
     verbose: bool = True,
@@ -1619,7 +1631,7 @@ def _build_exp_tens_single_multiset(
             is_per=np.array([bool(is_per)]),
             period=np.array([float(period)]),
             dim=dim, dim_per_attr=np.array([dim]),
-            is_sym=np.array([bool(is_sym)]),
+            is_exch=np.array([bool(is_exch)]),
             _build_lazy=lambda: empty,
         )
     # Historical single-multiset validation, enforced before
@@ -1645,11 +1657,11 @@ def _build_exp_tens_single_multiset(
         else:
             w_arr = w_arr.ravel()
         w_attr = [w_arr.reshape(-1, 1)]
-    return _build_exp_tens_ma(
+    return _build_maet_ma(
         p_attr, w_attr,
         [float(sigma)], [int(r)],
         [bool(is_rel)], [bool(is_per)], [float(period)],
-        [bool(is_sym)],
+        [bool(is_exch)],
         wrap=np.array([str(wrap)], dtype=object),
         verbose=verbose,
     )

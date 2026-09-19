@@ -16,14 +16,14 @@ nested multisets"):
   fermata); an off-beat passing chord enters at half weight.
 * A context window pair (or triple, for the three-chord prototypes) is
   one bound pitch attribute: the inner level is each aggregate's pitch
-  multiset ([sym] = 1, r = r_inner), the outer level the ordered
-  aggregates ([sym] = 0, r = L), taken relative at the outer level alone
+  multiset ([exch] = 1, r = r_inner), the outer level the ordered
+  aggregates ([exch] = 0, r = L), taken relative at the outer level alone
   ([rel] = (0, 1)) and periodic (P = 12, sigma = 0.15). The optional
   inversion flag is a second, simplex-coded attribute (+/-0.5,
   sigma_flag = 0.1) carried by query and context alike.
 
 All densities are built with the toolbox's ``bind_events`` ->
-``build_exp_tens`` pipeline; similarities use ``cos_sim_exp_tens``
+``build_maet`` pipeline; similarities use ``sim_maet``
 (re-exported for the caller). Data come from ``jmm_data`` (the bundled
 MusicXML read with ``mpt.read_score``).
 """
@@ -33,8 +33,8 @@ import numpy as np
 import mpt
 from mpt import unpack_pre_maet
 mpt.set_default(show_hints=False)
-from mpt import (bind_events, flat_specs, build_exp_tens,  # noqa: F401
-                 cos_sim_exp_tens, show_pre_maet)
+from mpt import (bind_events, flat_specs, build_maet,  # noqa: F401
+                 sim_maet, show_pre_maet)
 
 from jmm_data import bwv347_grid, bwv347_fermata_spans, GRID_STEP_QN
 
@@ -148,8 +148,8 @@ def bound_density(aggs, flag=None, r_inner: int = 1):
     """MAET density of one bound super-event from L beat aggregates.
 
     The pitch attribute nests the aggregates: inner level the chord
-    multiset ([sym] = 1, r = r_inner), outer level the L ordered
-    aggregates ([sym] = 0, r = L), relative at the outer level alone
+    multiset ([exch] = 1, r = r_inner), outer level the L ordered
+    aggregates ([exch] = 0, r = L), relative at the outer level alone
     ([rel] = (0, 1)), periodic at the octave. An optional flag value adds
     the simplex-coded inversion attribute.
     """
@@ -162,18 +162,18 @@ def bound_density(aggs, flag=None, r_inner: int = 1):
     for j, (p, w) in enumerate(aggs):
         P[:len(p), j] = p
         W[:len(w), j] = w
-    specs = flat_specs([P], r=r_inner, rel=False, sym=True, name='pitch')
+    specs = flat_specs([P], r=r_inner, rel=False, exch=True, name='pitch')
     pb, wb, sb = unpack_pre_maet(bind_events([P], [W], L, rel_outer=True, specs=specs))
     attrs, ws, sp = [pb[0]], [wb[0]], [sb[0]]
     sigma, is_per, period = [SIGMA_PITCH], [True], [PERIOD]
     if flag is not None:
         attrs.append(np.array([[float(flag)]]))
         ws.append(np.array([[1.0]]))
-        sp.extend(flat_specs([attrs[-1]], r=1, rel=False, sym=False, name='flag'))
+        sp.extend(flat_specs([attrs[-1]], r=1, rel=False, exch=False, name='flag'))
         sigma.append(SIGMA_FLAG)
         is_per.append(False)
         period.append(0.0)
-    return build_exp_tens(attrs, ws, specs=sp, sigma=sigma, is_per=is_per,
+    return build_maet(attrs, ws, specs=sp, sigma=sigma, is_per=is_per,
                           period=period, verbose=False)
 
 

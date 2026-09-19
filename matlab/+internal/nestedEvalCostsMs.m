@@ -20,7 +20,7 @@ function [centresMs, mobiusMs] = nestedEvalCostsMs(dens, nQ)
 %   node count (1 when absolute). Fitted September 2026 by
 %   python/tools/fit_nested_eval_cost.py on the 3096-cell grid of
 %   tools/benchNestedEval.m (two-level shapes of 2--4 groups of 3--5
-%   values, r up to 2x4, every [sym] pattern, absolute and both units,
+%   values, r up to 2x4, every [exch] pattern, absolute and both units,
 %   periodic and not, N = 4 and 32, 1 to 200 queries). The Möbius
 %   per-event per-query cost is a near power law in K * s (log residual
 %   0.18) and does not see the tuple count at all. Routing regret against
@@ -63,7 +63,7 @@ function [centresMs, mobiusMs] = nestedEvalCostsMs(dens, nQ)
         Ksum = 0;
         for n = 1:N
             live = ~isnan(pA(:, n));
-            T = T + internal.nestedTupleCount(tg(live, :), rLevels, spec.sym);
+            T = T + internal.nestedTupleCount(tg(live, :), rLevels, spec.exch);
             Ksum = Ksum + sum(live);
         end
         K = Ksum / max(N, 1);

@@ -14,7 +14,7 @@ function out = lastNestedRoutes(routes)
 %
 %   Mirror of the Python cosine._LAST_NESTED_ROUTES module variable.
 %
-%   See also INTERNAL.NESTEDCONTRACT, COSSIMEXPTENS.
+%   See also INTERNAL.NESTEDCONTRACT, SIMMAET.
 
     persistent stored
     if isempty(stored)

@@ -14,9 +14,9 @@ from scipy.signal import correlate as _sp_correlate
 
 from ._utils import maybe_print_batched_estimate, validate_weights
 from ._defaults import _with_dispatch_scope
-from .entropy import entropy_exp_tens
+from .entropy import entropy_maet
 from .spectra import add_spectra
-from .tensor import _chord_canonical_key, build_exp_tens, eval_exp_tens
+from .tensor import _chord_canonical_key, build_maet, eval_maet
 
 
 # ===================================================================
@@ -54,7 +54,7 @@ def _template_xcorr_chord_side(
         Grid margin in cents (typically ``4 * sigma``).
     step : float
         Grid spacing in cents (typically 1).
-    truncation_sigmas, kernel_precision : forwarded to ``eval_exp_tens``.
+    truncation_sigmas, kernel_precision : forwarded to ``eval_maet``.
 
     Returns
     -------
@@ -62,11 +62,11 @@ def _template_xcorr_chord_side(
         Normalised cross-correlation profile, length
         ``len(chord_vals) + len(tmpl_vals) - 1``.
     """
-    chord_dens = build_exp_tens(
+    chord_dens = build_maet(
         chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
     )
     x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
-    chord_vals = eval_exp_tens(
+    chord_vals = eval_maet(
         chord_dens, x_chord, verbose=False,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
@@ -108,7 +108,7 @@ def spectral_entropy(
     indicates greater consonance.
 
     ``spectral_entropy`` is a thin wrapper around
-    :func:`~mpt.entropy_exp_tens` with ``r=1``, ``is_rel=False``,
+    :func:`~mpt.entropy_maet` with ``r=1``, ``is_rel=False``,
     ``is_per=False`` (1-D absolute non-periodic density). It applies
     :func:`~mpt.spectra.add_spectra` to enrich the pitches with
     partials (if a ``spectrum`` argument is supplied), shifts the
@@ -146,7 +146,7 @@ def spectral_entropy(
 
     ``resolution`` sets the grid spacing of the discrete methods in
     cents; ``'differential'`` and ``'renyi2'`` do not read it. Users
-    needing other grid bounds should call :func:`entropy_exp_tens`
+    needing other grid bounds should call :func:`entropy_maet`
     directly with a pre-built density and their own ``n_points_per_dim``
     and ``x_min`` / ``x_max``.
 
@@ -228,7 +228,7 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
     """Single-chord scalar dispatch.
 
     Prepares ``(spec_p, spec_w)`` (transposition shift + optional
-    add_spectra) and delegates to :func:`entropy_exp_tens`. For the
+    add_spectra) and delegates to :func:`entropy_maet`. For the
     grid-based methods (``'shannon'`` and ``'normalized'``), the wrapper
     passes the grid ``0 : resolution : max(spec_p) + 4*sigma``. For
     ``'differential'`` the span and grid are derived adaptively. For
@@ -252,7 +252,7 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
 def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
                                resolution, truncation_sigmas,
                                kernel_precision):
-    """Delegate the entropy computation to entropy_exp_tens.
+    """Delegate the entropy computation to entropy_maet.
 
     Used by both the scalar path and the batched per-row path.
 
@@ -264,7 +264,7 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
     constructed (analytical inner-product form).
     """
     if method == "renyi2":
-        return entropy_exp_tens(
+        return entropy_maet(
             spec_p, spec_w, sigma, 1, False, False, 1200,
             method="renyi2",
             base=base,
@@ -274,7 +274,7 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
         )
 
     if method == "differential":
-        return entropy_exp_tens(
+        return entropy_maet(
             spec_p, spec_w, sigma, 1, False, False, 1200,
             method="differential",
             base=base,
@@ -295,7 +295,7 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
     n_points = int(np.floor((float(np.max(spec_p)) + margin) / resolution
                             + 1e-9)) + 1
     x_max = (n_points - 1) * resolution
-    return entropy_exp_tens(
+    return entropy_maet(
         spec_p, spec_w, sigma, 1, False, False, 1200,
         method=method,
         base=base,
@@ -576,7 +576,7 @@ def _template_harmonicity_chord_only(
     # Harrison-2020 entropy of the profile. (Treated as a probability
     # distribution; this is a discrete-Shannon computation on a vector,
     # not on an expectation-tensor density, so it does not delegate to
-    # entropy_exp_tens.)
+    # entropy_maet.)
     q = xcorr_norm.copy()
     N = len(q)
     total = np.sum(q)
@@ -610,10 +610,10 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
     margin = 4 * sigma
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
 
-    tmpl_dens = build_exp_tens(
+    tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
     )
-    tmpl_vals = eval_exp_tens(
+    tmpl_vals = eval_maet(
         tmpl_dens, x_tmpl, verbose=False,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
@@ -649,19 +649,19 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
 
     # Template (independent of chord) — built once.
     tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
-    tmpl_dens = build_exp_tens(
+    tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
     )
     margin = 4 * sigma
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
+    tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,
                               truncation_sigmas=truncation_sigmas,
                               kernel_precision=kernel_precision)
     tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
     # Up-front time estimate (printed once for the whole batch). The
     # kernel-only nPairs-based estimate (as used by estimateCompTime in
-    # scalar paths and in evalExpTens) underestimates the actual cost
+    # scalar paths and in evalMaet) underestimates the actual cost
     # of templateHarmonicity batched runs by 3-5x because it omits
     # convolve, addSpectra, and per-row Python-loop overheads. So we
     # instead run a small empirical calibration: pick K rows spaced
@@ -852,7 +852,7 @@ def tensor_harmonicity(
 
     Notes
     -----
-    Internal computation is delegated to :func:`~mpt.eval_exp_tens`,
+    Internal computation is delegated to :func:`~mpt.eval_maet`,
     whose dispatcher chooses between the centres-array path and the
     Möbius point evaluator (see :func:`mpt._tensor.dispatch._select_ma_eval`).
     The harmonic template has ``K = duplicate × n_partials`` events, so
@@ -910,9 +910,9 @@ def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize,
                                truncation_sigmas, kernel_precision, verbose):
     """Single-chord scalar dispatch.
 
-    Routes through :func:`eval_exp_tens` so the centres-vs-Möbius
+    Routes through :func:`eval_maet` so the centres-vs-Möbius
     choice is made by the cost-model dispatcher inside
-    ``eval_exp_tens`` rather than hard-coded here. This lets the
+    ``eval_maet`` rather than hard-coded here. This lets the
     helper-accelerated centres path apply at typical regimes.
     """
     n_pitches = len(p)
@@ -954,31 +954,31 @@ def _tensor_harmonicity_via_eval(
     kernel_precision: str | None,
 ) -> np.ndarray:
     """Evaluate the rel-mode template tensor at *x_query* by building
-    the template density and routing through :func:`eval_exp_tens`.
+    the template density and routing through :func:`eval_maet`.
 
     The centres-vs-Möbius choice is made by the cost-model dispatcher
-    inside ``eval_exp_tens``; this wrapper no longer hard-codes a
+    inside ``eval_maet``; this wrapper no longer hard-codes a
     routing choice.
 
     Normalisation note: ``tensor_harmonicity``'s 'pdf' divides the
     gaussian-normalised value by ``sum(tmpl_w)`` — sum of single-
     partial weights — to preserve v2.0 numerical convention.
-    This differs from :func:`eval_exp_tens`'s own 'pdf' (which
+    This differs from :func:`eval_maet`'s own 'pdf' (which
     divides by ``sum(wJ)``, the sum of r-tuple weight products);
     the difference is a factor of ``(K-1)·(K-2)·...·(K-r+1)`` for
     an all-ones template. We therefore evaluate at 'none' below
     and apply the normalisation ourselves.
     """
-    from .tensor import build_exp_tens, eval_exp_tens
+    from .tensor import build_maet, eval_maet
 
-    dens = build_exp_tens(
+    dens = build_maet(
         np.asarray(tmpl_p).ravel(),
         np.asarray(tmpl_w).ravel(),
         sigma, r, True, False, 0.0,
         verbose=False,
     )
 
-    vals = eval_exp_tens(
+    vals = eval_maet(
         dens, x_query, 'none',
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
@@ -1018,7 +1018,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
     Groups rows by (effective n_p, dup), deduplicates canonical chord
     intervals within each group, and issues a single batched call to
     :func:`_tensor_harmonicity_via_eval` per group. The cost-model
-    dispatcher inside ``eval_exp_tens`` then chooses centres vs the Möbius method
+    dispatcher inside ``eval_maet`` then chooses centres vs the Möbius method
     for that batched query matrix.
     """
     M, K = P.shape
@@ -1122,7 +1122,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
 
         # Build harmonic template once per group, then ONE batched
         # call to _tensor_harmonicity_via_eval (which routes through
-        # eval_exp_tens; its dispatcher chooses centres vs the Möbius method).
+        # eval_maet; its dispatcher chooses centres vs the Möbius method).
         # Forwards truncation_sigmas / kernel_precision so the batched
         # path picks up the same speed/accuracy controls as scalar.
         tmpl_p, tmpl_w = add_spectra(
@@ -1277,10 +1277,10 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
     step = resolution
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
 
-    tmpl_dens = build_exp_tens(
+    tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
     )
-    tmpl_vals = eval_exp_tens(
+    tmpl_vals = eval_maet(
         tmpl_dens, x_tmpl, verbose=False,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
@@ -1327,13 +1327,13 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
 
     # The harmonic template is shared across rows.
     tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
-    tmpl_dens = build_exp_tens(
+    tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
     )
     margin = 4 * sigma
     step = resolution
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
+    tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,
                               truncation_sigmas=truncation_sigmas,
                               kernel_precision=kernel_precision)
     n_tmpl = len(tmpl_vals)

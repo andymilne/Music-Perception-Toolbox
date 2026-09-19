@@ -44,7 +44,7 @@ function profiles = prototypeSweep(rInner, queries, mus, normalize)
     for q = 1:numel(queries)
         qd = jmm.queryDensity(queries(q).chords, queries(q).flagged, rInner);
         if queries(q).flagged, ctx = ctxFlag; else, ctx = ctxPlain; end
-        vals = cell2mat(cosSimExpTens(ctx, qd, 'normalize', normalize, ...
+        vals = cell2mat(simMaet(ctx, qd, 'normalize', normalize, ...
                                       'verbose', false));
         prof = zeros(1, numel(mus));
         prof(idxs) = vals;

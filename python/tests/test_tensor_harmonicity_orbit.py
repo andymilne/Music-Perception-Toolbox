@@ -1,7 +1,7 @@
 """Tests for ``tensor_harmonicity`` after the v3 orbit-eval refactor.
 
 Pre-v3, ``tensor_harmonicity`` materialised a centres array of size
-``(r-1, K!/(K-r)!)`` inside ``build_exp_tens``. With the default
+``(r-1, K!/(K-r)!)`` inside ``build_maet``. With the default
 64-partial harmonic template, a 4-pitch chord blew the build to
 ~9·10⁸ four-tuples (~25 GB just for the index tensor), so the function
 emitted a "computation time grows rapidly" warning at K > 3 and
@@ -28,7 +28,7 @@ import numpy as np
 import mpt
 from mpt.harmony import tensor_harmonicity
 from mpt._mobius import eval_orbit_rel
-from mpt.tensor import build_exp_tens, eval_exp_tens
+from mpt.tensor import build_maet, eval_maet
 from mpt.spectra import add_spectra
 
 
@@ -61,11 +61,11 @@ def test_tensor_harmonicity_matches_centres_at_K_eq_2():
     n_pitches = len(chord)
     tmpl_p, tmpl_w = add_spectra(np.zeros(n_pitches), np.ones(n_pitches),
                                  *spectrum)
-    T = build_exp_tens(
+    T = build_maet(
         tmpl_p, tmpl_w, sigma, n_pitches, True, False, 1200, verbose=False,
     )
     intervals = (np.sort(chord)[1:] - np.sort(chord)[0]).reshape(-1, 1)
-    h_centres = float(eval_exp_tens(
+    h_centres = float(eval_maet(
         T, intervals, normalize="none", method="centres", verbose=False,
     )[0])
 
@@ -84,11 +84,11 @@ def test_tensor_harmonicity_matches_centres_at_K_eq_3_with_small_spectrum():
     n_pitches = len(chord)
     tmpl_p, tmpl_w = add_spectra(np.zeros(n_pitches), np.ones(n_pitches),
                                  *spectrum)
-    T = build_exp_tens(
+    T = build_maet(
         tmpl_p, tmpl_w, sigma, n_pitches, True, False, 1200, verbose=False,
     )
     intervals = (np.sort(chord)[1:] - np.sort(chord)[0]).reshape(-1, 1)
-    h_centres = float(eval_exp_tens(
+    h_centres = float(eval_maet(
         T, intervals, normalize="none", method="centres", verbose=False,
     )[0])
 

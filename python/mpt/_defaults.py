@@ -4,6 +4,22 @@ Centralises the few user-tunable toolbox defaults (currently:
 ``truncation_sigmas``, ``kernel_precision``). Per-call keyword arguments
 always override the defaults set here.
 
+``kernel_threads`` (factory default ``'auto'``) is how many threads the
+elementwise Gaussian work may be spread over. That work is the bulk of
+every evaluation route and is perfectly parallel in the evaluation
+points, so threading it scales nearly linearly until memory bandwidth
+saturates. The partition preserves each point's own arithmetic order,
+so the results are bit-identical at any thread count; only the time
+changes. ``'auto'`` follows ``OMP_NUM_THREADS`` when the environment
+sets it and otherwise takes the core count capped at eight; 1 runs
+serially. Set it to 1 when parallelising at a higher level — a
+``multiprocessing`` pool, ``joblib``, or a cluster job array — since
+each worker fanning out again oversubscribes the machine. Threads are
+used only above a work threshold, so small calls are unaffected either
+way. This default has no MATLAB counterpart: there the runtime threads
+elementwise arithmetic itself, and reduces each parfor worker to one
+computational thread.
+
 ``truncation_sigmas`` (factory default 6) is the Gaussian kernel truncation
 radius, in standard deviations. A kernel centred more than
 ``truncation_sigmas * sigma`` from an evaluation point is dropped; at that
@@ -30,8 +46,8 @@ kernel and orbit paths. Treat ``inf`` as "exact to 1e-12" rather than
 literally exhaustive.
 
 What it affects: every density evaluation routes through the Gaussian kernel
-sum, so ``truncation_sigmas`` governs the accuracy of ``eval_exp_tens``,
-``cos_sim_exp_tens``, ``entropy_exp_tens``, ``tensor_harmonicity``,
+sum, so ``truncation_sigmas`` governs the accuracy of ``eval_maet``,
+``sim_maet``, ``entropy_maet``, ``tensor_harmonicity``,
 ``template_harmonicity``, ``spectral_entropy``, ``virtual_pitches``,
 ``windowed_similarity``, and ``weight_events``, together with the
 orbit evaluators those functions call. It does not affect any non-kernel
@@ -42,7 +58,7 @@ sets the adaptive convergence tolerance,
 ``max(exp(-truncation_sigmas**2 / 2), 1e-12)``, and hence how fine the
 nested grid must become. At the tightest accuracy (``inf``) a two- or
 higher-dimensional grid can exceed the feasible size, in which case
-``entropy_exp_tens`` raises with guidance rather than exhausting memory;
+``entropy_maet`` raises with guidance rather than exhausting memory;
 the factory default 6 keeps such grids feasible.
 
 Defaults persist within the Python process but not across processes.
@@ -76,6 +92,7 @@ _FACTORY_DEFAULTS: dict[str, Any] = {
     "kernel_precision": "double",
     "show_hints": True,
     "kernel_chunk_bytes": "auto",
+    "kernel_threads": "auto",
     "post_hoc_guards": True,
     "orbit_cost_intercept": 3.8536,
     # Calibration and testing lever, not part of the public interface: it
@@ -269,7 +286,7 @@ def accuracy_floor_context(eps: float):
 
         >>> from mpt._defaults import accuracy_floor_context
         >>> with accuracy_floor_context(1e-300):
-        ...     golden = eval_exp_tens(dens, x, truncation_sigmas=math.inf)
+        ...     golden = eval_maet(dens, x, truncation_sigmas=math.inf)
 
     The override is thread-local and scoped: it never leaks past the
     ``with`` block, even on exception, and does not affect other
@@ -451,6 +468,40 @@ def _validate_one(name: str, value: Any) -> Any:
                 f"(got {value!r})"
             )
         return v
+    if name == "kernel_threads":
+        if isinstance(value, str):
+            v = value.lower()
+            if v != "auto":
+                raise ValueError(
+                    f"'kernel_threads' string value must be 'auto' "
+                    f"(got {value!r})"
+                )
+            return v
+        if isinstance(value, bool):
+            raise ValueError(
+                f"'kernel_threads' must be 'auto' or a positive integer "
+                f"(got {value!r})"
+            )
+        try:
+            iv = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"'kernel_threads' must be 'auto' or a positive integer "
+                f"(got {value!r})"
+            ) from None
+        if iv != value:
+            # A fractional count is a mistake rather than a request to
+            # round, so it is refused instead of truncated.
+            raise ValueError(
+                f"'kernel_threads' must be 'auto' or a positive integer "
+                f"(got {value!r})"
+            )
+        if iv <= 0:
+            raise ValueError(
+                f"'kernel_threads' must be 'auto' or a positive integer "
+                f"(got {value!r})"
+            )
+        return iv
     if name == "post_hoc_guards":
         if not isinstance(value, bool):
             raise ValueError(
@@ -497,7 +548,8 @@ def show_defaults() -> None:
     should use :func:`get_defaults` (which returns a dict) instead.
 
     Mirrors MATLAB's ``mptDefaults`` (called with no arguments and
-    no requested output).
+    no requested output), with the addition of ``kernel_threads``,
+    which is Python-only.
     """
     hints = _DEFAULTS["show_hints"]
     hints_str = "True" if hints is True else ("False" if hints is False else str(hints))
@@ -505,6 +557,8 @@ def show_defaults() -> None:
     trunc_str = "inf" if trunc == math.inf else repr(trunc)
     prec = _DEFAULTS["kernel_precision"]
     prec_str = f"'{prec}'"
+    threads = _DEFAULTS["kernel_threads"]
+    threads_str = f"'{threads}'" if isinstance(threads, str) else str(threads)
 
     lines = [
         "",
@@ -519,6 +573,10 @@ def show_defaults() -> None:
         f"  show_hints       : {hints_str:<12}  Informational console messages from",
         "                                   the toolbox: dispatch decisions.",
         "                                   True or False.",
+        f"  kernel_threads   : {threads_str:<12}  Threads for elementwise kernel work.",
+        "                                   'auto' (default) follows OMP_NUM_THREADS,",
+        "                                   else the core count capped at 8; 1 is",
+        "                                   serial. Set 1 under multiprocessing.",
         "",
         "Usage:",
         "  mpt.set_default(name=value)     set",
@@ -657,6 +715,11 @@ def set_default(**kwargs: Any) -> dict[str, Any]:
         new[key] = _validate_one(key, value)
         old[key] = _DEFAULTS[key]
     _DEFAULTS.update(new)
+    if "kernel_threads" in new and new["kernel_threads"] != old["kernel_threads"]:
+        # The pool is sized from this default; discard it so the next
+        # use builds one of the size now asked for.
+        from ._utils import shutdown_kernel_pool
+        shutdown_kernel_pool()
     return old
 
 
@@ -677,8 +740,11 @@ def reset_defaults() -> dict[str, Any]:
     _TIME_WARN_EMITTED[0] = False
     # Flush the kernel_chunk_bytes 'auto' resolution cache so a
     # subsequent call re-queries the OS.
-    from ._utils import flush_kernel_chunk_bytes_cache
+    from ._utils import flush_kernel_chunk_bytes_cache, shutdown_kernel_pool
     flush_kernel_chunk_bytes_cache()
+    # The pool is sized from kernel_threads, so it is rebuilt on the
+    # next use rather than left at the size the old default asked for.
+    shutdown_kernel_pool()
     return old
 
 

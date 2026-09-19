@@ -1,39 +1,42 @@
-function vals = evalExpTens(varargin)
-%EVALEXPTENS Evaluate an r-ad expectation tensor density at query points.
+function vals = evalMaet(varargin)
+%EVALMAET Evaluate an r-ad expectation tensor density at query points.
 %
 %   Input forms, in the order to reach for them: a single multiset;
 %   a pre-MAET, the canonical entry for everything else; a density
-%   built by buildExpTens; then the raw positional multi-attribute,
+%   built by buildMaet; then the raw positional multi-attribute,
 %   list, and batched forms.
 %
-%   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X):
-%   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X, normalize):
-%   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X, ..., 'verbose', false):
+%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, X):
+%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, X, normalize):
+%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, X, ..., 'verbose', false):
+%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, isExch, X, ...):
 %   Evaluates the density from raw arguments (builds tuples internally).
+%   The optional isExch sits between period and X in every raw form.
 %
-%   vals = evalExpTens(pm, X):
-%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildExpTens
+%   vals = evalMaet(pm, X):
+%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildMaet
 %   needs, so it stands wherever a density does: it is built internally
 %   and evaluated at X.
 %
-%   vals = evalExpTens(dens, X):
-%   vals = evalExpTens(dens, X, normalize):
-%   vals = evalExpTens(dens, X, ..., 'verbose', false):
-%   Evaluates the density using a precomputed struct from buildExpTens.
+%   vals = evalMaet(dens, X):
+%   vals = evalMaet(dens, X, normalize):
+%   vals = evalMaet(dens, X, ..., 'verbose', false):
+%   Evaluates the density using a precomputed struct from buildMaet.
 %
-%   vals = evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X):
-%   vals = evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, normalize):
-%   vals = evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, ..., 'verbose', false):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, normalize):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, ..., 'verbose', false):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, isExch, X, ...):
 %   Raw multi-attribute mode. pAttr is a 1-by-A cell of K_a-by-N
 %   attribute matrices and wAttr the matching per-attribute weights
-%   (the same shapes one would pass to buildExpTens);
+%   (the same shapes one would pass to buildMaet);
 %   sigma, r, isRel, isPer, periods are per-attribute vectors.
 %   the per-attribute group assignment ([], length-A index vector, or
 %   1-by-G cell of index lists). Builds a MaetDensity internally and
 %   returns vals as a length-nQ row vector.
 %
-%   valsCell = evalExpTens({d_1, ..., d_n}, X [, normalize]):
-%   valsCell = evalExpTens({d_1, ..., d_n}, {X_1, ..., X_n} [, normalize]):
+%   valsCell = evalMaet({d_1, ..., d_n}, X [, normalize]):
+%   valsCell = evalMaet({d_1, ..., d_n}, {X_1, ..., X_n} [, normalize]):
 %   List mode. Iterates over a cell array of density structs,
 %   returning a 1-by-n cell array of value vectors. The X argument is
 %   broadcast to all densities, or a length-n cell of per-density query
@@ -42,12 +45,21 @@ function vals = evalExpTens(varargin)
 %   entry. Option II shape rule: a length-1 list returns a length-1
 %   cell.
 %
-%   vals = evalExpTens(P, W, sigma, r, isRel, isPer, period, X [, normalize]):
+%   vals = evalMaet(P, W, sigma, r, isRel, isPer, period, X [, normalize]):
+%   vals = evalMaet(P, W, sigma, r, isRel, isPer, period, isExch, X [, normalize]):
 %   Batched-raw mode. P is an nRows-by-K matrix of pitches (rows
 %   = multisets); X is shared across all rows. Returns an nRows-by-nQ
 %   matrix of values. Detection is by P having both dimensions > 1.
 %   Row vectors and column vectors fall through to the existing scalar
 %   single multiset raw path for backward compatibility.
+%
+%   Shape rule (differs from Python). A vector is a vector whichever
+%   way it is oriented, so a K-by-1 column takes the single multiset
+%   raw path rather than being read as K rows of one element. Python
+%   dispatches on ndim, where a (K, 1) array is K single-element rows.
+%   A batch of one-element multisets is written the same way in both
+%   languages: pad to two columns with NaN, [p(:), nan(K, 1)], the
+%   padding being stripped per row before each density is built.
 %
 %   Multiset-argument shapes (pick one of three):
 %     p      — Vector of length K. single multiset raw form (single multiset,
@@ -60,7 +72,7 @@ function vals = evalExpTens(varargin)
 %              (multi-attribute; per-attribute centre rows).
 %   Lowercase p stands for "pitch or position"; uppercase P is the
 %   2-D batched lift; pAttr is the multi-attribute generalisation.
-%   The same convention is used in entropyExpTens and cosSimExpTens.
+%   The same convention is used in entropyMaet and simMaet.
 %
 %   The density at a query point x is:
 %     f(x) = sum_j prod(w_j) * exp(-(x - c_j)' * M * (x - c_j) / (2*sigma^2))
@@ -87,7 +99,7 @@ function vals = evalExpTens(varargin)
 %     In summary, X should have dim rows, where dim = r - isRel.
 %
 %   Inputs:
-%     dens      — Precomputed density struct from buildExpTens. Pass
+%     dens      — Precomputed density struct from buildMaet. Pass
 %                 this in lieu of the raw arguments below; the struct
 %                 carries its own sigma, r, isRel, isPer, period (or
 %                 their per-group vectors for MA).
@@ -114,6 +126,13 @@ function vals = evalExpTens(varargin)
 %     period    — Period of the domain. Scalar for single multiset / BATCHED-RAW;
 %                 length-G vector for MA (one per group; ignored where
 %                 isPer == false).
+%     isExch    — Optional logical (default: true): true for an
+%                 exchangeable (unordered) multiset, whose density is
+%                 invariant under permuting a tuple's coordinates; false
+%                 for an ordered one, where position in the tuple
+%                 carries identity. Scalar for single multiset /
+%                 BATCHED-RAW; length-A vector for MA. Given, it sits
+%                 between period and X.
 %     X         — Query points: dim x nQ matrix, where dim = r - isRel.
 %                 Each column is a point at which to evaluate the density.
 %                 For isRel == false: r-dimensional pitch or position
@@ -192,7 +211,7 @@ function vals = evalExpTens(varargin)
 %                 ~7 sig fig precision. The Python twin honours it on
 %                 the same routes.
 %
-%   See also buildExpTens, cosSimExpTens.
+%   See also buildMaet, simMaet.
 
 % === Parse arguments ===
 % Strategy: first determine whether a precomputed struct was passed as
@@ -204,8 +223,8 @@ function vals = evalExpTens(varargin)
 % (while keeping inner sub-calls within the same top-level call
 % throttled), AND pins the resolved kernelChunkBytes budget for the
 % lifetime of this call so recursive / nested inner calls (e.g. via
-% entropyExpTens or templateHarmonicity dispatching back into
-% evalExpTens) share one OS query rather than spawning a vm_stat
+% entropyMaet or templateHarmonicity dispatching back into
+% evalMaet) share one OS query rather than spawning a vm_stat
 % subprocess per call. Single onCleanup, halving the per-call guard
 % overhead vs calling internal.dispatchScope and
 % internal.kernelChunkBytesResolved('pinForCall') separately.
@@ -238,7 +257,7 @@ while i <= numel(varargin)
             case 'method'
                 method = lower(char(varargin{i + 1}));
                 if ~ismember(method, {'auto', 'centres', 'mobius'})
-                    error('evalExpTens:badMethod', ...
+                    error('evalMaet:badMethod', ...
                           ['''method'' must be ''auto'', ''centres'', ' ...
                            'or ''mobius''; got ''%s''.'], method);
                 end
@@ -277,33 +296,33 @@ end
 % Dispatch: struct vs raw arguments
 nArgs = numel(varargin);
 if nArgs == 0
-    error('evalExpTens:noArgs', ...
-        'evalExpTens requires at least one positional argument.');
+    error('evalMaet:noArgs', ...
+        'evalMaet requires at least one positional argument.');
 end
 
-% Optional [sym] geometry flag for the raw forms. The raw layouts carry
+% Optional [exch] geometry flag for the raw forms. The raw layouts carry
 % one shared geometry (..., period) followed by the query X as the final
-% positional. isSym joins the geometry, sitting between period and X:
-%   p, w, sigma, r, isRel, isPer, period, isSym, X
+% positional. isExch joins the geometry, sitting between period and X:
+%   p, w, sigma, r, isRel, isPer, period, isExch, X
 % Pop it here (position 8) so the existing raw dispatch -- which expects
-% X as the 8th positional -- is unchanged; forward it to buildExpTens
-% via symArgs. The two-density and list forms (nArgs == 2) read isSym
+% X as the 8th positional -- is unchanged; forward it to buildMaet
+% via exchArgs. The two-density and list forms (nArgs == 2) read isExch
 % from the precomputed structs and never reach this.
-symArgs = {};
-isSymRaw = [];
+exchArgs = {};
+isExchRaw = [];
 if nArgs == 9
-    isSymRaw = varargin{8};
+    isExchRaw = varargin{8};
     varargin(8) = [];
     nArgs = numel(varargin);
-    if ~isempty(isSymRaw)
-        symArgs = {isSymRaw};
+    if ~isempty(isExchRaw)
+        exchArgs = {isExchRaw};
     end
 end
 
 firstArg = varargin{1};
 
 % ==================================================================
-% Canonical dispatch order (mirrors entropyExpTens and cosSimExpTens):
+% Canonical dispatch order (mirrors entropyMaet and simMaet):
 %   1. Struct first operand: switch firstArg.tag.
 %   2. Cell first operand:
 %        - cell-of-struct  -> LIST (cell of density structs)
@@ -320,9 +339,9 @@ firstArg = varargin{1};
 % having failed) and self-sufficient.
 % ==================================================================
 
-USAGE_MSG = ['Usage: evalExpTens(dens, X [, normalize]) or ' ...
-    'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]) or ' ...
-    'evalExpTens(pAttr, wAttr, sigma, r, isRel, isPer, periods, X [, normalize]).\n' ...
+USAGE_MSG = ['Usage: evalMaet(dens, X [, normalize]) or ' ...
+    'evalMaet(p, w, sigma, r, isRel, isPer, period, X [, normalize]) or ' ...
+    'evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X [, normalize]).\n' ...
     'normalize must be ''none'', ''gaussian'', or ''pdf''.'];
 
 % --- 1. Struct first operand: precomputed density ---
@@ -345,7 +364,7 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
                     normalize, verbose, truncationSigmas, kernelPrecision, ...
                     method);
                 if ~handled
-                    dens_ma = internal.ensureExpTensExpensive(firstArg);
+                    dens_ma = internal.ensureMaetExpensive(firstArg);
                     if internal.densityHasKernelCov(dens_ma)
                         X = internal.whitenQuery(dens_ma, X);
                     end
@@ -359,7 +378,7 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
                 return;
             end
         otherwise
-            error('evalExpTens:unknownTag', ...
+            error('evalMaet:unknownTag', ...
                 'Unknown density struct tag: %s.', firstArg.tag);
     end
 
@@ -387,16 +406,16 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         isPer_arg  = varargin{6};
         period_arg = varargin{7};
         X          = varargin{8};
-        dens = buildExpTens(pAttr_arg, w_arg, sigma_arg, r_arg, ...
-                            isRel_arg, isPer_arg, period_arg, symArgs{:}, ...
+        dens = buildMaet(pAttr_arg, w_arg, sigma_arg, r_arg, ...
+                            isRel_arg, isPer_arg, period_arg, exchArgs{:}, ...
                             'verbose', verbose);
         % Try the joint-free (skinny) routes first; they read only the
-        % per-attribute fields buildExpTens already returns. Only build
+        % per-attribute fields buildMaet already returns. Only build
         % the expensive joint fields when the joint accumulator is needed.
         [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
             verbose, truncationSigmas, kernelPrecision, method);
         if ~handled
-            dens = internal.ensureExpTensExpensive(dens);
+            dens = internal.ensureMaetExpensive(dens);
             if internal.densityHasKernelCov(dens)
                 X = internal.whitenQuery(dens, X);
             end
@@ -408,7 +427,7 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         end
         return;
     end
-    error('evalExpTens:badCellContents', ...
+    error('evalMaet:badCellContents', ...
         ['Cell first argument must contain either density structs (LIST mode) ' ...
          'or numeric attribute matrices (MA raw mode); first cell entry is of ' ...
          'class %s.'], class(firstArg{1}));
@@ -423,7 +442,7 @@ elseif isnumeric(firstArg)
         vals = localEvalBatchedRaw( ...
             varargin{1}, varargin{2}, varargin{3}, varargin{4}, ...
             varargin{5}, varargin{6}, varargin{7}, varargin{8}, ...
-            isSymRaw, normalize, verbose, truncationSigmas, kernelPrecision, ...
+            isExchRaw, normalize, verbose, truncationSigmas, kernelPrecision, ...
             method);
         return;
     end
@@ -442,14 +461,14 @@ elseif isnumeric(firstArg)
     % Build the A = N = 1 corner; present the flat single-multiset layout
     % to the fast kernels below via the view. Skinny: the orbit branch may
     % not need heavy fields; the centres branch re-views after ensuring.
-    maet = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
-        isPer_arg, J_arg, symArgs{:}, 'verbose', verbose);
+    maet = buildMaet(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
+        isPer_arg, J_arg, exchArgs{:}, 'verbose', verbose);
     dens = internal.singleMultisetView(maet);
     % Fall through to single-multiset dispatch.
 
 % --- 4. Else: usage error ---
 else
-    error('evalExpTens:badFirstArg', ...
+    error('evalMaet:badFirstArg', ...
         ['First argument must be a density struct, a cell array (LIST or MA ' ...
          'raw), or a numeric array (single multiset raw or BATCHED-RAW); got class %s.'], ...
         class(firstArg));
@@ -465,7 +484,7 @@ end
 % branch returned early above.
 if iscell(X)
     if numel(X) ~= 1
-        error('evalExpTens:maQueryCellLength', ...
+        error('evalMaet:maQueryCellLength', ...
               'Query cell must have length 1 (nAttrs); got %d.', numel(X));
     end
     X = X{1};
@@ -509,22 +528,22 @@ nQ = size(X, 2);
 % These two axes are independent. The fast-path is the
 % (forced centres, default kwargs) corner where most consumer
 % per-row tight loops live — templateHarmonicity, spectralEntropy,
-% entropyExpTens scalar, etc.
+% entropyMaet scalar, etc.
 
 % ---- Routing axis ----
 if strcmp(method, 'centres')
     chosen = 'centres';
 elseif strcmp(method, 'mobius')
-    % An ordered ([sym] = 0) attribute at r > 1 has no orbit: the Möbius
+    % An ordered ([exch] = 0) attribute at r > 1 has no orbit: the Möbius
     % partition sum realises the symmetrised tuple set, so it would
     % evaluate a different density. Silently substituting centres would
     % hide that the requested method does not apply; silently proceeding
     % would return the wrong values. Twin of the Python
     % _reject_ordered_for_mobius guard.
     if internal.hasOrderedAttr(maet)
-        error('mpt:evalExpTens:orderedMobius', ...
+        error('mpt:evalMaet:orderedMobius', ...
             ['method=''mobius'' is not available for an ordered ' ...
-             '([sym]=0) attribute at r > 1: the Möbius decomposition ' ...
+             '([exch]=0) attribute at r > 1: the Möbius decomposition ' ...
              'sums over set partitions of {1, ..., r}, which ' ...
              'realises the symmetrised tuple set and so evaluates a ' ...
              'different density. Use method=''centres'' (or ' ...
@@ -541,15 +560,15 @@ elseif strcmp(method, 'auto')
     % under verbose.
     [chosen, routingReason] = internal.selectMaEval( ...
         maet, nQ, truncationSigmas);
-    internal.maybeShowDispatchMsg('evalExpTens', chosen, routingReason);
+    internal.maybeShowDispatchMsg('evalMaet', chosen, routingReason);
 else
-    error('evalExpTens:badMethod', ...
+    error('evalMaet:badMethod', ...
           ['''method'' must be ''auto'', ''centres'', ' ...
            'or ''mobius''; got ''%s''.'], method);
 end
 
 % ---- Execution axis: resolve the truncation width up front ----
-% Mirrors cosSimExpTens: internal.accuracyFloor('resolve', ...) maps the
+% Mirrors simMaet: internal.accuracyFloor('resolve', ...) maps the
 % Inf "exact" sentinel to the finite accuracy-floor width (~7.43 sigma at
 % the 1e-12 floor; the resolver honours a temporary epsilon override for
 % arbitrary precision), passes finite widths through unchanged, and
@@ -576,7 +595,7 @@ if ~ranOrbit
     % Centres branch (also entered for explicit 'centres'
     % method, and for Möbius-then-fallback). Heavy fields needed: ensure
     % them on the density, then re-view for the flat kernel.
-    dens = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
+    dens = internal.singleMultisetView(internal.ensureMaetExpensive(maet));
     % Time estimate: the centres kernel evaluates nJ * nQ (tuple, query)
     % pairs. Emitted here, in the executing path, rather than in the
     % dispatcher, so the probe-free selector reports the routing decision
@@ -590,7 +609,7 @@ if ~ranOrbit
             dimEst = double(dens.r);
         end
         estimateCompTime(double(dens.nJ) * double(nQ), dimEst, ...
-            'evalExpTens (MAET)', verbose);
+            'evalMaet (MAET)', verbose);
     end
     % Single centres kernel: internal.gaussianKernelSum via the helper,
     % with the resolved finite truncation width. The former inline
@@ -645,7 +664,7 @@ if ~strcmp(normalize, 'none')
         % heavy fields; ensure if not already populated (Möbius branch
         % skipped the ensure).
         if ~isfield(dens, 'wJ')
-            dens = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
+            dens = internal.singleMultisetView(internal.ensureMaetExpensive(maet));
         end
         sumW = sum(dens.wJ);
         if sumW > 0
@@ -724,7 +743,7 @@ function vals = localEvalSingleMultisetOrbit(dens, X, verbose, ...
     end
 
     % Build kwarg list — pass through only when explicitly supplied
-    % at the evalExpTens call level; otherwise the Möbius evaluators
+    % at the evalMaet call level; otherwise the Möbius evaluators
     % consult mptDefaults themselves.
     kw = {'is_per', isPer, 'period', period};
     if ~isempty(truncationSigmas)
@@ -904,7 +923,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         [maChosen, maReason] = internal.selectMaEval( ...
             dens, nQ, truncationSigmas);
     end
-    internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, ...
+    internal.maybeShowDispatchMsg('evalMaet (MAET)', maChosen, ...
         maReason);
 
     if strcmp(maChosen, 'mobius')
@@ -933,7 +952,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 dimPerAttr, innerR, sigmaG, wJ, A);
             return;
         end
-        internal.maybeShowDispatchMsg('evalExpTens (MAET)', 'centres', ...
+        internal.maybeShowDispatchMsg('evalMaet (MAET)', 'centres', ...
             'post-hoc guard: non-finite Möbius output');
     end
 
@@ -946,7 +965,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
 
     % --- Estimated computation time (use total dim as a conservative proxy) ---
     nPairs = double(N_J) * double(nQ);
-    estimateCompTime(nPairs, dim, 'evalExpTens (MAET)', verbose);
+    estimateCompTime(nPairs, dim, 'evalMaet (MAET)', verbose);
 
     % --- Core evaluation with memory-aware chunking ---
     % Peak memory per chunk is dominated by the largest per-attribute
@@ -998,7 +1017,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     function v = maetEvalFull(Xchunk, nQc)
         % Resolve the truncation width once up front: internal.accuracyFloor
         % maps the Inf "exact" sentinel to the finite accuracy-floor width
-        % (mirroring the single-multiset path and cosSimExpTens; it honours
+        % (mirroring the single-multiset path and simMaet; it honours
         % a temporary epsilon override for arbitrary precision), consults
         % the global mptDefaults for an empty ([]) knob, and passes finite
         % widths through. The post-filter truncation below therefore always
@@ -1197,7 +1216,7 @@ function [Xc, nQ] = localSplitMaQuery(X, dimPerAttr, dim, A)
 %   and localMaSkinnyDispatch.
     if iscell(X)
         if numel(X) ~= A
-            error('evalExpTens:maQueryCellLength', ...
+            error('evalMaet:maQueryCellLength', ...
                   ['Query cell must have length %d (nAttrs); got %d.'], A, numel(X));
         end
         Xc = cell(1, A);
@@ -1208,14 +1227,14 @@ function [Xc, nQ] = localSplitMaQuery(X, dimPerAttr, dim, A)
                 Xa = Xa(:).';
             end
             if size(Xa, 1) ~= dimPerAttr(a)
-                error('evalExpTens:maQueryAttrRows', ...
+                error('evalMaet:maQueryAttrRows', ...
                       ['Query for attribute %d must have %d rows; got %d.'], ...
                       a, dimPerAttr(a), size(Xa, 1));
             end
             if isempty(nQ)
                 nQ = size(Xa, 2);
             elseif size(Xa, 2) ~= nQ
-                error('evalExpTens:maQueryNQMismatch', ...
+                error('evalMaet:maQueryNQMismatch', ...
                       ['All per-attribute query matrices must share the same ' ...
                        'number of columns (nQ). Got %d and %d.'], nQ, size(Xa, 2));
             end
@@ -1227,7 +1246,7 @@ function [Xc, nQ] = localSplitMaQuery(X, dimPerAttr, dim, A)
             Xs = Xs(:).';
         end
         if size(Xs, 1) ~= dim
-            error('evalExpTens:maQueryTotalRows', ...
+            error('evalMaet:maQueryTotalRows', ...
                   ['Single-matrix query must have %d rows (total dim); got %d. ' ...
                    'For cell-form input, wrap the per-attribute query matrices ' ...
                    'in a 1 x %d cell array.'], dim, size(Xs, 1), A);
@@ -1249,7 +1268,7 @@ function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
 %LOCALMASKINNYDISPATCH  Evaluate an MA density without materialising the
 %   joint tuple set, when a per-attribute route (factored centres or
 %   Möbius) is chosen. Both read only the skinny per-attribute fields, so
-%   this runs before internal.ensureExpTensExpensive and skips the joint
+%   this runs before internal.ensureMaetExpensive and skips the joint
 %   build entirely --- the memory win, and the only route that survives
 %   the huge-joint shapes. Returns handled = false to defer to the joint-
 %   materialising path (localEvalMA) for the cases it cannot serve: a
@@ -1287,7 +1306,7 @@ function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
     end
 
     if strcmp(maChosen, 'mobius')
-        internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, maReason);
+        internal.maybeShowDispatchMsg('evalMaet (MAET)', maChosen, maReason);
         Xjoint = zeros(dim, nQ);
         rs = 1;
         for a = 1:A
@@ -1324,7 +1343,7 @@ function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
     if isempty(factored)
         return;
     end
-    internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, maReason);
+    internal.maybeShowDispatchMsg('evalMaet (MAET)', maChosen, maReason);
     vals = localMaNormaliseSkinny(factored, dens, normalize, ...
         dimPerAttr, innerR, A);
     handled = true;
@@ -1342,7 +1361,7 @@ function sumW = localFactoredSumW(dens, innerR)
     rVec   = dens.r(:).';
     P      = dens.pAttr;
     W      = dens.w;
-    isSymV = dens.isSym(:).';
+    isExchV = dens.isExch(:).';
 
     permCell = cell(1, A);
     for a = 1:A
@@ -1361,11 +1380,11 @@ function sumW = localFactoredSumW(dens, innerR)
             tg = spec.tags;
             if isvector(tg), tg = tg(:); end
             permCell{a} = internal.nestedEnumIndices( ...
-                everValid, tg(everValid, :), spec.r(:).', spec.sym(:).');
+                everValid, tg(everValid, :), spec.r(:).', spec.exch(:).');
         else
             Ka = size(P{a}, 1);
             permCell{a} = internal.enumFlatAttr( ...
-                zeros(Ka, 1), everValid, rVec(a), isSymV(a), ones(Ka, 1));
+                zeros(Ka, 1), everValid, rVec(a), isExchV(a), ones(Ka, 1));
         end
     end
 
@@ -1417,7 +1436,7 @@ function vals = localMaNormaliseSkinny(vals, dens, normalize, ...
         if sumW > 0
             vals = vals / sumW;
         else
-            warning('evalExpTens:zeroSumW', ...
+            warning('evalMaet:zeroSumW', ...
                     'Sum of weight products is zero; cannot normalise to pdf.');
         end
     end
@@ -1468,7 +1487,7 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
     isPerV  = dens.isPer(:).';
     periodV = dens.period(:).';
     sigmaV  = dens.sigma(:).';
-    isSymV  = dens.isSym(:).';
+    isExchV  = dens.isExch(:).';
 
     % Per-attribute tuple-index structure, enumerated once over the
     % ever-valid indices (non-NaN in at least one event). The index pattern
@@ -1488,11 +1507,11 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
             end
             tagsValid = tg(everValid, :);
             permCell{a} = internal.nestedEnumIndices( ...
-                everValid, tagsValid, spec.r(:).', spec.sym(:).');
+                everValid, tagsValid, spec.r(:).', spec.exch(:).');
         else
             Ka = size(P{a}, 1);
             permCell{a} = internal.enumFlatAttr( ...
-                zeros(Ka, 1), everValid, rVec(a), isSymV(a), ones(Ka, 1));
+                zeros(Ka, 1), everValid, rVec(a), isExchV(a), ones(Ka, 1));
         end
     end
 
@@ -1664,21 +1683,21 @@ function valsCell = localEvalDensityList(densCell, Xarg, normalize, ...
     valsCell = cell(1, n);
     for i = 1:n
         if ~isstruct(densCell{i})
-            error('evalExpTens:listNonStruct', ...
-                ['evalExpTens (list mode): cell entries must be density ' ...
-                 'structs from buildExpTens; entry %d is not a struct.'], i);
+            error('evalMaet:listNonStruct', ...
+                ['evalMaet (list mode): cell entries must be density ' ...
+                 'structs from buildMaet; entry %d is not a struct.'], i);
         end
         if perDensity
             Xi = Xarg{i};
         else
             Xi = Xarg;
         end
-        valsCell{i} = evalExpTens(densCell{i}, Xi, normalize, entryKw{:});
+        valsCell{i} = evalMaet(densCell{i}, Xi, normalize, entryKw{:});
     end
 end
 
 
-function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isSym, normalize, verbose, truncationSigmas, kernelPrecision, method)
+function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isExch, normalize, verbose, truncationSigmas, kernelPrecision, method)
 %LOCALEVALBATCHEDRAW Batched evaluation from a 2-D pitch matrix.
 %
 %   P is nRows-by-K; X is shared across all rows. Returns an
@@ -1694,15 +1713,15 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
 
     % The per-row dedup keys rows by a multiset canonical form, which
     % collapses rows that share a multiset but differ in order. That is
-    % correct only for the symmetric reading: under isSym = false the
+    % correct only for the symmetric reading: under isExch = false the
     % order is significant, so the dedup would silently merge distinct
     % ordered densities. Reject rather than return a wrong answer
     % (parity with the Python batched path). Order-aware batched dedup is
     % a tracked follow-up; evaluate ordered densities one row at a time.
-    if nargin >= 9 && ~isempty(isSym) && ~all(logical(isSym(:))) && r > 1
-        error('evalExpTens:batchedOrderedUnsupported', ...
-              ['evalExpTens batched (2-D) input does not yet support ' ...
-               'isSym = false (ordered) densities at r > 1: the batched ' ...
+    if nargin >= 9 && ~isempty(isExch) && ~all(logical(isExch(:))) && r > 1
+        error('evalMaet:batchedOrderedUnsupported', ...
+              ['evalMaet batched (2-D) input does not yet support ' ...
+               'isExch = false (ordered) densities at r > 1: the batched ' ...
                'dedup canonicalises each row''s multiset and would merge ' ...
                'order-distinct rows. Evaluate ordered densities one row ' ...
                'at a time (vector input).']);
@@ -1724,8 +1743,8 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
         if isvector(W) && numel(W) == size(P, 2)
             W_broadcast = W(:).';  % row vector
         else
-            error('evalExpTens:batchedWeightShape', ...
-                ['evalExpTens (batched mode): W must be empty, a matrix the ' ...
+            error('evalMaet:batchedWeightShape', ...
+                ['evalMaet (batched mode): W must be empty, a matrix the ' ...
                  'same size as P, or a vector matching the number of pitch columns.']);
         end
     end
@@ -1740,7 +1759,7 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
 
     for k = 1:nRows
         pRow = P(k, :);
-        % Drop NaN entries (consistent with batchCosSimExpTens convention).
+        % Drop NaN entries (the batched-raw padding convention).
         validMask = ~isnan(pRow);
         pK = pRow(validMask);
         if haveRowWeights
@@ -1754,7 +1773,7 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
             vals(k, :) = NaN;
             continue;
         end
-        vals(k, :) = evalExpTens(pK, wK, sigma, r, isRel, isPer, period, ...
+        vals(k, :) = evalMaet(pK, wK, sigma, r, isRel, isPer, period, ...
             X, normalize, rowKw{:});
     end
 end
@@ -1785,7 +1804,7 @@ function vals = localMaNormalise(vals, dens, normalize, ...
         if sumW > 0
             vals = vals / sumW;
         else
-            warning('evalExpTens:zeroSumW', ...
+            warning('evalMaet:zeroSumW', ...
                     'Sum of weight products is zero; cannot normalise to pdf.');
         end
     end
@@ -1799,7 +1818,7 @@ function tripped = localMobiusNonFinite(vals)
 %   re-evaluates through the centres path, which never cancels. One
 %   guard for every route (single-multiset, skinny and joint), gated
 %   like the cosine path's guard on mptDefaults('postHocGuards'). Twin
-%   of the guard in the Python _eval_exp_tens_ma.
+%   of the guard in the Python _eval_maet_ma.
     tripped = false;
     if ~logical(mptDefaults('postHocGuards'))
         return;
@@ -1808,8 +1827,8 @@ function tripped = localMobiusNonFinite(vals)
         return;
     end
     tripped = true;
-    warning('evalExpTens:mobiusNonFiniteFallback', ...
-            ['evalExpTens: the Möbius evaluator returned non-finite ' ...
+    warning('evalMaet:mobiusNonFiniteFallback', ...
+            ['evalMaet: the Möbius evaluator returned non-finite ' ...
              'values; falling back to the centres path for this call.']);
 end
 
@@ -1818,16 +1837,16 @@ function localRejectOrderedForMobius(dens)
 %LOCALREJECTORDEREDFORMOBIUS  Refuse method='mobius' on an ordered attribute.
 %
 %   The Möbius decomposition sums over set partitions of {1, ..., r},
-%   which realises the symmetrised tuple set; on an ordered ([sym]=0)
+%   which realises the symmetrised tuple set; on an ordered ([exch]=0)
 %   attribute at r > 1 that is a different density, not a faster route
 %   to the same one, so an explicit request is an error rather than a
 %   silent symmetrisation. The single-multiset path carries the same
 %   check inline; this is its MA twin, and the twin of the Python
 %   _reject_ordered_for_mobius, which runs for every density shape.
     if internal.hasOrderedAttr(dens)
-        error('mpt:evalExpTens:orderedMobius', ...
+        error('mpt:evalMaet:orderedMobius', ...
             ['method=''mobius'' is not available for an ordered ' ...
-             '([sym]=0) attribute at r > 1: the Möbius decomposition ' ...
+             '([exch]=0) attribute at r > 1: the Möbius decomposition ' ...
              'sums over set partitions of {1, ..., r}, which ' ...
              'realises the symmetrised tuple set and so evaluates a ' ...
              'different density. Use method=''centres'' (or ' ...

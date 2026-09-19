@@ -1,9 +1,9 @@
-function checkAnisoConstraints(r, K, isRel, isPer, isSym, nestedAttr, name)
+function checkAnisoConstraints(r, K, isRel, isPer, isExch, nestedAttr, name)
 %CHECKANISOCONSTRAINTS  Enforce the mode constraints for matrix sigma.
 %
 %   internal.checkAnisoConstraints(R, K, ISREL, ISPER, ISSYM,
 %   NESTEDATTR, NAME) errors unless the attribute is ordered
-%   (isSym = false), absolute (isRel = false), non-periodic
+%   (isExch = false), absolute (isRel = false), non-periodic
 %   (isPer = false), non-nested, and its tuple is its whole multiset
 %   (r == K).
 
@@ -14,10 +14,10 @@ function checkAnisoConstraints(r, K, isRel, isPer, isSym, nestedAttr, name)
              'on nested attributes (degenerate nesting is flattened ' ...
              'upstream when passed via specs).'], name);
     end
-    if logical(isSym)
+    if logical(isExch)
         error('mpt:aniso:symmetric', ...
             ['%s: a matrix-valued kernel covariance requires an ' ...
-             'ordered multiset (isSym = false); the symmetric power ' ...
+             'ordered multiset (isExch = false); the symmetric power ' ...
              'requires a permutation-invariant kernel.'], name);
     end
     if logical(isRel)
@@ -26,7 +26,7 @@ function checkAnisoConstraints(r, K, isRel, isPer, isSym, nestedAttr, name)
              'isRel = false; exact common-shift invariance remains ' ...
              'the province of isRel = true, and graded shift ' ...
              'tolerance is expressed within the covariance (an ' ...
-             'sdShift^2 * ones ridge; see intervalKernelCov).'], name);
+             'sdShift^2 * ones ridge; see kernelCov).'], name);
     end
     if logical(isPer)
         error('mpt:aniso:periodic', ...

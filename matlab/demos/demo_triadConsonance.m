@@ -34,7 +34,7 @@
 %  intervals gives the same chord).
 %
 %  Uses: templateHarmonicity, spectralEntropy, roughness, addSpectra,
-%        evalExpTens, transformAttributes
+%        evalMaet, transformAttributes
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -186,9 +186,9 @@ fprintf('Computing features for %d unique triads (step = %d cents)...\n', ...
 t0_total = tic;
 
 % --- Tensor harmonicity ---
-% One evalExpTens call: the harmonic-template arrays (tp, tw) are
+% One evalMaet call: the harmonic-template arrays (tp, tw) are
 % queried at all upper-triangle interval pairs in a single 2 x nUpper
-% query matrix. evalExpTens builds the template tensor internally and
+% query matrix. evalMaet builds the template tensor internally and
 % prints its own time estimate via estimateCompTime when called with
 % 'verbose', true.
 %
@@ -204,7 +204,7 @@ t0_total = tic;
 if doTensor
     intMat  = [int1Lin'; int2Lin'];   % 2 x nUpper
     t0 = tic;
-    tensLin = evalExpTens(tp, tw, sigma_tens, 3, true, false, 1200, ...
+    tensLin = evalMaet(tp, tw, sigma_tens, 3, true, false, 1200, ...
         intMat, 'verbose', true);
     fprintf('  Tensor harmonicity:   %.2f s actual (%d triads, batched)\n', ...
         toc(t0), nUpper);

@@ -1,4 +1,4 @@
-"""Tests for the eval_exp_tens dispatcher at the single-multiset corner.
+"""Tests for the eval_maet dispatcher at the single-multiset corner.
 
 The dispatcher routes between the joint-centres body and the factored
 orbit-Möbius point evaluator according to ``method`` and the cost model
@@ -14,8 +14,8 @@ from mpt._defaults import accuracy_floor_context
 import pytest
 
 from mpt.tensor import (
-    build_exp_tens,
-    eval_exp_tens,
+    build_maet,
+    eval_maet,
 )
 
 
@@ -56,7 +56,7 @@ def test_eval_methods_agree(r, K, is_rel, is_per):
     else:
         p = rng.uniform(-300, 300, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=False)
+    T = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
 
     dim = r - 1 if is_rel else r
     if is_per:
@@ -69,9 +69,9 @@ def test_eval_methods_agree(r, K, is_rel, is_per):
     # the MATLAB twin (test_ma_eval_dispatch.m), which brackets the same
     # comparison with internal.accuracyFloor('setEps', 1e-300).
     with accuracy_floor_context(1e-300):
-        v_auto = eval_exp_tens(T, x, method='auto', verbose=False)
-        v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
-        v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
+        v_auto = eval_maet(T, x, method='auto', verbose=False)
+        v_centres = eval_maet(T, x, method='centres', verbose=False)
+        v_orbit = eval_maet(T, x, method='mobius', verbose=False)
 
     # Max-relative agreement, normalised by the largest density value, as
     # the MATLAB twin does: a per-element rtol is dominated by near-zero
@@ -94,14 +94,14 @@ def test_eval_orbit_at_K_minus_r_below_guard_via_explicit():
     K, r = 4, 3  # K - r = 1, below guard
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, 33.0, r, False, True, P, verbose=False)
+    T = build_maet(p, w, 33.0, r, False, True, P, verbose=False)
     x = rng.uniform(0, P, (r, 5))
     # Auto routes to centres.
-    v_auto = eval_exp_tens(T, x, method='auto', verbose=False)
-    v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
+    v_auto = eval_maet(T, x, method='auto', verbose=False)
+    v_centres = eval_maet(T, x, method='centres', verbose=False)
     assert np.allclose(v_auto, v_centres, atol=ATOL, rtol=RTOL)
     # Explicit orbit runs without error (precision may be reduced).
-    v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
+    v_orbit = eval_maet(T, x, method='mobius', verbose=False)
     assert np.all(np.isfinite(v_orbit))
 
 
@@ -118,10 +118,10 @@ def test_eval_orbit_memory_efficient_at_high_r():
     r, K = 4, 20
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, 50.0, r, False, True, P, verbose=False)
+    T = build_maet(p, w, 50.0, r, False, True, P, verbose=False)
     x = rng.uniform(0, P, (r, 5))
-    v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
-    v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
+    v_centres = eval_maet(T, x, method='centres', verbose=False)
+    v_orbit = eval_maet(T, x, method='mobius', verbose=False)
     # At low cancellation, orbit should match centres at FP.
     assert np.allclose(v_centres, v_orbit, atol=ATOL, rtol=1e-9)
 
@@ -135,7 +135,7 @@ def _small_dens(r, K, is_rel, is_per, sigma_over_P=0.0083):
     rng = np.random.default_rng(0)
     p = np.sort(rng.uniform(0.0, P, K))
     w = 0.2 + 0.8 * rng.random(K)
-    return build_exp_tens(p, w, sigma_over_P * P, r, is_rel, is_per,
+    return build_maet(p, w, sigma_over_P * P, r, is_rel, is_per,
                           P if is_per else 0.0, verbose=False)
 
 

@@ -1,6 +1,6 @@
 function args = expandPreMaetPair(args)
-%EXPANDPREMAETPAIR  Replace a pre-MAET in buildExpTens's arguments.
-%   buildExpTens's leading positional arguments are p and w, so a whole
+%EXPANDPREMAETPAIR  Replace a pre-MAET in buildMaet's arguments.
+%   buildMaet's leading positional arguments are p and w, so a whole
 %   pre-MAET in the p slot expands into those two, and its specs are
 %   attached as the 'specs' name-value where the call did not name specs
 %   itself.

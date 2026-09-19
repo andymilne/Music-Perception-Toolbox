@@ -12,7 +12,7 @@
 %
 %  The point of method is that the trial table goes straight in. Every
 %  toolbox feature that accepts a 2-D pitch matrix (one row per trial,
-%  NaN-padded when the chords differ in size) — cosSimExpTens in its
+%  NaN-padded when the chords differ in size) — simMaet in its
 %  batched-raw mode, spectralEntropy, templateHarmonicity,
 %  tensorHarmonicity, virtualPitches — deduplicates its rows internally
 %  by a canonical key, so the 144 chord rows here cost 4 chord-type
@@ -42,10 +42,10 @@
 %  a cell of densities would go, which loops rather than collapses — the
 %  saving is in the calling code, not in the arithmetic.
 %
-%  Uses: cosSimExpTens, spectralEntropy, templateHarmonicity,
+%  Uses: simMaet, spectralEntropy, templateHarmonicity,
 %        tensorHarmonicity, addSpectra, roughness, transformAttributes,
 %        preMaet, flatSpecs, translateAttributes,
-%        sweepCosSimExpTens, buildExpTens
+%        sweepSimMaet, buildMaet
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -112,15 +112,15 @@ fprintf('Dataset: %d trials (%d scales × %d chord types × %d roots).\n\n', ...
     nPairs, nScales, nChords, nRoots);
 
 %% =====================================================================
-%  WORKFLOW 1: Paired measure (SPCS) via batched cosSimExpTens
+%  WORKFLOW 1: Paired measure (SPCS) via batched simMaet
 %  Two 2-D matrices, one row per trial, dispatch to batched-raw mode;
 %  repeated rows and repeated (scale, chord) pairs are deduplicated
 %  internally, and the spectrum is applied inside the call.
 %  =====================================================================
 
-fprintf('=== Workflow 1: SPCS via batched cosSimExpTens ===\n\n');
+fprintf('=== Workflow 1: SPCS via batched simMaet ===\n\n');
 
-spcs = cosSimExpTens(pMatA, [], pMatB, [], ...
+spcs = simMaet(pMatA, [], pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
     'spectrum', spec);
 
@@ -250,7 +250,7 @@ colormap(parula);
 %  loop it replaces. The offsets are what make that possible, and a
 %  MATLAB cell cannot carry them alongside the entries, so a swept
 %  pre-MAET passed as a cell still loops: the collapse is spelled
-%  sweepCosSimExpTens(densX, densY, sweep.offsets), with the offsets
+%  sweepSimMaet(densX, densY, sweep.offsets), with the offsets
 %  taken from translateAttributes' second output.
 
 fprintf('\n=== Workflow 3: A cell of pre-MAETs (batching, other sense) ===\n\n');
@@ -273,8 +273,8 @@ reference = items{1};
 
 % One call, one value per item. The same call with pre-built densities
 % would be identical; the pre-MAETs simply save building them.
-sims = cosSimExpTens(reference, items, 'verbose', false);
-fprintf('  cosSimExpTens(reference, {pm1, ..., pm4})\n');
+sims = simMaet(reference, items, 'verbose', false);
+fprintf('  simMaet(reference, {pm1, ..., pm4})\n');
 for k = 1:numel(sims)
     fprintf('    item %d: %.4f\n', k, sims{k});
 end
@@ -288,13 +288,13 @@ fprintf('  event count and content, so there is no repeated work to find.\n');
 % entry. A sweep pre-MAET passed as a cell is still only the loop — the
 % collapse needs the offsets, and a MATLAB cell cannot carry them, so
 % translateAttributes returns them as a second output and
-% sweepCosSimExpTens takes them. (Python attaches them to the returned
-% list, so there cosSimExpTens picks them up at the call site itself.)
+% sweepSimMaet takes them. (Python attaches them to the returned
+% list, so there simMaet picks them up at the call site itself.)
 [pmSweep, sweep] = translateAttributes(reference, {[0 100 200 300], []});
-loopSims = cosSimExpTens(reference, pmSweep, 'verbose', false);
+loopSims = simMaet(reference, pmSweep, 'verbose', false);
 
-densRef   = buildExpTens(reference, 'verbose', false);
-sweepSims = sweepCosSimExpTens(densRef, densRef, sweep.offsets, ...
+densRef   = buildMaet(reference, 'verbose', false);
+sweepSims = sweepSimMaet(densRef, densRef, sweep.offsets, ...
                                'verbose', false);
 
 fprintf('\n  translateAttributes(reference, {[0 100 200 300], []})\n');

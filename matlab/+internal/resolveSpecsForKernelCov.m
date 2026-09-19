@@ -7,11 +7,11 @@ function specs = resolveSpecsForKernelCov(specs, sigmaVec)
 %   internal.flattenDegenerateNestedSpec) are replaced by their flat
 %   equivalents; a non-degenerate nested spec on a matrix-sigma
 %   attribute errors. Attributes with isotropic sigma are left
-%   untouched, nested or not. Outer-level sym/rel flags on a flattened
+%   untouched, nested or not. Outer-level exch/rel flags on a flattened
 %   spec are rejected downstream by internal.checkAnisoConstraints
 %   exactly as on a flat attribute.
 %
-%   See also internal.flattenDegenerateNestedSpec, buildExpTens.
+%   See also internal.flattenDegenerateNestedSpec, buildMaet.
 
     if ~iscell(specs) || ~iscell(sigmaVec)
         return

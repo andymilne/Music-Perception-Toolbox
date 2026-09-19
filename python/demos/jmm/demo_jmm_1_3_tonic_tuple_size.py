@@ -11,7 +11,7 @@ Analysis 1.3: structural matching of the four cadence tonics of BWV 347
 at increasing tuple size r, on a single chord (no nesting).
 
 Each cadence tonic (the final chord of cadences C1-C4) is one event with
-a single pitch attribute, the unordered chord multiset (sym = 1, K = 4).
+a single pitch attribute, the unordered chord multiset (exch = 1, K = 4).
 The four tonics are compared pairwise under the cross of absolute vs
 relative mode and non-periodic vs periodic, each swept over r in {1,2,3}.
 Because the comparison is on one attribute (not a role product), raising
@@ -33,7 +33,7 @@ Analysis 1.4, in the same panel layout, so the two figures read together.
 Toolbox-dependency notes
 ------------------------
 Uses
-    build_exp_tens, cos_sim_exp_tens; bwv347_encoding.parse_bwv347.
+    build_maet, sim_maet; bwv347_encoding.parse_bwv347.
 """
 import os
 import warnings
@@ -50,7 +50,7 @@ import mpt
 SAVE_FIGURES = False
 FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 mpt.set_default(show_hints=False)
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 from jmm_data import bwv347_grid
 
@@ -80,11 +80,11 @@ def extract_tonics():
 
 
 def tonic_density(chord, r, is_rel, is_per):
-    """Single-event density for one chord: one pitch attribute, sym = 1."""
+    """Single-event density for one chord: one pitch attribute, exch = 1."""
     p = [chord.reshape(len(chord), 1)]
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')   # relative r=1 -> constant density
-        return build_exp_tens(p, None, [SIGMA_PITCH], [r], [is_rel],
+        return build_maet(p, None, [SIGMA_PITCH], [r], [is_rel],
                               [is_per], [PERIOD], verbose=False)
 
 
@@ -93,7 +93,7 @@ def similarity_matrix(tonics, r, is_rel, is_per):
     dens = [tonic_density(tonics[c], r, is_rel, is_per) for c in sorted(tonics)]
     # List-vs-list cartesian mode returns the full 4 x 4 matrix (unit
     # diagonal, symmetric) in a single call.
-    return cos_sim_exp_tens(dens, dens, mode='cartesian', verbose=False)
+    return sim_maet(dens, dens, mode='cartesian', verbose=False)
 
 
 def main():
@@ -148,7 +148,7 @@ def main():
     fig.suptitle(
         'BWV 347 cadence-tonic pair similarity (single chords), '
         '$\\sigma_{\\mathrm{pitch}} = 15$ cents\n'
-        'single pitch attribute, sym 1 (unordered chord); cosine in $[0,1]$, '
+        'single pitch attribute, exch 1 (unordered chord); cosine in $[0,1]$, '
         'diagonals $1$, symmetric; relative $r = 1$ omitted (degenerate); '
         'major/minor separation appears at $r = 3$',
         fontsize=13, y=0.995,

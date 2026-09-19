@@ -28,50 +28,50 @@ evalAccepted = {'auto', 'centres', 'mobius'};
 okIp = true;
 for i = 1:numel(ipAccepted)
     try
-        A = buildExpTens(p, w, sigma, r, false, false, period, 'verbose', false);
-        B = buildExpTens(q, wq, sigma, r, false, false, period, 'verbose', false);
-        v = cosSimExpTens(A, B, 'method', ipAccepted{i}, 'verbose', false);
+        A = buildMaet(p, w, sigma, r, false, false, period, 'verbose', false);
+        B = buildMaet(q, wq, sigma, r, false, false, period, 'verbose', false);
+        v = simMaet(A, B, 'method', ipAccepted{i}, 'verbose', false);
         okIp = okIp && isfinite(v);
     catch
         okIp = false;
     end
 end
-results{end+1, 1} = 'method parity: cosSimExpTens accepts auto/bulger/centres/mobius';
+results{end+1, 1} = 'method parity: simMaet accepts auto/bulger/centres/mobius';
 results{end, 2}   = okIp;
 
 okEval = true;
 for i = 1:numel(evalAccepted)
     try
-        A = buildExpTens(p, w, sigma, r, false, false, period, 'verbose', false);
-        v = evalExpTens(A, [0; 100; 250], 'method', evalAccepted{i}, 'verbose', false);
+        A = buildMaet(p, w, sigma, r, false, false, period, 'verbose', false);
+        v = evalMaet(A, [0; 100; 250], 'method', evalAccepted{i}, 'verbose', false);
         okEval = okEval && all(isfinite(v(:)));
     catch
         okEval = false;
     end
 end
-results{end+1, 1} = 'method parity: evalExpTens accepts auto/centres/mobius';
+results{end+1, 1} = 'method parity: evalMaet accepts auto/centres/mobius';
 results{end, 2}   = okEval;
 
 %% ---- 'direct' retired on both entry points ----
 okRetiredIp = false;
 try
-    A = buildExpTens(p, w, sigma, r, false, false, period, 'verbose', false);
-    B = buildExpTens(q, wq, sigma, r, false, false, period, 'verbose', false);
-    cosSimExpTens(A, B, 'method', 'direct', 'verbose', false);
+    A = buildMaet(p, w, sigma, r, false, false, period, 'verbose', false);
+    B = buildMaet(q, wq, sigma, r, false, false, period, 'verbose', false);
+    simMaet(A, B, 'method', 'direct', 'verbose', false);
 catch ME
-    okRetiredIp = strcmp(ME.identifier, 'cosSimExpTens:badMethod');
+    okRetiredIp = strcmp(ME.identifier, 'simMaet:badMethod');
 end
-results{end+1, 1} = 'method parity: cosSimExpTens rejects retired ''direct''';
+results{end+1, 1} = 'method parity: simMaet rejects retired ''direct''';
 results{end, 2}   = okRetiredIp;
 
 okRetiredEval = false;
 try
-    A = buildExpTens(p, w, sigma, r, false, false, period, 'verbose', false);
-    evalExpTens(A, 0, 'method', 'direct', 'verbose', false);
+    A = buildMaet(p, w, sigma, r, false, false, period, 'verbose', false);
+    evalMaet(A, 0, 'method', 'direct', 'verbose', false);
 catch ME
-    okRetiredEval = strcmp(ME.identifier, 'evalExpTens:badMethod');
+    okRetiredEval = strcmp(ME.identifier, 'evalMaet:badMethod');
 end
-results{end+1, 1} = 'method parity: evalExpTens rejects retired ''direct''';
+results{end+1, 1} = 'method parity: evalMaet rejects retired ''direct''';
 results{end, 2}   = okRetiredEval;
 
 %% ---- the three routes agree, in all four modes ----
@@ -85,11 +85,11 @@ modes = [false false; false true; true false; true true];
 okAgree = true;  worstDev = 0;
 for m = 1:size(modes, 1)
     isRel = modes(m, 1); isPer = modes(m, 2);
-    A = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
-    B = buildExpTens(q, wq, sigma, r, isRel, isPer, period, 'verbose', false);
+    A = buildMaet(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
+    B = buildMaet(q, wq, sigma, r, isRel, isPer, period, 'verbose', false);
     vals = zeros(1, 3); names = {'bulger', 'centres', 'mobius'};
     for i = 1:3
-        vals(i) = cosSimExpTens(A, B, 'method', names{i}, ...
+        vals(i) = simMaet(A, B, 'method', names{i}, ...
                                 'truncationSigmas', Inf, 'verbose', false);
     end
     dev = max(abs(vals - vals(1))) / max([abs(vals(1)), 1e-300]);
@@ -145,14 +145,14 @@ results{end, 2}   = okName && okBad;
 prev = mptDefaults('relAttrRoute');
 okVal = true;
 for isPerA = [false true]
-    A2 = buildExpTens(p, w, 10, 3, true, isPerA, period, 'verbose', false);
-    B2 = buildExpTens(q, wq, 10, 3, true, isPerA, period, 'verbose', false);
+    A2 = buildMaet(p, w, 10, 3, true, isPerA, period, 'verbose', false);
+    B2 = buildMaet(q, wq, 10, 3, true, isPerA, period, 'verbose', false);
     mptDefaults('relAttrRoute', 'auto');
-    ref = cosSimExpTens(A2, B2, 'method', 'bulger', ...
+    ref = simMaet(A2, B2, 'method', 'bulger', ...
                         'truncationSigmas', Inf, 'verbose', false);
     for routeC = {'auto', 'centres', 'mobius'}
         mptDefaults('relAttrRoute', routeC{1});
-        v = cosSimExpTens(A2, B2, 'method', 'mobius', ...
+        v = simMaet(A2, B2, 'method', 'mobius', ...
                           'truncationSigmas', Inf, 'verbose', false);
         okVal = okVal && (abs(v - ref) <= 1e-9 * max(abs(ref), 1));
     end
@@ -176,9 +176,9 @@ qS = sort(rand(Ks, 1) * 3 * period);  wqS = 0.4 + 0.6 * rand(Ks, 1);
 vals = zeros(1, 2); flags = [false true];
 for iF = 1:2
     internal.spectralIpForce(flags(iF));
-    AS = buildExpTens(pS, wS, sig, rs, true, false, period, 'verbose', false);
-    BS = buildExpTens(qS, wqS, sig, rs, true, false, period, 'verbose', false);
-    vals(iF) = cosSimExpTens(AS, BS, 'method', 'mobius', ...
+    AS = buildMaet(pS, wS, sig, rs, true, false, period, 'verbose', false);
+    BS = buildMaet(qS, wqS, sig, rs, true, false, period, 'verbose', false);
+    vals(iF) = simMaet(AS, BS, 'method', 'mobius', ...
                              'truncationSigmas', Inf, 'verbose', false);
 end
 internal.spectralIpForce(prevSpec);

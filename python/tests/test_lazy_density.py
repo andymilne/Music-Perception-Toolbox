@@ -1,11 +1,11 @@
 """Tests for MaetDensity lazy materialisation (v3+).
 
-``build_exp_tens`` builds the per-tuple permutation arrays
+``build_maet`` builds the per-tuple permutation arrays
 (``centres``, ``u_perm``, ``w_perm``, ``v_comb``, ``wv_comb``) lazily.
 At high K and high r, ``n_j = K!/(K-r)!`` makes those arrays
 prohibitive: K=256, r=4 gives ~9·10⁸ four-tuples. Consumers that only
-need the Möbius path (``eval_exp_tens method='mobius'``,
-``cos_sim_exp_tens method='mobius'``, ``entropy_exp_tens
+need the Möbius path (``eval_maet method='mobius'``,
+``sim_maet method='mobius'``, ``entropy_maet
 method='renyi2'``) read just ``p``, ``w``, ``sigma``, ``r``, and the
 like, so the per-tuple arrays stay unbuilt.
 
@@ -15,7 +15,7 @@ subsequent reads return the cached array. Orbit-only consumer chains
 never trigger materialisation.
 
 These tests verify:
-1. ``build_exp_tens`` returns a non-materialised density.
+1. ``build_maet`` returns a non-materialised density.
 2. Reading scalar inputs (``p``, ``w``, ``sigma``, ``r``, etc.)
    does not trigger materialisation.
 3. Reading any per-tuple field triggers materialisation; subsequent
@@ -36,8 +36,8 @@ import numpy as np
 from mpt._tensor.density import single_multiset_view
 import pytest
 
-from mpt.tensor import build_exp_tens, cos_sim_exp_tens, eval_exp_tens
-from mpt.entropy import entropy_exp_tens
+from mpt.tensor import build_maet, sim_maet, eval_maet
+from mpt.entropy import entropy_maet
 
 
 P = 1200.0
@@ -52,7 +52,7 @@ def _make_dens(K=8, r=3, sigma=33.0, is_rel=False, is_per=True, seed=0):
     rng = np.random.default_rng(seed)
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
-    return build_exp_tens(p, w, sigma, r, is_rel, is_per, P, verbose=False)
+    return build_maet(p, w, sigma, r, is_rel, is_per, P, verbose=False)
 
 
 def test_build_returns_lazy_density():
@@ -121,7 +121,7 @@ def test_n_j_aliases_n_j_perm():
 def test_cos_sim_orbit_does_not_materialise():
     T_x = _make_dens(K=10, r=3, seed=0)
     T_y = _make_dens(K=10, r=3, seed=1)
-    cos_sim_exp_tens(T_x, T_y, method="mobius", verbose=False)
+    sim_maet(T_x, T_y, method="mobius", verbose=False)
     assert T_x.materialised is False
     assert T_y.materialised is False
 
@@ -133,7 +133,7 @@ def test_entropy_renyi2_does_not_materialise():
     # Bulger's enumeration cheaper, and that route materialises, as it
     # does for a cosine).
     T = _make_dens(K=16, r=3)
-    entropy_exp_tens(T, method="renyi2")
+    entropy_maet(T, method="renyi2")
     assert T.materialised is False
 
 
@@ -141,7 +141,7 @@ def test_eval_orbit_does_not_materialise():
     rng = np.random.default_rng(0)
     T = _make_dens(K=10, r=3)
     x = rng.uniform(0, P, (3, 5))
-    eval_exp_tens(T, x, method="mobius", verbose=False)
+    eval_maet(T, x, method="mobius", verbose=False)
     assert T.materialised is False
 
 
@@ -154,14 +154,14 @@ def test_eval_centres_materialises():
     rng = np.random.default_rng(0)
     T = _make_dens(K=8, r=3)
     x = rng.uniform(0, P, (3, 5))
-    eval_exp_tens(T, x, method="centres", verbose=False)
+    eval_maet(T, x, method="centres", verbose=False)
     assert T.materialised is True
 
 
 def test_cos_sim_pairwise_materialises():
     T_x = _make_dens(K=8, r=3, seed=0)
     T_y = _make_dens(K=8, r=3, seed=1)
-    cos_sim_exp_tens(T_x, T_y, method="bulger", verbose=False)
+    sim_maet(T_x, T_y, method="bulger", verbose=False)
     assert T_x.materialised is True
     assert T_y.materialised is True
 
@@ -177,7 +177,7 @@ def test_lazy_centres_match_eager_build():
     that exercises the centres array, the perm-side weights, and
     the comb-side weights together."""
     T = _make_dens(K=10, r=3)
-    c = cos_sim_exp_tens(T, T, method="bulger", verbose=False)
+    c = sim_maet(T, T, method="bulger", verbose=False)
     assert np.isclose(c, 1.0, atol=1e-12, rtol=1e-12)
 
 
@@ -189,8 +189,8 @@ def test_orbit_vs_centres_after_lazy_build():
     rng = np.random.default_rng(0)
     T = _make_dens(K=10, r=3)
     x = rng.uniform(0, P, (3, 20))
-    v_centres = eval_exp_tens(T, x, method="centres", verbose=False)
-    v_orbit = eval_exp_tens(T, x, method="mobius", verbose=False)
+    v_centres = eval_maet(T, x, method="centres", verbose=False)
+    v_orbit = eval_maet(T, x, method="mobius", verbose=False)
     # inf resolves to the accuracy-floor width; centres and Möbius truncate
     # that boundary via different code and disagree by up to a few x1e-12.
     assert np.allclose(v_centres, v_orbit, atol=1e-11, rtol=1e-9)
@@ -214,7 +214,7 @@ def test_high_K_high_r_orbit_eval_does_not_oom():
     w = rng.uniform(0.5, 1.5, K)
 
     t0 = time.perf_counter()
-    T = build_exp_tens(p, w, 33.0, r, False, True, P, verbose=False)
+    T = build_maet(p, w, 33.0, r, False, True, P, verbose=False)
     build_elapsed = time.perf_counter() - t0
     # Build should be near-instant — no permutation allocation.
     assert build_elapsed < 0.1, (
@@ -225,7 +225,7 @@ def test_high_K_high_r_orbit_eval_does_not_oom():
     # Orbit eval at 4 queries.
     x = rng.uniform(0, P, (r, 4))
     t0 = time.perf_counter()
-    v = eval_exp_tens(T, x, method="mobius", verbose=False)
+    v = eval_maet(T, x, method="mobius", verbose=False)
     eval_elapsed = time.perf_counter() - t0
 
     assert np.all(np.isfinite(v))

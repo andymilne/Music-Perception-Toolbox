@@ -1,7 +1,7 @@
-function [s, densXOut, densYOut] = sweepCosSimExpTens(densX, densY, offsets, nvArgs)
-%SWEEPCOSSIMEXPTENS Similarity against uniform translates of a density.
+function [s, densXOut, densYOut] = sweepSimMaet(densX, densY, offsets, nvArgs)
+%SWEEPSIMMAET Similarity against uniform translates of a density.
 %
-%   s = sweepCosSimExpTens(densX, densY, offsets)
+%   s = sweepSimMaet(densX, densY, offsets)
 %   computes, for each sweep index m, the similarity of densX against
 %   densY with every value of attribute a shifted by offsets(a, m). The
 %   whole sweep costs one pass over the tuple pairs plus M evaluations
@@ -64,7 +64,7 @@ function [s, densXOut, densYOut] = sweepCosSimExpTens(densX, densY, offsets, nvA
 %   full-image reading is refused and left to the per-offset path.
 %
 %   Inputs
-%       densX   - Context density struct from buildExpTens (MA form).
+%       densX   - Context density struct from buildMaet (MA form).
 %       densY   - Query density struct; translated by each offset.
 %       offsets - A x M matrix of per-attribute translations, one column
 %                 per sweep index (a row vector is accepted when A = 1).
@@ -92,7 +92,7 @@ function [s, densXOut, densYOut] = sweepCosSimExpTens(densX, densY, offsets, nvA
 %                             self inner products are invariant under a
 %                             uniform translation of their own values, so
 %                             each is computed once for the whole sweep.
-%       'truncationSigmas'  - As in cosSimExpTens ([] takes the default).
+%       'truncationSigmas'  - As in simMaet ([] takes the default).
 %       'verbose'           - Default true.
 %
 %   Outputs
@@ -100,7 +100,7 @@ function [s, densXOut, densYOut] = sweepCosSimExpTens(densX, densY, offsets, nvA
 %       densXOut, densYOut - (optional) the two input structs with the
 %                 mixture route's self inner product memoised in their
 %                 'selfIP' field under the 'sweep' route key
-%                 (INTERNAL.SELFIPKEY), as cosSimExpTens returns its
+%                 (INTERNAL.SELFIPKEY), as simMaet returns its
 %                 memo. Pass them back in on a later sweep to skip the
 %                 self terms; the key never crosses the pairwise or
 %                 orbit memos. Twin of the Python sweep's 'sweep' memo.
@@ -115,7 +115,7 @@ function [s, densXOut, densYOut] = sweepCosSimExpTens(densX, densY, offsets, nvA
 %   with translateAttributes and compare offset by offset in those
 %   cases.
 %
-%   See also COSSIMEXPTENS, TRANSLATEATTRIBUTES, BUILDEXPTENS.
+%   See also SIMMAET, TRANSLATEATTRIBUTES, BUILDMAET.
 
 arguments
     densX struct
@@ -129,7 +129,7 @@ arguments
 end
 
 if ~ismember(nvArgs.normalize, {'cosine', 'oneSidedDenom'})
-    error('sweepCosSimExpTens:normalize', ...
+    error('sweepSimMaet:normalize', ...
           ['normalize must be ''cosine'' or ''oneSidedDenom''; got ' ...
            '''%s''.'], nvArgs.normalize);
 end
@@ -140,25 +140,25 @@ if isrow(off) && A == 1
     off = reshape(off, 1, []);
 end
 if size(off, 1) ~= A
-    error('sweepCosSimExpTens:offsetsShape', ...
+    error('sweepSimMaet:offsetsShape', ...
           ['offsets must be an A x M matrix with A = %d; got %d rows.'], ...
           A, size(off, 1));
 end
 if any(~isfinite(off(:)))
-    error('sweepCosSimExpTens:offsetsFinite', ...
+    error('sweepSimMaet:offsetsFinite', ...
           'offsets must be finite.');
 end
 M = size(off, 2);
 
 % The caller's structs, kept for the memo outputs (the pruned and
-% materialised copies below are working views, as in cosSimExpTens).
+% materialised copies below are working views, as in simMaet).
 densXIn = densX;
 densYIn = densY;
 densXOut = densXIn;
 densYOut = densYIn;
 
-densX = internal.prunedExpTens(densX);
-densY = internal.prunedExpTens(densY);
+densX = internal.prunedMaet(densX);
+densY = internal.prunedMaet(densY);
 
 if isempty(nvArgs.truncationSigmas)
     tsResolved = mptDefaults('truncationSigmas');
@@ -187,7 +187,7 @@ if strcmp(chosen, 'mixture') && ~mixtureOk
     rethrow(mixtureErr);
 end
 if strcmp(chosen, 'orbit') && ~orbitOk
-    error('sweepCosSimExpTens:orbitUnsupported', ...
+    error('sweepSimMaet:orbitUnsupported', ...
           ['The orbit route does not support a swept relative, a ' ...
            'nested, or an anisotropic attribute in a sweep, nor a ' ...
            'relative-periodic attribute above the sigma/P limit whose ' ...
@@ -215,9 +215,9 @@ if strcmp(chosen, 'orbit')
 end
 
 % The mixture reads the per-tuple fields directly, so a skinny density
-% from buildExpTens's default lazy build must be materialised first.
-densX = internal.ensureExpTensExpensive(densX);
-densY = internal.ensureExpTensExpensive(densY);
+% from buildMaet's default lazy build must be materialised first.
+densX = internal.ensureMaetExpensive(densX);
+densY = internal.ensureMaetExpensive(densY);
 
 % --- Build the mixture once ---------------------------------------------
 [centres, logW, amp, threshold, sweptIdx] = ...
@@ -291,7 +291,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
                         wrapA = char(densX.wrap{a});
                     end
                     if ~strcmp(wrapA, 'single-image')
-                        error('sweepCosSimExpTens:relativePeriodic', ...
+                        error('sweepSimMaet:relativePeriodic', ...
                               ['Attribute %d is relative and periodic ' ...
                                'at sigma/P = %.3f, above the limit of ' ...
                                '%.3f for this truncationSigmas; the ' ...
@@ -305,7 +305,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
             end
         end
         if swept(a) && densX.isPer(a)
-            error('sweepCosSimExpTens:periodicAttribute', ...
+            error('sweepSimMaet:periodicAttribute', ...
                   ['Attribute %d is periodic and swept; the wrapped ' ...
                    'kernel does not admit the placement/shape split, ' ...
                    'and the reduction is untested on the torus. ' ...
@@ -313,7 +313,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
                    'compare offset by offset instead.'], a);
         end
         if innerR(a) > 0 && swept(a)
-            error('sweepCosSimExpTens:sweptNested', ...
+            error('sweepSimMaet:sweptNested', ...
                   ['Attribute %d is nested at an inner or intermediate ' ...
                    'co-transposition unit and swept; each block removes ' ...
                    'its own all-ones, so a uniform translation cancels ' ...
@@ -322,7 +322,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
                    'translated).'], a);
         end
         if swept(a) && densX.isRel(a)
-            error('sweepCosSimExpTens:sweptRelative', ...
+            error('sweepSimMaet:sweptRelative', ...
                   ['Attribute %d is relative and swept; a uniform ' ...
                    'translation cancels in every within-tuple ' ...
                    'difference, so there is nothing to sweep.'], a);
@@ -331,7 +331,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
     for d = {densX, densY}
         dd = d{1};
         if internal.densityHasKernelCov(dd)
-            error('sweepCosSimExpTens:anisotropicKernel', ...
+            error('sweepSimMaet:anisotropicKernel', ...
                   ['An operand carries an anisotropic kernel ' ...
                    'covariance; the split assumes an isotropic ' ...
                    'kernel per attribute.']);
@@ -461,8 +461,8 @@ function ok = localOrbitSupported(densX, densY, off, A, tsRaw)
     % On an ordered attribute that is a different quantity, not an
     % approximation of the right one --- measured departures up to 0.22
     % --- so the route declines rather than silently symmetrising.
-    if isfield(densX, 'isSym') && ~isempty(densX.isSym) ...
-            && ~all(logical(densX.isSym))
+    if isfield(densX, 'isExch') && ~isempty(densX.isExch) ...
+            && ~all(logical(densX.isExch))
         ok = false; return;
     end
     for a = 1:A
@@ -647,7 +647,7 @@ function Qa = localRelPerQ(D, r, period)
 %   transposition invariance on the circle. D is r x nJ x nK and Qa is
 %   returned as 1 x nJ x nK, matching computeQaMA's convention.
 %
-%   Twin of the rel-and-per branch of computeQaMA in cosSimExpTens and
+%   Twin of the rel-and-per branch of computeQaMA in simMaet and
 %   of _compute_Q in the Python dispatch module.
     sz = size(D);
     if numel(sz) < 3
@@ -681,8 +681,8 @@ function blockSize = localInnerBlock(dens, a)
     if isstruct(sp) && isfield(sp, 'proj') && isfield(sp, 'relUnit') ...
             && ismember(char(sp.proj), {'inner', 'intermediate'})
         % relUnit is a 1-BASED level index on the MATLAB side, so the
-        % block size is prod(r(1:u)) --- matching cosSimExpTens,
-        % evalExpTens, and internal.nestedContract. The Python twin
+        % block size is prod(r(1:u)) --- matching simMaet,
+        % evalMaet, and internal.nestedContract. The Python twin
         % stores the same quantity 0-based and writes prod(r[:u + 1]);
         % the two agree on the block size, not on the index.
         rLevels = sp.r(:);
@@ -832,7 +832,7 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
                     % preserves exact transposition invariance on the
                     % circle, so this cannot be read as a component-wise
                     % wrap of the absolute form. Twin of computeQaMA's
-                    % rel-and-per branch in cosSimExpTens.
+                    % rel-and-per branch in simMaet.
                     Qa = localRelPerQ(D, size(D, 1), densX.period(a));
                     logFixed = logFixed ...
                         - reshape(Qa, nJ, nKc) / (4 * densX.sigma(a)^2);
@@ -1115,7 +1115,7 @@ function val = localSelfIp(dens, A, tsResolved)
 %   The self inner product is invariant under a uniform translation of
 %   the density's own values, so the whole sweep shares one denominator.
 %   It is computed here by the same routine that produces the numerator,
-%   evaluated at zero offset. Routing it through cosSimExpTens instead
+%   evaluated at zero offset. Routing it through simMaet instead
 %   would risk picking up the orbit route's per-attribute prefactor
 %   convention, which cancels only within that route's own triple and
 %   would not match this file's numerator.

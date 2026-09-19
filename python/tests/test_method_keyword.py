@@ -1,4 +1,4 @@
-"""Tests for the ``method`` keyword on ``cos_sim_exp_tens``.
+"""Tests for the ``method`` keyword on ``sim_maet``.
 
 Each documented value of ``method`` must produce the documented
 behaviour. With perceptually typical parameters ``'auto'``,
@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_raw
+from mpt import build_maet, sim_maet
 
 
 # Parameter grids for the comparison tests
@@ -52,19 +52,19 @@ def test_method_values_agree_in_normal_use(r, n, is_per, is_rel):
     rng = np.random.default_rng(seed=hash((r, n, is_per, is_rel)) & 0xFFFF)
     p_a, w_a, p_b, w_b = _make_pair(rng, n, periodic=is_per)
     sigma, P = 12.0, 1200.0
-    T_a = build_exp_tens(p_a, w_a, sigma, r, is_rel, is_per, P, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, r, is_rel, is_per, P, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, r, is_rel, is_per, P, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, r, is_rel, is_per, P, verbose=False)
 
-    cos_auto = cos_sim_exp_tens(T_a, T_b, method='auto', verbose=False)
-    cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
+    cos_auto = sim_maet(T_a, T_b, method='auto', verbose=False)
+    cos_pw = sim_maet(T_a, T_b, method='bulger', verbose=False)
     # 'centres' enumerates the tuple centres unrestricted -- no
     # combination restriction, no partition algebra -- so it agrees with
     # Bulger's method up to floating-point accumulation rather than
     # bit-identically. It is the reference route: it shares no reduction
     # with either of the others.
-    cos_cen = cos_sim_exp_tens(T_a, T_b, method='centres',
+    cos_cen = sim_maet(T_a, T_b, method='centres',
                                truncation_sigmas=float('inf'), verbose=False)
-    cos_pw_exact = cos_sim_exp_tens(T_a, T_b, method='bulger',
+    cos_pw_exact = sim_maet(T_a, T_b, method='bulger',
                                     truncation_sigmas=float('inf'),
                                     verbose=False)
     # Absolute escape hatch, as for the auto/pairwise comparison below:
@@ -81,7 +81,7 @@ def test_method_values_agree_in_normal_use(r, n, is_per, is_rel):
     # enumeration it never performed; the name is retired, and the
     # enumeration it promised is now 'centres'.
     with pytest.raises(ValueError):
-        cos_sim_exp_tens(T_a, T_b, method='direct', verbose=False)
+        sim_maet(T_a, T_b, method='direct', verbose=False)
     abs_err = abs(cos_auto - cos_pw)
     rel_err = abs_err / max(abs(cos_auto), abs(cos_pw), 1e-300)
     # The absolute escape hatch sits at the translation-grid quadrature
@@ -107,10 +107,10 @@ def test_default_method_is_auto():
     rng = np.random.default_rng(seed=2026)
     p_a, w_a, p_b, w_b = _make_pair(rng, 12, periodic=True)
     sigma, P = 12.0, 1200.0
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, False, True, P, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, False, True, P, verbose=False)
-    cos_default = cos_sim_exp_tens(T_a, T_b, verbose=False)
-    cos_auto = cos_sim_exp_tens(T_a, T_b, method='auto', verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, False, True, P, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, 3, False, True, P, verbose=False)
+    cos_default = sim_maet(T_a, T_b, verbose=False)
+    cos_auto = sim_maet(T_a, T_b, method='auto', verbose=False)
     assert cos_default == cos_auto
 
 
@@ -125,10 +125,10 @@ def test_invalid_method_raises(bad):
     rng = np.random.default_rng(seed=3)
     p_a, w_a, p_b, w_b = _make_pair(rng, 8)
     sigma, P = 12.0, 1200.0
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, False, True, P, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, False, True, P, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, False, True, P, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, 3, False, True, P, verbose=False)
     with pytest.raises(ValueError, match="method must be one of"):
-        cos_sim_exp_tens(T_a, T_b, method=bad, verbose=False)
+        sim_maet(T_a, T_b, method=bad, verbose=False)
 
 
 # ----------------------------------------------------------------------
@@ -143,12 +143,12 @@ def test_forced_pairwise_silences_perrel_warning():
     P = 1200.0
     sigma = 80.0  # σ/P ≈ 0.067, well above 0.03
     p_a, w_a, p_b, w_b = _make_pair(rng, n, periodic=True, period=P)
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, True, True, P, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, True, True, P, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, True, True, P, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, 3, True, True, P, verbose=False)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
+        sim_maet(T_a, T_b, method='bulger', verbose=False)
 
 
 def test_auto_warns_in_perrel_high_sigma_over_P():
@@ -162,33 +162,11 @@ def test_auto_warns_in_perrel_high_sigma_over_P():
     P = 1200.0
     sigma = 80.0
     p_a, w_a, p_b, w_b = _make_pair(rng, n, periodic=True, period=P)
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, True, True, P, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, True, True, P, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, True, True, P, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, 3, True, True, P, verbose=False)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        cos_sim_exp_tens(T_a, T_b, method='auto', verbose=False)
+        sim_maet(T_a, T_b, method='auto', verbose=False)
 
 
-# ----------------------------------------------------------------------
-# cos_sim_exp_tens_raw forwards the keywords
-# ----------------------------------------------------------------------
-
-
-def test_raw_function_forwards_method():
-    """cos_sim_exp_tens_raw must forward method= to cos_sim_exp_tens."""
-    rng = np.random.default_rng(seed=99)
-    p_a, w_a, p_b, w_b = _make_pair(rng, 12, periodic=False)
-    sigma = 30.0
-    cos_auto = cos_sim_exp_tens_raw(
-        p_a, w_a, p_b, w_b, sigma, 3, False, False, 1200.0,
-        method='auto', verbose=False,
-    )
-    cos_pw = cos_sim_exp_tens_raw(
-        p_a, w_a, p_b, w_b, sigma, 3, False, False, 1200.0,
-        method='bulger', verbose=False,
-    )
-    abs_err = abs(cos_auto - cos_pw)
-    assert abs_err < 1e-12, (
-        f"raw forward broken: auto={cos_auto}, pw={cos_pw}, |diff|={abs_err}"
-    )

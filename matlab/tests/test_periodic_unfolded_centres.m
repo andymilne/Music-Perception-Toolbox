@@ -1,7 +1,7 @@
 %% test_periodic_unfolded_centres.m — periodic image sums on unfolded coords
 %
 %  The differential/Shannon grid cell mass (localPhiDiffAxisPeriodic in
-%  entropyExpTens) builds its result by summing Gaussian images across
+%  entropyMaet) builds its result by summing Gaussian images across
 %  the period, and must reduce its input coordinate modulo the period
 %  first. Otherwise a coordinate many periods from the canonical
 %  [0, period) window --- for example an absolute spectral partial
@@ -30,14 +30,14 @@ end
 pA = [4000, 5000, 6400];   % absolute cents, all > period
 pB = [4300, 5100, 6200];
 wts = [1, 1, 1];
-hUnfolded = entropyExpTens(pA, wts, 15, 1, false, true, 1200, ...
+hUnfolded = entropyMaet(pA, wts, 15, 1, false, true, 1200, ...
     'method', 'differential', 'verbose', false);
-hFolded   = entropyExpTens(mod(pA, 1200), wts, 15, 1, false, true, 1200, ...
+hFolded   = entropyMaet(mod(pA, 1200), wts, 15, 1, false, true, 1200, ...
     'method', 'differential', 'verbose', false);
 results{end+1,1} = 'periodic differential: unfolded centres match folded';
 results{end,2}   = abs(hUnfolded - hFolded) < 1e-9 && hUnfolded > 1;
 
-hB = entropyExpTens(pB, wts, 15, 1, false, true, 1200, ...
+hB = entropyMaet(pB, wts, 15, 1, false, true, 1200, ...
     'method', 'differential', 'verbose', false);
 results{end+1,1} = 'periodic differential: varies with content (not degenerate)';
 results{end,2}   = abs(hUnfolded - hB) > 1e-3;
@@ -57,13 +57,13 @@ end
 dx = 1200 / G;
 hMin  = -sum((fMin  / sum(fMin)  ) .* log(fMin  / (sum(fMin)  * dx) + 1e-300)) ;
 hWrap = -sum((fWrap / sum(fWrap) ) .* log(fWrap / (sum(fWrap) * dx) + 1e-300)) ;
-hTbFull = entropyExpTens(cMi, wMi, sMi, 1, false, true, 1200, ...
+hTbFull = entropyMaet(cMi, wMi, sMi, 1, false, true, 1200, ...
     'method', 'differential', 'base', exp(1), 'verbose', false);
-absPerWarn = warning('off', 'buildExpTens:absPerSingleImage');
-dSingleMi = buildExpTens({cMi(:)}, {wMi(:)}, sMi, 1, false, true, 1200, ...
+absPerWarn = warning('off', 'buildMaet:absPerSingleImage');
+dSingleMi = buildMaet({cMi(:)}, {wMi(:)}, sMi, 1, false, true, 1200, ...
     'wrap', {'single-image'}, 'verbose', false);
 warning(absPerWarn);
-hTbSingle = entropyExpTens(dSingleMi, 'method', 'differential', ...
+hTbSingle = entropyMaet(dSingleMi, 'method', 'differential', ...
     'base', exp(1), 'verbose', false);
 results{end+1,1} = 'periodic differential: default wrap tracks the wrapped normal';
 results{end,2}   = abs(hMin - hWrap) > 1e-4 ...

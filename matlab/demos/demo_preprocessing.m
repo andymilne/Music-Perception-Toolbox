@@ -119,7 +119,7 @@ fprintf('=== 3. bindEvents (B) ===\n');
 % Bind 2 consecutive events into 2-grams on both attributes. Each source
 % attribute becomes ONE nested attribute: the two bound events form the
 % ordered outer level, each event's own value the inner level (inheriting
-% the source r/isRel/isSym). A' = A = 2. Trailing-drop alignment gives
+% the source r/isRel/isExch). A' = A = 2. Trailing-drop alignment gives
 % N' = N - max(L) + 1 = 6. B gathers each super-event's constituent
 % weights alongside its values rather than combining them, so both of a
 % 2-gram's metre weights survive, in order, inside the cell.
@@ -131,8 +131,8 @@ fprintf(['  bindOrders = [%d %d]   (A'' = %d: each source attribute ' ...
     '-> one nested attribute)\n'], bindOrders(1), bindOrders(2), ...
     numel(pmB.pAttr));
 showPreMaet(pmB, KERNEL{:});
-fprintf('  spec(1): r = [%s], sym = [%s], rel = [%s], tags = [%s]\n', ...
-    num2str(specB{1}.r), num2str(double(specB{1}.sym)), ...
+fprintf('  spec(1): r = [%s], exch = [%s], rel = [%s], tags = [%s]\n', ...
+    num2str(specB{1}.r), num2str(double(specB{1}.exch)), ...
     num2str(double(specB{1}.rel)), num2str(specB{1}.tags(:)'));
 fprintf('\n');
 
@@ -146,7 +146,7 @@ fprintf('=== 3b. bindEvents again (B o B): deepen to L = 3 ===\n');
 % the *already-nested* attribute rather than starting over. The specs
 % travel with the pre-MAET, so nothing has to be threaded by hand. The
 % existing tag matrix is tiled and a fresh outermost grouping
-% column is appended; r/sym/rel each gain one outer level. The hierarchy
+% column is appended; r/exch/rel each gain one outer level. The hierarchy
 % grows note -> 2-event group (first bind) -> 2-group window (second
 % bind). Trailing-drop again: N'' = N' - max(L) + 1 = 5.
 pmBB = bindEvents(pmB, [2 2]);
@@ -154,8 +154,8 @@ specBB = pmBB.specs;
 
 fprintf('  N'''' = %d  (three-level super-events)\n', size(pmBB.pAttr{1}, 2));
 showPreMaet(pmBB, 'maxEvents', 4, KERNEL{:});
-fprintf('  spec(1): r = [%s], sym = [%s], rel = [%s]\n', ...
-    num2str(specBB{1}.r), num2str(double(specBB{1}.sym)), ...
+fprintf('  spec(1): r = [%s], exch = [%s], rel = [%s]\n', ...
+    num2str(specBB{1}.r), num2str(double(specBB{1}.exch)), ...
     num2str(double(specBB{1}.rel)));
 fprintf('  (inner tag column tiled; a new outermost column appended.)\n');
 
@@ -165,8 +165,8 @@ fprintf('  (inner tag column tiled; a new outermost column appended.)\n');
 % what makes a sweep one call per value (demo_preMaetIo, section 4).
 kwBB = {'sigma', [0.5 0.25], 'isPer', [true false], ...
         'period', [12 0], 'verbose', false};
-dBBAbs = buildExpTens(pmBB, kwBB{:});
-smAbs = cosSimExpTens(dBBAbs, dBBAbs, 'verbose', false);
+dBBAbs = buildMaet(pmBB, kwBB{:});
+smAbs = simMaet(dBBAbs, dBBAbs, 'verbose', false);
 fprintf('  absolute build: dim = %d, cosine self-match = %.4f\n', ...
     dBBAbs.dim, smAbs);
 
@@ -179,14 +179,14 @@ fprintf('  absolute build: dim = %d, cosine self-match = %.4f\n', ...
 specBBOut = specBB;
 specBBOut{1}.rel = [0 0 1];                  % outermost unit on pitch
 pmBBOut = preMaet(pmBB, [], specBBOut);
-dBBOut = buildExpTens(pmBBOut, kwBB{:});
+dBBOut = buildMaet(pmBBOut, kwBB{:});
 pmBBT = pmBB;
 pmBBT.pAttr{1} = pmBB.pAttr{1} + 5;          % transpose all pitches +5
 pmBBOutT = preMaet(pmBBT, [], specBBOut);
-dBBOutT = buildExpTens(pmBBOutT, kwBB{:});
-dBBAbsT = buildExpTens(pmBBT, kwBB{:});
-simOut = cosSimExpTens(dBBOut, dBBOutT, 'verbose', false);
-simAbs = cosSimExpTens(dBBAbs, dBBAbsT, 'verbose', false);
+dBBOutT = buildMaet(pmBBOutT, kwBB{:});
+dBBAbsT = buildMaet(pmBBT, kwBB{:});
+simOut = simMaet(dBBOut, dBBOutT, 'verbose', false);
+simAbs = simMaet(dBBAbs, dBBAbsT, 'verbose', false);
 fprintf(['  outer pitch (rel=[0 0 1]): dim = %d, vs +5 transpose = %.4f' ...
     '  (global-transposition invariant)\n'], dBBOut.dim, simOut);
 fprintf(['  absolute pitch:            vs +5 transpose = %.4f' ...
@@ -257,7 +257,7 @@ valsAgree = true; wtsAgree = true; specsAgree = true;
 for a = 1:2
     valsAgree = valsAgree && isequaln(pmDB.pAttr{a}, pmBD.pAttr{a});
     wtsAgree = wtsAgree && isequaln(pmDB.wAttr{a}, pmBD.wAttr{a});
-    for f = {'tags', 'r', 'sym', 'rel'}
+    for f = {'tags', 'r', 'exch', 'rel'}
         specsAgree = specsAgree && ...
             isequal(double(pmDB.specs{a}.(f{1})(:)'), ...
                     double(pmBD.specs{a}.(f{1})(:)'));
@@ -318,7 +318,7 @@ fprintf('  difference max = %g  (zero --- centre-shift rule holds)\n', ...
 
 fprintf('\n=== 8b. transformAttributes (F): scale choice and order with D ===\n');
 
-% The kernel of buildExpTens has a fixed width in whatever units the
+% The kernel of buildMaet has a fixed width in whatever units the
 % values carry, so the choice of scale is made before the tensor. The
 % bare-array form converts a vector in one call (this replaces the
 % former convertPitch):
@@ -345,9 +345,9 @@ pmF  = transformAttributes(pmDp, {{'log', 'offset', 1}}, 'sign', true);
 fprintf('  D(pitch)        = [%g %g]\n', pmDp.pAttr{1});
 fprintf('  log(|D(pitch)|+1) = [%.4f %.4f], sign = [%g %g] (spec name ''%s'')\n', ...
         pmF.pAttr{1}, pmF.pAttr{2}, pmF.specs{2}.name);
-densF = buildExpTens(pmF, 'sigma', [0.2 0.3], ...
+densF = buildMaet(pmF, 'sigma', [0.2 0.3], ...
                      'isPer', [false false], 'period', [0 0], 'verbose', false);
-fprintf('  buildExpTens on the two-attribute pre-MAET: dim = %d\n', densF.dim);
+fprintf('  buildMaet on the two-attribute pre-MAET: dim = %d\n', densF.dim);
 
 % (iii) A zero under 'log' is an error with remedies, never -Inf.
 try
@@ -369,8 +369,8 @@ fprintf('\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===\n'
 % Two routes lead from a pre-MAET to a density value, an entropy, or a
 % similarity:
 %
-%   (i)  build a MaetDensity once via buildExpTens, then pass the
-%        struct to entropyExpTens / evalExpTens / cosSimExpTens.
+%   (i)  build a MaetDensity once via buildMaet, then pass the
+%        struct to entropyMaet / evalMaet / simMaet.
 %        Preferred when the same density is re-evaluated many times,
 %        because the structural work (group canonicalisation, tuple
 %        index pre-computation, weight products) is paid once.
@@ -380,13 +380,13 @@ fprintf('\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===\n'
 %        as positional arguments. The function builds the density
 %        internally and returns the answer; no struct is exposed.
 %        Convenient for single-shot uses and keeps the call shape
-%        symmetric with buildExpTens itself.
+%        symmetric with buildMaet itself.
 %
 % Section 9 below exercises route (ii) on the original pAttr and on
 % the differenced / translated pre-MAETs. Section 10 then exercises
 % route (i) on the same set, building each density once via
-% buildExpTens and reusing it across entropyExpTens, evalExpTens,
-% cosSimExpTens, and the LIST form of cosSimExpTens, with parity
+% buildMaet and reusing it across entropyMaet, evalMaet,
+% simMaet, and the LIST form of simMaet, with parity
 % assertions confirming the two routes return identical values.
 sigma = [0.5, 0.25];     % kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
 r     = [1, 1];          % single-value attributes (K_a = 1)
@@ -397,40 +397,40 @@ pT = pmT.pAttr;
 pD = pmD.pAttr;
 wD = pmD.wAttr;
 
-% --- 9a. entropyExpTens (raw MA form) ---
+% --- 9a. entropyMaet (raw MA form) ---
 % Signature:
-%   H = entropyExpTens(pAttr, w, sigma, r, isRel, isPer, periods, ...)
-H_orig = entropyExpTens(pAttr, w, sigma, r, isRel, isPer, periods, ...
+%   H = entropyMaet(pAttr, w, sigma, r, isRel, isPer, periods, ...)
+H_orig = entropyMaet(pAttr, w, sigma, r, isRel, isPer, periods, ...
                         'method', 'renyi2', ...
                         'verbose', false);
-fprintf('  entropyExpTens(pAttr, w, sigma, r, isRel, isPer, periods)\n');
+fprintf('  entropyMaet(pAttr, w, sigma, r, isRel, isPer, periods)\n');
 fprintf('    = %.4f  (Renyi-2)\n', H_orig);
 
-% --- 9b. evalExpTens at the penult event (pitch = 66, t = 6) ---
+% --- 9b. evalMaet at the penult event (pitch = 66, t = 6) ---
 % Signature:
-%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X, ...)
+%   vals = evalMaet(pAttr, w, sigma, r, isRel, isPer, periods, X, ...)
 % Query points are A-by-M_q with one column per query and row a
 % giving attribute a's value(s). Single query here, so a 2-by-1 column.
 Xq = [66; 6];
-val_at_penult = evalExpTens(pAttr, w, sigma, r, ...
+val_at_penult = evalMaet(pAttr, w, sigma, r, ...
                             isRel, isPer, periods, Xq, ...
                             'verbose', false);
-fprintf('  evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, Xq)\n');
+fprintf('  evalMaet(pAttr, w, sigma, r, isRel, isPer, periods, Xq)\n');
 fprintf('    = %.4f\n', val_at_penult);
 fprintf('  (Density peak near an actual event; the value reflects the\n');
 fprintf('   contribution from event 6 at (66, 6) plus tails from its neighbours.)\n');
 
-% --- 9c. cosSimExpTens on two pre-MAETs (raw MA form) ---
+% --- 9c. simMaet on two pre-MAETs (raw MA form) ---
 % Signature:
-%   s = cosSimExpTens(pX, wX, pY, wY, sigma, r, isRel, isPer, periods, ...)
+%   s = simMaet(pX, wX, pY, wY, sigma, r, isRel, isPer, periods, ...)
 % Compare the original chorale fragment against the transposed copy
 % (Section 4). Group 1's PC kernel is narrow (sigma = 0.5 semitones),
 % so the 5-semitone shift puts every event out of kernel reach of its
 % original PC, and the similarity collapses to 0. Pre-MAET D in step
 % 9d below recovers it.
-sim_T = cosSimExpTens(pAttr, w, pT, w, sigma, r, ...
+sim_T = simMaet(pAttr, w, pT, w, sigma, r, ...
                       isRel, isPer, periods, 'verbose', false);
-fprintf('  cosSimExpTens(pAttr, w, pT, w, sigma, r, isRel, isPer, periods)\n');
+fprintf('  simMaet(pAttr, w, pT, w, sigma, r, isRel, isPer, periods)\n');
 fprintf('    = %.4f\n', sim_T);
 
 % --- 9d. cosSim of the differenced pair: D(T) == D identity in action ---
@@ -438,15 +438,15 @@ fprintf('    = %.4f\n', sim_T);
 % original and the differenced transposed copy are value-wise
 % identical, so their cosine similarity must be exactly 1. The
 % algebraic identity from Section 7 surfacing as a downstream
-% observable; no buildExpTens required.
-sim_diffed = cosSimExpTens(pD, wD, pmDT.pAttr, pmDT.wAttr, ...
+% observable; no buildMaet required.
+sim_diffed = simMaet(pD, wD, pmDT.pAttr, pmDT.wAttr, ...
                            sigma, r, isRel, isPer, periods, ...
                            'verbose', false);
-fprintf('  cosSimExpTens(pD, wD, pD(T), wD(T), ...)\n');
+fprintf('  simMaet(pD, wD, pD(T), wD(T), ...)\n');
 fprintf('    = %.4f  (exactly 1: D absorbs T)\n', sim_diffed);
 
 %% ===================================================================
-%  10. Pre-MAET via buildExpTens dens structs (route (i))
+%  10. Pre-MAET via buildMaet dens structs (route (i))
 %  ===================================================================
 
 fprintf('\n=== 10. Dens form: build once, query many; parity with route (ii) ===\n');
@@ -455,51 +455,51 @@ fprintf('\n=== 10. Dens form: build once, query many; parity with route (ii) ===
 % structural work --- group canonicalisation, tuple-index
 % pre-computation, weight products --- is paid; subsequent
 % entropy/eval/cosSim calls just consume the struct.
-dens_orig = buildExpTens(pAttr, w, sigma, r, ...
+dens_orig = buildMaet(pAttr, w, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
-dens_T    = buildExpTens(pT,    w, sigma, r, ...
+dens_T    = buildMaet(pT,    w, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
-dens_D    = buildExpTens(pD,   wD, sigma, r, ...
+dens_D    = buildMaet(pD,   wD, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
-dens_DT   = buildExpTens(pmDT.pAttr, pmDT.wAttr, sigma, r, ...
+dens_DT   = buildMaet(pmDT.pAttr, pmDT.wAttr, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
 
-% --- 10a. entropyExpTens on the struct; same answer as 9a. ---
-H_orig_dens = entropyExpTens(dens_orig, 'method', 'renyi2', ...
+% --- 10a. entropyMaet on the struct; same answer as 9a. ---
+H_orig_dens = entropyMaet(dens_orig, 'method', 'renyi2', ...
                              'verbose', false);
-fprintf('  entropyExpTens(dens_orig)\n');
+fprintf('  entropyMaet(dens_orig)\n');
 fprintf('    = %.4f  (Renyi-2; parity vs 9a: |delta| = %.2e)\n', ...
         H_orig_dens, abs(H_orig_dens - H_orig));
 assert(abs(H_orig_dens - H_orig) < 1e-12, ...
        'Section 10a: entropy raw and dens forms disagree.');
 
-% --- 10b. evalExpTens at the same query; same answer as 9b. ---
-val_at_penult_dens = evalExpTens(dens_orig, Xq, 'verbose', false);
-fprintf('  evalExpTens(dens_orig, Xq)\n');
+% --- 10b. evalMaet at the same query; same answer as 9b. ---
+val_at_penult_dens = evalMaet(dens_orig, Xq, 'verbose', false);
+fprintf('  evalMaet(dens_orig, Xq)\n');
 fprintf('    = %.4f  (parity vs 9b: |delta| = %.2e)\n', ...
         val_at_penult_dens, abs(val_at_penult_dens - val_at_penult));
 assert(abs(val_at_penult_dens - val_at_penult) < 1e-12, ...
        'Section 10b: eval raw and dens forms disagree.');
 
-% --- 10c. cosSimExpTens(dens_orig, dens_T); same answer as 9c. ---
-sim_T_dens = cosSimExpTens(dens_orig, dens_T, 'verbose', false);
-fprintf('  cosSimExpTens(dens_orig, dens_T)\n');
+% --- 10c. simMaet(dens_orig, dens_T); same answer as 9c. ---
+sim_T_dens = simMaet(dens_orig, dens_T, 'verbose', false);
+fprintf('  simMaet(dens_orig, dens_T)\n');
 fprintf('    = %.4f  (parity vs 9c: |delta| = %.2e)\n', ...
         sim_T_dens, abs(sim_T_dens - sim_T));
 assert(abs(sim_T_dens - sim_T) < 1e-12, ...
        'Section 10c: cosSim raw and dens forms disagree.');
 
-% --- 10d. cosSimExpTens(dens_D, dens_DT) on the differenced pair; ---
+% --- 10d. simMaet(dens_D, dens_DT) on the differenced pair; ---
 %       same answer as 9d. (Section 7 identity: should be exactly 1.)
-sim_diffed_dens = cosSimExpTens(dens_D, dens_DT, 'verbose', false);
-fprintf('  cosSimExpTens(dens_D, dens_DT)\n');
+sim_diffed_dens = simMaet(dens_D, dens_DT, 'verbose', false);
+fprintf('  simMaet(dens_D, dens_DT)\n');
 fprintf('    = %.4f  (parity vs 9d: |delta| = %.2e)\n', ...
         sim_diffed_dens, abs(sim_diffed_dens - sim_diffed));
 assert(abs(sim_diffed_dens - sim_diffed) < 1e-12, ...
        'Section 10d: cosSim raw and dens forms disagree.');
 
 % --- 10e. LIST form: one reference against many candidates. ---
-% Scalar-vs-list cosSimExpTens broadcasts dens_orig against each
+% Scalar-vs-list simMaet broadcasts dens_orig against each
 % candidate in the cell, returning a 1-by-n cell of similarity
 % scalars. Useful for "compare one reference density against many"
 % workflows.
@@ -511,9 +511,9 @@ assert(abs(sim_diffed_dens - sim_diffed) < 1e-12, ...
 %             original pAttr is to its first-difference.
 %   entry 4:  sim(orig, D(T))   --- Section 7's identity D o T == D
 %             forces this to equal entry 3.
-sim_list = cosSimExpTens({dens_orig, dens_T, dens_D, dens_DT}, dens_orig, ...
+sim_list = simMaet({dens_orig, dens_T, dens_D, dens_DT}, dens_orig, ...
                          'verbose', false);
-fprintf('  cosSimExpTens({dens_orig, dens_T, dens_D, dens_DT}, dens_orig)\n');
+fprintf('  simMaet({dens_orig, dens_T, dens_D, dens_DT}, dens_orig)\n');
 fprintf('    = {%.4f, %.4f, %.4f, %.4f}\n', ...
         sim_list{1}, sim_list{2}, sim_list{3}, sim_list{4});
 fprintf('    (entry 1: self = 1; entry 2: vs T (= 9c);\n');

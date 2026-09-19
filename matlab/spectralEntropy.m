@@ -10,7 +10,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %   uncertainty), the lower the entropy. Lower entropy therefore
 %   indicates greater consonance.
 %
-%   spectralEntropy is a thin wrapper around entropyExpTens with
+%   spectralEntropy is a thin wrapper around entropyMaet with
 %   r = 1, isRel = false, isPer = false (1-D absolute non-periodic
 %   density). It applies addSpectra to enrich the pitches with
 %   partials (if a 'spectrum' argument is supplied), shifts the
@@ -45,7 +45,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %
 %     method='renyi2' computes the analytical (grid-independent)
 %       Rényi-2 / collision entropy via the inner-product / Möbius
-%       machinery used by entropyExpTens.
+%       machinery used by entropyMaet.
 %
 %   v3 breaking change: the legacy 'normalize' boolean kwarg has
 %   been removed from spectralEntropy. Use method='normalized' for
@@ -82,7 +82,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                    bits). The base cancels for method='normalized'.
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                    wide mptDefaults('truncationSigmas') setting for
-%                    this call. Passes through to the entropyExpTens
+%                    this call. Passes through to the entropyMaet
 %                    kernel evaluator; skips Gaussian contributions
 %                    whose centre-to-query distance exceeds k*sigma.
 %                    For method='differential' this also anchors the
@@ -102,7 +102,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %
 %   'resolution' sets the grid spacing of the discrete paths in cents
 %   (default 1); 'differential' and 'renyi2' do not read it. Users
-%   needing other grid bounds should call entropyExpTens directly with
+%   needing other grid bounds should call entropyMaet directly with
 %   a pre-built density and their own nPointsPerDim and xMin / xMax.
 %
 %   Output:
@@ -146,7 +146,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %       Perception of affect in unfamiliar musical chords. PLOS ONE,
 %       14(6), e0218570.
 %
-%   See also ADDSPECTRA, BUILDEXPTENS, EVALEXPTENS, ENTROPYEXPTENS,
+%   See also ADDSPECTRA, BUILDMAET, EVALMAET, ENTROPYMAET,
 %            TEMPLATEHARMONICITY, TENSORHARMONICITY, ROUGHNESS.
 
     arguments
@@ -233,9 +233,9 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     p = p - min(p);
 
     % === Apply addSpectra if requested ===
-    % We apply it here (rather than via entropyExpTens's own 'spectrum'
+    % We apply it here (rather than via entropyMaet's own 'spectrum'
     % kwarg) so we can compute the grid bounds from spec_p, which only
-    % exists after addSpectra. Passing 'spectrum' to entropyExpTens
+    % exists after addSpectra. Passing 'spectrum' to entropyMaet
     % would require us to know xMax up front, which we don't.
     if isempty(specArgs)
         spec_p = p;
@@ -245,7 +245,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     end
 
     % Up-front time estimate: dominated by the kernel-pair work in
-    % evalExpTens (Shannon path) — numel(spec_p) * numel(grid). The
+    % evalMaet (Shannon path) — numel(spec_p) * numel(grid). The
     % grid-free methods (differential, renyi2) bypass this; emit only
     % for the discrete (shannon, normalized) paths, at the grid size the
     % delegate will build.
@@ -261,11 +261,11 @@ end
 
 
 % =====================================================================
-%  Local helper: delegate the entropy computation to entropyExpTens.
+%  Local helper: delegate the entropy computation to entropyMaet.
 % =====================================================================
 
 function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
-%LOCALSPECTRALENTROPYDELEGATE  Delegate to entropyExpTens.
+%LOCALSPECTRALENTROPYDELEGATE  Delegate to entropyMaet.
 %
 %   For 'shannon' and 'normalized', passes the grid
 %   0 : resolution : max(spec_p) + 4*sigma, as in the consonance
@@ -282,7 +282,7 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
 %   per unique canonical chord via the row loop).
 
     if strcmp(nvArgs.method, 'renyi2')
-        H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+        H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
             'method', 'renyi2', ...
             'base', nvArgs.base, ...
             'truncationSigmas', nvArgs.truncationSigmas, ...
@@ -292,7 +292,7 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
     end
 
     if strcmp(nvArgs.method, 'differential')
-        H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+        H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
             'method', 'differential', ...
             'base', nvArgs.base, ...
             'truncationSigmas', nvArgs.truncationSigmas, ...
@@ -306,7 +306,7 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
     xMax = (nPoints - 1) * nvArgs.resolution;
 
     if strcmp(nvArgs.method, 'normalized')
-        H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+        H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
             'method', 'normalized', ...
             'base', nvArgs.base, ...
             'nPointsPerDim', nPoints, ...
@@ -319,7 +319,7 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
     end
 
     % method == 'shannon': raw discrete H = -sum q log_b q.
-    H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+    H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
         'method', 'shannon', ...
         'base', nvArgs.base, ...
         'nPointsPerDim', nPoints, ...

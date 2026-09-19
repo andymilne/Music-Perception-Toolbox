@@ -18,23 +18,23 @@ def _p():
 
 
 def _specs():
-    return [{"name": "pitch", "r": 1, "rel": False, "sym": True,
+    return [{"name": "pitch", "r": 1, "rel": False, "exch": True,
              "sigma": 0.5, "is_per": True, "period": 12.0},
-            {"name": "time", "r": 1, "rel": False, "sym": True,
+            {"name": "time", "r": 1, "rel": False, "exch": True,
              "sigma": 0.25, "is_per": False, "period": 0.0}]
 
 
 class TestResolution:
 
     def test_specs_alone_suffice(self):
-        d = mpt.build_exp_tens(_p(), None, specs=_specs(), verbose=False)
+        d = mpt.build_maet(_p(), None, specs=_specs(), verbose=False)
         np.testing.assert_allclose(np.atleast_1d(d.sigma), [0.5, 0.25])
         assert list(np.atleast_1d(d.is_per)) == [True, False]
 
     def test_keyword_overrides_silently(self):
         """A sweep supplies sigma per call while the specs hold a
         baseline, so the two disagreeing is the ordinary idiom."""
-        d = mpt.build_exp_tens(_p(), None, specs=_specs(), sigma=[9.0, 9.0],
+        d = mpt.build_maet(_p(), None, specs=_specs(), sigma=[9.0, 9.0],
                                verbose=False)
         np.testing.assert_allclose(np.atleast_1d(d.sigma), [9.0, 9.0])
 
@@ -42,19 +42,19 @@ class TestResolution:
         sp = _specs()
         del sp[1]["sigma"]
         with pytest.raises(ValueError, match=r"No sigma for attribute 'time'"):
-            mpt.build_exp_tens(_p(), None, specs=sp, verbose=False)
+            mpt.build_maet(_p(), None, specs=sp, verbose=False)
 
     def test_na_is_refused_and_says_why(self):
         sp = _specs()
         sp[0]["sigma"] = np.nan
         with pytest.raises(ValueError,
                            match=r"sigma for attribute 'pitch' is NA"):
-            mpt.build_exp_tens(_p(), None, specs=sp, verbose=False)
+            mpt.build_maet(_p(), None, specs=sp, verbose=False)
 
     def test_na_is_recoverable_at_the_call(self):
         sp = _specs()
         sp[0]["sigma"] = np.nan
-        d = mpt.build_exp_tens(_p(), None, specs=sp, sigma=[0.5, 0.25],
+        d = mpt.build_maet(_p(), None, specs=sp, sigma=[0.5, 0.25],
                                verbose=False)
         np.testing.assert_allclose(np.atleast_1d(d.sigma), [0.5, 0.25])
 
@@ -63,26 +63,26 @@ class TestResolution:
         non-periodic attribute."""
         sp = _specs()
         del sp[1]["period"]
-        d = mpt.build_exp_tens(_p(), None, specs=sp, verbose=False)
+        d = mpt.build_maet(_p(), None, specs=sp, verbose=False)
         assert float(np.atleast_1d(d.period)[1]) == 0.0
 
     def test_camel_case_alias_is_read(self):
         """A spec written for either language reads in both."""
         sp = _specs()
         sp[0]["isPer"] = sp[0].pop("is_per")
-        d = mpt.build_exp_tens(_p(), None, specs=sp, verbose=False)
+        d = mpt.build_maet(_p(), None, specs=sp, verbose=False)
         assert bool(np.atleast_1d(d.is_per)[0])
 
     def test_covariance_in_a_spec_is_honoured(self):
         """The matrix path is chosen after resolution, not from the
         keyword: a covariance may live in the spec."""
-        C = mpt.interval_kernel_cov(3, sd_position=0.2, sd_interval=0.3)
+        C = mpt.kernel_cov(3, sd_value=0.2, sd_interval=0.3, differenced=True)
         pb, wb, sb = mpt.unpack_pre_maet(mpt.bind_events([np.array([[1.0, 2, 3, 4]])], None, [3]))
-        by_kw = mpt.build_exp_tens(pb, wb, specs=sb, sigma=[C],
+        by_kw = mpt.build_maet(pb, wb, specs=sb, sigma=[C],
                                    is_per=[False], period=[0.0],
                                    verbose=False)
         sb[0].update(sigma=C, is_per=False, period=0.0)
-        in_spec = mpt.build_exp_tens(pb, wb, specs=sb, verbose=False)
+        in_spec = mpt.build_maet(pb, wb, specs=sb, verbose=False)
         assert in_spec.kernel_cov[0] is not None
         np.testing.assert_allclose(in_spec.kernel_cov[0], by_kw.kernel_cov[0])
 
@@ -90,7 +90,7 @@ class TestResolution:
 class TestOperatorRules:
 
     def test_difference_scales_sigma_by_root_binomial(self):
-        sp = [{"name": "p", "r": 1, "rel": False, "sym": True,
+        sp = [{"name": "p", "r": 1, "rel": False, "exch": True,
                "sigma": 10.0, "is_per": False, "period": 0.0}]
         p = [np.array([[1.0, 2, 3, 4]])]
         _, _, s1 = mpt.unpack_pre_maet(mpt.difference_events(p, None, 1, specs=sp))
@@ -104,7 +104,7 @@ class TestOperatorRules:
         C = np.diag([0.04, 0.09, 0.16])
         # Differencing needs K = 1 per event, so the covariance rides on
         # a single-valued attribute across four events.
-        sp = [{"name": "t", "r": 1, "rel": False, "sym": True,
+        sp = [{"name": "t", "r": 1, "rel": False, "exch": True,
                "sigma": C, "is_per": False, "period": 0.0}]
         _, _, s = mpt.unpack_pre_maet(mpt.difference_events([np.array([[1.0, 2, 3, 4]])],
                                         None, 1, specs=sp))
@@ -166,18 +166,18 @@ class TestFromScore:
         assert "sigma" not in specs[0]
 
 
-FLAT = '''name,sigma,r,rel,per,P,sym,n = 1,n = 2,n = 3
+FLAT = '''name,sigma,r,rel,per,P,exch,n = 1,n = 2,n = 3
 pitch,0.5,2,0,1,12,1,"{60, 64, 67}","{62, 65, 69}","{60, 64, 67}"
 onset,0.25,1,0,0,,1,0,1,2
 '''
 
-NESTED = '''name,sigma,r,rel,per,P,sym,n = 1,n = 2
+NESTED = '''name,sigma,r,rel,per,P,exch,n = 1,n = 2
 pitch,0.15,"(1, 3)","(0, 1)",1,12,"(1, 0)","({60, 64, 67}, {62, 67, 71}, {60, 64, 67})","({62, 65, 69}, {55, 59, 62}, {60, 64, 67})"
 metre,0.1,1,0,0,,1,1^(1),0.5^(0.5)
 '''
 
-COV = '''name,sigma,r,rel,per,P,sym,n = 1,n = 2
-trigram,"cov(sd_position=0.2, sd_interval=0.3, sd_shift=0.5)",3,0,0,,0,"(60, 62, 64)","(62, 64, 65)"
+COV = '''name,sigma,r,rel,per,P,exch,n = 1,n = 2
+trigram,"cov(differenced=1, sd_value=0.2, sd_interval=0.3, sd_shift=0.5)",3,0,0,,0,"(60, 62, 64)","(62, 64, 65)"
 '''
 
 
@@ -189,7 +189,7 @@ class TestCsvRoundTrip:
         assert mpt.write_pre_maet(None, p, w, specs) == src
 
     def test_ragged_events_pad_and_unpad(self):
-        src = ('name,sigma,r,rel,per,P,sym,a,b,c\n'
+        src = ('name,sigma,r,rel,per,P,exch,a,b,c\n'
                'pitch,0.5,1,0,0,,1,"{60, 64, 67}","{62, 65}",'
                '"{60, 64, 67, 71}"\n')
         p, w, specs = mpt.unpack_pre_maet(mpt.read_pre_maet(src))
@@ -216,30 +216,44 @@ class TestCsvRoundTrip:
 
     def test_builds_from_the_file_with_nothing_supplied(self):
         p, w, specs = mpt.unpack_pre_maet(mpt.read_pre_maet(FLAT))
-        d = mpt.build_exp_tens(p, w, specs=specs, verbose=False)
+        d = mpt.build_maet(p, w, specs=specs, verbose=False)
         assert d.dim == 3
-        assert float(mpt.cos_sim_exp_tens(d, d, verbose=False)) == \
+        assert float(mpt.sim_maet(d, d, verbose=False)) == \
             pytest.approx(1.0)
 
     def test_either_covariance_spelling_is_read(self):
         """A file may be written by hand in a spreadsheet or by the
         MATLAB twin; the parameter is the same either way."""
-        camel = COV.replace("sd_position", "sdPosition") \
+        camel = COV.replace("sd_value", "sdValue") \
                    .replace("sd_interval", "sdInterval") \
                    .replace("sd_shift", "sdShift")
         a = mpt.read_pre_maet(COV)["specs"][0]["sigma"]
         b = mpt.read_pre_maet(camel)["specs"][0]["sigma"]
         np.testing.assert_allclose(np.asarray(a), np.asarray(b))
 
+    def test_undifferenced_covariance_round_trips(self):
+        src = COV.replace("differenced=1", "differenced=0")
+        p, w, specs = mpt.unpack_pre_maet(mpt.read_pre_maet(src))
+        expect = mpt.kernel_cov(3, sd_value=0.2, sd_interval=0.3,
+                                sd_shift=0.5, differenced=False)
+        np.testing.assert_allclose(np.asarray(specs[0]["sigma"]), expect)
+        text = mpt.write_pre_maet(None, p, w, specs)
+        assert "cov(differenced=0, sd_value=0.2" in text
+
+    def test_covariance_cell_needs_the_flag(self):
+        src = COV.replace("differenced=1, ", "")
+        with pytest.raises(ValueError, match="differenced"):
+            mpt.read_pre_maet(src)
+
     def test_covariance_outside_the_family_is_refused(self):
         C = np.array([[1.0, 0.9, 0.1], [0.9, 1.0, 0.2], [0.1, 0.2, 1.0]])
         p, w, specs = mpt.unpack_pre_maet(mpt.read_pre_maet(COV))
         specs[0]["sigma"] = C
-        with pytest.raises(ValueError, match="not of that family"):
+        with pytest.raises(ValueError, match="neither family"):
             mpt.write_pre_maet(None, p, w, specs)
 
     def test_na_survives_the_round_trip(self):
-        src = ('name,sigma,r,rel,per,P,sym,n = 1\n'
+        src = ('name,sigma,r,rel,per,P,exch,n = 1\n'
                'pitch,NA,1,0,0,,1,60\n')
         p, w, specs = mpt.unpack_pre_maet(mpt.read_pre_maet(src))
         assert np.isnan(specs[0]["sigma"])
@@ -252,7 +266,7 @@ class TestCsvRoundTrip:
     def test_csv_elides_nothing(self):
         """A file records the pre-MAET; it does not display it."""
         p = [np.arange(20.0).reshape(1, 20)]
-        sp = [{"name": "x", "r": 1, "rel": False, "sym": True,
+        sp = [{"name": "x", "r": 1, "rel": False, "exch": True,
                "sigma": 1.0, "is_per": False, "period": 0.0}]
         out = mpt.write_pre_maet(None, p, None, sp, max_events=3)
         assert "n = 20" in out and "..." not in out

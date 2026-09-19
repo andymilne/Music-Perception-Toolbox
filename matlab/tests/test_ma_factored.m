@@ -1,6 +1,6 @@
 %% test_ma_factored.m
 %  Tests the factored multi-attribute centres path (localMaEvalFactored in
-%  evalExpTens), the twin of Python's _ma_eval_factored. The joint density
+%  evalMaet), the twin of Python's _ma_eval_factored. The joint density
 %  factors within each event as a product across attributes, so the centres
 %  route evaluates sum_events prod_attributes S_a^(event) --- each factor
 %  through the culled kernel --- without accumulating the joint tuple set.
@@ -76,7 +76,7 @@ for a = 1:A
     end
     P{a} = Pa;
 end
-d = buildExpTens(P, [], repmat(15.0, 1, A), repmat(2, 1, A), ...
+d = buildMaet(P, [], repmat(15.0, 1, A), repmat(2, 1, A), ...
     true(1, A), false(1, A), zeros(1, A), 'verbose', false);
 results{end+1,1} = 'MA factored ragged rel: centres matches mobius (1e-4)';
 results{end,2}   = relErr(d, localQuery(d, 60)) < 1e-4;
@@ -84,8 +84,8 @@ results{end,2}   = relErr(d, localQuery(d, 60)) < 1e-4;
 % --- Fall-back: r = 1 attribute routes to the joint accumulator ---
 d = localBuildFlat(2, 8, 1, 1, true, false, 0.0);
 X = localQuery(d, 20);
-vC = evalExpTens(d, X, 'method', 'centres', 'verbose', false);
-vM = evalExpTens(d, X, 'method', 'mobius',  'verbose', false);
+vC = evalMaet(d, X, 'method', 'centres', 'verbose', false);
+vM = evalMaet(d, X, 'method', 'mobius',  'verbose', false);
 mask = vM > 1e-3 * max(vM);
 results{end+1,1} = 'MA factored r=1 fall-back: centres matches mobius (1e-4)';
 results{end,2}   = max(abs((vC(mask) - vM(mask)) ./ vM(mask))) < 1e-4;
@@ -108,7 +108,7 @@ function d = localBuildFlat(A, K, N, r, isRelP, isPerP, period)
     for a = 1:A
         P{a} = sort(3600 * rand(K, N), 1);
     end
-    d = buildExpTens(P, [], repmat(15.0, 1, A), repmat(r, 1, A), ...
+    d = buildMaet(P, [], repmat(15.0, 1, A), repmat(r, 1, A), ...
         repmat(logical(isRelP), 1, A), repmat(logical(isPerP), 1, A), ...
         repmat(period, 1, A), 'verbose', false);
 end
@@ -116,7 +116,7 @@ end
 function X = localQuery(d, nQ)
     % Queries near the joint centres (jittered) so the density is
     % non-negligible at the compared points.
-    de  = internal.ensureExpTensExpensive(d);
+    de  = internal.ensureMaetExpensive(d);
     idx = randi(de.nJ, 1, nQ);
     X = zeros(de.dim, nQ);
     rs = 1;
@@ -130,8 +130,8 @@ function X = localQuery(d, nQ)
 end
 
 function e = localRelErr(d, X)
-    vC = evalExpTens(d, X, 'method', 'centres', 'verbose', false);
-    vM = evalExpTens(d, X, 'method', 'mobius',  'verbose', false);
+    vC = evalMaet(d, X, 'method', 'centres', 'verbose', false);
+    vM = evalMaet(d, X, 'method', 'mobius',  'verbose', false);
     mask = vM > 1e-3 * max(vM);
     if ~any(mask)
         e = 0;

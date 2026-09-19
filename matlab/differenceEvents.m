@@ -5,7 +5,7 @@ function pm = differenceEvents(varargin)
 %   PM = differenceEvents(pAttr, wAttr, diffOrders, ...) are cross-event
 %   preprocessing on the pre-MAET. The k_a-th finite difference is applied
 %   along the event axis to each attribute; the returned pre-MAET chains
-%   into another pre-MAET operation or straight into buildExpTens.
+%   into another pre-MAET operation or straight into buildMaet.
 %
 %   The pre-MAET may be passed whole, as preMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
@@ -15,17 +15,17 @@ function pm = differenceEvents(varargin)
 %   position k differences against event
 %   i+1's value at position k. This is well-defined exactly when the positions
 %   have stable
-%   identity --- an ordered attribute ([sym] = 0) or a singleton (K = 1).
-%   A symmetric multiset (K > 1, [sym] = 1) is a bag with no positional
+%   identity --- an ordered attribute ([exch] = 0) or a singleton (K = 1).
+%   A symmetric multiset (K > 1, [exch] = 1) is a bag with no positional
 %   correspondence, so differencing it is undefined and errors. The rule
 %   extends per level for a nested attribute: every level must be ordered
 %   (or of size 1). Ragged ordered data (events of differing length) is
 %   represented by NaN-padding to a common K; a difference touching a NaN
 %   value is NaN, so absence propagates rather than fabricating an interval.
 %
-%   Differencing changes values only; the spec (tags, r, sym, rel) passes
+%   Differencing changes values only; the spec (tags, r, exch, rel) passes
 %   through unchanged. Output values are raw; periodic wrapping is the
-%   kernel's job in buildExpTens.
+%   kernel's job in buildMaet.
 %
 %   Inputs
 %       pm        - Pre-MAET, in place of pAttr and wAttr.
@@ -39,14 +39,14 @@ function pm = differenceEvents(varargin)
 %       'circular' - false (default) or true (wrap; N' = N).
 %       'specs'    - [] (synthesise flat via flatSpecs) or a 1 x A cell of
 %                    per-attribute specs. The ordered-or-singleton guard
-%                    reads [sym] from here; the specs pass through unchanged.
+%                    reads [exch] from here; the specs pass through unchanged.
 %
 %   Output
 %       pm - Pre-MAET: pAttr holds the differenced matrices, each
 %            K_a x N'; wAttr the transformed weights; specs the attribute
 %            specifications, unchanged from input (or synthesised).
 %
-%   See also PREMAET, BUILDEXPTENS, BINDEVENTS, FLATSPECS,
+%   See also PREMAET, BUILDMAET, BINDEVENTS, FLATSPECS,
 %            TRANSLATEATTRIBUTES.
 
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
@@ -229,40 +229,40 @@ end
 
 function localCheckDifferenceable(spec, K_a, a)
 %LOCALCHECKDIFFERENCEABLE  An attribute is differenceable only if its positions
-%   have stable identity across events --- ordered ([sym] = 0) or singleton
+%   have stable identity across events --- ordered ([exch] = 0) or singleton
 %   at every level. A symmetric multiset of size > 1 is a bag with no positional
 %   correspondence, so differencing it is undefined.
     if isstruct(spec) && isfield(spec, 'tags')
         tags = double(spec.tags(:).');
-        if isfield(spec, 'sym') && ~isempty(spec.sym)
-            sym = logical(spec.sym(:).');
+        if isfield(spec, 'exch') && ~isempty(spec.exch)
+            exch = logical(spec.exch(:).');
         else
-            sym = true(1, 2);
+            exch = true(1, 2);
         end
         nGroups = numel(unique(tags));           % outer level size
         innerSz = numel(tags) / max(nGroups, 1); % values per group
-        innerOk = (~sym(1)) || innerSz == 1;
-        outerOk = (~sym(end)) || nGroups == 1;
+        innerOk = (~exch(1)) || innerSz == 1;
+        outerOk = (~exch(end)) || nGroups == 1;
         if ~(innerOk && outerOk)
             if ~innerOk, bad = 'inner'; else, bad = 'outer'; end
             error('differenceEvents:notDifferenceable', ...
                   ['attribute %d: differencing requires every level ordered ' ...
                    '(or of size 1); the %s level is symmetric with size > 1. ' ...
-                   'Set that level''s [sym] = 0 to difference it.'], a, bad);
+                   'Set that level''s [exch] = 0 to difference it.'], a, bad);
         end
     else
-        if isstruct(spec) && isfield(spec, 'sym')
-            sym = logical(spec.sym);
+        if isstruct(spec) && isfield(spec, 'exch')
+            exch = logical(spec.exch);
         else
-            sym = true;
+            exch = true;
         end
-        if sym && K_a > 1
+        if exch && K_a > 1
             error('differenceEvents:notDifferenceable', ...
                   ['attribute %d: differencing requires an ordered attribute ' ...
-                   '([sym] = 0) or K = 1; got a symmetric multiset with K = ' ...
+                   '([exch] = 0) or K = 1; got a symmetric multiset with K = ' ...
                    '%d. A symmetric multiset is a bag with no positional ' ...
-                   'correspondence across events. Set [sym] = 0 (e.g. via ' ...
-                   'flatSpecs(..., ''sym'', false)) to difference it.'], a, K_a);
+                   'correspondence across events. Set [exch] = 0 (e.g. via ' ...
+                   'flatSpecs(..., ''exch'', false)) to difference it.'], a, K_a);
         end
     end
 end

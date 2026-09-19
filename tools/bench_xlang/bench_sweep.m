@@ -7,10 +7,10 @@
 %  value-parity check.
 %
 %  Variants:
-%    broadcast   — one cosSimExpTens(dX, {d1, ..., dM}) call (the
+%    broadcast   — one simMaet(dX, {d1, ..., dM}) call (the
 %                  batched kernel pass; self terms memoised in-call).
 %    loop_memo   — M scalar calls threading the cache-carrying output
-%                  ([s, dRef] = cosSimExpTens(dRef, dQ{k}, ...)), so
+%                  ([s, dRef] = simMaet(dRef, dQ{k}, ...)), so
 %                  the context's self term is paid once.
 %    loop_fresh  — M plain scalar calls (value semantics: no memo
 %                  crosses calls; each pair pays its own self terms).
@@ -42,21 +42,21 @@ for ni = 1:numel(GRID_N)
     j = 1:N;
     P = 40 + 50 * mod(7 * j.^2 + 3 * j, 997) / 997;
     T = cumsum(0.05 + 0.2 * mod(3 * j, 11) / 11);
-    dCtx = buildExpTens({P, T}, [], [SIG_P SIG_T], [1 1], ...
+    dCtx = buildMaet({P, T}, [], [SIG_P SIG_T], [1 1], ...
         [false false], [false false], [0 0], 'verbose', false);
     dQs = cell(1, M_QUERIES);
     for k = 1:M_QUERIES
         kk = k - 1;   % zero-based sweep index, matching Python
         qP = [60 63.5 68.25] + 0.7 * kk;
         qT = [0.5 1.25 2.0] + 1.3 * kk;
-        dQs{k} = buildExpTens({qP, qT}, [], [SIG_P SIG_T], [1 1], ...
+        dQs{k} = buildMaet({qP, qT}, [], [SIG_P SIG_T], [1 1], ...
             [false false], [false false], [0 0], 'verbose', false);
     end
 
     for nrmI = 1:numel(NORMS)
         nrm = NORMS{nrmI};
 
-        fnBroadcast = @() cell2mat(cosSimExpTens(dCtx, dQs, ...
+        fnBroadcast = @() cell2mat(simMaet(dCtx, dQs, ...
             'normalize', nrm, 'verbose', false));
         fnLoopMemo  = @() iLoopMemo(dCtx, dQs, nrm);
         fnLoopFresh = @() iLoopFresh(dCtx, dQs, nrm);
@@ -91,7 +91,7 @@ function s = iLoopMemo(dCtx, dQs, nrm)
     s = zeros(1, M);
     dRef = dCtx;
     for k = 1:M
-        [s(k), dRef] = cosSimExpTens(dRef, dQs{k}, ...
+        [s(k), dRef] = simMaet(dRef, dQs{k}, ...
             'normalize', nrm, 'verbose', false);
     end
 end
@@ -102,7 +102,7 @@ function s = iLoopFresh(dCtx, dQs, nrm)
     M = numel(dQs);
     s = zeros(1, M);
     for k = 1:M
-        s(k) = cosSimExpTens(dCtx, dQs{k}, ...
+        s(k) = simMaet(dCtx, dQs{k}, ...
             'normalize', nrm, 'verbose', false);
     end
 end

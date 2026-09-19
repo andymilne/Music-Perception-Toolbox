@@ -13,7 +13,7 @@ by metric class, the profile also shows the on-beat / off-beat contrast
 that the Online Supplement tests across a corpus of chorales.
 
 How it is computed. Every grid-point chord is spectrally augmented
-(``add_spectra``: twelve harmonics with 1/n roll-off), so the pitch
+(``add_spectra``: twelve harmonics, partial h weighted h^-0.67), so the pitch
 attribute carries 48 partials per event. The chorale is then a two-
 attribute pre-MAET (pitch, time). ``windowed_entropy`` sweeps a
 window along the time attribute: at each centre the events are
@@ -21,7 +21,7 @@ reweighted by the window (``weight_events`` under the hood, the window
 factor multiplied into the pitch weights), the time axis is dropped, and
 the differential entropy of the remaining pitch density is returned
 (``method='differential'``: adaptive grid with Richardson extrapolation,
-in nats). Two windows are compared: a tight rectangle of one sixteenth
+in bits). Two windows are compared: a tight rectangle of one sixteenth
 note (one event per window, so the profile is the per-event entropy) and
 a Gaussian of one quarter note.
 
@@ -59,7 +59,7 @@ from jmm_data import bwv347_grid
 # ---------------------------------------------------------------------------
 SIGMA_PITCH = 10.0          # cents
 H_PARTIALS = 12
-ROLLOFF = 1.0
+ROLLOFF = 0.67             # partial h weighted h^-0.67 (Milne et al. 2015)
 SPECTRUM = ['harmonic', H_PARTIALS, 'powerlaw', ROLLOFF]
 
 # Window specifications for weight_events. Each window is specified through
@@ -150,7 +150,7 @@ for wi, window in enumerate(WINDOWS):
     finite = arr[np.isfinite(arr)]
     if finite.size:
         print(f'  {window["label"]}: '
-              f'range [{finite.min():.4f}, {finite.max():.4f}] nats')
+              f'range [{finite.min():.4f}, {finite.max():.4f}] bits')
 
 # Checkpoint: save H so the figure can be rebuilt without re-computing.
 if SAVE_FIGURES:
@@ -230,7 +230,7 @@ for wi, window in enumerate(WINDOWS):
     ax.set_xticks(np.arange(1, int(t_end) + 1, 8))
     ax.grid(True, alpha=0.25)
     ax.tick_params(labelsize=15)
-    ax.set_ylabel(f'{window["label"]}\n\ndifferential entropy (nats)',
+    ax.set_ylabel(f'{window["label"]}\n\ndifferential entropy (bits)',
                   fontsize=17)
     if wi == n_rows - 1:
         ax.set_xlabel('time (quarter notes)', fontsize=17)
@@ -265,7 +265,7 @@ for wi, window in enumerate(WINDOWS):
 
 fig.suptitle(f'BWV 347 windowed differential pitch entropy '
              f'($\\sigma_{{pitch}}$ = {SIGMA_PITCH:.0f} cents, '
-             f'harmonic × {H_PARTIALS} with 1/n rolloff)',
+             f'harmonic × {H_PARTIALS}, weight $h^{{-{ROLLOFF}}}$)',
              fontsize=20, y=0.995)
 if SAVE_FIGURES:
     os.makedirs(FIG_DIR, exist_ok=True)

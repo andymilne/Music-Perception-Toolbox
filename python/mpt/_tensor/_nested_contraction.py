@@ -51,10 +51,10 @@ import numpy as np
 #  Recipe: tag tree + cached permutation / combination index arrays
 # ----------------------------------------------------------------------
 @lru_cache(maxsize=None)
-def _tuple_indices(n: int, r: int, sym: bool):
+def _tuple_indices(n: int, r: int, exch: bool):
     """X-side and Y-side tuple index arrays over ``range(n)``.
 
-    X side uses permutations of r-combinations when ``sym`` (exchangeable
+    X side uses permutations of r-combinations when ``exch`` (exchangeable
     multiset), else combinations only; Y side is always combinations. This
     is the permutation/combination reduction whose r! cancels in the
     cosine. Returns (Xtup, Ytup) as (T, r) int arrays.
@@ -64,7 +64,7 @@ def _tuple_indices(n: int, r: int, sym: bool):
         empty = np.empty((0, r), dtype=np.intp)
         return empty, empty
     ytup = np.asarray(combs, dtype=np.intp)
-    if sym:
+    if exch:
         xtup = np.asarray([p for c in combs for p in permutations(c)],
                           dtype=np.intp)
     else:
@@ -91,7 +91,7 @@ def _admitting_sigmas(bound):
 from .dispatch import _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R
 
 
-def _orbit_eligible(K, r, sym, is_rel, is_per):
+def _orbit_eligible(K, r, exch, is_rel, is_per):
     """Is the Möbius reduction *structurally* available at this level?
 
     Structure only: the level must be symmetric and r within the shipped
@@ -107,14 +107,14 @@ def _orbit_eligible(K, r, sym, is_rel, is_per):
     computation actually incurred and compares it against the accuracy
     the caller asked for.
     """
-    return bool(sym) and 2 <= r <= _ORBIT_MAX_R
+    return bool(exch) and 2 <= r <= _ORBIT_MAX_R
 
 
 class _Node:
-    __slots__ = ("level", "val_idx", "children", "xtup", "ytup", "r", "sym",
+    __slots__ = ("level", "val_idx", "children", "xtup", "ytup", "r", "exch",
                  "use_orbit")
 
-    def __init__(self, level, val_idx, children, xtup, ytup, r, sym,
+    def __init__(self, level, val_idx, children, xtup, ytup, r, exch,
                  use_orbit=False):
         self.level = level          # tree level (0 = leaf / finest group)
         self.val_idx = val_idx          # global value indices spanned by node
@@ -122,20 +122,20 @@ class _Node:
         self.xtup = xtup            # (T, r) X-side tuple indices
         self.ytup = ytup            # (T, r) Y-side tuple indices
         self.r = r                  # this level's tuple size
-        self.sym = sym              # this level's [sym] flag
+        self.exch = exch              # this level's [exch] flag
         self.use_orbit = use_orbit  # True: orbit-reduce this level (skip xtup)
 
 
-def build_recipe(r_levels, sym_levels, tags, is_rel=False, is_per=False):
+def build_recipe(r_levels, exch_levels, tags, is_rel=False, is_per=False):
     """Build the contraction tree once.
 
-    ``r_levels`` / ``sym_levels`` are per-level (length L, level 0 = finest).
+    ``r_levels`` / ``exch_levels`` are per-level (length L, level 0 = finest).
     ``tags`` is (K_total, L-1): column (l-1) groups values for level l; the
     outermost level L-1 partitions by the last column, level 0 is the
     within-finest-group leaf. Mirrors the enumeration's nesting.
     """
     r_levels = np.asarray(r_levels, dtype=np.intp).ravel()
-    sym_levels = np.asarray(sym_levels, dtype=bool).ravel()
+    exch_levels = np.asarray(exch_levels, dtype=bool).ravel()
     L = int(r_levels.size)
     K_total = int(tags.shape[0]) if tags.ndim else int(tags.size)
     tags2 = tags.reshape(K_total, -1) if tags.ndim == 2 else \
@@ -145,7 +145,7 @@ def build_recipe(r_levels, sym_levels, tags, is_rel=False, is_per=False):
         val_idx = np.asarray(val_idx, dtype=np.intp)
         if level == 0:
             r0 = int(r_levels[0])
-            sy0 = bool(sym_levels[0])
+            sy0 = bool(exch_levels[0])
             if _orbit_eligible(len(val_idx), r0, sy0, is_rel, is_per):
                 empty = np.empty((0, r0), dtype=np.intp)
                 return _Node(0, val_idx, [], empty, empty, r0, sy0, True)
@@ -158,7 +158,7 @@ def build_recipe(r_levels, sym_levels, tags, is_rel=False, is_per=False):
             sub = val_idx[keys == k]
             children.append(build(level - 1, sub))
         rl = int(r_levels[level])
-        syl = bool(sym_levels[level])
+        syl = bool(exch_levels[level])
         if _orbit_eligible(len(children), rl, syl, is_rel, is_per):
             empty = np.empty((0, rl), dtype=np.intp)
             return _Node(level, val_idx, children, empty, empty, rl, syl, True)
@@ -196,9 +196,9 @@ def _combine(M, xtup, ytup):
 
 
 @functools.lru_cache(maxsize=None)
-def _tuple_sides(n, r, sym):
+def _tuple_sides(n, r, exch):
     """Cached (perm-side, comb-side) tuple indices for a size-n level."""
-    return _tuple_indices(n, r, sym)
+    return _tuple_indices(n, r, exch)
 
 
 # ---------------------------------------------------------------------------
@@ -288,12 +288,12 @@ def _combine_chunked(M, xtup, ytup, max_elems):
     return out
 
 
-def _combine_pair(M, r, sym, use_orbit, *, cost_check=True):
+def _combine_pair(M, r, exch, use_orbit, *, cost_check=True):
     """Combine a (Q, gx, gy) block at one level: X-side perm tuples over gx,
     Y-side comb tuples over gy (the r!-cancelled perm x comb form, same scale
     as ``_combine``). gx and gy are read from the block, so unequal X/Y spans
     -- ragged siblings *or* two densities whose nested cardinalities differ --
-    are handled directly. ``r``/``sym`` are the (shared) per-level parameters;
+    are handled directly. ``r``/``exch`` are the (shared) per-level parameters;
     ``use_orbit`` requests the Moebius reduction (both sides orbit-eligible),
     matching the per-size tuple sourcing of the enumerated path. Both
     enumerated routes -- the one taken when the level is not orbit-eligible
@@ -369,8 +369,8 @@ def _combine_pair(M, r, sym, use_orbit, *, cost_check=True):
                             f"enumeration is also the faster of the two at "
                             f"r={r}, K={max(gx, gy)}.")
                 warnings.warn(head + tail, RuntimeWarning, stacklevel=2)
-            xtup = _tuple_sides(gx, r, sym)[0]
-            ytup = _tuple_sides(gy, r, sym)[1]
+            xtup = _tuple_sides(gx, r, exch)[0]
+            ytup = _tuple_sides(gy, r, exch)[1]
             return _combine_chunked(M, xtup, ytup, _ORBIT_ENUM_MAX_ELEMS)
         if not budget["warned_accuracy"]:
             budget["warned_accuracy"] = True
@@ -394,8 +394,8 @@ def _combine_pair(M, r, sym, use_orbit, *, cost_check=True):
                         f"bound this is judged against.")
             warnings.warn(head + tail, RuntimeWarning, stacklevel=2)
         return vals
-    xtup = _tuple_sides(gx, r, sym)[0]
-    ytup = _tuple_sides(gy, r, sym)[1]
+    xtup = _tuple_sides(gx, r, exch)[0]
+    ytup = _tuple_sides(gy, r, exch)[1]
     return _combine_chunked(M, xtup, ytup, _ORBIT_ENUM_MAX_ELEMS)
 
 
@@ -469,7 +469,7 @@ def _siblings_uniform(nodes):
     span = (len(rep.val_idx) if rep.level == 0 else len(rep.children))
     for nd in nodes:
         s = len(nd.val_idx) if nd.level == 0 else len(nd.children)
-        if (s != span or nd.r != rep.r or nd.sym != rep.sym
+        if (s != span or nd.r != rep.r or nd.exch != rep.exch
                 or nd.use_orbit != rep.use_orbit):
             return False, span
     return True, span
@@ -479,7 +479,7 @@ def _leaf_overlaps(xnodes, ynodes, K):
     """(Q, gx, gy) pairwise overlaps among leaf siblings, X-side vs Y-side."""
     gx, gy = len(xnodes), len(ynodes)
     Q, nX, nY = K.shape
-    r, sym = xnodes[0].r, xnodes[0].sym
+    r, exch = xnodes[0].r, xnodes[0].exch
     if r == 1:
         # r0 = 1: M[a,b] = sum_{i in Sxa, j in Syb} K[:, i, j] (weights folded).
         Gx = np.zeros((gx, nX), dtype=K.dtype)
@@ -499,14 +499,14 @@ def _leaf_overlaps(xnodes, ynodes, K):
                 blocks[a, b] = sa[:, :, ynodes[b].val_idx]
         use_orbit = xnodes[0].use_orbit and ynodes[0].use_orbit
         vals = _combine_pair(blocks.reshape(gx * gy * Q, mx, my),
-                             r, sym, use_orbit)
+                             r, exch, use_orbit)
         return vals.reshape(gx, gy, Q).transpose(2, 0, 1)
     M = np.empty((Q, gx, gy), dtype=K.dtype)
     for a in range(gx):
         sa = K[:, xnodes[a].val_idx]
         for b in range(gy):
             uo = xnodes[a].use_orbit and ynodes[b].use_orbit
-            M[:, a, b] = _combine_pair(sa[:, :, ynodes[b].val_idx], r, sym, uo)
+            M[:, a, b] = _combine_pair(sa[:, :, ynodes[b].val_idx], r, exch, uo)
     return M
 
 
@@ -516,7 +516,7 @@ def _subtree_overlaps(xnodes, ynodes, K):
         return _leaf_overlaps(xnodes, ynodes, K)
     gx, gy = len(xnodes), len(ynodes)
     Q = K.shape[0]
-    r, sym = xnodes[0].r, xnodes[0].sym
+    r, exch = xnodes[0].r, xnodes[0].exch
     xsizes = [len(nd.children) for nd in xnodes]
     xoffs = np.cumsum([0] + xsizes)
     ysizes = [len(nd.children) for nd in ynodes]
@@ -534,7 +534,7 @@ def _subtree_overlaps(xnodes, ynodes, K):
                 blocks[a, b] = Mc[:, ra, yoffs[b]:yoffs[b] + gcy]
         use_orbit = xnodes[0].use_orbit and ynodes[0].use_orbit
         vals = _combine_pair(blocks.reshape(gx * gy * Q, gcx, gcy),
-                             r, sym, use_orbit)
+                             r, exch, use_orbit)
         return vals.reshape(gx, gy, Q).transpose(2, 0, 1)
     M = np.empty((Q, gx, gy), dtype=K.dtype)
     for a in range(gx):
@@ -542,7 +542,7 @@ def _subtree_overlaps(xnodes, ynodes, K):
         for b in range(gy):
             uo = xnodes[a].use_orbit and ynodes[b].use_orbit
             M[:, a, b] = _combine_pair(
-                Mc[:, ra, yoffs[b]:yoffs[b + 1]], r, sym, uo)
+                Mc[:, ra, yoffs[b]:yoffs[b + 1]], r, exch, uo)
     return M
 
 
@@ -556,10 +556,10 @@ def _contract(xn: _Node, yn: _Node, K):
     topology but have differing leaf spans, handled per level."""
     if xn.level == 0:
         block = K[:, xn.val_idx][:, :, yn.val_idx]
-        return _combine_pair(block, xn.r, xn.sym,
+        return _combine_pair(block, xn.r, xn.exch,
                              xn.use_orbit and yn.use_orbit)
     Mc = _subtree_overlaps(xn.children, yn.children, K)
-    return _combine_pair(Mc, xn.r, xn.sym, xn.use_orbit and yn.use_orbit)
+    return _combine_pair(Mc, xn.r, xn.exch, xn.use_orbit and yn.use_orbit)
 
 
 # ----------------------------------------------------------------------
@@ -711,7 +711,7 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     """Vectorised ``(N_x, N_y)`` relative-non-periodic inner matrix for
     ordered cells carrying a shared partial template.
 
-    When every event on each side is an ordered cell (outer ``[sym] = 0``
+    When every event on each side is an ordered cell (outer ``[exch] = 0``
     with tuple size equal to the cell length) whose tones share one partial
     template, the inner partial index sums into the template cross-
     correlation -- the offsets and weights are common to every event -- and
@@ -724,8 +724,8 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     the structure is not of this form (then the caller uses the generic
     kernel); a NaN-padded (ragged) cell fails detection and so falls back.
     """
-    if recipe_x.sym or recipe_y.sym:
-        return None                    # need ordered cells (outer [sym] = 0)
+    if recipe_x.exch or recipe_y.exch:
+        return None                    # need ordered cells (outer [exch] = 0)
     if (int(recipe_x.r) != len(recipe_x.children)
             or int(recipe_y.r) != len(recipe_y.children)):
         return None                    # need the whole cell as one ordered tuple
@@ -996,7 +996,7 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
 # ----------------------------------------------------------------------
 #  Dispatch support: analytic tuple counts and contraction work
 # ----------------------------------------------------------------------
-def tuple_counts(r_levels, sym_levels, tags):
+def tuple_counts(r_levels, exch_levels, tags):
     """(M_perm, M_comb): per-event perm/comb tuple counts, fully analytic.
 
     Mirrors the counts of _nested_enum_indices without enumerating. At each
@@ -1007,7 +1007,7 @@ def tuple_counts(r_levels, sym_levels, tags):
     Used for the speed dispatch (enumeration cost ~ N^2 * M_perm * M_comb).
     """
     r_levels = [int(x) for x in np.asarray(r_levels).ravel()]
-    sym_levels = [bool(x) for x in np.asarray(sym_levels).ravel()]
+    exch_levels = [bool(x) for x in np.asarray(exch_levels).ravel()]
     L = len(r_levels)
     K_total = int(tags.shape[0]) if tags.ndim == 2 else int(tags.size)
     tags2 = (tags.reshape(K_total, -1) if tags.ndim == 2
@@ -1036,21 +1036,21 @@ def tuple_counts(r_levels, sym_levels, tags):
                 e[j] += e[j - 1] * x
         return e[k]
 
-    def count(val_idx, level, use_sym):
+    def count(val_idx, level, use_exch):
         if level == 0:
             r0 = r_levels[0]
             c = comb(len(val_idx), r0)
-            return c * (fact(r0) if (use_sym and sym_levels[0]) else 1)
+            return c * (fact(r0) if (use_exch and exch_levels[0]) else 1)
         col = level - 1
         keys = tags2[val_idx, col]
         groups = {}
         for sidx, k in zip(val_idx.tolist(), keys.tolist()):
             groups.setdefault(int(k), []).append(sidx)
         rl = r_levels[level]
-        subs = [count(np.asarray(grp, dtype=np.intp), level - 1, use_sym)
+        subs = [count(np.asarray(grp, dtype=np.intp), level - 1, use_exch)
                 for grp in groups.values()]
         e = e_r(subs, rl)
-        return e * (fact(rl) if (use_sym and sym_levels[level]) else 1)
+        return e * (fact(rl) if (use_exch and exch_levels[level]) else 1)
 
     all_values = np.arange(K_total, dtype=np.intp)
     m_perm = count(all_values, L - 1, True)

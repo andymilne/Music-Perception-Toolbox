@@ -1,7 +1,7 @@
 """Cross-event preprocessing and categorical-encoding utilities.
 
 This module hosts the small preprocessing layer that sits *before*
-``build_exp_tens`` in the MAET pipeline:
+``build_maet`` in the MAET pipeline:
 
 * :func:`difference_events` --- replace event sequences with their
   k-th finite differences along the event axis.
@@ -50,15 +50,15 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
     specifications. The ``k_a``-th finite difference is applied along the event
     axis to each attribute; the returned ``(p_attr_diff, w_diff, specs)``
-    chains into another pre-MAET operation or into ``build_exp_tens(...,
+    chains into another pre-MAET operation or into ``build_maet(...,
     specs=...)``.
 
     Differencing pairs values **index by index**: event *i*'s value at index
     *k* differences against
     event *i+1*'s value at index *k*. This is well-defined exactly when the
     indices
-    have stable identity --- an ordered attribute (``[sym] = 0``) or a
-    singleton (``K = 1``). A symmetric multiset (``K > 1``, ``[sym] = 1``)
+    have stable identity --- an ordered attribute (``[exch] = 0``) or a
+    singleton (``K = 1``). A symmetric multiset (``K > 1``, ``[exch] = 1``)
     is a bag with no index correspondence, so differencing it is undefined
     and raises. The rule extends per level for a nested attribute: every
     level must be ordered (or of size 1). Ragged ordered data (events of
@@ -67,9 +67,9 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     than fabricating an interval.
 
     Differencing changes **values only**; the spec (``tags``, ``r``,
-    ``sym``, ``rel``) passes through unchanged. Output values are raw;
+    ``exch``, ``rel``) passes through unchanged. Output values are raw;
     periodic wrapping, when desired, is the kernel's job in
-    :func:`build_exp_tens`.
+    :func:`build_maet`.
 
     Event-axis alignment. With ``circular = False`` (default), an attribute
     of order ``k_a`` yields ``N - k_a`` events and all attributes are
@@ -90,7 +90,7 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
         ``K_a >= 1``; ``K_a = 0`` is rejected. ``K_a > 1`` is differenced
         index by index when the attribute is ordered (see above).
     w_attr : None, scalar, or length-A list
-        Weights (``build_exp_tens`` convention).
+        Weights (``build_maet`` convention).
     diff_orders : scalar or length-A array-like
         Per-attribute differencing orders (non-negative integers; a scalar
         broadcasts to all attributes).
@@ -99,7 +99,7 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     specs : None or length-A list, keyword-only
         The attribute specifications. ``None`` synthesises flat specs
         (:func:`flat_specs` defaults). The ordered-or-singleton guard reads
-        ``[sym]`` from here, and the specs pass through to the output
+        ``[exch]`` from here, and the specs pass through to the output
         unchanged.
 
     Returns
@@ -112,7 +112,7 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
 
     See Also
     --------
-    build_exp_tens, bind_events, flat_specs, translate_attributes
+    build_maet, bind_events, flat_specs, translate_attributes
     """
     p_attr, w_attr, (diff_orders,), specs = shift_lead(
         p_attr, w_attr, [diff_orders], specs, func="difference_events")
@@ -205,35 +205,35 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
 
 def _check_differenceable(spec, K_a, a):
     """Guard: an attribute is differenceable only if its positions have stable
-    identity across events --- ordered (``[sym] = 0``) or singleton at
+    identity across events --- ordered (``[exch] = 0``) or singleton at
     every level. A symmetric multiset of size > 1 is a bag with no positional
     correspondence, so differencing it is undefined.
     """
     if isinstance(spec, dict) and "tags" in spec:
         tags = np.asarray(spec["tags"]).ravel()
-        sym = spec.get("sym")
-        sym = (np.ones(2, dtype=bool) if sym is None
-               else np.asarray(sym, dtype=bool).ravel())
+        exch = spec.get("exch")
+        exch = (np.ones(2, dtype=bool) if exch is None
+               else np.asarray(exch, dtype=bool).ravel())
         n_groups = int(np.unique(tags).size)            # outer level size
         inner_sz = int(tags.size // max(n_groups, 1))   # values per group
-        inner_ok = (not bool(sym[0])) or inner_sz == 1
-        outer_ok = (not bool(sym[-1])) or n_groups == 1
+        inner_ok = (not bool(exch[0])) or inner_sz == 1
+        outer_ok = (not bool(exch[-1])) or n_groups == 1
         if not (inner_ok and outer_ok):
             bad = "inner" if not inner_ok else "outer"
             raise ValueError(
                 f"attribute {a}: differencing requires every level ordered "
                 f"(or of size 1); the {bad} level is symmetric with size > "
-                f"1. Set that level's [sym] = 0 to difference it."
+                f"1. Set that level's [exch] = 0 to difference it."
             )
     else:
-        sym = bool(spec.get("sym", True)) if isinstance(spec, dict) else True
-        if sym and K_a > 1:
+        exch = bool(spec.get("exch", True)) if isinstance(spec, dict) else True
+        if exch and K_a > 1:
             raise ValueError(
                 f"attribute {a}: differencing requires an ordered attribute "
-                f"([sym] = 0) or K = 1; got a symmetric multiset with K = "
+                f"([exch] = 0) or K = 1; got a symmetric multiset with K = "
                 f"{K_a}. A symmetric multiset is a bag with no positional "
-                f"correspondence across events. Set [sym] = 0 (e.g. via "
-                f"flat_specs(..., sym=False)) to difference it."
+                f"correspondence across events. Set [exch] = 0 (e.g. via "
+                f"flat_specs(..., exch=False)) to difference it."
             )
 
 
@@ -447,17 +447,17 @@ def _bcast_names(name, A):
     return names
 
 
-def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None,
+def flat_specs(p_attr, *, r=1, rel=False, exch=True, name=None,
                sigma=None, is_per=None, period=None):
     """Build a list of flat (one-level) specs for bare attributes.
 
     Convenience constructor for the canonical attribute specifications:
     wraps a list of per-attribute value matrices in flat spec dicts
-    ``{r, rel, sym, name?, sigma?, is_per?, period?}``, broadcasting
+    ``{r, rel, exch, name?, sigma?, is_per?, period?}``, broadcasting
     scalar geometry across attributes. This is the trivial flat-specs
     synthesis at the entry of a pre-MAET chain (raw attributes carry no
     level structure yet) and an ergonomic alternative to hand-writing
-    flat dicts for ``build_exp_tens(..., specs=...)``.
+    flat dicts for ``build_maet(..., specs=...)``.
 
     The kernel parameters are optional here and compulsory at the tensor
     (§7.4.3). Given them, the specs are a complete pre-MAET geometry and
@@ -466,9 +466,9 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None,
         pm = pre_maet(p_attr, w_attr, flat_specs(
             p_attr, r=[2, 1], sigma=[0.5, 0.25],
             is_per=[True, False], period=[12.0, 0.0]))
-        dens = build_exp_tens(pm)
+        dens = build_maet(pm)
 
-    Omitted, they are simply absent from the specs, and `build_exp_tens`
+    Omitted, they are simply absent from the specs, and `build_maet`
     then names the attribute that still needs one. ``nan`` is NA, the
     third state: a width that a step could not carry forward.
 
@@ -479,8 +479,8 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None,
         length A; values are not inspected).
     r : int or length-A, keyword-only
         Per-attribute tuple size (default 1).
-    rel, sym : bool or length-A, keyword-only
-        Per-attribute ``[rel]`` / ``[sym]`` (defaults ``False`` / ``True``).
+    rel, exch : bool or length-A, keyword-only
+        Per-attribute ``[rel]`` / ``[exch]`` (defaults ``False`` / ``True``).
     name : None, str, or length-A, keyword-only
         Optional per-attribute names.
     sigma : None, scalar, or length-A, keyword-only
@@ -494,7 +494,7 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None,
     Returns
     -------
     list of dict
-        Length-A list of flat specs, ready for ``build_exp_tens(specs=...)``
+        Length-A list of flat specs, ready for ``build_maet(specs=...)``
         or to thread through the pre-MAET operators.
     """
     if not isinstance(p_attr, (list, tuple)):
@@ -504,11 +504,11 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None,
     A = len(p_attr)
     r_v = _bcast_geom(r, A, "r", cast=int)
     rel_v = _bcast_geom(rel, A, "rel", cast=bool)
-    sym_v = _bcast_geom(sym, A, "sym", cast=bool)
+    exch_v = _bcast_geom(exch, A, "exch", cast=bool)
     name_v = _bcast_names(name, A)
     specs = []
     for a in range(A):
-        s = {"r": r_v[a], "rel": rel_v[a], "sym": sym_v[a]}
+        s = {"r": r_v[a], "rel": rel_v[a], "exch": exch_v[a]}
         if name_v[a] is not None:
             s["name"] = name_v[a]
         for key, val in (("sigma", sigma), ("is_per", is_per),
@@ -608,7 +608,7 @@ def bind_events(
     step: int = 1,
     specs=None,
     r_outer=None,
-    sym_outer=False,
+    exch_outer=False,
     rel_outer=False,
     name=None,
     level_names=None,
@@ -622,15 +622,15 @@ def bind_events(
     ``L_a`` (``bind_orders``) is laid across the event axis and the
     ``L_a`` consecutive events are nested into a single output attribute
     (toolbox spec §6.1): the bound events form an **ordered outer level**
-    (event order; ``sym_outer = 0`` by default, lossless), and each
+    (event order; ``exch_outer = 0`` by default, lossless), and each
     event's own atom multiset is the **inner level**.
 
-    The inner level's geometry (``r``/``rel``/``sym``) is read from the
+    The inner level's geometry (``r``/``rel``/``exch``) is read from the
     incoming ``specs`` --- the attribute's existing specification supplies
     the inner level(s). ``specs = None`` synthesises flat specs
-    (:func:`flat_specs` defaults: ``r = 1``, ``rel = 0``, ``sym = 1``).
+    (:func:`flat_specs` defaults: ``r = 1``, ``rel = 0``, ``exch = 1``).
     The outer level defaults to ``r = L_a`` (read the whole bound
-    window), ``sym = 0``, ``rel = 0``. ``L_a = 1`` is the no-op: the
+    window), ``exch = 0``, ``rel = 0``. ``L_a = 1`` is the no-op: the
     incoming (flat) spec passes through unchanged.
 
     With the defaults and ``rel = [rel_in, 0]``, the outer ``r = L_a``
@@ -657,7 +657,7 @@ def bind_events(
     p_attr : list/tuple of array-like
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
     w_attr : None, scalar, or length-A list
-        Weights (same convention as :func:`build_exp_tens`). Each bound
+        Weights (same convention as :func:`build_maet`). Each bound
         attribute's value weights are the windowed-and-stacked input
         weights, so the kernel product over the nested tuple recovers
         the rolling product.
@@ -681,9 +681,9 @@ def bind_events(
         synthesises flat specs. An incoming spec may be flat or already
         nested: a flat spec becomes the inner level of a new two-level
         attribute, while an already-nested spec is deepened --- a new
-        outermost level (``r_outer``/``sym_outer``/``rel_outer``) is
+        outermost level (``r_outer``/``exch_outer``/``rel_outer``) is
         appended above the existing nesting, and ``tags``, ``r``,
-        ``sym``, and ``rel`` each extend by one entry. Repeated binds
+        ``exch``, and ``rel`` each extend by one entry. Repeated binds
         nest to arbitrary depth, but each call must be given the
         ``specs`` returned by the previous one: passing ``None`` (or
         omitting ``specs``) on already-bound attributes re-synthesises
@@ -692,8 +692,8 @@ def bind_events(
     r_outer : None, scalar, or length-A, keyword-only
         Outer-level ``r`` (how many bound events to read). ``None``
         defaults to ``L_a`` (the whole window).
-    sym_outer, rel_outer : bool / scalar / length-A, keyword-only
-        Outer-level ``[sym]`` and ``[rel]``. Default ``0``/``0``.
+    exch_outer, rel_outer : bool / scalar / length-A, keyword-only
+        Outer-level ``[exch]`` and ``[rel]``. Default ``0``/``0``.
     name : None, str, or length-A, keyword-only
         Optional per-attribute name(s). Overrides any ``name`` carried
         on the incoming spec; otherwise the incoming name is preserved.
@@ -712,13 +712,13 @@ def bind_events(
         ``L_a`` lag windows vertically stacked), and for ``L_a = 1`` the
         leading-aligned ``(K_a, N')`` original; its ``w_attr`` the
         transformed weights, aligned to the value layout; its ``specs`` a
-        nested spec ``{tags, r, sym, rel, name?, names?}`` for
+        nested spec ``{tags, r, exch, rel, name?, names?}`` for
         ``L_a >= 2`` and the incoming spec unchanged (flat or nested) for
         ``L_a = 1``.
 
     See Also
     --------
-    build_exp_tens, difference_events, flat_specs, translate_attributes
+    build_maet, difference_events, flat_specs, translate_attributes
     """
     p_attr, w_attr, (bind_orders,), specs = shift_lead(
         p_attr, w_attr, [bind_orders], specs, func="bind_events")
@@ -754,7 +754,7 @@ def bind_events(
     if group_by is not None:
         return _bind_events_run_length(
             p_attr, w, K, A, n_events, group_by, group_atol, specs,
-            r_outer, sym_outer, rel_outer, name, level_names,
+            r_outer, exch_outer, rel_outer, name, level_names,
             bind_orders, circular, step,
         )
 
@@ -796,7 +796,7 @@ def bind_events(
         r_out = [int(orders[a]) for a in range(A)]
     else:
         r_out = _bcast_geom(r_outer, A, "r_outer", cast=int)
-    sym_out = _bcast_geom(sym_outer, A, "sym_outer", cast=bool)
+    exch_out = _bcast_geom(exch_outer, A, "exch_outer", cast=bool)
     rel_out = _bcast_geom(rel_outer, A, "rel_outer", cast=bool)
     names_attr = _bcast_names(name, A)
     if level_names is not None and len(level_names) != 2:
@@ -860,7 +860,7 @@ def bind_events(
             # Deepen: append a new outermost grouping level above the
             # existing nesting. The existing tag columns are tiled once per
             # bound super-event; the new column distinguishes the L_a bound
-            # super-events. r/sym/rel extend by the new outer level.
+            # super-events. r/exch/rel extend by the new outer level.
             tags_in = np.asarray(s_in["tags"])
             if tags_in.ndim == 1:
                 tags_in = tags_in.reshape(-1, 1)
@@ -869,8 +869,8 @@ def bind_events(
                 "tags": tags,
                 "r": [int(x) for x in np.asarray(s_in["r"]).ravel()]
                      + [int(r_out[a])],
-                "sym": [bool(x) for x in np.asarray(s_in["sym"]).ravel()]
-                       + [bool(sym_out[a])],
+                "exch": [bool(x) for x in np.asarray(s_in["exch"]).ravel()]
+                       + [bool(exch_out[a])],
                 "rel": [int(x) for x in np.asarray(s_in["rel"]).ravel()]
                        + [int(rel_out[a])],
             }
@@ -880,11 +880,11 @@ def bind_events(
             # Flat input -> two-level nested attribute (unchanged).
             r_in_a = int(s_in.get("r", 1))
             rel_in_a = bool(s_in.get("rel", False))
-            sym_in_a = bool(s_in.get("sym", True))
+            exch_in_a = bool(s_in.get("exch", True))
             spec = {
                 "tags": new_col,
                 "r": [r_in_a, int(r_out[a])],
-                "sym": [sym_in_a, bool(sym_out[a])],
+                "exch": [exch_in_a, bool(exch_out[a])],
                 "rel": [int(rel_in_a), int(rel_out[a])],
             }
             if level_names is not None:
@@ -927,7 +927,7 @@ def _run_length_groups(vals, atol):
 
 
 def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
-                            specs, r_outer, sym_outer, rel_outer, name,
+                            specs, r_outer, exch_outer, rel_outer, name,
                             level_names, bind_orders, circular, step):
     """Run-length (bind-by-attribute) binding.
 
@@ -996,7 +996,7 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
         r_out = [L_min for _ in range(A)]
     else:
         r_out = _bcast_geom(r_outer, A, "r_outer", cast=int)
-    sym_out = _bcast_geom(sym_outer, A, "sym_outer", cast=bool)
+    exch_out = _bcast_geom(exch_outer, A, "exch_outer", cast=bool)
     rel_out = _bcast_geom(rel_outer, A, "rel_outer", cast=bool)
     names_attr = _bcast_names(name, A)
     if level_names is not None and len(level_names) != 2:
@@ -1039,7 +1039,7 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
         spec = {
             "tags": new_col,
             "r": [int(s_in.get("r", 1)), int(r_out[a])],
-            "sym": [bool(s_in.get("sym", True)), bool(sym_out[a])],
+            "exch": [bool(s_in.get("exch", True)), bool(exch_out[a])],
             "rel": [int(bool(s_in.get("rel", False))), int(rel_out[a])],
         }
         if level_names is not None:
@@ -1286,7 +1286,7 @@ def weight_events(
     w_attr : None, scalar, or list/tuple
         Existing weights. ``None``, scalar, or length-``A`` list of
         per-attribute weights (each ``None``, scalar, 1-D row, or
-        ``(K_a, N)`` matrix). Same convention as :func:`build_exp_tens`.
+        ``(K_a, N)`` matrix). Same convention as :func:`build_maet`.
     specs : None or length-A list of dict, keyword-only
         Attribute specifications (per-attribute level geometry). ``None``
         synthesises flat specs via :func:`flat_specs`. Threaded through
@@ -1359,7 +1359,7 @@ def weight_events(
 
     See Also
     --------
-    build_exp_tens, difference_events, bind_events, translate_attributes
+    build_maet, difference_events, bind_events, translate_attributes
     """
     (p_attr, w_attr, (input_attr, target_attr, centre, shape),
      specs) = shift_lead(
@@ -1782,7 +1782,7 @@ class TranslatedSweep(list):
     A plain ``list`` of length-*A* value-lists --- exactly what
     :func:`translate_attributes` has always returned in sweep mode ---
     with the generating offsets attached. Every existing consumer sees a
-    list and is unaffected; :func:`~mpt.cos_sim_exp_tens` reads the
+    list and is unaffected; :func:`~mpt.sim_maet` reads the
     attached offsets and, where they describe a uniform per-attribute
     translation, evaluates the sweep as a mixture in the offset rather
     than one inner product per entry.
@@ -1856,7 +1856,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
 
     Per-attribute preprocessing on the ``(p_attr, w, specs)`` triple.
     Selected attributes' positions are shifted by a chosen offset and the
-    transformed triple feeds straight into :func:`build_exp_tens` (or a
+    transformed triple feeds straight into :func:`build_maet` (or a
     further pre-MAET step). Weights and specs pass through unchanged;
     only the positions move.
 
@@ -1904,7 +1904,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     attribute --- it shifts the within-tuple differences --- so it
     applies. ``is_per``/``period`` are not consulted here (translation
     emits unwrapped values; the periodic kernel in
-    :func:`build_exp_tens` wraps downstream), and stay separate scalar
+    :func:`build_maet` wraps downstream), and stay separate scalar
     geometry passed to build.
 
     Parameters
@@ -1943,7 +1943,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
 
     See Also
     --------
-    difference_events, bind_events, flat_specs, build_exp_tens,
+    difference_events, bind_events, flat_specs, build_maet,
     windowed_similarity
     """
     p_attr, w_attr, (offsets,), specs = shift_lead(
@@ -2192,7 +2192,7 @@ def simplex_vertices(N: int, edge_length: float = 1.0) -> np.ndarray:
 
     See Also
     --------
-    build_exp_tens
+    build_maet
     """
     if not isinstance(N, (int, np.integer)) or N < 2:
         raise ValueError(f"N must be an integer >= 2, got {N!r}.")

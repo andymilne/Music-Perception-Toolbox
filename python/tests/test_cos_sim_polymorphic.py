@@ -1,4 +1,4 @@
-"""Tests for the polymorphic input semantics of :func:`cos_sim_exp_tens`.
+"""Tests for the polymorphic input semantics of :func:`sim_maet`.
 
 Coverage:
 
@@ -29,7 +29,7 @@ correctness-only check.
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 
 # ---------------------------------------------------------------------
@@ -52,7 +52,7 @@ def density_set():
         "major_transposed": np.array([200.0, 600.0, 900.0]),
     }
     densities = {
-        name: build_exp_tens(
+        name: build_maet(
             p, np.ones_like(p), sigma, r, False, True, period,
             verbose=False,
         )
@@ -70,21 +70,21 @@ class TestScalarScalar:
     """The original v2.0 case must be unchanged."""
 
     def test_returns_python_float(self, density_set):
-        s = cos_sim_exp_tens(density_set["major"], density_set["minor"], verbose=False)
+        s = sim_maet(density_set["major"], density_set["minor"], verbose=False)
         # Spec: scalar-vs-scalar returns scalar (the v2.0 case).
         assert isinstance(s, float)
 
     def test_self_cosine_is_one(self, density_set):
-        s = cos_sim_exp_tens(density_set["major"], density_set["major"], verbose=False)
+        s = sim_maet(density_set["major"], density_set["major"], verbose=False)
         assert s == pytest.approx(1.0)
 
     def test_distinct_chords_below_one(self, density_set):
-        s = cos_sim_exp_tens(density_set["major"], density_set["dim"], verbose=False)
+        s = sim_maet(density_set["major"], density_set["dim"], verbose=False)
         assert 0.0 < s < 1.0
 
     def test_symmetry(self, density_set):
-        s_xy = cos_sim_exp_tens(density_set["major"], density_set["minor"], verbose=False)
-        s_yx = cos_sim_exp_tens(density_set["minor"], density_set["major"], verbose=False)
+        s_xy = sim_maet(density_set["major"], density_set["minor"], verbose=False)
+        s_yx = sim_maet(density_set["minor"], density_set["major"], verbose=False)
         assert s_xy == pytest.approx(s_yx)
 
 
@@ -105,21 +105,21 @@ class TestLengthOneNoCollapse:
     """
 
     def test_len1_x_returns_array(self, density_set):
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             [density_set["major"]], density_set["minor"], verbose=False,
         )
         assert isinstance(s, np.ndarray)
         assert s.shape == (1,)
 
     def test_len1_y_returns_array(self, density_set):
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             density_set["major"], [density_set["minor"]], verbose=False,
         )
         assert isinstance(s, np.ndarray)
         assert s.shape == (1,)
 
     def test_both_len1_returns_array(self, density_set):
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             [density_set["major"]], [density_set["minor"]], verbose=False,
         )
         assert isinstance(s, np.ndarray)
@@ -128,10 +128,10 @@ class TestLengthOneNoCollapse:
     def test_len1_value_matches_scalar(self, density_set):
         """Numerical value (single element of the (1,) array) matches the
         scalar-input result."""
-        s_scalar = cos_sim_exp_tens(
+        s_scalar = sim_maet(
             density_set["major"], density_set["minor"], verbose=False,
         )
-        s_len1 = cos_sim_exp_tens(
+        s_len1 = sim_maet(
             [density_set["major"]], [density_set["minor"]], verbose=False,
         )
         assert s_len1[0] == pytest.approx(s_scalar)
@@ -146,34 +146,34 @@ class TestEmptyInputs:
     """Empty lists return empty arrays of the appropriate shape."""
 
     def test_empty_x_scalar_y(self, density_set):
-        result = cos_sim_exp_tens([], density_set["major"], verbose=False)
+        result = sim_maet([], density_set["major"], verbose=False)
         assert isinstance(result, np.ndarray)
         assert result.shape == (0,)
 
     def test_scalar_x_empty_y(self, density_set):
-        result = cos_sim_exp_tens(density_set["major"], [], verbose=False)
+        result = sim_maet(density_set["major"], [], verbose=False)
         assert isinstance(result, np.ndarray)
         assert result.shape == (0,)
 
     def test_empty_pairwise(self, density_set):
-        result = cos_sim_exp_tens([], [], mode="pairwise", verbose=False)
+        result = sim_maet([], [], mode="pairwise", verbose=False)
         assert isinstance(result, np.ndarray)
         assert result.shape == (0,)
 
     def test_empty_cartesian(self, density_set):
-        result = cos_sim_exp_tens([], [], mode="cartesian", verbose=False)
+        result = sim_maet([], [], mode="cartesian", verbose=False)
         assert isinstance(result, np.ndarray)
         assert result.shape == (0, 0)
 
     def test_empty_x_list_y_cartesian(self, density_set):
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             [], [density_set["major"], density_set["minor"]],
             mode="cartesian", verbose=False,
         )
         assert result.shape == (0, 2)
 
     def test_list_x_empty_y_cartesian(self, density_set):
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             [density_set["major"], density_set["minor"]], [],
             mode="cartesian", verbose=False,
         )
@@ -189,7 +189,7 @@ class TestBroadcast:
     """Broadcast: a single density compared against a list."""
 
     def test_scalar_x_list_y_shape(self, density_set):
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             density_set["major"],
             [density_set["minor"], density_set["dim"], density_set["aug"]],
             verbose=False,
@@ -198,7 +198,7 @@ class TestBroadcast:
         assert result.shape == (3,)
 
     def test_list_x_scalar_y_shape(self, density_set):
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             [density_set["major"], density_set["minor"], density_set["dim"]],
             density_set["aug"],
             verbose=False,
@@ -210,10 +210,10 @@ class TestBroadcast:
         """Values produced by broadcast match values from per-pair scalar calls."""
         targets = ["minor", "dim", "aug"]
         ref = np.array([
-            cos_sim_exp_tens(density_set["major"], density_set[t], verbose=False)
+            sim_maet(density_set["major"], density_set[t], verbose=False)
             for t in targets
         ])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             density_set["major"], [density_set[t] for t in targets],
             verbose=False,
         )
@@ -222,11 +222,11 @@ class TestBroadcast:
     def test_broadcast_symmetry(self, density_set):
         """Broadcast is symmetric: x vs list-y equals list-y-as-x vs x."""
         targets = ["minor", "dim", "aug"]
-        r1 = cos_sim_exp_tens(
+        r1 = sim_maet(
             density_set["major"], [density_set[t] for t in targets],
             verbose=False,
         )
-        r2 = cos_sim_exp_tens(
+        r2 = sim_maet(
             [density_set[t] for t in targets], density_set["major"],
             verbose=False,
         )
@@ -242,21 +242,21 @@ class TestListListPairwise:
     def test_pairwise_shape_equal_lengths(self, density_set):
         a_list = [density_set["major"], density_set["minor"], density_set["dim"]]
         b_list = [density_set["aug"], density_set["dim"], density_set["minor"]]
-        result = cos_sim_exp_tens(a_list, b_list, mode="pairwise", verbose=False)
+        result = sim_maet(a_list, b_list, mode="pairwise", verbose=False)
         assert result.shape == (3,)
 
     def test_pairwise_unequal_lengths_raises(self, density_set):
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"], density_set["minor"]]
         with pytest.raises(ValueError, match="pairwise"):
-            cos_sim_exp_tens(a_list, b_list, mode="pairwise", verbose=False)
+            sim_maet(a_list, b_list, mode="pairwise", verbose=False)
 
     def test_pairwise_values_match_scalar_calls(self, density_set):
         a_list = [density_set["major"], density_set["minor"], density_set["dim"]]
         b_list = [density_set["aug"], density_set["dim"], density_set["minor"]]
-        result = cos_sim_exp_tens(a_list, b_list, mode="pairwise", verbose=False)
+        result = sim_maet(a_list, b_list, mode="pairwise", verbose=False)
         ref = np.array([
-            cos_sim_exp_tens(a, b, verbose=False) for a, b in zip(a_list, b_list)
+            sim_maet(a, b, verbose=False) for a, b in zip(a_list, b_list)
         ])
         np.testing.assert_allclose(result, ref)
 
@@ -265,23 +265,23 @@ class TestListListCartesian:
     def test_cartesian_shape(self, density_set):
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"], density_set["minor"]]
-        result = cos_sim_exp_tens(a_list, b_list, mode="cartesian", verbose=False)
+        result = sim_maet(a_list, b_list, mode="cartesian", verbose=False)
         assert result.shape == (2, 3)
 
     def test_cartesian_values(self, density_set):
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"], density_set["minor"]]
-        result = cos_sim_exp_tens(a_list, b_list, mode="cartesian", verbose=False)
+        result = sim_maet(a_list, b_list, mode="cartesian", verbose=False)
         for i, a in enumerate(a_list):
             for j, b in enumerate(b_list):
-                expected = cos_sim_exp_tens(a, b, verbose=False)
+                expected = sim_maet(a, b, verbose=False)
                 assert result[i, j] == pytest.approx(expected)
 
     def test_cartesian_equal_length_works(self, density_set):
         """cartesian mode works for equal-length lists too."""
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"]]
-        result = cos_sim_exp_tens(a_list, b_list, mode="cartesian", verbose=False)
+        result = sim_maet(a_list, b_list, mode="cartesian", verbose=False)
         assert result.shape == (2, 2)
 
 
@@ -289,7 +289,7 @@ class TestListListAuto:
     def test_auto_pairwise_equal_lengths(self, density_set):
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"]]
-        result = cos_sim_exp_tens(a_list, b_list, verbose=False)  # mode='auto'
+        result = sim_maet(a_list, b_list, verbose=False)  # mode='auto'
         assert result.shape == (2,)
 
     def test_auto_unequal_lengths_raises(self, density_set):
@@ -297,7 +297,7 @@ class TestListListAuto:
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"], density_set["minor"]]
         with pytest.raises(ValueError, match="cartesian"):
-            cos_sim_exp_tens(a_list, b_list, verbose=False)
+            sim_maet(a_list, b_list, verbose=False)
 
     def test_auto_with_invalid_mode_string(self, density_set):
         # Need length ≥ 2 lists for the mode kwarg to be inspected;
@@ -305,7 +305,7 @@ class TestListListAuto:
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"]]
         with pytest.raises(ValueError, match="mode must be"):
-            cos_sim_exp_tens(a_list, b_list, mode="weird", verbose=False)
+            sim_maet(a_list, b_list, mode="weird", verbose=False)
 
 
 # =====================================================================
@@ -320,8 +320,8 @@ class TestDedup:
         """Default (dedup=True) produces identical results to dedup=False."""
         a_list = [density_set["major"], density_set["minor"], density_set["major_transposed"]]
         b_list = [density_set["minor"], density_set["minor"], density_set["minor"]]
-        r_dedup = cos_sim_exp_tens(a_list, b_list, mode="pairwise", verbose=False)
-        r_no_dedup = cos_sim_exp_tens(
+        r_dedup = sim_maet(a_list, b_list, mode="pairwise", verbose=False)
+        r_no_dedup = sim_maet(
             a_list, b_list, mode="pairwise", dedup=False, verbose=False,
         )
         np.testing.assert_allclose(r_dedup, r_no_dedup)
@@ -343,22 +343,22 @@ class TestDedup:
         # Build a jointly co-transposed pair.
         major_shifted_chord = np.array([200.0, 600.0, 900.0])
         minor_shifted_chord = np.array([200.0, 500.0, 900.0])
-        major_shifted = build_exp_tens(
+        major_shifted = build_maet(
             major_shifted_chord, np.ones(3), sigma, r, False, True, period,
             verbose=False,
         )
-        minor_shifted = build_exp_tens(
+        minor_shifted = build_maet(
             minor_shifted_chord, np.ones(3), sigma, r, False, True, period,
             verbose=False,
         )
 
-        s1 = cos_sim_exp_tens(major, minor, verbose=False)
-        s2 = cos_sim_exp_tens(major_shifted, minor_shifted, verbose=False)
+        s1 = sim_maet(major, minor, verbose=False)
+        s2 = sim_maet(major_shifted, minor_shifted, verbose=False)
         assert s1 == pytest.approx(s2)
 
         # Broadcast call: both pairs canonicalise to the same key, dedup
         # computes once, both result positions get the same value.
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             [major, major_shifted], [minor, minor_shifted],
             mode="pairwise", verbose=False,
         )
@@ -369,10 +369,10 @@ class TestDedup:
         the same numerical results."""
         a_list = [density_set["major"], density_set["minor"]]
         b_list = [density_set["aug"], density_set["dim"]]
-        r1 = cos_sim_exp_tens(
+        r1 = sim_maet(
             a_list, b_list, mode="pairwise", dedup=False, verbose=False,
         )
-        r2 = cos_sim_exp_tens(
+        r2 = sim_maet(
             a_list, b_list, mode="pairwise", dedup=True, verbose=False,
         )
         np.testing.assert_allclose(r1, r2)
@@ -388,7 +388,7 @@ class TestErrors:
         # Mixed list with one density and one non-density routes to
         # density-list path and raises via _normalize_density_input.
         with pytest.raises(TypeError, match="MaetDensity"):
-            cos_sim_exp_tens(
+            sim_maet(
                 [density_set["major"], "not a density"],
                 density_set["minor"], verbose=False,
             )
@@ -398,7 +398,7 @@ class TestErrors:
         # arg-count check for raw single-multiset mode (9 expected) — the simplest
         # and clearest error in this case.
         with pytest.raises(TypeError, match="positional"):
-            cos_sim_exp_tens(
+            sim_maet(
                 "not a density", density_set["minor"], verbose=False,
             )
 
@@ -406,7 +406,7 @@ class TestErrors:
         # A string first argument with the right number of positional
         # args fails type coercion and reports the type problem.
         with pytest.raises(TypeError, match="density object"):
-            cos_sim_exp_tens(
+            sim_maet(
                 "not a density", None, [0.0, 4.0, 7.0], None,
                 15.0, 2, False, True, 1200.0,
                 verbose=False,
@@ -414,19 +414,19 @@ class TestErrors:
 
     def test_too_few_args_raises(self):
         with pytest.raises(TypeError, match="at least 2 positional"):
-            cos_sim_exp_tens(verbose=False)
+            sim_maet(verbose=False)
 
     def test_density_mode_with_extra_args_raises(self, density_set):
         # Density input expects exactly 2 positional args.
         with pytest.raises(TypeError, match="2 positional"):
-            cos_sim_exp_tens(
+            sim_maet(
                 density_set["major"], density_set["minor"], 15.0,
                 verbose=False,
             )
 
     def test_spectrum_with_density_raises(self, density_set):
         with pytest.raises(TypeError, match="spectrum"):
-            cos_sim_exp_tens(
+            sim_maet(
                 density_set["major"], density_set["minor"],
                 spectrum=("harmonic", 6, "geometric", 0.7),
                 verbose=False,
@@ -434,7 +434,7 @@ class TestErrors:
 
     def test_precision_with_density_raises(self, density_set):
         with pytest.raises(TypeError, match="precision"):
-            cos_sim_exp_tens(
+            sim_maet(
                 density_set["major"], density_set["minor"],
                 precision=4, verbose=False,
             )

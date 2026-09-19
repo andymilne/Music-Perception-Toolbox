@@ -24,7 +24,7 @@ end
 % 1. r > 8 with large K -> forced bulger, infeasible -> raises
 ok = false;
 try
-    cosSimExpTens(mk(15, 9, false, false, 0), mk(15, 9, false, false, 0), ...
+    simMaet(mk(15, 9, false, false, 0), mk(15, 9, false, false, 0), ...
         'method', 'auto', 'verbose', false);
 catch err
     ok = strcmp(err.identifier, 'mpt:dispatch:singleImageInfeasible');
@@ -38,7 +38,7 @@ results{end, 2} = ok;
 %    completes rather than raising.
 ok = false;
 try
-    cosSimExpTens(mk(9, 8, false, false, 0), mk(9, 8, false, false, 0), ...
+    simMaet(mk(9, 8, false, false, 0), mk(9, 8, false, false, 0), ...
         'method', 'auto', 'verbose', false);
     ok = true;
 catch
@@ -55,7 +55,7 @@ results{end, 2} = ok;
 %    actually compute, so we expect either success or a NON-guard error.
 ok = true;
 try
-    cosSimExpTens(mk(15, 9, false, false, 0), mk(15, 9, false, false, 0), ...
+    simMaet(mk(15, 9, false, false, 0), mk(15, 9, false, false, 0), ...
         'method', 'bulger', 'verbose', false);
 catch err
     % Any error other than the dispatch guard is acceptable here (the
@@ -68,7 +68,7 @@ results{end, 2} = ok;
 % 4. Feasible normal case (r=3, small K) -> no raise, normal result
 ok = false;
 try
-    s = cosSimExpTens(mk(8, 3, false, false, 0), mk(8, 3, false, false, 0), ...
+    s = simMaet(mk(8, 3, false, false, 0), mk(8, 3, false, false, 0), ...
         'method', 'auto', 'verbose', false);
     ok = isfinite(s);
 catch
@@ -109,7 +109,7 @@ try
     end
     dx = localOrderedBound9(xs, sigC);
     dy = localOrderedBound9(ys, sigC);
-    got = cosSimExpTens(dx, dy, 'verbose', false);
+    got = simMaet(dx, dy, 'verbose', false);
     q = 0.0;
     for a = 1:3
         d = xs{a} - ys{a};
@@ -125,16 +125,16 @@ end
 results{end+1, 1} = 'OOM guard: ordered bound r=9 cosine matches closed form';
 results{end, 2} = ok;
 
-% 8. A bound ordered 11-tuple routes evalExpTens to centres (ordered
+% 8. A bound ordered 11-tuple routes evalMaet to centres (ordered
 %    hard rule) and evaluates: its joint tuple set is one tuple, so no
 %    infeasibility guard may fire.
 ok = false;
 try
     x11 = (0:10);
     [pB11, wB11, spB11] = unpackPreMaet(bindEvents({x11}, [], 11));
-    d11 = buildExpTens(pB11, wB11, 'specs', spB11, 'sigma', 0.3, ...
+    d11 = buildMaet(pB11, wB11, 'specs', spB11, 'sigma', 0.3, ...
         'isPer', false, 'period', 0, 'verbose', false);
-    v11 = evalExpTens(d11, x11(:), 'verbose', false);
+    v11 = evalMaet(d11, x11(:), 'verbose', false);
     ok = all(isfinite(v11)) && max(v11) > 0;
 catch
     ok = false;
@@ -163,10 +163,10 @@ function d = mk(K, r, rel, per, P)
     g = (1:K)' * 37.0;           % deterministic distinct values
     if per
         g = mod(g, P);
-        d = buildExpTens(g, ones(K, 1), 40.0, r, rel, true, P, ...
+        d = buildMaet(g, ones(K, 1), 40.0, r, rel, true, P, ...
             'verbose', false);
     else
-        d = buildExpTens(g, ones(K, 1), 6.0, r, rel, false, 0.0, ...
+        d = buildMaet(g, ones(K, 1), 6.0, r, rel, false, 0.0, ...
             'verbose', false);
     end
 end
@@ -177,7 +177,7 @@ function d = localOrderedBound9(vals, sigC)
     L = numel(vals{1});
     [pB, wB, spB] = unpackPreMaet(bindEvents(vals, [], L, ...
         'relOuter', [false, true, false]));
-    d = buildExpTens(pB, wB, 'specs', spB, 'sigma', sigC, ...
+    d = buildMaet(pB, wB, 'specs', spB, 'sigma', sigC, ...
         'isPer', [false, false, false], 'period', [0, 0, 0], ...
         'verbose', false);
 end

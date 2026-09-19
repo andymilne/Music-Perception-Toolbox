@@ -166,7 +166,7 @@ function pm = weightEvents(varargin)
 %                  specifications for the output attribute list (the input
 %                  attribute's spec removed when dropInputAttr=true).
 %
-%   See also PREMAET, BUILDEXPTENS, DIFFERENCEEVENTS, BINDEVENTS,
+%   See also PREMAET, BUILDMAET, DIFFERENCEEVENTS, BINDEVENTS,
 %            TRANSLATEATTRIBUTES, MPTDEFAULTS.
 
     [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);

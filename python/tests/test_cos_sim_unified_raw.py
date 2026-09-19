@@ -1,11 +1,11 @@
-"""Tests for raw input dispatch in the unified :func:`cos_sim_exp_tens`.
+"""Tests for raw input dispatch in the unified :func:`sim_maet`.
 
 The unified entry accepts:
 
 - pre-built density (single or list) — exercised by ``test_cos_sim_polymorphic.py``;
-- raw 1-D ndarrays for single-multiset single chord pair (replaces ``cos_sim_exp_tens_raw``);
-- raw 2-D ndarrays for single-attribute batched chord pairs (replaces ``batch_cos_sim_exp_tens``);
-- raw list-of-arrays for MA single chord pair (replaces ``cos_sim_exp_tens_raw`` MA path).
+- raw 1-D ndarrays for single-multiset single chord pair;
+- raw 2-D ndarrays for single-attribute batched chord pairs;
+- raw list-of-arrays for MA single chord pair.
 
 These tests verify the raw paths via the unified entry directly (without
 going through the deprecation shims), matching results to the v2.0 raw
@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 
 # ---------------------------------------------------------------------
@@ -27,10 +27,10 @@ from mpt import build_exp_tens, cos_sim_exp_tens
 
 
 class TestRawSAScalar:
-    """Raw single-multiset scalar input (1-D arrays) via cos_sim_exp_tens."""
+    """Raw single-multiset scalar input (1-D arrays) via sim_maet."""
 
     def test_returns_python_float(self):
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             [0.0, 400.0, 700.0], None, [0.0, 300.0, 700.0], None,
             15.0, 2, False, True, 1200.0,
             verbose=False,
@@ -38,7 +38,7 @@ class TestRawSAScalar:
         assert isinstance(s, float)
 
     def test_self_cosine_is_one(self):
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             [0.0, 400.0, 700.0], None, [0.0, 400.0, 700.0], None,
             15.0, 2, False, True, 1200.0,
             verbose=False,
@@ -48,19 +48,19 @@ class TestRawSAScalar:
     def test_matches_density_scalar(self):
         """Raw 1-D input produces the same result as building densities then comparing."""
         p1, p2 = [0.0, 400.0, 700.0], [0.0, 300.0, 700.0]
-        s_raw = cos_sim_exp_tens(
+        s_raw = sim_maet(
             p1, None, p2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
-        d1 = build_exp_tens(p1, None, 15.0, 2, False, True, 1200.0, verbose=False)
-        d2 = build_exp_tens(p2, None, 15.0, 2, False, True, 1200.0, verbose=False)
-        s_dens = cos_sim_exp_tens(d1, d2, verbose=False)
+        d1 = build_maet(p1, None, 15.0, 2, False, True, 1200.0, verbose=False)
+        d2 = build_maet(p2, None, 15.0, 2, False, True, 1200.0, verbose=False)
+        s_dens = sim_maet(d1, d2, verbose=False)
         assert s_raw == pytest.approx(s_dens, abs=1e-14)
 
     def test_with_weights(self):
         p1, w1 = [0.0, 400.0, 700.0], [3.0, 1.0, 2.0]
         p2, w2 = [0.0, 300.0, 700.0], [1.0, 2.0, 3.0]
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             p1, w1, p2, w2, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
@@ -69,11 +69,11 @@ class TestRawSAScalar:
     def test_with_spectrum(self):
         """Spectrum kwarg applies in raw single-multiset scalar mode."""
         p1, p2 = [0.0, 400.0, 700.0], [0.0, 400.0, 700.0]
-        s_no_spec = cos_sim_exp_tens(
+        s_no_spec = sim_maet(
             p1, None, p2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
-        s_spec = cos_sim_exp_tens(
+        s_spec = sim_maet(
             p1, None, p2, None, 15.0, 2, False, True, 1200.0,
             spectrum=("harmonic", 6, "geometric", 0.7),
             verbose=False,
@@ -86,7 +86,7 @@ class TestRawSAScalar:
         """ndarray input works the same as list input."""
         p1 = np.array([0.0, 400.0, 700.0])
         p2 = np.array([0.0, 300.0, 700.0])
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             p1, None, p2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
@@ -100,7 +100,7 @@ class TestRawSAScalar:
 
 
 class TestRawSABatched:
-    """Raw single-attribute batched input (2-D ndarrays) via cos_sim_exp_tens."""
+    """Raw single-attribute batched input (2-D ndarrays) via sim_maet."""
 
     def test_basic_shape(self):
         P1 = np.array([
@@ -113,7 +113,7 @@ class TestRawSABatched:
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
         ])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
@@ -131,12 +131,12 @@ class TestRawSABatched:
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
         ])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
         per_row = np.array([
-            cos_sim_exp_tens(
+            sim_maet(
                 P1[i].tolist(), None, P2[i].tolist(), None,
                 15.0, 2, False, True, 1200.0, verbose=False,
             )
@@ -154,7 +154,7 @@ class TestRawSABatched:
             [0.0, 200.0, 400.0, 700.0],
             [0.0, 200.0, 400.0, 700.0],
         ])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
@@ -171,7 +171,7 @@ class TestRawSABatched:
             [0.0, 200.0, 400.0, 700.0],
             [0.0, 200.0, 400.0, 700.0],
         ])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
@@ -185,7 +185,7 @@ class TestRawSABatched:
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
         ])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, W1, P2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
@@ -195,7 +195,7 @@ class TestRawSABatched:
         """A single-row matrix returns shape (1,) — Option II strict shape preservation."""
         P1 = np.array([[0.0, 400.0, 700.0]])
         P2 = np.array([[0.0, 300.0, 700.0]])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             verbose=False,
         )
@@ -205,7 +205,7 @@ class TestRawSABatched:
     def test_with_spectrum(self):
         P1 = np.array([[0.0, 400.0, 700.0], [0.0, 300.0, 700.0]])
         P2 = np.array([[0.0, 400.0, 700.0], [0.0, 300.0, 700.0]])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             spectrum=("harmonic", 6, "geometric", 0.7),
             verbose=False,
@@ -223,7 +223,7 @@ class TestRawSABatched:
             [0.0, 300.0, 700.0],
             [0.0, 300.0, 700.0],
         ])
-        result = cos_sim_exp_tens(
+        result = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             precision=4, verbose=False,
         )
@@ -238,10 +238,10 @@ class TestRawSABatched:
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
             [0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0],
         ])
-        r_dedup = cos_sim_exp_tens(
+        r_dedup = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0, verbose=False,
         )
-        r_no_dedup = cos_sim_exp_tens(
+        r_no_dedup = sim_maet(
             P1, None, P2, None, 15.0, 2, False, True, 1200.0,
             dedup=False, verbose=False,
         )
@@ -254,12 +254,12 @@ class TestRawSABatched:
 
 
 class TestRawMAScalar:
-    """Raw multi-attribute scalar input via cos_sim_exp_tens."""
+    """Raw multi-attribute scalar input via sim_maet."""
 
     def test_self_cosine_is_one(self):
         # Single attribute, single event with 3 pitches.
         p_attr = [np.array([[0.0, 400.0, 700.0]]).T]   # shape (3, 1)
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             p_attr, None, p_attr, None,
             [15.0], [2], [False], [True], [1200.0],
             verbose=False,
@@ -270,20 +270,20 @@ class TestRawMAScalar:
         """Raw MA input matches building MA densities then comparing."""
         p_attr1 = [np.array([[0.0, 400.0, 700.0]]).T]
         p_attr2 = [np.array([[0.0, 300.0, 700.0]]).T]
-        s_raw = cos_sim_exp_tens(
+        s_raw = sim_maet(
             p_attr1, None, p_attr2, None,
             [15.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
-        d1 = build_exp_tens(
+        d1 = build_maet(
             p_attr1, None, [15.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
-        d2 = build_exp_tens(
+        d2 = build_maet(
             p_attr2, None, [15.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
-        s_dens = cos_sim_exp_tens(d1, d2, verbose=False)
+        s_dens = sim_maet(d1, d2, verbose=False)
         assert s_raw == pytest.approx(s_dens, abs=1e-14)
 
 
@@ -302,19 +302,19 @@ class TestCrossFormConsistency:
         sigma, r, period = 15.0, 2, 1200.0
 
         # Form 1: density mode
-        d1 = build_exp_tens(p1, None, sigma, r, False, True, period, verbose=False)
-        d2 = build_exp_tens(p2, None, sigma, r, False, True, period, verbose=False)
-        s_dens = cos_sim_exp_tens(d1, d2, verbose=False)
+        d1 = build_maet(p1, None, sigma, r, False, True, period, verbose=False)
+        d2 = build_maet(p2, None, sigma, r, False, True, period, verbose=False)
+        s_dens = sim_maet(d1, d2, verbose=False)
 
         # Form 2: raw single-multiset scalar
-        s_raw_scalar = cos_sim_exp_tens(
+        s_raw_scalar = sim_maet(
             p1, None, p2, None, sigma, r, False, True, period, verbose=False,
         )
 
         # Form 3: raw single-attribute batched (single row)
         P1 = np.array([p1])
         P2 = np.array([p2])
-        s_raw_batch = cos_sim_exp_tens(
+        s_raw_batch = sim_maet(
             P1, None, P2, None, sigma, r, False, True, period, verbose=False,
         )
 
@@ -325,43 +325,6 @@ class TestCrossFormConsistency:
 # ---------------------------------------------------------------------
 # Deprecated shims still work
 # ---------------------------------------------------------------------
-
-
-class TestDeprecatedShims:
-    """The deprecated wrappers still produce correct results, with warnings."""
-
-    def test_cos_sim_exp_tens_raw_emits_deprecation_warning(self):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            mpt.cos_sim_exp_tens_raw(
-                [0.0, 400.0, 700.0], None, [0.0, 300.0, 700.0], None,
-                15.0, 2, False, True, 1200.0, verbose=False,
-            )
-            assert any(issubclass(wi.category, DeprecationWarning) for wi in w)
-
-    def test_batch_cos_sim_exp_tens_emits_deprecation_warning(self):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            P1 = np.array([[0.0, 400.0, 700.0]])
-            P2 = np.array([[0.0, 300.0, 700.0]])
-            mpt.batch_cos_sim_exp_tens(
-                P1, P2, 15.0, 2, False, True, 1200.0, verbose=False,
-            )
-            assert any(issubclass(wi.category, DeprecationWarning) for wi in w)
-
-    def test_cos_sim_exp_tens_raw_still_correct(self):
-        """The shim produces the same result as the unified entry."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            s_shim = mpt.cos_sim_exp_tens_raw(
-                [0.0, 400.0, 700.0], None, [0.0, 300.0, 700.0], None,
-                15.0, 2, False, True, 1200.0, verbose=False,
-            )
-        s_unified = cos_sim_exp_tens(
-            [0.0, 400.0, 700.0], None, [0.0, 300.0, 700.0], None,
-            15.0, 2, False, True, 1200.0, verbose=False,
-        )
-        assert s_shim == pytest.approx(s_unified, abs=1e-14)
 
 
 class TestRawSABroadcast:
@@ -384,7 +347,7 @@ class TestRawSABroadcast:
             [0.0, 400.0, 800.0],
         ])
         # Equivalent paired form via np.tile
-        sims_explicit = cos_sim_exp_tens(
+        sims_explicit = sim_maet(
             np.tile(ref, (4, 1)), None, candidates, None,
             10.0, 1, False, True, 1200.0, verbose=False,
         )
@@ -392,7 +355,7 @@ class TestRawSABroadcast:
 
     def test_p1_1d_broadcasts(self):
         ref, candidates, sims_explicit = self._ref_explicit()
-        sims = cos_sim_exp_tens(
+        sims = sim_maet(
             ref, None, candidates, None,
             10.0, 1, False, True, 1200.0, verbose=False,
         )
@@ -401,7 +364,7 @@ class TestRawSABroadcast:
 
     def test_p1_row_matrix_broadcasts(self):
         ref, candidates, sims_explicit = self._ref_explicit()
-        sims = cos_sim_exp_tens(
+        sims = sim_maet(
             ref.reshape(1, -1), None, candidates, None,
             10.0, 1, False, True, 1200.0, verbose=False,
         )
@@ -411,7 +374,7 @@ class TestRawSABroadcast:
     def test_p2_vector_broadcasts(self):
         """Symmetric case: P2 is the vector reference."""
         ref, candidates, sims_explicit = self._ref_explicit()
-        sims = cos_sim_exp_tens(
+        sims = sim_maet(
             candidates, None, ref, None,
             10.0, 1, False, True, 1200.0, verbose=False,
         )
@@ -425,11 +388,11 @@ class TestRawSABroadcast:
             [0.0, 300.0, 700.0],
             [0.0, 300.0, 600.0],
         ])
-        sims_bcast = cos_sim_exp_tens(
+        sims_bcast = sim_maet(
             ref, ref_w, candidates, None,
             10.0, 1, False, True, 1200.0, verbose=False,
         )
-        sims_explicit = cos_sim_exp_tens(
+        sims_explicit = sim_maet(
             np.tile(ref, (3, 1)), np.tile(ref_w, (3, 1)),
             candidates, None,
             10.0, 1, False, True, 1200.0, verbose=False,
@@ -444,12 +407,12 @@ class TestRawSABroadcast:
             [0.0, 300.0, 600.0],
         ])
         spec = ["harmonic", 12, "powerlaw", 1]
-        sims_bcast = cos_sim_exp_tens(
+        sims_bcast = sim_maet(
             ref, None, candidates, None,
             10.0, 1, False, True, 1200.0,
             spectrum=spec, verbose=False,
         )
-        sims_explicit = cos_sim_exp_tens(
+        sims_explicit = sim_maet(
             np.tile(ref, (3, 1)), None, candidates, None,
             10.0, 1, False, True, 1200.0,
             spectrum=spec, verbose=False,
@@ -458,14 +421,14 @@ class TestRawSABroadcast:
 
     def test_mismatched_rows_errors_clearly(self):
         with pytest.raises(ValueError, match="matching row counts"):
-            cos_sim_exp_tens(
+            sim_maet(
                 np.zeros((4, 3)), None, np.zeros((5, 3)), None,
                 10.0, 1, False, True, 1200.0, verbose=False,
             )
 
     def test_single_pair_via_1d_inputs_is_still_scalar(self):
         """Both operands 1-D → existing scalar single-multiset path; returns float."""
-        s = cos_sim_exp_tens(
+        s = sim_maet(
             np.array([0.0, 400.0, 700.0]), None,
             np.array([0.0, 300.0, 700.0]), None,
             10.0, 1, False, True, 1200.0, verbose=False,

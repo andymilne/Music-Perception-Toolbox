@@ -4,7 +4,7 @@ Times the three ways of scoring one context density against M query
 densities (all r = 1, one value per event per attribute), under both
 normalisations:
 
-* ``broadcast``   -- one ``cos_sim_exp_tens(dX, [d1, ..., dM])`` call
+* ``broadcast``   -- one ``sim_maet(dX, [d1, ..., dM])`` call
   (the batched kernel pass; self terms memoised across the sweep).
 * ``loop_memo``   -- M scalar calls against the same context object
   (per-pair path; the context's self term is memoised after the first
@@ -57,7 +57,7 @@ def query_arrays(k):
 
 
 def build(pitches, times):
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         [np.asarray(pitches).reshape(1, -1),
          np.asarray(times).reshape(1, -1)],
         None, [SIG_P, SIG_T], [1, 1], [False, False], [False, False],
@@ -91,13 +91,13 @@ def main():
             # MATLAB-cold.
             def run_broadcast():
                 clear_memos([d_ctx] + d_qs)
-                return mpt.cos_sim_exp_tens(
+                return mpt.sim_maet(
                     d_ctx, d_qs, normalize=norm, verbose=False)
 
             def run_loop_memo():
                 clear_memos([d_ctx] + d_qs)
                 return np.array([
-                    mpt.cos_sim_exp_tens(d_ctx, d, normalize=norm,
+                    mpt.sim_maet(d_ctx, d, normalize=norm,
                                          verbose=False)
                     for d in d_qs])
 
@@ -105,7 +105,7 @@ def main():
                 out = np.empty(len(d_qs))
                 for i, d in enumerate(d_qs):
                     clear_memos([d_ctx, d])
-                    out[i] = mpt.cos_sim_exp_tens(
+                    out[i] = mpt.sim_maet(
                         d_ctx, d, normalize=norm, verbose=False)
                 return out
 

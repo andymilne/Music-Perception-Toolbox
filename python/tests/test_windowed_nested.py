@@ -2,8 +2,8 @@
 ``windowed_entropy``.
 
 Each nested result is pinned to the explicit composition it stands in for
-(``weight_events`` / ``translate_attributes`` -> ``build_exp_tens`` ->
-``cos_sim_exp_tens`` / ``entropy_exp_tens`` with ``specs=``), exactly as
+(``weight_events`` / ``translate_attributes`` -> ``build_maet`` ->
+``sim_maet`` / ``entropy_maet`` with ``specs=``), exactly as
 ``test_windowed_premaet.py`` pins the flat path. To prove the nested
 geometry is read from ``specs`` and not from the positional ``r``/``is_rel``,
 the calls pass deliberately wrong flat ``r``/``is_rel`` and still match.
@@ -15,8 +15,8 @@ from mpt import (
     unpack_pre_maet,
     add_spectra, bind_events,
     windowed_similarity, windowed_entropy,
-    weight_events, translate_attributes, build_exp_tens,
-    cos_sim_exp_tens, entropy_exp_tens,
+    weight_events, translate_attributes, build_maet,
+    sim_maet, entropy_maet,
 )
 
 SIG_P, SIG_T = 0.15, 0.125
@@ -52,14 +52,14 @@ def _ref_locked(ctx, w_ctx, qry, w_qry, specs, centres, q_ext):
         pc, wc, sc = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=q_ext, is_per=False, period=0.0,
                                    drop_input_attr=False, specs=specs))
-        dc = build_exp_tens(pc, wc, sigma=sigma, is_per=is_per, period=period,
+        dc = build_maet(pc, wc, sigma=sigma, is_per=is_per, period=period,
                             specs=sc, verbose=False)
         offs = [None, None]
         offs[AXIS] = np.array([[c - mu_q]], dtype=float)
         pq, wq, sq = unpack_pre_maet(translate_attributes(qry, w_qry, offs, specs=specs))
-        dq = build_exp_tens(pq, wq, sigma=sigma, is_per=is_per, period=period,
+        dq = build_maet(pq, wq, sigma=sigma, is_per=is_per, period=period,
                             specs=sq, verbose=False)
-        out[i] = float(cos_sim_exp_tens(dc, dq, normalize="oneSidedDenom",
+        out[i] = float(sim_maet(dc, dq, normalize="oneSidedDenom",
                                         verbose=False))
     return out
 
@@ -126,9 +126,9 @@ def test_entropy_nested_matches_handbuilt():
         pw, ww, sw = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=width, is_per=False, period=0.0,
                                    drop_input_attr=False, specs=specs))
-        dens = build_exp_tens(pw, ww, sigma=sigma, is_per=is_per,
+        dens = build_maet(pw, ww, sigma=sigma, is_per=is_per,
                               period=period, specs=sw, verbose=False)
-        ref[i] = entropy_exp_tens(dens, method="renyi2", verbose=False)
+        ref[i] = entropy_maet(dens, method="renyi2", verbose=False)
 
     got = windowed_entropy(ctx, w_ctx, [SIG_P, SIG_T], [1, 1], [False, False],
                            [False, False], [0.0, 0.0], centres,

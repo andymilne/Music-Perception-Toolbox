@@ -23,7 +23,7 @@ function notes = readScore(path)
 %       .source                           'midi' or 'musicxml'
 %
 %   preMaetFromScore turns the table into the (pAttr, wAttr, specs) of
-%   buildExpTens. Both parsers are self-contained (no toolbox or Java
+%   buildMaet. Both parsers are self-contained (no toolbox or Java
 %   dependency) and mirror the Python mpt.read_score, which reads the same
 %   files to the same table.
 %
@@ -43,7 +43,7 @@ function notes = readScore(path)
 %     - MusicXML velocity is the note's dynamics attribute (a percentage of
 %       forte, forte being 90), 90 where absent.
 %
-%   See also PREMAETFROMSCORE, BUILDEXPTENS, TRANSFORMATTRIBUTES.
+%   See also PREMAETFROMSCORE, BUILDMAET, TRANSFORMATTRIBUTES.
 
     path = char(path);
     [~, ~, ext] = fileparts(path);

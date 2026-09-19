@@ -5,7 +5,7 @@ or 1) or a MusicXML file (``.musicxml``, ``.xml``, or compressed
 ``.mxl``) into a *note table*: one row per sounding note with its onset
 and duration in beats and in seconds, its MIDI pitch, its velocity, and
 its part. :func:`pre_maet_from_score` turns a note table (or a path) into
-the ``(p_attr, w_attr, specs)`` that :func:`build_exp_tens` and the
+the ``(p_attr, w_attr, specs)`` that :func:`build_maet` and the
 pre-MAET preprocessors consume, choosing the attributes, their units,
 the weights, and whether simultaneous notes are bound into one
 multi-value event.
@@ -606,7 +606,7 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
     # unbounded axis --- so [per] = 0 and the period is inert; octave
     # equivalence is an equivalence the analyst imposes, not one the score
     # states. Sigma is left unset rather than defaulted, because there is
-    # no width a score implies: build_exp_tens will then name the
+    # no width a score implies: build_maet will then name the
     # attribute that still needs one.
     for spec in specs:
         spec["is_per"] = False

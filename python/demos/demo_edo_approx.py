@@ -52,7 +52,7 @@ n_edos = len(edo_range)
 max_n = n_max
 
 # Reference: a single 1-D vector — broadcast across all EDO rows of
-# p_mat_b by cos_sim_exp_tens.
+# p_mat_b by sim_maet.
 
 # EDO multisets: NaN-padded
 p_mat_b = np.full((n_edos, max_n), np.nan)
@@ -65,7 +65,7 @@ for i, n in enumerate(edo_range):
 # ===================================================================
 
 print(f"Computing PCS of {n_edos} EDOs against {ref_name}...")
-s = mpt.cos_sim_exp_tens(
+s = mpt.sim_maet(
     ref_pitches, None, p_mat_b, None,
     sigma, r, is_rel, is_per, period,
     verbose=True,

@@ -61,7 +61,7 @@ import numpy as np
 
 from .density import MaetDensity
 
-__all__ = ["sweep_cos_sim_exp_tens", "sweep_eligibility"]
+__all__ = ["sweep_sim_maet", "sweep_eligibility"]
 
 
 # -------------------------------------------------------------------
@@ -562,8 +562,8 @@ def orbit_sweep_supported(dens_x, dens_y, offsets=None,
     # quantity, not an approximation of the right one --- measured
     # departures up to 0.22 --- so the route declines rather than
     # silently symmetrising.
-    is_sym = getattr(dens_x, "is_sym", None)
-    if is_sym is not None and not all(bool(v) for v in np.atleast_1d(is_sym)):
+    is_exch = getattr(dens_x, "is_exch", None)
+    if is_exch is not None and not all(bool(v) for v in np.atleast_1d(is_exch)):
         return False
     for a in range(A):
         if inner_r is not None and int(inner_r[a]) > 0:
@@ -820,7 +820,7 @@ def _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok):
 # -------------------------------------------------------------------
 
 
-def sweep_cos_sim_exp_tens(
+def sweep_sim_maet(
     dens_x,
     dens_y,
     offsets,
@@ -843,7 +843,7 @@ def sweep_cos_sim_exp_tens(
     result is the sweep the caller asked for, and agrees with the
     per-offset path to the truncation floor. Building the translated
     value matrices with :func:`~mpt.translate_attributes` and passing
-    them to :func:`~mpt.cos_sim_exp_tens` reaches the same computation,
+    them to :func:`~mpt.sim_maet` reaches the same computation,
     since that output carries its offsets with it.
 
     Parameters
@@ -869,11 +869,11 @@ def sweep_cos_sim_exp_tens(
         *periodic* attribute, which the mixture refuses: it never forms
         the split, so the wrapped kernel absorbs the periodicity.
     normalize : {'cosine', 'oneSidedDenom'}, default 'cosine'
-        As in :func:`~mpt.cos_sim_exp_tens`. Both self inner products
+        As in :func:`~mpt.sim_maet`. Both self inner products
         are translation-invariant here, so each is computed once for the
         whole sweep.
     truncation_sigmas, kernel_precision, verbose
-        As in :func:`~mpt.cos_sim_exp_tens`.
+        As in :func:`~mpt.sim_maet`.
 
     Returns
     -------
@@ -892,7 +892,7 @@ def sweep_cos_sim_exp_tens(
 
     See Also
     --------
-    cos_sim_exp_tens, translate_attributes, windowed_similarity
+    sim_maet, translate_attributes, windowed_similarity
     """
     from .._defaults import resolve_truncation_sigmas
     from .cosine import _finalise_normalisation

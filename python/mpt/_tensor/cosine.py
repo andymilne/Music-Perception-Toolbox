@@ -2,13 +2,9 @@
 
 Public entry points:
 
-* :func:`cos_sim_exp_tens` --- compute cosine similarity between two
+* :func:`sim_maet` --- compute cosine similarity between two
   expectation tensor densities (scalar, list-list, or batched-raw),
   with dispatch over Bulger / Möbius / centres methods.
-* :func:`batch_cos_sim_exp_tens` --- the fully batched path with
-  canonical-form dedup.
-* :func:`cos_sim_exp_tens_raw` --- deprecated shim; raw-array
-  signature is now accepted by :func:`cos_sim_exp_tens` directly.
 
 The bulk of the file is the per-method implementations (Bulger's
 method on centres, the Möbius alternating-sum, direct enumeration,
@@ -44,7 +40,7 @@ from .build import (
     _enum_flat_attr,
     _looks_like_multi_attr,
     _nested_enum_indices,
-    build_exp_tens,
+    build_maet,
 )
 from .canonical import _pair_canonical_key
 from ._mobius_inner import (
@@ -72,7 +68,7 @@ from .dispatch import (
 
 # -------------------------------------------------------------------
 #  Normalisation helpers for the ``normalize`` keyword of
-#  cos_sim_exp_tens (and, through it, windowed_similarity).
+#  sim_maet (and, through it, windowed_similarity).
 # -------------------------------------------------------------------
 
 #: The canonical value set for the ``normalize`` keyword. ``'cosine'`` is
@@ -156,7 +152,7 @@ def _ip_canonical_scale(dens, chosen, nested_routes=None):
     from ._mobius_inner import _nested_orbit_mult
     A = int(dens.n_attrs)
     nested = getattr(dens, "nested", None) or [None] * A
-    is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool))).ravel()
+    is_exch = np.asarray(getattr(dens, "is_exch", np.ones(A, dtype=bool))).ravel()
     scale = 1.0
     for a in range(A):
         sigma = float(dens.sigma[a])
@@ -168,7 +164,7 @@ def _ip_canonical_scale(dens, chosen, nested_routes=None):
             if is_rel and r_a < 2:
                 continue       # 0-D point mass: no kernel, no prefactor
             g = (sp ** (r_a - 1) * _m.sqrt(r_a)) if is_rel else sp ** r_a
-            ordered = (not bool(is_sym[a])) and r_a > 1
+            ordered = (not bool(is_exch[a])) and r_a > 1
             if chosen == "mobius":
                 f = 1.0
             elif chosen == "centres":
@@ -187,7 +183,7 @@ def _ip_canonical_scale(dens, chosen, nested_routes=None):
         else:
             s_u = int(np.prod(r_levels[:int(rel_unit) + 1]))
             g = (sp ** (s_u - 1) * _m.sqrt(s_u)) ** (s_tot // s_u)
-        G = float(_nested_orbit_mult(r_levels, spec["sym"]))
+        G = float(_nested_orbit_mult(r_levels, spec["exch"]))
         if chosen == "bulger":
             f = G * g
         elif chosen == "centres":
@@ -252,13 +248,13 @@ def _finalise_normalisation(
 
 
 # -------------------------------------------------------------------
-#  cos_sim_exp_tens
+#  sim_maet
 # -------------------------------------------------------------------
 
 
 @_with_dispatch_scope
 @with_kernel_chunk_bytes_pin
-def cos_sim_exp_tens(*args,
+def sim_maet(*args,
                      mode: str = "auto",
                      dedup: bool = True,
                      spectrum=None,
@@ -273,7 +269,7 @@ def cos_sim_exp_tens(*args,
 
     Input forms, in the order to reach for them: a single multiset; a
     pre-MAET, the canonical entry for everything else; densities built
-    by :func:`build_exp_tens`; then the raw positional multi-attribute,
+    by :func:`build_maet`; then the raw positional multi-attribute,
     sweep, and batched forms.
 
     Unified entry point. Accepts four input forms, dispatched on the
@@ -281,41 +277,60 @@ def cos_sim_exp_tens(*args,
 
     **Raw single-multiset scalar input**:
 
-    - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
-      where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
+    - ``sim_maet(p1, w1, p2, w2, sigma, r, is_rel, is_per, period[,
+      is_exch])`` where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
       ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
       Returns scalar.
 
+    **Raw single-multiset batched input**:
+
+    - ``sim_maet(P1, W1, P2, W2, sigma, r, is_rel, is_per, period[,
+      is_exch])`` with ``P1``, ``P2`` 2-D ``(M, K)`` matrices whose rows are
+      multisets, NaN-padded where cardinality varies, and ``W1``,
+      ``W2`` matching or ``None``. Returns ``(M,)``. Either operand
+      may instead be 1-D or ``(1, K)``, in which case it is broadcast
+      across the other's rows.
+
+      Shape rule (differs from MATLAB). Batched-raw mode is entered on
+      ``ndim == 2``, so a ``(K, 1)`` array is K rows of one element
+      each. MATLAB enters it on a matrix with both dimensions greater
+      than one, where a ``K``-by-1 column is a vector and is broadcast
+      as one multiset shared by every row. A batch of one-element
+      multisets is written the same way in both languages: pad to two
+      columns with NaN, the padding being stripped per row before each
+      density is built.
+
     **Pre-MAET input**:
 
-    - ``cos_sim_exp_tens(pm1, pm2)``. A pre-MAET
-      (:func:`~mpt.pre_maet`) holds everything :func:`build_exp_tens`
+    - ``sim_maet(pm1, pm2)``. A pre-MAET
+      (:func:`~mpt.pre_maet`) holds everything :func:`build_maet`
       needs, so it stands wherever a density does: each side is built
       internally and a scalar returned. Either side may equally be a
       density, so the two forms mix freely.
 
     **Pre-built density input** (plus polymorphic lists):
 
-    - ``cos_sim_exp_tens(dens_x, dens_y)`` — scalar.
-    - ``cos_sim_exp_tens(dens_x, [d1, d2, …])`` — broadcast, returns
+    - ``sim_maet(dens_x, dens_y)`` — scalar.
+    - ``sim_maet(dens_x, [d1, d2, …])`` — broadcast, returns
       ``(N,)``.
-    - ``cos_sim_exp_tens([a1, a2, …], [b1, b2, …])`` — list-vs-list
+    - ``sim_maet([a1, a2, …], [b1, b2, …])`` — list-vs-list
       with ``mode='pairwise'`` (default ``'auto'``, resolves to
       pairwise for equal lengths) returning ``(M,)``, or
       ``mode='cartesian'`` returning ``(M, N)``.
 
     **Raw multi-attribute scalar input**:
 
-    - ``cos_sim_exp_tens(p_attr1, w_attr1, p_attr2, w_attr2, sigma_vec,
-      r_vec, is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
+    - ``sim_maet(p_attr1, w_attr1, p_attr2, w_attr2, sigma_vec,
+      r_vec, is_rel_vec, is_per_vec, period_vec[, is_exch_vec])`` where
+      ``p_attr*`` are
       lists of per-attribute matrices and ``w_attr*`` the matching
       per-attribute weights. Returns scalar.
 
     **Raw multi-attribute scalar-vs-list (sweep)**:
 
-    - ``cos_sim_exp_tens(p_attr_ref, w_attr_ref, p_attr_list, w_attr_shared,
-      sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec)``
-      where exactly one of the two ``p_attr`` arguments is a list of
+    - ``sim_maet(p_attr_ref, w_attr_ref, p_attr_list, w_attr_shared,
+      sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec[,
+      is_exch_vec])`` where exactly one of the two ``p_attr`` arguments is a list of
       ``p_attr`` blocks (a list of lists; e.g. the matrix-form output of
       :func:`translate_attributes`) and the other is a single ``p_attr``.
       Build is internalised: the scalar operand is built once, the
@@ -329,13 +344,21 @@ def cos_sim_exp_tens(*args,
       ``localR1BroadcastFast`` take). *Python only:* a list tagged by
       :func:`translate_attributes` with ``method='auto'`` is first
       reduced to one mixture in the offset through
-      :func:`sweep_cos_sim_exp_tens`; MATLAB has no tagged-sweep type.
+      :func:`sweep_sim_maet`; MATLAB has no tagged-sweep type.
+
+    In every raw form the geometry may end with an optional trailing
+    ``is_exch`` (single multiset, batched) or ``is_exch_vec``
+    (multi-attribute) after ``period``: true (the default) for an
+    exchangeable (unordered) multiset, whose density is invariant under
+    permuting a tuple's coordinates; false for an ordered one, where
+    position in the tuple carries identity. See :func:`build_maet`.
 
     Parameters
     ----------
     *args
         Positional arguments. Length depends on the input form:
-        2 for density modes; 9 for raw single-multiset modes; 10 for raw MA mode.
+        2 for density modes; 9 for raw single-multiset modes; 10 for raw
+        MA mode; one more in each raw mode when ``is_exch`` is given.
     mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
         For density list-vs-list. Ignored in scalar and broadcast cases.
     dedup : bool, default True
@@ -394,7 +417,7 @@ def cos_sim_exp_tens(*args,
         physical integral of the two densities' product, each event's
         density being the sum of unnormalised Gaussian kernels over its
         full ordered tuple set); no self inner product is formed, and
-        the value is what ``entropy_exp_tens(method='renyi2')`` is
+        the value is what ``entropy_maet(method='renyi2')`` is
         computed from. Batched fast paths decline it and the per-pair
         route runs instead. The British spelling ``'normalise'`` is also
         accepted as an alias for the keyword name, and matching is
@@ -435,10 +458,8 @@ def cos_sim_exp_tens(*args,
 
     See Also
     --------
-    build_exp_tens : explicit density construction.
-    eval_exp_tens : evaluate a density at query points.
-    cos_sim_exp_tens_raw : deprecated; superseded by raw input mode here.
-    batch_cos_sim_exp_tens : deprecated; superseded by raw single-multiset batched input here.
+    build_maet : explicit density construction.
+    eval_maet : evaluate a density at query points.
 
     References
     ----------
@@ -449,7 +470,7 @@ def cos_sim_exp_tens(*args,
     args = _build_pre_maet_args(args, verbose=verbose)
     if len(args) < 2:
         raise TypeError(
-            "cos_sim_exp_tens requires at least 2 positional arguments."
+            "sim_maet requires at least 2 positional arguments."
         )
 
     # Accept ``normalize`` (canonical) or ``normalise`` (British alias).
@@ -534,7 +555,7 @@ def cos_sim_exp_tens(*args,
                 "operand is multi-attribute (a list of per-attribute "
                 "matrices) but the second is a flat vector. Use the same "
                 "form for both, or build each density explicitly with "
-                "build_exp_tens."
+                "build_maet."
             )
         b_is_list = (
             _looks_like_multi_attr(b)
@@ -545,7 +566,7 @@ def cos_sim_exp_tens(*args,
             raise TypeError(
                 "Raw multi-attribute list-vs-list is not supported; pass "
                 "explicit density structs via the density list mode "
-                "instead (build each entry with build_exp_tens first)."
+                "instead (build each entry with build_maet first)."
             )
 
         # Matrix-valued kernel covariance: whiten both operands once
@@ -561,11 +582,11 @@ def cos_sim_exp_tens(*args,
             (p1_in, w1_in, p2_in, w2_in) = args[0], args[1], args[2], args[3]
             sigma_vec_in, r_vec_in = args[4], args[5]
             is_rel_in, is_per_in = args[6], args[7]
-            is_sym_in = args[9] if len(args) == 10 else None
+            is_exch_in = args[9] if len(args) == 10 else None
             probe = p1_in[0] if a_is_list else p1_in
             _, sigma_res, _, chol_list = _resolve_aniso_ma(
                 probe, sigma_vec_in, r_vec_in, is_rel_in, is_per_in,
-                is_sym_in, None,
+                is_exch_in, None,
             )
             # The resolver validated the constraints and produced the
             # per-attribute Cholesky factors; whiten every structure
@@ -589,7 +610,7 @@ def cos_sim_exp_tens(*args,
                     f"Raw multi-attribute input expects 9 or 10 positional "
                     f"arguments (p_attr1, w1, p_attr2, w2, sigma_vec, "
                     f"r_vec, is_rel_vec, is_per_vec, "
-                    f"period_vec[, is_sym_vec]); got {len(args)}."
+                    f"period_vec[, is_exch_vec]); got {len(args)}."
                 )
             return _cos_sim_raw_ma_scalar(
                 *args,
@@ -608,7 +629,7 @@ def cos_sim_exp_tens(*args,
                 f"Raw multi-attribute scalar-vs-list input expects 9 or 10 "
                 f"positional arguments (p_attr1, w1, p_attr2, w2, "
                 f"sigma_vec, r_vec, is_rel_vec, is_per_vec, "
-                f"period_vec[, is_sym_vec]); got {len(args)}."
+                f"period_vec[, is_exch_vec]); got {len(args)}."
             )
         return _cos_sim_raw_ma_broadcast(
             *args,
@@ -628,7 +649,7 @@ def cos_sim_exp_tens(*args,
         raise TypeError(
             f"Raw single-multiset input expects 9 or 10 positional "
             f"arguments (p1, w1, p2, w2, sigma, r, is_rel, is_per, "
-            f"period[, is_sym]); got {len(args)}."
+            f"period[, is_exch]); got {len(args)}."
         )
 
     try:
@@ -669,12 +690,12 @@ def cos_sim_exp_tens(*args,
                 "size, breaking r == K)."
             )
         r_in, is_rel_in, is_per_in = args[5], args[6], args[7]
-        is_sym_in = args[9] if len(args) == 10 else True
+        is_exch_in = args[9] if len(args) == 10 else True
         for nm, arr in (("P1", a_arr), ("P2", b_arr)):
             K_side = arr.shape[-1]
             check_aniso_constraints(
                 r=r_in, K=K_side, is_rel=is_rel_in, is_per=is_per_in,
-                is_sym=is_sym_in, name=f"sigma ({nm})",
+                is_exch=is_exch_in, name=f"sigma ({nm})",
             )
         Sigma_in, R_in = validate_kernel_cov(
             args[4], dim=int(r_in), name="sigma")
@@ -687,7 +708,7 @@ def cos_sim_exp_tens(*args,
     # Batched dispatch fires whenever either operand is 2-D.
     if a_arr.ndim == 2 or b_arr.ndim == 2:
         sigma, r_, is_rel, is_per, period = args[4:9]
-        is_sym = args[9] if len(args) == 10 else None
+        is_exch = args[9] if len(args) == 10 else None
         W1_arg, W2_arg = args[1], args[3]
 
         # Reshape any 1-D operand to (1, K) so both are 2-D from here on.
@@ -724,7 +745,7 @@ def cos_sim_exp_tens(*args,
             )
 
         return _cos_sim_raw_single_multiset_batch(
-            P1, P2, sigma, r_, is_rel, is_per, period, is_sym,
+            P1, P2, sigma, r_, is_rel, is_per, period, is_exch,
             weights_a=W1, weights_b=W2,
             spectrum=spectrum, precision=precision,
             dedup=dedup,
@@ -990,13 +1011,13 @@ def _compute_pair_results_with_dedup(
     def _declared(d):
         # The per-density declarations the pair core reads beyond the
         # chord and its parameters: the wrap names the measure on a
-        # periodic attribute and [sym] the tuple reading, so two pairs
+        # periodic attribute and [exch] the tuple reading, so two pairs
         # may share a key only when both agree (the MATLAB twin
         # localDensityPairKey bakes in the same two).
         wrap = getattr(d, "wrap", None)
-        sym = getattr(d, "is_sym", None)
+        exch = getattr(d, "is_exch", None)
         return (str(wrap[0]) if wrap is not None else "full-image",
-                bool(sym[0]) if sym is not None else True)
+                bool(exch[0]) if exch is not None else True)
 
     for a, b in pairs:
         pa, wa, sig_a, r_a, rel_a, per_a, period_a = _fields(a)
@@ -1020,7 +1041,7 @@ def _compute_pair_results_with_dedup(
     n_unique = len(unique_pair_list)
     if verbose:
         print(
-            f"cos_sim_exp_tens: {len(pairs)} pairs, {n_unique} unique "
+            f"sim_maet: {len(pairs)} pairs, {n_unique} unique "
             f"after canonical-form dedup."
         )
 
@@ -1062,7 +1083,7 @@ def _compute_pair_results_with_dedup(
         t_per_pair = t_cal_total / len(sample_idx)
         est_total = t_cal_total + t_per_pair * n_unique
         maybe_print_batched_estimate(
-            "cos_sim_exp_tens", n_unique, est_total,
+            "sim_maet", n_unique, est_total,
         )
         prog_stride = progress_stride(t_per_pair)
         show_progress = est_total >= 5
@@ -1122,7 +1143,7 @@ def _cos_sim_pair_core(
 ):
     """Internal: dispatch a single pair to the correct core IP routine.
 
-    Routes to :func:`_cos_sim_exp_tens_ma`, threading ``method``,
+    Routes to :func:`_sim_maet_ma`, threading ``method``,
     ``normalize``, ``truncation_sigmas`` and ``kernel_precision``
     through; that routine
     handles both the single-multiset and multi-attribute cases.
@@ -1142,7 +1163,7 @@ def _cos_sim_pair_core(
                 "dens_x is a MaetDensity but dens_y is not; both must be "
                 "the same type."
             )
-        return _cos_sim_exp_tens_ma(
+        return _sim_maet_ma(
             dens_x, dens_y,
             method=method,
             normalize=normalize,
@@ -1167,7 +1188,7 @@ def _cos_sim_density_path(
     kernel_precision: str | None = None,
     verbose: bool = True,
 ):
-    """Density-input dispatch for :func:`cos_sim_exp_tens`."""
+    """Density-input dispatch for :func:`sim_maet`."""
     is_x_scalar, list_x = _normalize_density_input(dens_x, name="dens_x")
     is_y_scalar, list_y = _normalize_density_input(dens_y, name="dens_y")
 
@@ -1246,7 +1267,7 @@ def _cos_sim_density_path(
     else:
         if dedup and verbose:
             print(
-                "cos_sim_exp_tens: dedup=True requested but input includes "
+                "sim_maet: dedup=True requested but input includes "
                 "multi-attribute densities; computing without dedup."
             )
         results = _compute_pair_results_no_dedup(
@@ -1264,7 +1285,7 @@ def _cos_sim_density_path(
 
 def _cos_sim_raw_single_multiset_scalar(
     p1, w1, p2, w2,
-    sigma, r, is_rel, is_per, period, is_sym=None,
+    sigma, r, is_rel, is_per, period, is_exch=None,
     *,
     spectrum=None,
     method: str = "auto",
@@ -1273,9 +1294,9 @@ def _cos_sim_raw_single_multiset_scalar(
     kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> float:
-    """Raw single-multiset scalar dispatch for :func:`cos_sim_exp_tens`."""
-    if is_sym is None:
-        is_sym = True
+    """Raw single-multiset scalar dispatch for :func:`sim_maet`."""
+    if is_exch is None:
+        is_exch = True
     if spectrum is not None:
         p1_aug, w1_aug = add_spectra(
             np.asarray(p1, dtype=np.float64),
@@ -1293,12 +1314,12 @@ def _cos_sim_raw_single_multiset_scalar(
         p1_aug, w1_aug = p1, w1
         p2_aug, w2_aug = p2, w2
 
-    dx = build_exp_tens(
-        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, is_sym,
+    dx = build_maet(
+        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, is_exch,
         verbose=verbose,
     )
-    dy = build_exp_tens(
-        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, is_sym,
+    dy = build_maet(
+        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, is_exch,
         verbose=verbose,
     )
     return _cos_sim_pair_core(
@@ -1314,7 +1335,7 @@ def _cos_sim_raw_single_multiset_scalar(
 
 def _cos_sim_raw_ma_scalar(
     p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec=None,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_exch_vec=None,
     *,
     method: str = "auto",
     normalize: str = "cosine",
@@ -1322,14 +1343,14 @@ def _cos_sim_raw_ma_scalar(
     kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> float:
-    """Raw multi-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
-    dx = build_exp_tens(
+    """Raw multi-attribute scalar dispatch for :func:`sim_maet`."""
+    dx = build_maet(
         p_attr1, w1, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=verbose,
     )
-    dy = build_exp_tens(
+    dy = build_maet(
         p_attr2, w2, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=verbose,
     )
     return _cos_sim_pair_core(
         dx, dy,
@@ -1343,7 +1364,7 @@ def _cos_sim_raw_ma_scalar(
 
 def _cos_sim_raw_ma_broadcast(
     p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec=None,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_exch_vec=None,
     *,
     a_is_list: bool,
     b_is_list: bool,
@@ -1365,7 +1386,7 @@ def _cos_sim_raw_ma_broadcast(
     1. **Python only.** A list tagged by
        :func:`~mpt.translate_attributes` (a
        :class:`~mpt._tensor.preprocessing.TranslatedSweep`) is reduced to
-       one mixture in the offset through :func:`sweep_cos_sim_exp_tens`
+       one mixture in the offset through :func:`sweep_sim_maet`
        when ``method='auto'`` and the sweep is eligible. The MATLAB
        toolbox has no tagged-sweep type, so this reduction has no twin
        there; an untagged list never reaches it.
@@ -1381,7 +1402,7 @@ def _cos_sim_raw_ma_broadcast(
     Returns a 1-D ``ndarray`` of length M, the list length.
     """
     if a_is_list == b_is_list:
-        # Caller (cos_sim_exp_tens) is responsible for ensuring exactly
+        # Caller (sim_maet) is responsible for ensuring exactly
         # one operand is a list; this is a sanity guard.
         raise RuntimeError(
             "_cos_sim_raw_ma_broadcast called without a clear "
@@ -1398,9 +1419,9 @@ def _cos_sim_raw_ma_broadcast(
         list_pAttr,  list_w   = p_attr1, w1
         scalar_first = False  # densX is per-entry, densY is scalar
 
-    dens_scalar = build_exp_tens(
+    dens_scalar = build_maet(
         scalar_pAttr, scalar_w, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=verbose,
     )
 
     # A tagged sweep from translate_attributes carries the offsets that
@@ -1410,7 +1431,7 @@ def _cos_sim_raw_ma_broadcast(
     # below then runs unchanged.
     fast = _try_sweep_reduction(
         list_pAttr, list_w, dens_scalar,
-        sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+        sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_exch_vec,
         scalar_first=scalar_first,
         normalize=normalize,
         method=method,
@@ -1423,9 +1444,9 @@ def _cos_sim_raw_ma_broadcast(
 
     M = len(list_pAttr)
     dens_list = [
-        build_exp_tens(
+        build_maet(
             list_pAttr[m], list_w, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=False,
+            is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=False,
         )
         for m in range(M)
     ]
@@ -1479,7 +1500,7 @@ def _cos_sim_raw_ma_broadcast(
 
 def _try_sweep_reduction(
     list_pAttr, list_w, dens_scalar,
-    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_exch_vec,
     *, scalar_first, normalize, method,
     truncation_sigmas, kernel_precision, verbose,
 ):
@@ -1492,7 +1513,7 @@ def _try_sweep_reduction(
     run, so every input still reaches a correct answer by some route.
     """
     from .preprocessing import TranslatedSweep
-    from .sweep import sweep_cos_sim_exp_tens, sweep_eligibility
+    from .sweep import sweep_sim_maet, sweep_eligibility
 
     if not isinstance(list_pAttr, TranslatedSweep):
         return None
@@ -1504,9 +1525,9 @@ def _try_sweep_reduction(
     if off.size == 0 or not np.all(np.isfinite(off)):
         return None
 
-    dens_base = build_exp_tens(
+    dens_base = build_maet(
         list_pAttr.sweep_base, list_w, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=False,
+        is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=False,
     )
     # The sweep translates the query; when the tagged list is the first
     # operand the roles reverse, and translating X by mu is translating
@@ -1525,7 +1546,7 @@ def _try_sweep_reduction(
     ok, _ = sweep_eligibility(dens_x, dens_y, off_use)
     if not ok:
         return None
-    return sweep_cos_sim_exp_tens(
+    return sweep_sim_maet(
         dens_x, dens_y, off_use,
         normalize=normalize,
         truncation_sigmas=truncation_sigmas,
@@ -1536,7 +1557,7 @@ def _try_sweep_reduction(
 
 
 # -------------------------------------------------------------------
-#  _cos_sim_exp_tens_ma  (multi-attribute inner product; orbit constants)
+#  _sim_maet_ma  (multi-attribute inner product; orbit constants)
 # -------------------------------------------------------------------
 
 
@@ -1614,7 +1635,7 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     # The per-call truncation width sizes the grids the routes are estimated
     # on, as it sizes the kernels they run: estimating at the global default
     # while truncating at the per-call width would race the routes on a
-    # grid neither of them uses (MATLAB: cosSimExpTens nuVecSel).
+    # grid neither of them uses (MATLAB: simMaet nuVecSel).
     _ts_sel = _resolve_ts(truncation_sigmas)
     rel_vec = np.array([bool(is_rel[a]) for a in range(A)], dtype=bool)
     nu_vec = np.ones(max(A, 1))[:A]
@@ -1667,12 +1688,12 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     skip_xx = (not need_xx) or _self_ip_memoised(dens_x)
     skip_yy = (not need_yy) or _self_ip_memoised(dens_y)
 
-    # Ordered ([sym]=0) attributes at r_a > 1 on either side.
-    is_sym_x = np.asarray(getattr(dens_x, "is_sym", np.ones(A, dtype=bool)))
-    is_sym_y = np.asarray(getattr(dens_y, "is_sym", np.ones(A, dtype=bool)))
+    # Ordered ([exch]=0) attributes at r_a > 1 on either side.
+    is_exch_x = np.asarray(getattr(dens_x, "is_exch", np.ones(A, dtype=bool)))
+    is_exch_y = np.asarray(getattr(dens_y, "is_exch", np.ones(A, dtype=bool)))
     ordered_any = bool(
-        np.any((~is_sym_x) & (r_vec > 1))
-        or np.any((~is_sym_y) & (r_vec > 1))
+        np.any((~is_exch_x) & (r_vec > 1))
+        or np.any((~is_exch_y) & (r_vec > 1))
     )
 
     kwargs = dict(
@@ -1686,14 +1707,14 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
         guard_forced_bulger=not nested_any,
         wrap_vec=wrap_vec_x,
         per_vec=[bool(is_per[a]) for a in range(A)],
-        sym_vec=getattr(dens_x, "is_sym", None),
+        exch_vec=getattr(dens_x, "is_exch", None),
         truncation_sigmas=truncation_sigmas,
         skip_xx=skip_xx, skip_yy=skip_yy,
     )
     return kwargs, ordered_any, nested_any
 
 
-def _cos_sim_exp_tens_ma(
+def _sim_maet_ma(
     dens_x: MaetDensity,
     dens_y: MaetDensity,
     *,
@@ -1768,7 +1789,7 @@ def _cos_sim_exp_tens_ma(
     need_xx = (normalize == "cosine")
     need_yy = (normalize != "none")
 
-    # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
+    # Ordered ([exch]=0) attributes are not symmetrised, so the orbit
     # (Möbius) per-attribute inner product does not represent them. Force
     # the pairwise/centres path whenever any attribute is ordered at
     # r_a > 1 (r_a = 1 is vacuous). The centres path reads the actual
@@ -1813,7 +1834,7 @@ def _cos_sim_exp_tens_ma(
                 truncation_sigmas=truncation_sigmas)
             if triple is not None:
                 from .._defaults import _maybe_show_dispatch_msg as _msg
-                _msg("cos_sim_exp_tens", "contract",
+                _msg("sim_maet", "contract",
                      "nested: " + ",".join(_LAST_NESTED_ROUTES))
                 ip_xy, ip_xx, ip_yy = triple
                 if normalize == "none":
@@ -1837,14 +1858,14 @@ def _cos_sim_exp_tens_ma(
     # the announce says so.
     from .._defaults import _maybe_show_dispatch_msg
     _maybe_show_dispatch_msg(
-        "cos_sim_exp_tens",
+        "sim_maet",
         ("bulger (direct on ordered attributes)"
          if (ordered_any and chosen == "bulger") else chosen),
         "ma_select",
     )
 
     if chosen == "mobius":
-        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
+        ip_xy, ip_xx, ip_yy = _sim_maet_ma_orbit(
             dens_x, dens_y, user_forced_mobius=(method == "mobius"), truncation_sigmas=truncation_sigmas,
             need_xx=need_xx, need_yy=need_yy,
         )
@@ -1881,21 +1902,21 @@ def _cos_sim_exp_tens_ma(
                            if isinstance(k, tuple) and len(k) > 0
                            and k[0] == "mobius"]:
                     del _d._self_ip_cache[_k]
-            ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
+            ip_xy, ip_xx, ip_yy = _sim_maet_ma_pairwise(
                 dens_x, dens_y, verbose=verbose,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 need_xx=need_xx, need_yy=need_yy,
             )
     elif chosen == "centres":
-        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_centres(
+        ip_xy, ip_xx, ip_yy = _sim_maet_ma_centres(
             dens_x, dens_y, verbose=verbose,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             need_xx=need_xx, need_yy=need_yy,
         )
     else:  # 'bulger'
-        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
+        ip_xy, ip_xx, ip_yy = _sim_maet_ma_pairwise(
             dens_x, dens_y, verbose=verbose,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -2409,7 +2430,7 @@ def _trunc_log_kernel_exp(log_kernel, truncation_sigmas, *, n_terms=None):
 
 
 
-def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
+def _sim_maet_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
                                need_xx: bool = True,
                                need_yy: bool = True,
                                user_forced_mobius: bool = False):
@@ -2768,9 +2789,9 @@ def _nested_attr_route(dens_x, dens_y, a, force_route=None,
     - ``'taugrid'`` -- relative-periodic on the all-image tau-grid contraction,
       the transposition average over the period.
 
-    **Raw single-multiset batched input** (replaces ``batch_cos_sim_exp_tens``):
+    **Raw single-multiset batched input**:
 
-    - ``cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
+    - ``sim_maet(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
       where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
       (rows are chords; NaN-padded for variable cardinality), ``W1``,
       ``W2`` likewise (or ``None`` for uniform). Returns ``(M,)``. If
@@ -2868,13 +2889,13 @@ def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
     spec_x = dens_x.nested[a]
     spec_y = dens_y.nested[a]
     r_levels = np.asarray(spec_x["r"]).ravel()
-    sym_levels = np.asarray(spec_x["sym"]).ravel()
+    exch_levels = np.asarray(spec_x["exch"]).ravel()
     tags_x = np.asarray(spec_x["tags"])
     tags_y = np.asarray(spec_y["tags"])
-    rx = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
+    rx = build_recipe(r_levels, exch_levels, tags_x, is_rel, is_per)
     same = (tags_x.shape == tags_y.shape
             and bool(np.array_equal(tags_x, tags_y)))
-    ry = rx if same else build_recipe(r_levels, sym_levels, tags_y,
+    ry = rx if same else build_recipe(r_levels, exch_levels, tags_y,
                                       is_rel, is_per)
     PX = np.asarray(dens_x.p_attr[a], dtype=np.float64)
     PY = np.asarray(dens_y.p_attr[a], dtype=np.float64)
@@ -2959,14 +2980,14 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
         return _decline("an inner/intermediate [rel] unit is not yet covered")
 
     r_levels = np.asarray(spec["r"]).ravel()
-    sym_levels = np.asarray(spec["sym"]).ravel()
-    # The two densities must agree on the per-level read-arities and [sym]
+    exch_levels = np.asarray(spec["exch"]).ravel()
+    # The two densities must agree on the per-level read-arities and [exch]
     # flags (same nested attribute); only the leaf cardinalities may differ
     # -- a 4-pitch prototype against an 8-pitch window, say.
     if (not np.array_equal(r_levels, np.asarray(spec_y["r"]).ravel())
-            or not np.array_equal(sym_levels,
-                                  np.asarray(spec_y["sym"]).ravel())):
-        return _decline("the two nested attributes differ in [r]/[sym]")
+            or not np.array_equal(exch_levels,
+                                  np.asarray(spec_y["exch"]).ravel())):
+        return _decline("the two nested attributes differ in [r]/[exch]")
 
     # Per-level dispatch (see _nested_attr_route / _nested_attr_matrix):
     # absolute and absolute-periodic reduce through the event-pair-vectorised
@@ -3041,14 +3062,14 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
     materialised centres otherwise -- with the route decided once so its xy, xx
     and yy share one measure, and, on a relative-periodic attribute, decided by
     the declared ``wrap`` rather than by cost wherever the two differ (see
-    :func:`_nested_attr_route`). An ordered-flat attribute (``[sym]=0``, r>1, not
+    :func:`_nested_attr_route`). An ordered-flat attribute (``[exch]=0``, r>1, not
     nested) goes through the centres path
     (:func:`_closed_form_attr_matrix_from`): a single ordered level has no
     symmetric orbit to reduce, and routing it through the orbit/Möbius matrix
     would wrongly symmetrise it (summing its full ``S_r`` orbit). Flat-symmetric
     and r=1 attributes go through the orbit/Möbius per-attribute matrix
     (:func:`_ma_per_attr_inner_matrix`). The matrices multiply element-wise then
-    sum, mirroring :func:`_cos_sim_exp_tens_ma_orbit`. Per-attribute prefactors
+    sum, mirroring :func:`_sim_maet_ma_orbit`. Per-attribute prefactors
     are constant and cancel, so mixing the matrix conventions is exact.
 
     Returns the (ip_xy, ip_xx, ip_yy) triple, or ``None`` (route to the exact
@@ -3071,8 +3092,8 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
     nested_y = getattr(dens_y, "nested", None) or [None] * A
     inner_rx = _inner_r_vec(dens_x)
     inner_ry = _inner_r_vec(dens_y)
-    is_sym_x = np.asarray(
-        getattr(dens_x, "is_sym", np.ones(A, dtype=bool))).ravel()
+    is_exch_x = np.asarray(
+        getattr(dens_x, "is_exch", np.ones(A, dtype=bool))).ravel()
 
     N_x = int(dens_x.n)
     N_y = int(dens_y.n)
@@ -3095,7 +3116,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
     for a in range(A):
         is_nested = (nested_x[a] is not None) or (nested_y[a] is not None)
         r_a = int(dens_x.r[a])
-        ordered_flat = ((not is_nested) and (not bool(is_sym_x[a]))
+        ordered_flat = ((not is_nested) and (not bool(is_exch_x[a]))
                         and (r_a > 1))
         if is_nested:
             if nested_x[a] is None or nested_y[a] is None:
@@ -3104,12 +3125,12 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
                 return _decline(
                     "an inner/intermediate [rel] unit is not yet covered")
             r_levels = np.asarray(nested_x[a]["r"]).ravel()
-            sym_levels = np.asarray(nested_x[a]["sym"]).ravel()
+            exch_levels = np.asarray(nested_x[a]["exch"]).ravel()
             if (not np.array_equal(
                     r_levels, np.asarray(nested_y[a]["r"]).ravel())
                     or not np.array_equal(
-                        sym_levels, np.asarray(nested_y[a]["sym"]).ravel())):
-                return _decline("the two nested attributes differ in [r]/[sym]")
+                        exch_levels, np.asarray(nested_y[a]["exch"]).ravel())):
+                return _decline("the two nested attributes differ in [r]/[exch]")
             route, taus = _nested_attr_plan(dens_x, dens_y, a,
                                             force_route=force_route,
                                             skip_xx=_skip_xx,
@@ -3199,7 +3220,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
                                             truncation_sigmas=_ts_ma)
             continue
 
-        # Ordered flat ([sym]=0, r>1, not nested): the materialised centres,
+        # Ordered flat ([exch]=0, r>1, not nested): the materialised centres,
         # which honour the ordered reading (no symmetrisation -- the orbit
         # matrix would wrongly symmetrise) and use the minimum-image
         # pairwise-wrap for relative-periodic. A single ordered level has no
@@ -3336,7 +3357,7 @@ def _self_ip_cache_key(route, truncation_sigmas, kernel_precision=None,
             kernel_precision, extra)
 
 
-def _cos_sim_exp_tens_ma_centres(dens_x, dens_y, *, verbose: bool = True,
+def _sim_maet_ma_centres(dens_x, dens_y, *, verbose: bool = True,
                                  truncation_sigmas=None,
                                  kernel_precision=None, need_xx: bool = True,
                                  need_yy: bool = True):
@@ -3359,7 +3380,7 @@ def _cos_sim_exp_tens_ma_centres(dens_x, dens_y, *, verbose: bool = True,
     from .._defaults import _maybe_show_dispatch_msg
 
     _maybe_show_dispatch_msg(
-        "cos_sim_exp_tens", "centres",
+        "sim_maet", "centres",
         "unrestricted enumeration of tuple centres (reference route)",
     )
 
@@ -3408,7 +3429,7 @@ def _cos_sim_exp_tens_ma_centres(dens_x, dens_y, *, verbose: bool = True,
     return ip_xy, ip_xx, ip_yy
 
 
-def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
+def _sim_maet_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
                                   truncation_sigmas=None,
                                   kernel_precision=None,
                                   need_xx: bool = True,
@@ -3416,7 +3437,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the
     Bulger's method (``_ip_core_ma``).
 
-    This is the body of the original ``_cos_sim_exp_tens_ma``
+    This is the body of the original ``_sim_maet_ma``
     factored out so the new dispatcher can route to it cleanly.
 
     ``need_xx=False`` skips <X,X> when it is neither memoised nor
@@ -3452,7 +3473,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
     if compute_yy:
         total_pairs += n_jy * n_ky
     max_r = int(np.max(r_vec)) if A > 0 else 1
-    estimate_comp_time(total_pairs, max_r, "cos_sim_exp_tens (MAET)", verbose)
+    estimate_comp_time(total_pairs, max_r, "sim_maet (MAET)", verbose)
 
     ip_xy = _ip_core_ma(
         dens_x.u_perm, dens_x.w_j, n_jx,
@@ -3498,42 +3519,6 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
 
 
 # -------------------------------------------------------------------
-#  cos_sim_exp_tens_raw  (dispatches single-multiset or multi-attribute based on input shape)
-# -------------------------------------------------------------------
-
-
-def cos_sim_exp_tens_raw(
-    p1, w1, p2, w2, *args,
-    method: str = "auto",
-    verbose: bool = True,
-) -> float:
-    """Deprecated. Use :func:`cos_sim_exp_tens` directly with raw input.
-
-    .. deprecated:: 2.1
-       The raw-input dispatch has been folded into the unified
-       :func:`cos_sim_exp_tens` entry point. Pass raw arrays directly:
-
-       - Single-multiset: ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
-       - MA: ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec)``
-
-       This shim will be removed in a future release.
-    """
-    warnings.warn(
-        "cos_sim_exp_tens_raw is deprecated. The same call signature is "
-        "now supported directly by cos_sim_exp_tens (pass raw arrays as the "
-        "first arguments instead of pre-built density objects). This shim "
-        "will be removed in a future release.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return cos_sim_exp_tens(
-        p1, w1, p2, w2, *args,
-        method=method,
-        verbose=verbose,
-    )
-
-
-
 def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
                    truncation_sigmas=None, kernel_precision=None,
                    wrap_a='full-image'):
@@ -3571,7 +3556,7 @@ def _cos_sim_raw_single_multiset_batch(
     is_rel: bool,
     is_per: bool,
     period: float,
-    is_sym=None,
+    is_exch=None,
     *,
     weights_a: np.ndarray | None = None,
     weights_b: np.ndarray | None = None,
@@ -3584,7 +3569,7 @@ def _cos_sim_raw_single_multiset_batch(
     kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
-    """Raw single-multiset batched dispatch for :func:`cos_sim_exp_tens`.
+    """Raw single-multiset batched dispatch for :func:`sim_maet`.
 
     Computes cosine similarity for many paired weighted multisets
     (*p* represents pitches or positions). Each row of *p_mat_a*
@@ -3593,7 +3578,7 @@ def _cos_sim_raw_single_multiset_batch(
     Two-stage dedup: Phase 1 builds canonical-form keys per side and
     constructs each unique density once (chord-level dedup); Phase 3
     delegates pair-level dedup to the polymorphic
-    :func:`cos_sim_exp_tens` (in pairwise list-vs-list mode), which
+    :func:`sim_maet` (in pairwise list-vs-list mode), which
     in turn threads ``method`` through to the per-pair dispatcher.
 
     Parameters
@@ -3613,7 +3598,7 @@ def _cos_sim_raw_single_multiset_batch(
         Apply pair-level canonical-form dedup at Phase 3.
     method : {'auto', 'bulger', 'centres'}, default 'auto'
         Inner-product evaluation path; threaded through to the per-pair
-        single-multiset core via the inner ``cos_sim_exp_tens`` call.
+        single-multiset core via the inner ``sim_maet`` call.
     verbose : bool
         Print progress.
 
@@ -3627,15 +3612,15 @@ def _cos_sim_raw_single_multiset_batch(
 
     # The batched path deduplicates rows by a multiset canonical key,
     # which collapses rows that share a multiset but differ in order.
-    # That is correct only for the symmetric reading: under [sym]=0 the
+    # That is correct only for the symmetric reading: under [exch]=0 the
     # order is significant, so the dedup would silently merge distinct
     # ordered densities. Reject it rather than return a wrong answer.
     # Order-aware batched dedup is a tracked follow-up; for now use the
     # scalar or density-list forms for ordered densities.
-    if (is_sym is not None) and (not bool(np.all(is_sym))) and r > 1:
+    if (is_exch is not None) and (not bool(np.all(is_exch))) and r > 1:
         raise NotImplementedError(
-            "cos_sim_exp_tens batched (2-D) input does not yet support "
-            "[sym]=0 (ordered) densities at r > 1: the batched dedup "
+            "sim_maet batched (2-D) input does not yet support "
+            "[exch]=0 (ordered) densities at r > 1: the batched dedup "
             "canonicalises each row's multiset and would merge "
             "order-distinct rows. Build densities individually (scalar "
             "or density-list input) for ordered comparisons."
@@ -3715,18 +3700,18 @@ def _cos_sim_raw_single_multiset_batch(
     for ka, (p_arr, w_arr) in canon_data_a.items():
         if use_spec:
             p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
-        dens_cache_a[ka] = build_exp_tens(
+        dens_cache_a[ka] = build_maet(
             p_arr, w_arr, sigma, r, is_rel, is_per, period,
-            True if is_sym is None else is_sym, verbose=False
+            True if is_exch is None else is_exch, verbose=False
         )
 
     dens_cache_b: dict[tuple, object] = {}
     for kb, (p_arr, w_arr) in canon_data_b.items():
         if use_spec:
             p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
-        dens_cache_b[kb] = build_exp_tens(
+        dens_cache_b[kb] = build_maet(
             p_arr, w_arr, sigma, r, is_rel, is_per, period,
-            True if is_sym is None else is_sym, verbose=False
+            True if is_exch is None else is_exch, verbose=False
         )
 
     n_unique_a = len(dens_cache_a)
@@ -3735,7 +3720,7 @@ def _cos_sim_raw_single_multiset_batch(
 
     if verbose:
         print(
-            f"cos_sim_exp_tens: {n_rows} rows, {n_valid} valid, "
+            f"sim_maet: {n_rows} rows, {n_valid} valid, "
             f"{n_unique_a} unique A-sets, {n_unique_b} unique B-sets."
         )
         if is_rel:
@@ -3751,21 +3736,21 @@ def _cos_sim_raw_single_multiset_batch(
                 + "; B-set counts reflect position relative to A."
             )
         print(
-            f"cos_sim_exp_tens: built {n_unique_a + n_unique_b} "
+            f"sim_maet: built {n_unique_a + n_unique_b} "
             f"density structs ({n_unique_a} A + {n_unique_b} B)."
         )
 
-    # ── Phase 3: Compute via polymorphic cos_sim_exp_tens ────────────
+    # ── Phase 3: Compute via polymorphic sim_maet ────────────
     if n_valid == 0:
         if verbose:
-            print("cos_sim_exp_tens: done.")
+            print("sim_maet: done.")
         return s
 
     valid_indices = [i for i in range(n_rows) if valid[i]]
     list_a_dens = [dens_cache_a[key_a[i]] for i in valid_indices]
     list_b_dens = [dens_cache_b[key_b[i]] for i in valid_indices]
 
-    cos_results = cos_sim_exp_tens(
+    cos_results = sim_maet(
         list_a_dens, list_b_dens,
         mode="pairwise", dedup=dedup,
         method=method,
@@ -3780,73 +3765,18 @@ def _cos_sim_raw_single_multiset_batch(
         s[idx] = cos_results[k]
 
     if verbose:
-        print("cos_sim_exp_tens: done.")
+        print("sim_maet: done.")
 
     return s
 
 
 
 # -------------------------------------------------------------------
-#  batch_cos_sim_exp_tens (deprecated convenience wrapper)
-# -------------------------------------------------------------------
-
-
-@_with_dispatch_scope
-def batch_cos_sim_exp_tens(
-    p_mat_a: np.ndarray,
-    p_mat_b: np.ndarray,
-    sigma: float,
-    r: int,
-    is_rel: bool,
-    is_per: bool,
-    period: float,
-    *,
-    weights_a: np.ndarray | None = None,
-    weights_b: np.ndarray | None = None,
-    spectrum: list | None = None,
-    precision: int | None = None,
-    verbose: bool = True,
-) -> np.ndarray:
-    """Deprecated. Use :func:`cos_sim_exp_tens` directly with 2-D matrices.
-
-    .. deprecated:: 2.1
-       The batched-raw-input dispatch has been folded into the unified
-       :func:`cos_sim_exp_tens` entry point. Pass 2-D pitch matrices
-       directly:
-
-       .. code-block:: python
-
-          # Old:
-          s = batch_cos_sim_exp_tens(P1, P2, sigma, r, is_rel, is_per, period,
-                                     weights_a=W1, weights_b=W2)
-          # New:
-          s = cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
-
-       Note the argument order: weights now follow each pitch matrix
-       positionally (matching the single-multiset scalar raw form), instead of being
-       keyword-only. This shim preserves the old keyword-only weight API
-       for backward compatibility but issues a ``DeprecationWarning``.
-       This shim will be removed in a future release.
-    """
-    warnings.warn(
-        "batch_cos_sim_exp_tens is deprecated. Pass 2-D pitch matrices "
-        "directly to cos_sim_exp_tens (with weights as positional arguments "
-        "after each pitch matrix, matching the single-multiset scalar raw form). This "
-        "shim will be removed in a future release.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _cos_sim_raw_single_multiset_batch(
-        p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
-        weights_a=weights_a, weights_b=weights_b,
-        spectrum=spectrum, precision=precision,
-        verbose=verbose,
-    )
 
 def _build_pre_maet_args(args, *, verbose=True):
     """Replace any whole pre-MAET among the positional arguments.
 
-    A pre-MAET is a density in waiting: it holds everything build_exp_tens
+    A pre-MAET is a density in waiting: it holds everything build_maet
     needs, so it stands wherever a density does and is built here. That
     goes for a *list* of them too: a list of pre-MAETs stands wherever a
     list of densities does, so the list and scalar-vs-list forms take
@@ -3872,15 +3802,15 @@ def _build_pre_maet_args(args, *, verbose=True):
 
     if not any(is_pre_maet(a) or _listish(a) for a in args):
         return args
-    from .build import build_exp_tens
+    from .build import build_maet
 
     def _one(a):
         if _is_sweep_pm(a):
             # One geometry, one density per sweep entry; the offsets ride
-            # along so cos_sim_exp_tens can still reduce the sweep to a
+            # along so sim_maet can still reduce the sweep to a
             # mixture in the offset.
             sweep = a["p_attr"]
-            built = [build_exp_tens({"p_attr": list(block),
+            built = [build_maet({"p_attr": list(block),
                                      "w_attr": a.get("w_attr"),
                                      "specs": a.get("specs")},
                                     verbose=verbose)
@@ -3889,9 +3819,9 @@ def _build_pre_maet_args(args, *, verbose=True):
                                    sweep_offsets=sweep.sweep_offsets,
                                    sweep_base=sweep.sweep_base)
         if is_pre_maet(a):
-            return build_exp_tens(a, verbose=verbose)
+            return build_maet(a, verbose=verbose)
         if _listish(a):
-            return [build_exp_tens(x, verbose=verbose) if is_pre_maet(x) else x
+            return [build_maet(x, verbose=verbose) if is_pre_maet(x) else x
                     for x in a]
         return a
 

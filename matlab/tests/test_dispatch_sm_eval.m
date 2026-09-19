@@ -1,4 +1,4 @@
-%% test_dispatch_sm_eval.m — v3 single multiset method dispatch in evalExpTens
+%% test_dispatch_sm_eval.m — v3 single multiset method dispatch in evalMaet
 %
 %  Tests for the new method keyword introduced in v3 (Commit 6b).
 %  Covers:
@@ -32,12 +32,12 @@ end
 % Bad method string raises informative error.
 ok_badMethod = false;
 try
-    evalExpTens([0 4 7 11 14 18 21 25], [], 30, 3, false, false, 0, ...
+    evalMaet([0 4 7 11 14 18 21 25], [], 30, 3, false, false, 0, ...
         [0; 4; 7], 'method', 'bogus', 'verbose', false);
 catch ME
-    ok_badMethod = strcmp(ME.identifier, 'evalExpTens:badMethod');
+    ok_badMethod = strcmp(ME.identifier, 'evalMaet:badMethod');
 end
-results{end+1,1} = 'dispatch.single multiset eval: bad method string raises evalExpTens:badMethod';
+results{end+1,1} = 'dispatch.single multiset eval: bad method string raises evalMaet:badMethod';
 results{end,2}   = ok_badMethod;
 
 %% ---- Orbit and centres agree (auto + explicit), abs nonperiodic ----
@@ -48,10 +48,10 @@ w = 0.5 + rand(8, 1);
 sigma = 30; r = 3;
 X = [linspace(0, 2000, 5); linspace(500, 2500, 5); linspace(1000, 3000, 5)];
 
-v_auto    = evalExpTens(p, w, sigma, r, false, false, 0, X, 'verbose', false);
-v_centres = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+v_auto    = evalMaet(p, w, sigma, r, false, false, 0, X, 'verbose', false);
+v_centres = evalMaet(p, w, sigma, r, false, false, 0, X, ...
     'method', 'centres', 'verbose', false);
-v_orbit   = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+v_orbit   = evalMaet(p, w, sigma, r, false, false, 0, X, ...
     'method', 'mobius', 'verbose', false);
 
 results{end+1,1} = 'dispatch.single multiset eval: r=3 abs nonper auto matches centres (within 1e-10)';
@@ -63,12 +63,12 @@ results{end,2}   = max(abs(v_orbit - v_centres)) < 1e-8;
 % Bulger's method on the inner product, so one word meant two things. ---
 ok_directRetired = false;
 try
-    evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+    evalMaet(p, w, sigma, r, false, false, 0, X, ...
         'method', 'direct', 'verbose', false);
 catch ME
-    ok_directRetired = strcmp(ME.identifier, 'evalExpTens:badMethod');
+    ok_directRetired = strcmp(ME.identifier, 'evalMaet:badMethod');
 end
-results{end+1,1} = 'dispatch.single multiset eval: retired ''direct'' raises evalExpTens:badMethod';
+results{end+1,1} = 'dispatch.single multiset eval: retired ''direct'' raises evalMaet:badMethod';
 results{end,2}   = ok_directRetired;
 
 %% ---- Auto agrees with centres for small r=2 ----
@@ -82,8 +82,8 @@ rng(33, 'twister');
 p2 = sort(2000 * rand(6, 1));
 w2 = ones(6, 1);
 X2 = [linspace(100, 1900, 4); linspace(500, 1500, 4)];
-v_auto2 = evalExpTens(p2, w2, 30, 2, false, false, 0, X2, 'verbose', false);
-v_cen2  = evalExpTens(p2, w2, 30, 2, false, false, 0, X2, ...
+v_auto2 = evalMaet(p2, w2, 30, 2, false, false, 0, X2, 'verbose', false);
+v_cen2  = evalMaet(p2, w2, 30, 2, false, false, 0, X2, ...
     'method', 'centres', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: r=2 small-K auto agrees with centres (rtol 1e-8)';
 results{end,2}   = all(abs(v_auto2 - v_cen2) <= 1e-11 + 1e-8 * abs(v_cen2));
@@ -97,9 +97,9 @@ results{end,2}   = all(abs(v_auto2 - v_cen2) <= 1e-11 + 1e-8 * abs(v_cen2));
 p_small = [0; 100; 400; 700];
 w_small = ones(4, 1);
 X_small = [50; 200; 350];
-v_auto_sm    = evalExpTens(p_small, w_small, 50, 3, false, false, 0, X_small, ...
+v_auto_sm    = evalMaet(p_small, w_small, 50, 3, false, false, 0, X_small, ...
     'verbose', false);
-v_centres_sm = evalExpTens(p_small, w_small, 50, 3, false, false, 0, X_small, ...
+v_centres_sm = evalMaet(p_small, w_small, 50, 3, false, false, 0, X_small, ...
     'method', 'centres', 'verbose', false);
 % Budget: the truncation floor is stated per kernel entry, while the
 % density sums many entries, so allow a small multiple of floor times
@@ -118,16 +118,16 @@ rng(37, 'twister');
 p_rel = sort(1200 * rand(8, 1));
 w_rel = ones(8, 1);
 X_rel = [200; 400];   % (r-1)=2 rows for r=3
-v_auto_rel    = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
+v_auto_rel    = evalMaet(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'verbose', false);
-v_centres_rel = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
+v_centres_rel = evalMaet(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'method', 'centres', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: rel mode auto agrees with centres (below threshold)';
 results{end,2}   = max(abs(v_auto_rel(:) - v_centres_rel(:))) ...
                    < 1e-5 * max(abs(v_centres_rel(:)));
 
 % --- Explicit Möbius for rel mode runs the relative-mode evaluator and agrees with centres ---
-v_orbit_rel = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
+v_orbit_rel = evalMaet(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: rel mode explicit Möbius matches centres (1e-6)';
 results{end,2}   = max(abs(v_orbit_rel - v_centres_rel)) < 1e-6;
@@ -139,19 +139,19 @@ p_per = sort(1200 * rand(8, 1));
 w_per = ones(8, 1);
 X_per = [linspace(0, 1100, 5); linspace(200, 1100, 5); ...
          linspace(400, 1100, 5); linspace(600, 1100, 5)];
-v_orbit_per = evalExpTens(p_per, w_per, 30, 4, false, true, 1200, X_per, ...
+v_orbit_per = evalMaet(p_per, w_per, 30, 4, false, true, 1200, X_per, ...
     'method', 'mobius', 'verbose', false);
-v_cen_per   = evalExpTens(p_per, w_per, 30, 4, false, true, 1200, X_per, ...
+v_cen_per   = evalMaet(p_per, w_per, 30, 4, false, true, 1200, X_per, ...
     'method', 'centres', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: r=4 abs per Möbius matches centres (1e-8)';
 results{end,2}   = max(abs(v_orbit_per - v_cen_per)) < 1e-8;
 
 %% ---- Skinny dens flows transparently ----
 
-dens_skinny = buildExpTens(p, w, sigma, r, false, false, 0, 'verbose', false);
+dens_skinny = buildMaet(p, w, sigma, r, false, false, 0, 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: skinny dens has no Centres before dispatch';
 results{end,2}   = ~isfield(dens_skinny, 'Centres');
-v_skinny_orbit = evalExpTens(dens_skinny, X, ...
+v_skinny_orbit = evalMaet(dens_skinny, X, ...
     'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: Möbius on skinny dens matches raw-args centres';
 results{end,2}   = max(abs(v_skinny_orbit - v_centres)) < 1e-8;
@@ -159,17 +159,17 @@ results{end,2}   = max(abs(v_skinny_orbit - v_centres)) < 1e-8;
 %% ---- Normalization consistency (Möbius vs centres) ----
 
 % 'gaussian' normalization: same multiplicative constant applied to both.
-v_orbit_g = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+v_orbit_g = evalMaet(p, w, sigma, r, false, false, 0, X, ...
     'method', 'mobius', 'gaussian', 'verbose', false);
-v_cen_g   = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+v_cen_g   = evalMaet(p, w, sigma, r, false, false, 0, X, ...
     'method', 'centres', 'gaussian', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: gaussian-normalized Möbius matches centres (1e-8)';
 results{end,2}   = max(abs(v_orbit_g - v_cen_g)) < 1e-8;
 
 % 'pdf' normalization: divides by sum(wJ); same factor for both paths.
-v_orbit_pdf = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+v_orbit_pdf = evalMaet(p, w, sigma, r, false, false, 0, X, ...
     'method', 'mobius', 'pdf', 'verbose', false);
-v_cen_pdf   = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+v_cen_pdf   = evalMaet(p, w, sigma, r, false, false, 0, X, ...
     'method', 'centres', 'pdf', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset eval: pdf-normalized orbit matches centres (1e-8)';
 results{end,2}   = max(abs(v_orbit_pdf - v_cen_pdf)) < 1e-8;

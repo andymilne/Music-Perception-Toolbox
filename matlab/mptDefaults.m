@@ -52,7 +52,7 @@ function varargout = mptDefaults(varargin)
 %
 %   What it affects. Every density evaluation routes through the
 %   Gaussian kernel sum, so truncationSigmas governs the accuracy of
-%   evalExpTens, cosSimExpTens, entropyExpTens, tensorHarmonicity,
+%   evalMaet, simMaet, entropyMaet, tensorHarmonicity,
 %   templateHarmonicity, spectralEntropy, virtualPitches,
 %   windowedSimilarity, and weightEvents, together with the orbit
 %   evaluators those functions call. It does not affect any non-kernel
@@ -63,7 +63,7 @@ function varargout = mptDefaults(varargin)
 %   max(exp(-truncationSigmas^2/2), 1e-12), and hence how fine the
 %   nested grid must become. At the tightest accuracy (Inf) a two- or
 %   higher-dimensional grid can exceed the feasible size, in which case
-%   entropyExpTens refuses with guidance rather than exhausting memory;
+%   entropyMaet refuses with guidance rather than exhausting memory;
 %   the factory default 6 keeps such grids feasible.
 %
 %   Call forms:

@@ -171,6 +171,23 @@ T = mobius.enumerateContingencyTables([], []);
 results{end+1, 1} = 'mobius.enumerateContingencyTables: 0x0 -> one empty table';
 results{end, 2}   = numel(T) == 1 && isequal(size(T{1}), [0 0]);
 
+%% ---- mobius.canonicalForm joins what greedyForm splits ----
+% Regression: at r = 5 the iterative row/column sort settles on two
+% fixed points for tables in one orbit (the first over-count in the old
+% |Omega_5| = 92); the exact canonical form must identify them.
+M1 = [0 0 1; 0 1 0; 0 1 0; 1 0 1];
+M2 = [0 0 1; 0 0 1; 0 1 0; 1 1 0];
+rs5 = sum(M1, 2)';
+cs5 = sum(M1, 1);
+[gr1, gc1, gM1] = mobius.greedyForm(M1, rs5, cs5);
+[gr2, gc2, gM2] = mobius.greedyForm(M2, rs5, cs5);
+[cr1, cc1, cM1] = mobius.canonicalForm(M1, rs5, cs5);
+[cr2, cc2, cM2] = mobius.canonicalForm(M2, rs5, cs5);
+results{end+1, 1} = 'mobius.greedyForm: splits the r = 5 orbit (documents the limitation)';
+results{end, 2}   = ~(isequal(gr1, gr2) && isequal(gc1, gc2) && isequal(gM1, gM2));
+results{end+1, 1} = 'mobius.canonicalForm: joins the r = 5 orbit greedyForm splits';
+results{end, 2}   = isequal(cr1, cr2) && isequal(cc1, cc2) && isequal(cM1, cM2);
+
 %% ---- mobius.canonicalForm ----
 
 % Idempotent: canonicalising a canonical form returns the same thing.

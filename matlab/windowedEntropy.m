@@ -12,8 +12,8 @@ function H = windowedEntropy(varargin)
 %     H = windowedEntropy(pm, centres, ...)
 %
 %   The geometry is read from its specs, and any of the six per-attribute
-%   parameters -- 'sigma', 'isPer', 'period', 'r', 'rel', 'sym' -- may be
-%   given alongside to override it, as at buildExpTens. An override may
+%   parameters -- 'sigma', 'isPer', 'period', 'r', 'rel', 'exch' -- may be
+%   given alongside to override it, as at buildMaet. An override may
 %   name every attribute or be selective, a 1 x A cell whose empty
 %   entries keep what the spec carries: 'sigma', {[], s, []} sweeps the
 %   second attribute's width and leaves the rest to the pre-MAET.
@@ -24,17 +24,17 @@ function H = windowedEntropy(varargin)
 %   no query, so at each position the windowed (and, for a dropped axis,
 %   axis-reduced) density is built and its entropy taken. Because there is
 %   no query to size a default window from, an explicit 'contextWindow'
-%   width (or sd) is required for every swept axis. 'isSym' is the
-%   per-attribute symmetry vector of the flat surface ([] keeps the
+%   width (or sd) is required for every swept axis. 'isExch' is the
+%   per-attribute exchangeability vector of the flat surface ([] keeps the
 %   unordered default); required, in particular, for ordered attributes
-%   carrying a matrix-valued kernel covariance (see intervalKernelCov);
+%   carrying a matrix-valued kernel covariance (see kernelCov);
 %   mutually exclusive with 'specs'. 'marginalise' is
 %   reserved for integrating a retained axis out of the density and is not
 %   yet implemented.
 %
 %
-%   See also PREMAET, WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDEXPTENS,
-%            ENTROPYEXPTENS.
+%   See also PREMAET, WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDMAET,
+%            ENTROPYMAET.
 
 varargin = internal.windowedPreMaetArgs(varargin, 'windowedEntropy', 1);
 H = localWindowedEntropy(varargin{:});
@@ -66,14 +66,14 @@ arguments
     nv.marginalise = []
     nv.targetAttr = []
     nv.specs = []
-    nv.isSym = []
+    nv.isExch = []
     nv.verbose (1,1) logical = false
 end
 
-if ~isempty(nv.isSym) && ~isempty(nv.specs)
-    error('windowedEntropy:isSymVsSpecs', ...
-        ['isSym applies to the flat per-attribute surface; nested ' ...
-         'geometry carries its per-level sym inside specs. Pass one ' ...
+if ~isempty(nv.isExch) && ~isempty(nv.specs)
+    error('windowedEntropy:isExchVsSpecs', ...
+        ['isExch applies to the flat per-attribute surface; nested ' ...
+         'geometry carries its per-level exch inside specs. Pass one ' ...
          'or the other.']);
 end
 
@@ -86,7 +86,7 @@ if ~isempty(nv.sweep)
     if isempty(nv.drop)
         error('windowedEntropy:sweepNeedsDrop', 'multi-axis sweep requires a parallel drop.');
     end
-    H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, nv.isSym, ...
+    H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, nv.isExch, ...
         nv.sweep, nv.drop, nv.contextWindow, nv.locate, nv.method, nv.base, ...
         nv.targetAttr, nv.specs);
     return;
@@ -95,7 +95,7 @@ if isempty(nv.dropWindowAttr)
     error('windowedEntropy:dropRequired', ...
         'dropWindowAttr is required (true drops the window axis, false retains it).');
 end
-H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, nv.isSym, centres, ...
+H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, nv.isExch, centres, ...
     nv.start, nv.stop, nv.step, nv.contextWindow, nv.windowAttr, ...
     nv.dropWindowAttr, nv.locate, nv.method, nv.base, nv.targetAttr, nv.specs);
 end
@@ -104,7 +104,7 @@ end
 % =========================================================================
 %  single-axis core
 % =========================================================================
-function H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, isSym, ...
+function H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, isExch, ...
         centres, startV, stopV, stepV, contextWindow, windowAttr, ...
         dropWindowAttr, locate, method, base, targetAttr, specs) %#ok<INUSL>
     A = numel(pAttr);
@@ -126,18 +126,18 @@ function H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, isSym, ..
     end
     ctxCentres = internal.resolveCentres(pAttr, axisIdx, centres, startV, stopV, stepV, sd * 2 * sqrt(3));
     [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-    symC = internal.subSymArgs(isSym, keep);
+    exchC = internal.subExchArgs(isExch, keep);
     H = zeros(1, numel(ctxCentres));
     for i = 1:numel(ctxCentres)
         [pc, wc, sc] = internal.applyWindows(pAttr, w, specs, axisIdx, ...
             ctxCentres(i), gamma, sd, {locate}, target);
         [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, A);
         if nested
-            dens = buildExpTens(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
+            dens = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
         else
-            dens = buildExpTens(pc, wc, sg, rr, rl, pr, pd, symC{:}, 'verbose', false);
+            dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);
         end
-        H(i) = entropyExpTens(dens, 'method', method, 'base', base, 'verbose', false);
+        H(i) = entropyMaet(dens, 'method', method, 'base', base, 'verbose', false);
     end
 end
 
@@ -145,7 +145,7 @@ end
 % =========================================================================
 %  multi-axis core
 % =========================================================================
-function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isSym, ...
+function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isExch, ...
         sweepMap, dropMap, contextWindow, locate, method, base, targetAttr, specs)
     n = numel(pAttr);
     [axes, grids] = internal.parseMap(sweepMap);
@@ -183,7 +183,7 @@ function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isSym, ...
         locates{k} = locate;
     end
     [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-    symC = internal.subSymArgs(isSym, keep);
+    exchC = internal.subExchArgs(isExch, keep);
     sizes = cellfun(@numel, grids);
     if K == 1, H = zeros(1, sizes(1)); else, H = zeros(sizes); end
     nTot = prod(sizes);
@@ -194,11 +194,11 @@ function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isSym, ...
         [pc, wc, sc] = internal.applyWindows(pAttr, w, specs, axes, centresK, gammas, sds, locates, target);
         [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, n);
         if nested
-            dens = buildExpTens(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
+            dens = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
         else
-            dens = buildExpTens(pc, wc, sg, rr, rl, pr, pd, symC{:}, 'verbose', false);
+            dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);
         end
-        H(li) = entropyExpTens(dens, 'method', method, 'base', base, 'verbose', false);
+        H(li) = entropyMaet(dens, 'method', method, 'base', base, 'verbose', false);
     end
 end
 

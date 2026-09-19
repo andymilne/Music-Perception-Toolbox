@@ -21,7 +21,7 @@
 %    - The two ways of getting the unrestricted matrix -- clearing the
 %      bundle's comb field, and the INTERNAL.COMBRESTRICTIONENABLED
 %      switch -- agree exactly.
-%    - Declines: r_a = 1 and an ordered (isSym = false) attribute carry
+%    - Declines: r_a = 1 and an ordered (isExch = false) attribute carry
 %      no comb bundle.
 %    - Cosine level: the switch changes cost, not value.
 %    - Nested: the same three claims for a nested attribute, whose perm
@@ -136,12 +136,12 @@ results{end,2}   = isempty(ccr_bOrd.comb) ...
 % --- Cosine level: the switch changes cost, not value -----------------
 % Small K rel-per: the MA Möbius orchestrator takes the centres route
 % here (maRelAttrPrefersCentres, pinned in test_ma_rel_centres.m).
-ccr_cosOn = cosSimExpTens( ...
+ccr_cosOn = simMaet( ...
     localCcrMake(8, 4, 2, true, true, true, 51), ...
     localCcrMake(8, 4, 2, true, true, true, 52), ...
     'method', 'mobius', 'verbose', false);
 internal.combRestrictionEnabled(false);
-ccr_cosOff = cosSimExpTens( ...
+ccr_cosOff = simMaet( ...
     localCcrMake(8, 4, 2, true, true, true, 51), ...
     localCcrMake(8, 4, 2, true, true, true, 52), ...
     'method', 'mobius', 'verbose', false);
@@ -156,7 +156,7 @@ results{end,2}   = abs(ccr_cosOn - ccr_cosOff) < 1e-13 * abs(ccr_cosOff);
 % (each unit permuted independently, then the two units permuted). The
 % comb side is the single combination, so the perm side is 8 columns per
 % event and the restriction removes a factor of 8.
-ccr_nSpec = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true true], ...
+ccr_nSpec = struct('tags', [0 0 1 1], 'r', [2 2], 'exch', [true true], ...
                    'rel', [0 1]);
 results{end+1,1} = 'centres comb restriction: nested |G| is the wreath order';
 results{end,2}   = internal.nestedOrbitMult([2 2], [true true]) == 8 ...
@@ -206,7 +206,7 @@ end
 % An all-ordered nested attribute has no orbit to collapse: |G| = 1, so
 % the restriction declines and the perm side equals the comb side.
 ccr_nOrdSpec = struct('tags', [0 0 1 1], 'r', [2 2], ...
-                      'sym', [false false], 'rel', [0 1]);
+                      'exch', [false false], 'rel', [0 1]);
 ccr_nOrdB = mobius.closedFormAttrCentres( ...
     localCcrMakeNested(4, ccr_nOrdSpec, 6.0, true, 1200.0, 62), 1);
 results{end+1,1} = 'centres comb restriction: all-ordered nested spec declines';
@@ -299,16 +299,16 @@ if standalone
 end
 
 
-function dens = localCcrMake(N, K, r, isRelP, isPerP, isSymP, seed)
+function dens = localCcrMake(N, K, r, isRelP, isPerP, isExchP, seed)
     % Scalar onset (attribute 1) plus a K-value attribute (attribute 2).
     rng(seed);
     % Values kept well inside a few tens of sigma so every overlap is
     % nonzero: an entrywise ratio test needs a denominator.
     pitches = rand(K, N) * 60;
     onsets  = (0:N-1) * 250 + randn(1, N) * 10;
-    dens = buildExpTens({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
+    dens = buildMaet({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
         [false, isRelP], [false, isPerP], [4000, 1200], ...
-        [true, isSymP], 'verbose', false);
+        [true, isExchP], 'verbose', false);
 end
 
 
@@ -317,7 +317,7 @@ function dens = localCcrMakeRagged(N, K, r, isRelP, isPerP, seed)
     pitches = rand(K, N) * 60;
     pitches(K, 1:3:N) = NaN;   % every third event loses its last value
     onsets  = (0:N-1) * 250 + randn(1, N) * 10;
-    dens = buildExpTens({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
+    dens = buildMaet({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
         [false, isRelP], [false, isPerP], [4000, 1200], ...
         [true, true], 'verbose', false);
 end
@@ -336,7 +336,7 @@ function dens = localCcrMakeAbsPer(N, K, r, sigma, period, seed)
     rng(seed);
     pitches = mod(base(1:K, 1:N) + randn(K, N) * (0.4 * sigma), period);
     onsets  = (0:N-1) * 250 + randn(1, N) * 10;
-    dens = buildExpTens({onsets; pitches}, {[]; []}, [15, sigma], ...
+    dens = buildMaet({onsets; pitches}, {[]; []}, [15, sigma], ...
         [1, r], [false, false], [false, true], [4000, period], ...
         [true, true], 'verbose', false);
 end
@@ -349,7 +349,7 @@ function dens = localCcrMakeNested(N, spec, sigma, isPerP, periodP, seed)
     % nonzero: an entrywise ratio test needs a denominator.
     rng(seed);
     vals = rand(4, N) * 60;
-    dens = buildExpTens({vals}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
+    dens = buildMaet({vals}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
         'isPer', isPerP, 'period', periodP, 'verbose', false);
 end
 

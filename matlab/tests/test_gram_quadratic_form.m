@@ -58,20 +58,20 @@ for mi = 1:size(modes, 1)
     baseX = {randn(K, 12) * 5, randn(K, 12) * 5};
     baseY = {randn(K, 4)  * 5, randn(K, 4)  * 5};
     sv = [5 5]; rv = [r r]; rl = [isRel isRel];
-    pv = [isPer isPer]; pd = [per per]; sym = [true true];
+    pv = [isPer isPer]; pd = [per per]; exch = [true true];
 
-    dX0 = buildExpTens(baseX, [], sv, rv, rl, pv, pd, sym, 'verbose', false);
-    dY0 = buildExpTens(baseY, [], sv, rv, rl, pv, pd, sym, 'verbose', false);
-    s0 = cosSimExpTens(dX0, dY0, 'method', 'bulger', 'verbose', false);
+    dX0 = buildMaet(baseX, [], sv, rv, rl, pv, pd, exch, 'verbose', false);
+    dY0 = buildMaet(baseY, [], sv, rv, rl, pv, pd, exch, 'verbose', false);
+    s0 = simMaet(dX0, dY0, 'method', 'bulger', 'verbose', false);
 
     for mag = [1e3, 1e6]
         shiftedX = cellfun(@(M) M + mag, baseX, 'UniformOutput', false);
         shiftedY = cellfun(@(M) M + mag, baseY, 'UniformOutput', false);
-        dXm = buildExpTens(shiftedX, [], sv, rv, rl, pv, pd, sym, ...
+        dXm = buildMaet(shiftedX, [], sv, rv, rl, pv, pd, exch, ...
                            'verbose', false);
-        dYm = buildExpTens(shiftedY, [], sv, rv, rl, pv, pd, sym, ...
+        dYm = buildMaet(shiftedY, [], sv, rv, rl, pv, pd, exch, ...
                            'verbose', false);
-        sm = cosSimExpTens(dXm, dYm, 'method', 'bulger', 'verbose', false);
+        sm = simMaet(dXm, dYm, 'method', 'bulger', 'verbose', false);
         results{end+1,1} = sprintf( ...
             'gram: %s is shift invariant at magnitude %g', lbl, mag); %#ok<*SAGROW>
         results{end,2} = abs(sm - s0) <= 1e-11;
@@ -82,20 +82,20 @@ end
 % --- Nested inner unit: block-diagonal form -----------------------------
 
 rng(710);
-spec = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false], ...
+spec = struct('tags', [0 0 1 1], 'r', [2 2], 'exch', [true false], ...
               'rel', 'innermost');
 baseXn = sort(randn(4, 8) * 4, 1);
 baseYn = sort(randn(4, 3) * 4, 1);
-dXn0 = buildExpTens({baseXn}, [], 1.0, 1, false, false, 0, true, ...
+dXn0 = buildMaet({baseXn}, [], 1.0, 1, false, false, 0, true, ...
                     'nested', {spec}, 'verbose', false);
-dYn0 = buildExpTens({baseYn}, [], 1.0, 1, false, false, 0, true, ...
+dYn0 = buildMaet({baseYn}, [], 1.0, 1, false, false, 0, true, ...
                     'nested', {spec}, 'verbose', false);
-sn0 = cosSimExpTens(dXn0, dYn0, 'method', 'bulger', 'verbose', false);
-dXn1 = buildExpTens({baseXn + 1e6}, [], 1.0, 1, false, false, 0, true, ...
+sn0 = simMaet(dXn0, dYn0, 'method', 'bulger', 'verbose', false);
+dXn1 = buildMaet({baseXn + 1e6}, [], 1.0, 1, false, false, 0, true, ...
                     'nested', {spec}, 'verbose', false);
-dYn1 = buildExpTens({baseYn + 1e6}, [], 1.0, 1, false, false, 0, true, ...
+dYn1 = buildMaet({baseYn + 1e6}, [], 1.0, 1, false, false, 0, true, ...
                     'nested', {spec}, 'verbose', false);
-sn1 = cosSimExpTens(dXn1, dYn1, 'method', 'bulger', 'verbose', false);
+sn1 = simMaet(dXn1, dYn1, 'method', 'bulger', 'verbose', false);
 results{end+1,1} = 'gram: nested inner unit is shift invariant';
 results{end,2} = abs(sn1 - sn0) <= 1e-11;
 
@@ -108,9 +108,9 @@ results{end,2} = abs(sn1 - sn0) <= 1e-11;
 rng(720);
 pS = {randn(4, 8) * 5 + 1e6};
 for isRel = [false true]
-    dS = buildExpTens(pS, [], 5, 3, isRel, false, NaN, true, ...
+    dS = buildMaet(pS, [], 5, 3, isRel, false, NaN, true, ...
                       'verbose', false);
-    sSelf = cosSimExpTens(dS, dS, 'method', 'bulger', 'verbose', false);
+    sSelf = simMaet(dS, dS, 'method', 'bulger', 'verbose', false);
     results{end+1,1} = sprintf( ...
         'gram: self similarity is 1 (isRel=%d, far from origin)', isRel);
     results{end,2} = abs(sSelf - 1) <= 1e-12;
@@ -127,9 +127,9 @@ end
 rng(730);
 pT = {randn(4, 10) * 5};
 qT = {randn(4, 4) * 5};
-dT1 = buildExpTens(pT, [], 0.01, 3, false, false, NaN, true, 'verbose', false);
-dT2 = buildExpTens(qT, [], 0.01, 3, false, false, NaN, true, 'verbose', false);
-sTight = cosSimExpTens(dT1, dT2, 'method', 'bulger', ...
+dT1 = buildMaet(pT, [], 0.01, 3, false, false, NaN, true, 'verbose', false);
+dT2 = buildMaet(qT, [], 0.01, 3, false, false, NaN, true, 'verbose', false);
+sTight = simMaet(dT1, dT2, 'method', 'bulger', ...
                        'truncationSigmas', Inf, 'verbose', false);
 results{end+1,1} = 'gram: small sigma at the accuracy floor stays bounded';
 results{end,2} = isfinite(sTight) && sTight >= -1 - 1e-12 ...

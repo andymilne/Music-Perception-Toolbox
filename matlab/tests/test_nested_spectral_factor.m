@@ -5,7 +5,7 @@
 %  template cross-correlation, evaluating only the per-position reference-value
 %  overlaps (ipRelNonperFactored in +internal/nestedContract.m, mirror of the
 %  Python _ip_rel_nonper_factored). It is the default path for relative
-%  spectral cells, so this exercises it end-to-end through cosSimExpTens and
+%  spectral cells, so this exercises it end-to-end through simMaet and
 %  checks the values against the Python build. Reference values are the
 %  cross-language goldens at the factory defaults (untruncated kernels, double
 %  precision), sigma = [0.15 0.125].
@@ -47,7 +47,7 @@ for ci = 1:size(cases, 1)
     WPX  = reshape(wpX, NX, KpX).';
     [pbX, wbX, sbX] = unpackPreMaet(bindEvents({PITX, 0:(NX - 1)}, {WPX, []}, [NX 1], ...
         'step', 1, 'relOuter', true));
-    dX = buildExpTens(pbX, wbX, 'sigma', SIG, 'isPer', [false false], ...
+    dX = buildMaet(pbX, wbX, 'sigma', SIG, 'isPer', [false false], ...
         'period', [0 0], 'specs', sbX, 'verbose', false);
 
     NY = numel(Y);
@@ -57,10 +57,10 @@ for ci = 1:size(cases, 1)
     WPY  = reshape(wpY, NY, KpY).';
     [pbY, wbY, sbY] = unpackPreMaet(bindEvents({PITY, 0:(NY - 1)}, {WPY, []}, [NY 1], ...
         'step', 1, 'relOuter', true));
-    dY = buildExpTens(pbY, wbY, 'sigma', SIG, 'isPer', [false false], ...
+    dY = buildMaet(pbY, wbY, 'sigma', SIG, 'isPer', [false false], ...
         'period', [0 0], 'specs', sbY, 'verbose', false);
 
-    got = cosSimExpTens(dX, dY, 'verbose', false);
+    got = simMaet(dX, dY, 'verbose', false);
     results = [results; {sprintf('factored cos: %s', lbl), ...
         abs(got - ref) < tol}]; %#ok<AGROW>
 end

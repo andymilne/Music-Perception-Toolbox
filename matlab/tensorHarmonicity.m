@@ -143,7 +143,7 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %       Perception of affect in unfamiliar musical chords. PLOS ONE,
 %       14(6), e0218570.
 %
-%   See also ADDSPECTRA, BUILDEXPTENS, EVALEXPTENS, CONVERTPITCH,
+%   See also ADDSPECTRA, BUILDMAET, EVALMAET, CONVERTPITCH,
 %            TEMPLATEHARMONICITY, ROUGHNESS, SPECTRALENTROPY.
 
     arguments
@@ -229,14 +229,14 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
     % === Evaluate the relative template tensor at the chord's intervals ===
     %
     % The orbit-Mobius point evaluator (mobius.evalOrbitRel) bypasses
-    % buildExpTens and evalExpTens entirely, never materialising the
+    % buildMaet and evalMaet entirely, never materialising the
     % (r-1, K!/(K-r)!) centres array. For dup = 4 with the default
     % 64-partial template this avoids a centres array of order 10^9
     % floats; runtime is dominated by the u-grid translation integral
     % and grows as B_r * r * K * N_u per query. This unblocks
     % nPitches > 3 where the centres path was infeasible.
 
-    % The inner evalExpTens (called via localTensorHarmonicityViaEval)
+    % The inner evalMaet (called via localTensorHarmonicityViaEval)
     % announces its own dispatched method through the standard throttle;
     % a separate tensorHarmonicity-level announce would just double-print
     % the same decision, so we let the inner one speak. The dispatchScope
@@ -252,7 +252,7 @@ end
 
 
 % =====================================================================
-%  Core: route through evalExpTens (which selects centres/orbit via
+%  Core: route through evalMaet (which selects centres/orbit via
 %  its own dispatcher) — shared by scalar and batched paths.
 % =====================================================================
 
@@ -260,7 +260,7 @@ function vals = localTensorHarmonicityViaEval(tmpl_p, tmpl_w, sigma, r, ...
         x_query, normalize, truncationSigmas, kernelPrecision)
 %LOCALTENSORHARMONICITYVIAEVAL  Evaluate the relative template tensor at
 %query points by building the template density and routing through
-%evalExpTens. The internal dispatcher in evalExpTens chooses between
+%evalMaet. The internal dispatcher in evalMaet chooses between
 %the centres-array and orbit-Mobius paths via its cost model; this
 %wrapper does not hard-code a routing choice.
 %
@@ -269,19 +269,19 @@ function vals = localTensorHarmonicityViaEval(tmpl_p, tmpl_w, sigma, r, ...
 %   Normalisation note: tensorHarmonicity's 'pdf' divides the gaussian-
 %   normalised value by sum(tmpl_w) — the sum of single-partial weights —
 %   to preserve the established numerical convention. This differs from
-%   evalExpTens's own 'pdf' (which divides by sum(wJ), the sum of
+%   evalMaet's own 'pdf' (which divides by sum(wJ), the sum of
 %   r-tuple weight products); the difference is a factor of
 %   (K-1)*(K-2)*...*(K-r+1) for an all-ones template. We therefore
 %   evaluate at 'none' below and apply tensorHarmonicity's normalisation
 %   ourselves.
 
     % Build the template density (rel-mode, non-periodic). Lazy
-    % materialisation is fine: evalExpTens populates Centres/wJ on
+    % materialisation is fine: evalMaet populates Centres/wJ on
     % demand if its dispatcher routes to the centres path.
-    dens = buildExpTens(tmpl_p(:), tmpl_w(:), sigma, r, true, false, 0, ...
+    dens = buildMaet(tmpl_p(:), tmpl_w(:), sigma, r, true, false, 0, ...
         'lazy', true, 'verbose', false);
 
-    vals = evalExpTens(dens, x_query, 'none', ...
+    vals = evalMaet(dens, x_query, 'none', ...
         'truncationSigmas', truncationSigmas, ...
         'kernelPrecision', kernelPrecision, ...
         'verbose', false);
@@ -451,7 +451,7 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
 
         % Build harmonic template once per group, then ONE batched call
         % to localTensorHarmonicityViaEval (which builds the template
-        % density and routes through evalExpTens). Forwards the
+        % density and routes through evalMaet). Forwards the
         % truncationSigmas / kernelPrecision options from nvArgs so the
         % batched path picks up the same speed/accuracy controls as scalar.
         [tmpl_p, tmpl_w] = addSpectra(zeros(dup, 1), ones(dup, 1), ...

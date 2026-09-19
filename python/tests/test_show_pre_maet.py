@@ -93,13 +93,13 @@ class TestCells:
 
     def test_unordered_takes_braces_ordered_takes_parens(self):
         P = [np.array([[36.0], [55], [60], [64]])]
-        sym = mpt.show_pre_maet(P, specs=[{'r': 2, 'rel': False,
-                                           'sym': True}],
+        exch = mpt.show_pre_maet(P, specs=[{'r': 2, 'rel': False,
+                                           'exch': True}],
                                 names=['pitch'], sigma=0.15, verbose=False)
         ord_ = mpt.show_pre_maet(P, specs=[{'r': 2, 'rel': False,
-                                            'sym': False}],
+                                            'exch': False}],
                                  names=['pitch'], sigma=0.15, verbose=False)
-        assert "{36, 55, 60, 64}" in sym
+        assert "{36, 55, 60, 64}" in exch
         assert "(36, 55, 60, 64)" in ord_
 
     def test_single_element_is_bare_at_top_level(self):
@@ -128,7 +128,7 @@ class TestCells:
     def test_nan_is_absent_not_an_element(self):
         P = [np.array([[60.0, 60], [64, 64], [67, np.nan]])]
         out = mpt.show_pre_maet(P, specs=[{'r': 1, 'rel': False,
-                                           'sym': True}],
+                                           'exch': True}],
                                 names=['pitch'], sigma=0.5, verbose=False)
         assert "{60, 64, 67}" in out and "{60, 64}" in out
 
@@ -182,9 +182,9 @@ class TestStub:
 
     def test_names_default_to_specs_then_to_index(self):
         out = mpt.show_pre_maet([np.array([[1.0]]), np.array([[2.0]])],
-                                specs=[{'r': 1, 'rel': False, 'sym': True,
+                                specs=[{'r': 1, 'rel': False, 'exch': True,
                                         'name': 'pitch'},
-                                       {'r': 1, 'rel': False, 'sym': True}],
+                                       {'r': 1, 'rel': False, 'exch': True}],
                                 sigma=1.0, verbose=False)
         assert "| pitch: " in out and "| a_2: " in out
 
@@ -194,7 +194,7 @@ class TestDensityInput:
     def test_density_and_raw_agree(self):
         """A built density carries every field the raw triple supplies,
         so the two inputs must render the same table."""
-        dens = mpt.build_exp_tens(_p(), _w(), [0.5, 0.25], [1, 1],
+        dens = mpt.build_maet(_p(), _w(), [0.5, 0.25], [1, 1],
                                   [False, False], [True, False],
                                   [12.0, 0.0], verbose=False)
         from_dens = mpt.show_pre_maet(dens, names=['pitch', 'time'],
@@ -207,7 +207,7 @@ class TestLatex:
     def test_latex_table(self):
         out = mpt.show_pre_maet(
             [np.array([[36.0], [55], [60], [64]])], None,
-            [{'r': 2, 'rel': False, 'sym': True}], names=['pitch'],
+            [{'r': 2, 'rel': False, 'exch': True}], names=['pitch'],
             sigma=0.15, is_per=True, period=12.0, format='latex',
             caption='A caption.', label='tab:x', verbose=False)
         assert out.splitlines() == [

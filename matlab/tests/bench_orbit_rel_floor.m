@@ -58,7 +58,7 @@ for borf_r = 2:4
             borf_x = borf_dens(1, borf_K, borf_r);
             borf_y = borf_dens(2, borf_K, borf_r);
             borf_t0 = tic;
-            cosSimExpTens(borf_x, borf_y, 'method', 'mobius', 'verbose', false);
+            simMaet(borf_x, borf_y, 'method', 'mobius', 'verbose', false);
             borf_t(borf_i) = toc(borf_t0);
         end
         borf_cold(borf_j) = 1e3 * median(borf_t);
@@ -67,12 +67,12 @@ for borf_r = 2:4
         borf_y = borf_dens(2, borf_K, borf_r);
         % One warming call: its returned densities carry the memoised
         % self inner products.
-        [~, borf_x, borf_y] = cosSimExpTens(borf_x, borf_y, ...
+        [~, borf_x, borf_y] = simMaet(borf_x, borf_y, ...
             'method', 'mobius', 'verbose', false);
         borf_t = zeros(1, borf_warmReps);
         for borf_i = 1:borf_warmReps
             borf_t0 = tic;
-            cosSimExpTens(borf_x, borf_y, 'method', 'mobius', 'verbose', false);
+            simMaet(borf_x, borf_y, 'method', 'mobius', 'verbose', false);
             borf_t(borf_i) = toc(borf_t0);
         end
         borf_warm(borf_j) = 1e3 * median(borf_t);
@@ -100,5 +100,5 @@ function d = borfDens(seed, K, r, P, sop)
     rng(seed, 'twister');
     p = sort(P * rand(K, 1));
     w = 0.2 + 0.8 * rand(K, 1);
-    d = buildExpTens(p, w, sop * P, r, true, true, P, 'verbose', false);
+    d = buildMaet(p, w, sop * P, r, true, true, P, 'verbose', false);
 end

@@ -1,0 +1,30 @@
+Metadata-Version: 2.4
+Name: music-perception-toolbox
+Version: 3.0.0
+Summary: Computational music perception: expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures.
+Author-email: "Andrew J. Milne" <a.milne@westernsydney.edu.au>
+License: MIT
+Project-URL: Homepage, https://github.com/andymilne/Music-Perception-Toolbox
+Keywords: music perception,spectral pitch similarity,expectation tensor,consonance,roughness,rhythm,computational musicology
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: Multimedia :: Sound/Audio :: Analysis
+Classifier: Topic :: Scientific/Engineering
+Requires-Python: >=3.10
+Description-Content-Type: text/plain
+Requires-Dist: numpy>=1.24
+Requires-Dist: scipy>=1.10
+Provides-Extra: audio
+Requires-Dist: soundfile>=0.12; extra == "audio"
+Provides-Extra: dev
+Requires-Dist: pytest>=7; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: soundfile>=0.12; extra == "dev"
+
+Music Perception Toolbox: computational music perception in Python — expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures. See https://github.com/andymilne/Music-Perception-Toolbox for documentation, user guide, and citation.

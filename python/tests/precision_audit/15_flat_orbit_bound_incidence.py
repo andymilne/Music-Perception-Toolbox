@@ -23,7 +23,7 @@ import mpt._mobius as _mob
 from mpt._defaults import truncation_floor
 from mpt._tensor._nested_contraction import _n_orbits
 from mpt.tensor import (
-    build_exp_tens, _cos_sim_exp_tens_ma_orbit, _cos_sim_exp_tens_ma_pairwise,
+    build_maet, _sim_maet_ma_orbit, _sim_maet_ma_pairwise,
 )
 
 EPS = np.finfo(float).eps
@@ -70,17 +70,17 @@ def config(r, K, is_rel, is_per, w_hi):
     for seed in range(SEEDS):
         rng = np.random.default_rng(seed)
         geom = ([0.025 * P], [r], [is_rel], [is_per], [P])
-        d1 = build_exp_tens([rng.uniform(0, P, (K, N))],
+        d1 = build_maet([rng.uniform(0, P, (K, N))],
                             [rng.uniform(0.1, w_hi, (K, N))], *geom,
                             verbose=False)
-        d2 = build_exp_tens([rng.uniform(0, P, (K, N))],
+        d2 = build_maet([rng.uniform(0, P, (K, N))],
                             [rng.uniform(0.1, w_hi, (K, N))], *geom,
                             verbose=False)
         _seen["bound"] = 0.0
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            oxy, oxx, oyy = _cos_sim_exp_tens_ma_orbit(d1, d2)
-            pxy, pxx, pyy = _cos_sim_exp_tens_ma_pairwise(d1, d2, verbose=False)
+            oxy, oxx, oyy = _sim_maet_ma_orbit(d1, d2)
+            pxy, pxx, pyy = _sim_maet_ma_pairwise(d1, d2, verbose=False)
         bounds.append(_seen["bound"])
         errs.append(abs(oxy / np.sqrt(oxx * oyy) - pxy / np.sqrt(pxx * pyy)))
     return max(bounds), max(errs)

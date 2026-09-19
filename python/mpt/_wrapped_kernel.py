@@ -40,6 +40,8 @@ import math
 
 import numpy as np
 
+from ._utils import kernel_thread_count, run_in_kernel_threads, split_ranges
+
 
 def _image_count_L(sigma: float, period: float, truncation_sigmas,
                    exponent_denominator: int) -> int:
@@ -111,8 +113,42 @@ def wrapped_gaussian_1d(d: np.ndarray, sigma: float, period: float,
     Nearest-image reduction is applied so image-sum truncation is
     correct for arbitrary input; Fourier is periodic and needs no
     reduction.
+
+    Every element is independent of every other — both branches sum
+    within an element, over images or over harmonics — so a large input
+    is split into contiguous blocks evaluated on the shared kernel
+    thread pool. Each element keeps the arithmetic it has serially, and
+    the output is bit-identical at any thread count.
     """
     d = np.asarray(d)
+    n_threads = kernel_thread_count(d.size)
+    if n_threads > 1:
+        flat = d.reshape(-1)
+        # The result dtype depends on the input's and on which branch
+        # runs, so it is taken from the serial body rather than assumed.
+        probe = _wrapped_gaussian_1d_serial(
+            flat[:1], sigma, period, truncation_sigmas,
+            exponent_denominator=exponent_denominator)
+        out = np.empty(flat.shape, dtype=probe.dtype)
+        spans = split_ranges(flat.size, n_threads)
+
+        def block(span):
+            lo, hi = span
+            out[lo:hi] = _wrapped_gaussian_1d_serial(
+                flat[lo:hi], sigma, period, truncation_sigmas,
+                exponent_denominator=exponent_denominator)
+
+        run_in_kernel_threads(block, spans)
+        return out.reshape(d.shape)
+    return _wrapped_gaussian_1d_serial(
+        d, sigma, period, truncation_sigmas,
+        exponent_denominator=exponent_denominator)
+
+
+def _wrapped_gaussian_1d_serial(d: np.ndarray, sigma: float, period: float,
+                                truncation_sigmas, *,
+                                exponent_denominator: int) -> np.ndarray:
+    """Single-threaded body of :func:`wrapped_gaussian_1d`."""
     if _prefer_fourier(sigma, period, truncation_sigmas,
                        exponent_denominator):
         # Poisson-summed form. Kernel exp(-d^2 / (e_d sigma^2)) has

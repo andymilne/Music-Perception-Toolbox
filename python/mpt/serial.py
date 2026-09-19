@@ -9,10 +9,11 @@
     but reads it as an ordered sequence with a directional gate and
     a break condition rather than aggregating it order-free into a
     tensor.
-:func:`interval_kernel_cov`
+:func:`kernel_cov`
     Constructor for the matrix-valued kernel covariance of an
-    ordered tuple of consecutive differences, consumed as the
-    ``sigma`` of the tensor functions.
+    ordered tuple, of values or of consecutive differences, from
+    three sources of variance; consumed as the ``sigma`` of the
+    tensor functions.
 
 Serial-position weight profiles are built with
 :func:`~mpt.weight_events`, whose named and callable profiles apply
@@ -211,97 +212,116 @@ def _normalise_continuity_weights(w, N: int):
 
 
 # =====================================================================
-#  interval_kernel_cov — kernel covariance for consecutive differences
-# =====================================================================
+#  kernel_cov -- kernel covariance from three sources of variance
+# ---------------------------------------------------------------------
 
+def kernel_cov(r, sd_value=0.0, sd_interval=0.0, sd_shift=0.0, *,
+               differenced):
+    """Kernel covariance for an ordered tuple, from three sources of variance.
 
-def interval_kernel_cov(r, sd_position=0.0, sd_interval=0.0, sd_shift=0.0):
-    """Kernel covariance for an ordered tuple of consecutive differences.
+    Builds the ``r x r`` covariance matrix of an ordered attribute's
+    tuples from three independent sources of perceptual uncertainty,
+    each included only when its width is set: independent noise on
+    the *values* themselves (onsets, or pitches), ``sd_value``; independent
+    noise on the *intervals* between consecutive values,
+    ``sd_interval``; and a *common shift* of the whole tuple,
+    ``sd_shift``. How each reaches the tuple depends on whether the
+    tuple holds the values themselves or their first differences,
+    which ``differenced`` (mandatory) declares.
 
-    Builds the ``r x r`` covariance matrix
+    With ``nabla`` the first-differencing map,
+    ``(nabla p)_i = p_{i+1} - p_i``, taken at the size its operand
+    requires -- ``(r - 1) x r`` on a tuple of ``r`` values,
+    ``r x (r + 1)`` on a tuple of the ``r`` differences of ``r + 1``
+    values -- ``nabla+`` its pseudoinverse, and ``J = ones((r, r))``::
 
-        ``Sigma = sd_position**2 * D D^T + sd_interval**2 * I
-                  + sd_shift**2 * ones((r, r))``
+        differenced=False:
+            Sigma = sd_value**2 * I
+                    + sd_interval**2 * nabla+ (nabla+)^T
+                    + sd_shift**2 * J
+        differenced=True:
+            Sigma = sd_value**2 * nabla nabla^T + sd_interval**2 * I
+                    + sd_shift**2 * J
 
-    for an ordered attribute whose event tuples are *r* consecutive
-    differences (intervals) of ``r + 1`` underlying positions, where
-    ``D`` is the ``r x (r + 1)`` first-differencing map.
+    ``nabla+ (nabla+)^T`` equals the centred cumulative sum
+    ``P S S^T P``, with ``S`` the ``r x (r - 1)`` cumulative-sum map and
+    ``P = I - J/r`` the centring projector, which is how it is built
+    here. The two cases are one model: differencing a tuple of ``r``
+    values carries the first to the second at tuple size ``r - 1``,
+    since ``nabla 1 = 0`` annihilates the ridge and
+    ``nabla nabla+ = I``.
 
-    This parametrization is meaningful **only for first-differenced
-    multisets**. ``sd_position`` builds ``D D^T``, whose off-diagonal
-    entries encode the endpoints that neighbouring differences share;
-    an undifferenced multiset has no such shared endpoints, so on one
-    the term imposes correlations the data do not contain. Nothing
-    here inspects the multiset, so passing the result for an
-    undifferenced attribute raises no error: the caller is responsible
-    for applying it only to interval tuples. For an undifferenced
-    attribute, independent per-value noise is what the ordinary scalar
-    ``sigma`` already provides, and a matrix covariance is warranted
-    only for a common-shift ridge.
-
-    The three terms are three independently specified sources of
-    perceptual uncertainty, added because their sources are
-    independent:
-
-    - ``sd_position``: uncertainty on the underlying *positions* from
-      which the differences are formed. Shared endpoints propagate it
-      to the tridiagonal ``sd_position**2 * D D^T`` (``2 sd**2`` on
-      the diagonal, ``-sd**2`` on the first off-diagonals): perturbing
-      one interior position lengthens one interval and shortens its
-      neighbour. This is the exact counterpart of
-      ``sigma_space='position'`` in :func:`~mpt.n_tuple_entropy`.
-    - ``sd_interval``: uncertainty on each *interval* itself,
-      independent across intervals (``sigma_space='interval'``).
-    - ``sd_shift``: graded tolerance for a *common shift* of the whole
-      tuple, the rank-one ridge ``sd_shift**2 * ones``. A common shift
-      of an interval tuple is a transposition when the values are
-      pitch intervals and a tempo change when they are log inter-onset
-      intervals. As ``sd_shift`` grows the kernel's precision tends to
-      the relative-mode projector, so ``is_rel=True`` is the exact
-      (infinite-``sd_shift``) limit; a matrix covariance expresses the
-      graded counterpart.
-
-    In the time reading, the first two terms are the two levels of the
-    Wing & Kristofferson (1973) timing model: motor implementation
-    delays attach to onsets (``sd_position``), central timekeeper
-    variance attaches to intervals (``sd_interval``).
+    - **Undifferenced values** (``r`` values). Interval noise
+      accumulates from one value to the next, a random walk that
+      ``P`` centres on the tuple's mean so that no value is
+      privileged (``P S S^T P`` is the covariance of the centred
+      cumulative sums of ``r - 1`` independent interval errors; ``S`` is
+      fixed only up to a base point, and the choices differ by a
+      multiple of ``1``, which ``P`` removes). The
+      ridge tolerates a common shift of every value: a transposition
+      of pitches, a displacement of onsets. As ``sd_shift`` grows the
+      kernel's precision tends to the relative-mode projector, so
+      ``is_rel=True`` is the exact (infinite-``sd_shift``) limit and
+      the ridge its graded counterpart.
+    - **Differenced values** (``r`` consecutive differences of
+      ``r + 1`` values). Value noise reaches each interval
+      through its two endpoints: ``D D^T`` is tridiagonal, ``2`` on the
+      diagonal and ``-1`` beside it, since adjacent intervals share an
+      endpoint (perturbing one interior value lengthens one interval
+      and shortens its neighbour). Interval noise is independent per
+      interval. On times the two are the two levels of the Wing &
+      Kristofferson (1973) model, motor delay variance on onsets and
+      central timekeeper variance on intervals. The ridge adds a
+      constant to every interval, seldom the equivalence wanted for
+      uneven rhythms, so ``sd_shift`` is usually omitted here; on
+      *log*-differenced values it becomes a common factor on the
+      intervals (a tempo change, or intervallic augmentation), and is
+      wanted again. ``sd_value`` corresponds to
+      ``sigma_space='position'`` and ``sd_interval`` to
+      ``sigma_space='interval'`` in :func:`~mpt.n_tuple_entropy`.
 
     The covariance is expressed in whatever coordinates the attribute
-    carries: log inter-onset intervals for multiplicative tempo
-    tolerance, semitones (or cents) for pitch steps. All three
-    arguments are standard deviations in those coordinates; they are
+    carries: cents or semitones for pitch, seconds for onsets, log
+    inter-onset intervals for multiplicative tempo tolerance. All three
+    widths are standard deviations in those coordinates; they are
     squared internally.
 
     Parameters
     ----------
     r : int
-        Tuple size (number of consecutive differences); ``r >= 1``.
-    sd_position : float, default 0
-        Standard deviation of independent noise on each underlying
-        position.
+        Tuple size; ``r >= 2``.
+    sd_value : float, default 0
+        Standard deviation of independent noise on each value.
     sd_interval : float, default 0
-        Standard deviation of independent noise on each interval.
+        Standard deviation of independent noise on each interval
+        between consecutive values.
     sd_shift : float, default 0
         Standard deviation of a common shift of the whole tuple.
+    differenced : bool, keyword-only, no default
+        ``False`` when the tuple holds values, ``True`` when it holds
+        their first differences (as :func:`~mpt.difference_events`
+        produces). There is no safe default, so it must be given.
 
     Returns
     -------
     (r, r) ndarray
         The kernel covariance, ready to be passed as the ``sigma``
-        argument of :func:`~mpt.build_exp_tens`,
-        :func:`~mpt.eval_exp_tens`, :func:`~mpt.cos_sim_exp_tens`,
-        :func:`~mpt.entropy_exp_tens`, or
+        argument of :func:`~mpt.build_maet`, :func:`~mpt.eval_maet`,
+        :func:`~mpt.sim_maet`, :func:`~mpt.entropy_maet`, or
         :func:`~mpt.windowed_similarity` for an ordered
-        (``is_sym=False``), absolute (``is_rel=False``), non-periodic
+        (``is_exch=False``), absolute (``is_rel=False``), non-periodic
         (``is_per=False``) attribute with ``r == K``.
 
     Raises
     ------
     ValueError
-        If ``r < 1``, any argument is negative, or the resulting
-        matrix is singular (``sd_shift`` alone is rank one, so at
-        least one of ``sd_position`` and ``sd_interval`` must be
-        positive).
+        If ``r < 2``, any width is negative or infinite, or the result
+        is not positive-definite. On undifferenced values that needs
+        ``sd_value > 0``, or ``sd_interval`` and ``sd_shift`` both
+        non-zero: the centred walk annihilates ``1`` and the ridge is
+        rank one, so neither serves alone. On differenced values it
+        needs ``sd_value > 0`` or ``sd_interval > 0``, only the ridge
+        alone failing.
 
     References
     ----------
@@ -311,39 +331,58 @@ def interval_kernel_cov(r, sd_position=0.0, sd_interval=0.0, sd_shift=0.0):
     """
     r = int(r)
     if r < 1:
-        raise ValueError("interval_kernel_cov: r must be a positive integer.")
+        raise ValueError("kernel_cov: r must be a positive integer.")
     if r == 1:
         raise ValueError(
-            "interval_kernel_cov: at r = 1 the covariance reduces to a "
-            "scalar variance, which is indistinguishable from a scalar "
-            "sigma in the MATLAB toolbox; pass the equivalent standard "
-            "deviation sqrt(2*sd_position**2 + sd_interval**2 + "
-            "sd_shift**2) as the ordinary sigma argument instead."
+            "kernel_cov: at r = 1 the covariance reduces to a scalar "
+            "variance, which is indistinguishable from a scalar sigma; "
+            "pass the equivalent standard deviation as the ordinary "
+            "sigma argument instead (sqrt(2*sd_value**2 + "
+            "sd_interval**2 + sd_shift**2) if differenced, "
+            "sqrt(sd_value**2 + sd_shift**2) if not)."
         )
-    for nm, v in (("sd_position", sd_position),
+    if not isinstance(differenced, (bool, np.bool_)):
+        raise TypeError(
+            "kernel_cov: differenced must be True (the tuple holds first "
+            "differences) or False (it holds values)."
+        )
+    differenced = bool(differenced)
+    for nm, v in (("sd_value", sd_value),
                   ("sd_interval", sd_interval),
                   ("sd_shift", sd_shift)):
         if not np.isfinite(v) or v < 0:
             raise ValueError(
-                f"interval_kernel_cov: {nm} must be a finite "
-                f"non-negative standard deviation; got {v!r}. For "
-                f"exact common-shift invariance use is_rel=True rather "
-                f"than an infinite sd_shift."
+                f"kernel_cov: {nm} must be a finite non-negative "
+                f"standard deviation; got {v!r}. For exact common-shift "
+                f"invariance use is_rel=True rather than an infinite "
+                f"sd_shift."
             )
-    # First-differencing map D: r x (r + 1); D D^T is tridiagonal with
-    # 2 on the diagonal and -1 on the first off-diagonals.
-    ddt = 2.0 * np.eye(r) - np.eye(r, k=1) - np.eye(r, k=-1)
-    Sigma = (float(sd_position) ** 2 * ddt
-             + float(sd_interval) ** 2 * np.eye(r)
-             + float(sd_shift) ** 2 * np.ones((r, r)))
-    # Definiteness check (PSD validation always errors): sd_shift alone
-    # is rank one for r >= 2.
-    try:
-        np.linalg.cholesky(Sigma)
-    except np.linalg.LinAlgError as exc:
+    sp2, si2, ss2 = (float(sd_value) ** 2, float(sd_interval) ** 2,
+                     float(sd_shift) ** 2)
+    ones = np.ones((r, r))
+    if differenced:
+        # D D^T: tridiagonal, 2 on the diagonal, -1 on the first
+        # off-diagonals.
+        ddt = 2.0 * np.eye(r) - np.eye(r, k=1) - np.eye(r, k=-1)
+        Sigma = sp2 * ddt + si2 * np.eye(r) + ss2 * ones
+        why = ("Positive-definiteness needs sd_value > 0 or "
+               "sd_interval > 0; the ridge alone is rank one.")
+    else:
+        # S: r x (r - 1) cumulative sums (value i carries the first
+        # i - 1 interval errors); P centres them on the tuple's mean.
+        S = np.tril(np.ones((r, r - 1)), k=-1)
+        P = np.eye(r) - ones / r
+        pssp = P @ S @ S.T @ P
+        Sigma = sp2 * np.eye(r) + si2 * pssp + ss2 * ones
+        why = ("Positive-definiteness needs sd_value > 0, or "
+               "sd_interval and sd_shift both non-zero: the centred "
+               "walk annihilates the common-shift direction and the "
+               "ridge is rank one, so neither serves alone.")
+    # Definiteness check (PSD validation always errors). An eigenvalue
+    # test rather than a Cholesky attempt: the singular cases are exactly
+    # singular, and rounding can let a factorization of one through.
+    ev = np.linalg.eigvalsh(Sigma)
+    if ev[0] <= 1e-12 * max(ev[-1], np.finfo(float).tiny):
         raise ValueError(
-            "interval_kernel_cov: the resulting covariance is singular. "
-            "sd_shift alone is rank one, so at least one of sd_position "
-            "and sd_interval must be positive."
-        ) from exc
+            "kernel_cov: the resulting covariance is singular. " + why)
     return Sigma

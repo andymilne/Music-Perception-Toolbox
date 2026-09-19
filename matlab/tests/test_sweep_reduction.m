@@ -1,10 +1,10 @@
 %% test_sweep_reduction.m — translation sweeps as a mixture in the offset
 %
-%  sweepCosSimExpTens replaces one inner product per offset with a single
+%  sweepSimMaet replaces one inner product per offset with a single
 %  pass over the tuple pairs followed by M evaluations of a Gaussian
 %  mixture in the offset. Every test here compares it against the
 %  per-offset path it replaces: translate the query explicitly, call
-%  cosSimExpTens, and require agreement at the parity floor.
+%  simMaet, and require agreement at the parity floor.
 %
 %  Reference route. The reduction reproduces the pairwise (Bulger) inner
 %  product term for term. The orbit (Mobius) route computes the same
@@ -43,31 +43,31 @@ shapes = {[1 1], [3 3], [4 4], [3 2], [4 2], [5 3]};
 for si = 1:numel(shapes)
     K = shapes{si}(1);
     r = shapes{si}(2);
-    for isSym = [false true]
+    for isExch = [false true]
         rng(100 + 10 * K + r);
         A = 2;
         pX = {randn(K, 6) * 3, randn(K, 6) * 3};
         pY = {randn(K, 3) * 3, randn(K, 3) * 3};
         off = [baseOff; 0.5 * baseOff];
         sig = [0.9 0.9]; rv = [r r];
-        z = [false false]; pd = [NaN NaN]; sym = [isSym isSym];
+        z = [false false]; pd = [NaN NaN]; exch = [isExch isExch];
 
-        dX = buildExpTens(pX, [], sig, rv, z, z, pd, sym, 'verbose', false);
-        dY = buildExpTens(pY, [], sig, rv, z, z, pd, sym, 'verbose', false);
-        got = sweepCosSimExpTens(dX, dY, off, ...
+        dX = buildMaet(pX, [], sig, rv, z, z, pd, exch, 'verbose', false);
+        dY = buildMaet(pY, [], sig, rv, z, z, pd, exch, 'verbose', false);
+        got = sweepSimMaet(dX, dY, off, ...
             'truncationSigmas', Inf, 'verbose', false);
 
         ref = zeros(1, size(off, 2));
         for m = 1:size(off, 2)
             pYm = {pY{1} + off(1, m), pY{2} + off(2, m)};
-            dYm = buildExpTens(pYm, [], sig, rv, z, z, pd, sym, ...
+            dYm = buildMaet(pYm, [], sig, rv, z, z, pd, exch, ...
                 'verbose', false);
-            ref(m) = cosSimExpTens(dX, dYm, 'method', 'bulger', ...
+            ref(m) = simMaet(dX, dYm, 'method', 'bulger', ...
                 'truncationSigmas', Inf, 'verbose', false);
         end
         dev = max(abs(got - ref) ./ max(abs(ref), 1e-12));
         results{end+1,1} = sprintf( ...
-            'sweep: K=%d r=%d sym=%d matches per-offset', K, r, isSym); %#ok<*SAGROW>
+            'sweep: K=%d r=%d exch=%d matches per-offset', K, r, isExch); %#ok<*SAGROW>
         results{end,2} = dev <= tol;
     end
 end
@@ -80,15 +80,15 @@ pX = {randn(3, 6) * 3, randn(3, 6) * 3};
 pY = {randn(3, 3) * 3, randn(3, 3) * 3};
 off = [baseOff; 0.5 * baseOff];
 sig = [0.9 0.9]; rv = [3 3]; z = [false false]; pd = [NaN NaN];
-sym = [true true];
-dX = buildExpTens(pX, [], sig, rv, z, z, pd, sym, 'verbose', false);
-dY = buildExpTens(pY, [], sig, rv, z, z, pd, sym, 'verbose', false);
-got = sweepCosSimExpTens(dX, dY, off, 'verbose', false);
+exch = [true true];
+dX = buildMaet(pX, [], sig, rv, z, z, pd, exch, 'verbose', false);
+dY = buildMaet(pY, [], sig, rv, z, z, pd, exch, 'verbose', false);
+got = sweepSimMaet(dX, dY, off, 'verbose', false);
 ref = zeros(1, size(off, 2));
 for m = 1:size(off, 2)
-    dYm = buildExpTens({pY{1} + off(1, m), pY{2} + off(2, m)}, [], ...
-        sig, rv, z, z, pd, sym, 'verbose', false);
-    ref(m) = cosSimExpTens(dX, dYm, 'method', 'bulger', 'verbose', false);
+    dYm = buildMaet({pY{1} + off(1, m), pY{2} + off(2, m)}, [], ...
+        sig, rv, z, z, pd, exch, 'verbose', false);
+    ref(m) = simMaet(dX, dYm, 'method', 'bulger', 'verbose', false);
 end
 results{end+1,1} = 'sweep: agrees with truncation active';
 results{end,2} = max(abs(got - ref) ./ max(abs(ref), 1e-12)) <= tol;
@@ -105,13 +105,13 @@ results{end,2} = max(abs(got(offPeak) - ref(offPeak)) ./ ...
 
 % --- oneSidedDenom ------------------------------------------------------
 
-gotOne = sweepCosSimExpTens(dX, dY, off, 'normalize', 'oneSidedDenom', ...
+gotOne = sweepSimMaet(dX, dY, off, 'normalize', 'oneSidedDenom', ...
     'truncationSigmas', Inf, 'verbose', false);
 refOne = zeros(1, size(off, 2));
 for m = 1:size(off, 2)
-    dYm = buildExpTens({pY{1} + off(1, m), pY{2} + off(2, m)}, [], ...
-        sig, rv, z, z, pd, sym, 'verbose', false);
-    refOne(m) = cosSimExpTens(dX, dYm, 'normalize', 'oneSidedDenom', ...
+    dYm = buildMaet({pY{1} + off(1, m), pY{2} + off(2, m)}, [], ...
+        sig, rv, z, z, pd, exch, 'verbose', false);
+    refOne(m) = simMaet(dX, dYm, 'normalize', 'oneSidedDenom', ...
         'method', 'bulger', 'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: oneSidedDenom matches per-offset';
@@ -126,18 +126,18 @@ results{end,2} = max(abs(gotOne - refOne) ./ max(abs(refOne), 1e-12)) <= tol;
 
 pYp = {[0; 4; 7]};
 pXp = {pYp{1}([3 1 2], :)};
-for isSym = [false true]
-    dXp = buildExpTens(pXp, [], 0.9, 3, false, false, NaN, isSym, ...
+for isExch = [false true]
+    dXp = buildMaet(pXp, [], 0.9, 3, false, false, NaN, isExch, ...
         'verbose', false);
-    dYp = buildExpTens(pYp, [], 0.9, 3, false, false, NaN, isSym, ...
+    dYp = buildMaet(pYp, [], 0.9, 3, false, false, NaN, isExch, ...
         'verbose', false);
-    g = sweepCosSimExpTens(dXp, dYp, 0, 'truncationSigmas', Inf, ...
+    g = sweepSimMaet(dXp, dYp, 0, 'truncationSigmas', Inf, ...
         'verbose', false);
-    rr = cosSimExpTens(dXp, dYp, 'method', 'bulger', ...
+    rr = simMaet(dXp, dYp, 'method', 'bulger', ...
         'truncationSigmas', Inf, 'verbose', false);
-    results{end+1,1} = sprintf('sweep: permuted tuple, sym=%d', isSym);
+    results{end+1,1} = sprintf('sweep: permuted tuple, exch=%d', isExch);
     results{end,2} = abs(g - rr) <= tol;
-    if isSym
+    if isExch
         results{end+1,1} = 'sweep: unordered permuted tuple scores 1';
         results{end,2} = abs(g - 1) <= 1e-12;
     end
@@ -151,15 +151,15 @@ pXr = {randn(3, 6) * 3, randn(3, 6) * 3};
 pYr = {randn(3, 3) * 3, randn(3, 3) * 3};
 offR = [baseOff; zeros(1, numel(baseOff))];
 relv = [false true];
-dXr = buildExpTens(pXr, [], sig, rv, relv, z, pd, sym, 'verbose', false);
-dYr = buildExpTens(pYr, [], sig, rv, relv, z, pd, sym, 'verbose', false);
-gotR = sweepCosSimExpTens(dXr, dYr, offR, 'truncationSigmas', Inf, ...
+dXr = buildMaet(pXr, [], sig, rv, relv, z, pd, exch, 'verbose', false);
+dYr = buildMaet(pYr, [], sig, rv, relv, z, pd, exch, 'verbose', false);
+gotR = sweepSimMaet(dXr, dYr, offR, 'truncationSigmas', Inf, ...
     'verbose', false);
 refR = zeros(1, size(offR, 2));
 for m = 1:size(offR, 2)
-    dYm = buildExpTens({pYr{1} + offR(1, m), pYr{2}}, [], sig, rv, ...
-        relv, z, pd, sym, 'verbose', false);
-    refR(m) = cosSimExpTens(dXr, dYm, 'method', 'bulger', ...
+    dYm = buildMaet({pYr{1} + offR(1, m), pYr{2}}, [], sig, rv, ...
+        relv, z, pd, exch, 'verbose', false);
+    refR(m) = simMaet(dXr, dYm, 'method', 'bulger', ...
         'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: unswept relative attribute matches';
@@ -173,15 +173,15 @@ pXp2 = {randn(3, 6) * 3, mod(randn(3, 6) * 3, 12)};
 pYp2 = {randn(3, 3) * 3, mod(randn(3, 3) * 3, 12)};
 offP = [baseOff; zeros(1, numel(baseOff))];
 perv = [false true]; pdv = [NaN 12];
-dXp2 = buildExpTens(pXp2, [], sig, rv, z, perv, pdv, sym, 'verbose', false);
-dYp2 = buildExpTens(pYp2, [], sig, rv, z, perv, pdv, sym, 'verbose', false);
-gotP = sweepCosSimExpTens(dXp2, dYp2, offP, 'truncationSigmas', Inf, ...
+dXp2 = buildMaet(pXp2, [], sig, rv, z, perv, pdv, exch, 'verbose', false);
+dYp2 = buildMaet(pYp2, [], sig, rv, z, perv, pdv, exch, 'verbose', false);
+gotP = sweepSimMaet(dXp2, dYp2, offP, 'truncationSigmas', Inf, ...
     'verbose', false);
 refP = zeros(1, size(offP, 2));
 for m = 1:size(offP, 2)
-    dYm = buildExpTens({pYp2{1} + offP(1, m), pYp2{2}}, [], ...
-        sig, rv, z, perv, pdv, sym, 'verbose', false);
-    refP(m) = cosSimExpTens(dXp2, dYm, 'method', 'bulger', ...
+    dYm = buildMaet({pYp2{1} + offP(1, m), pYp2{2}}, [], ...
+        sig, rv, z, perv, pdv, exch, 'verbose', false);
+    refP(m) = simMaet(dXp2, dYm, 'method', 'bulger', ...
         'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: unswept periodic attribute matches';
@@ -196,9 +196,9 @@ results{end,2} = max(abs(gotP - refP) ./ max(abs(refP), 1e-12)) <= tol;
 %  one shape term per block and no placement term, and like a relative
 %  attribute it cannot be swept.
 
-nestSpec = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false], ...
+nestSpec = struct('tags', [0 0 1 1], 'r', [2 2], 'exch', [true false], ...
                   'rel', 'innermost');
-absSpec  = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false]);
+absSpec  = struct('tags', [0 0 1 1], 'r', [2 2], 'exch', [true false]);
 
 rng(750);
 pXnest = sort(randn(4, 6) * 4, 1);
@@ -206,20 +206,20 @@ pYnest = sort(randn(4, 3) * 4, 1);
 pXabs2 = randn(2, 6) * 3;
 pYabs2 = randn(2, 3) * 3;
 svN = [1.0 0.9]; rvN = [1 2]; zN = [false false]; pdN = [0 0];
-symN = [true true];
+exchN = [true true];
 offN = [zeros(1, numel(baseOff)); baseOff];
-dXnest = buildExpTens({pXnest, pXabs2}, [], svN, rvN, zN, zN, pdN, symN, ...
+dXnest = buildMaet({pXnest, pXabs2}, [], svN, rvN, zN, zN, pdN, exchN, ...
                       'nested', {nestSpec, []}, 'verbose', false);
-dYnest = buildExpTens({pYnest, pYabs2}, [], svN, rvN, zN, zN, pdN, symN, ...
+dYnest = buildMaet({pYnest, pYabs2}, [], svN, rvN, zN, zN, pdN, exchN, ...
                       'nested', {nestSpec, []}, 'verbose', false);
-gotN = sweepCosSimExpTens(dXnest, dYnest, offN, ...
+gotN = sweepSimMaet(dXnest, dYnest, offN, ...
                           'truncationSigmas', Inf, 'verbose', false);
 refN = zeros(1, size(offN, 2));
 for m = 1:size(offN, 2)
-    dYm = buildExpTens({pYnest, pYabs2 + offN(2, m)}, [], svN, rvN, ...
-                       zN, zN, pdN, symN, 'nested', {nestSpec, []}, ...
+    dYm = buildMaet({pYnest, pYabs2 + offN(2, m)}, [], svN, rvN, ...
+                       zN, zN, pdN, exchN, 'nested', {nestSpec, []}, ...
                        'verbose', false);
-    refN(m) = cosSimExpTens(dXnest, dYm, 'method', 'bulger', ...
+    refN(m) = simMaet(dXnest, dYm, 'method', 'bulger', ...
                             'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: unswept nested inner unit matches per-offset';
@@ -229,17 +229,17 @@ results{end,2} = max(abs(gotN - refN)) <= tol;
 rng(760);
 pXa = sort(randn(4, 6) * 4, 1);
 pYa = sort(randn(4, 3) * 4, 1);
-dXa = buildExpTens({pXa}, [], 1.0, 1, false, false, 0, true, ...
+dXa = buildMaet({pXa}, [], 1.0, 1, false, false, 0, true, ...
                    'nested', {absSpec}, 'verbose', false);
-dYa = buildExpTens({pYa}, [], 1.0, 1, false, false, 0, true, ...
+dYa = buildMaet({pYa}, [], 1.0, 1, false, false, 0, true, ...
                    'nested', {absSpec}, 'verbose', false);
-gotA = sweepCosSimExpTens(dXa, dYa, baseOff, ...
+gotA = sweepSimMaet(dXa, dYa, baseOff, ...
                           'truncationSigmas', Inf, 'verbose', false);
 refA = zeros(1, numel(baseOff));
 for m = 1:numel(baseOff)
-    dYm = buildExpTens({pYa + baseOff(m)}, [], 1.0, 1, false, false, 0, ...
+    dYm = buildMaet({pYa + baseOff(m)}, [], 1.0, 1, false, false, 0, ...
                        true, 'nested', {absSpec}, 'verbose', false);
-    refA(m) = cosSimExpTens(dXa, dYm, 'method', 'bulger', ...
+    refA(m) = simMaet(dXa, dYm, 'method', 'bulger', ...
                             'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: absolute nested attribute sweeps';
@@ -247,10 +247,10 @@ results{end,2} = max(abs(gotA - refA)) <= tol;
 
 ok = false;
 try
-    sweepCosSimExpTens(dXnest, dYnest, ...
+    sweepSimMaet(dXnest, dYnest, ...
         [baseOff; zeros(1, numel(baseOff))], 'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:sweptNested');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:sweptNested');
 end
 results{end+1,1} = 'sweep: swept nested inner unit is refused';
 results{end,2} = ok;
@@ -267,7 +267,7 @@ rng(770);
 pXrp = {randn(3, 8) * 20, mod(randn(3, 8) * 5, 12)};
 pYrp = {randn(3, 3) * 20, mod(randn(3, 3) * 5, 12)};
 rvRP = [3 3]; relRP = [false true]; perRP = [false true]; pdRP = [NaN 12];
-symRP = [true true];
+exchRP = [true true];
 offRP = [baseOff; zeros(1, numel(baseOff))];
 
 % The pitch attribute's sigma is set wide enough that the profile is
@@ -276,17 +276,17 @@ offRP = [baseOff; zeros(1, numel(baseOff))];
 % comparison can discriminate. At sigma = 5 the peak similarity is
 % 4.8e-04 below the limit and 1.2e-01 above it.
 svLow = [5 0.02 * 12];          % sigma/P = 0.02, inside the limit
-dXlow = buildExpTens(pXrp, [], svLow, rvRP, relRP, perRP, pdRP, symRP, ...
+dXlow = buildMaet(pXrp, [], svLow, rvRP, relRP, perRP, pdRP, exchRP, ...
                      'verbose', false);
-dYlow = buildExpTens(pYrp, [], svLow, rvRP, relRP, perRP, pdRP, symRP, ...
+dYlow = buildMaet(pYrp, [], svLow, rvRP, relRP, perRP, pdRP, exchRP, ...
                      'verbose', false);
-gotRP = sweepCosSimExpTens(dXlow, dYlow, offRP, ...
+gotRP = sweepSimMaet(dXlow, dYlow, offRP, ...
                            'truncationSigmas', Inf, 'verbose', false);
 refRP = zeros(1, size(offRP, 2));
 for m = 1:size(offRP, 2)
-    dYm = buildExpTens({pYrp{1} + offRP(1, m), pYrp{2}}, [], svLow, rvRP, ...
-                       relRP, perRP, pdRP, symRP, 'verbose', false);
-    refRP(m) = cosSimExpTens(dXlow, dYm, 'method', 'bulger', ...
+    dYm = buildMaet({pYrp{1} + offRP(1, m), pYrp{2}}, [], svLow, rvRP, ...
+                       relRP, perRP, pdRP, exchRP, 'verbose', false);
+    refRP(m) = simMaet(dXlow, dYm, 'method', 'bulger', ...
                              'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: rel-per below the sigma/P limit is accepted';
@@ -297,35 +297,35 @@ if ~results{end,2}
 end
 
 svHigh = [5 0.10 * 12];         % sigma/P = 0.10, above the limit
-dXhigh = buildExpTens(pXrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+dXhigh = buildMaet(pXrp, [], svHigh, rvRP, relRP, perRP, pdRP, exchRP, ...
                       'verbose', false);
-dYhigh = buildExpTens(pYrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+dYhigh = buildMaet(pYrp, [], svHigh, rvRP, relRP, perRP, pdRP, exchRP, ...
                       'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dXhigh, dYhigh, offRP, 'method', 'mixture', ...
+    sweepSimMaet(dXhigh, dYhigh, offRP, 'method', 'mixture', ...
                        'truncationSigmas', Inf, 'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:relativePeriodic');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:relativePeriodic');
 end
 results{end+1,1} = 'sweep: mixture refuses rel-per above the sigma/P limit';
 results{end,2} = ok;
 
-dXsi = buildExpTens(pXrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+dXsi = buildMaet(pXrp, [], svHigh, rvRP, relRP, perRP, pdRP, exchRP, ...
                     'wrap', {'full-image', 'single-image'}, 'verbose', false);
-dYsi = buildExpTens(pYrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+dYsi = buildMaet(pYrp, [], svHigh, rvRP, relRP, perRP, pdRP, exchRP, ...
                     'wrap', {'full-image', 'single-image'}, 'verbose', false);
 ok = true;
 try
-    gotSI = sweepCosSimExpTens(dXsi, dYsi, offRP, ...
+    gotSI = sweepSimMaet(dXsi, dYsi, offRP, ...
                                'truncationSigmas', Inf, 'verbose', false);
     refSI = zeros(1, size(offRP, 2));
     for m = 1:size(offRP, 2)
-        dYm = buildExpTens({pYrp{1} + offRP(1, m), pYrp{2}}, [], svHigh, ...
-                           rvRP, relRP, perRP, pdRP, symRP, ...
+        dYm = buildMaet({pYrp{1} + offRP(1, m), pYrp{2}}, [], svHigh, ...
+                           rvRP, relRP, perRP, pdRP, exchRP, ...
                            'wrap', {'full-image', 'single-image'}, ...
                            'verbose', false);
-        refSI(m) = cosSimExpTens(dXsi, dYm, 'method', 'bulger', ...
+        refSI(m) = simMaet(dXsi, dYm, 'method', 'bulger', ...
                                  'truncationSigmas', Inf, 'verbose', false);
     end
     ok = max(abs(gotSI - refSI)) <= tol;
@@ -344,25 +344,25 @@ results{end,2} = ok;
 
 % --- Refusals -----------------------------------------------------------
 
-dRel = buildExpTens({randn(3, 4)}, [], 0.9, 3, true, false, NaN, true, ...
+dRel = buildMaet({randn(3, 4)}, [], 0.9, 3, true, false, NaN, true, ...
     'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dRel, dRel, [0 1.5], 'verbose', false);
+    sweepSimMaet(dRel, dRel, [0 1.5], 'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:sweptRelative');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:sweptRelative');
 end
 results{end+1,1} = 'sweep: swept relative attribute is refused';
 results{end,2} = ok;
 
-dPer = buildExpTens({randn(3, 4)}, [], 0.9, 3, false, true, 12, true, ...
+dPer = buildMaet({randn(3, 4)}, [], 0.9, 3, false, true, 12, true, ...
     'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dPer, dPer, [0 1.5], 'method', 'mixture', ...
+    sweepSimMaet(dPer, dPer, [0 1.5], 'method', 'mixture', ...
                        'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:periodicAttribute');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:periodicAttribute');
 end
 results{end+1,1} = 'sweep: mixture refuses a swept periodic attribute';
 results{end,2} = ok;
@@ -371,30 +371,30 @@ results{end,2} = ok;
 % about the sweep, not about periodicity as such.
 ok = true;
 try
-    sweepCosSimExpTens(dPer, dPer, [0 0], 'verbose', false);
+    sweepSimMaet(dPer, dPer, [0 0], 'verbose', false);
 catch
     ok = false;
 end
 results{end+1,1} = 'sweep: unswept periodic attribute is accepted';
 results{end,2} = ok;
 
-dRP = buildExpTens({randn(2, 4)}, [], 0.9, 2, true, true, 12, true, ...
+dRP = buildMaet({randn(2, 4)}, [], 0.9, 2, true, true, 12, true, ...
     'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dRP, dRP, [0 0], 'method', 'mixture', ...
+    sweepSimMaet(dRP, dRP, [0 0], 'method', 'mixture', ...
                        'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:relativePeriodic');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:relativePeriodic');
 end
 results{end+1,1} = 'sweep: mixture refuses relative-periodic even unswept';
 results{end,2} = ok;
 
 ok = false;
 try
-    sweepCosSimExpTens(dX, dY, zeros(3, 4), 'verbose', false);
+    sweepSimMaet(dX, dY, zeros(3, 4), 'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:offsetsShape');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:offsetsShape');
 end
 results{end+1,1} = 'sweep: offsets shape is validated';
 results{end,2} = ok;
@@ -426,16 +426,16 @@ rng(70);
 pXt = {randn(3, 6) * 3, randn(3, 6) * 3};
 pYt = {randn(3, 3) * 3, randn(3, 3) * 3};
 [~, swT] = translateAttributes(pYt, [], {baseOff, 0.5 * baseOff});
-dXt = buildExpTens(pXt, [], sig, rv, z, z, pd, sym, 'verbose', false);
-dYt = buildExpTens(swT.base, [], sig, rv, z, z, pd, sym, 'verbose', false);
-gotT = sweepCosSimExpTens(dXt, dYt, swT.offsets, ...
+dXt = buildMaet(pXt, [], sig, rv, z, z, pd, exch, 'verbose', false);
+dYt = buildMaet(swT.base, [], sig, rv, z, z, pd, exch, 'verbose', false);
+gotT = sweepSimMaet(dXt, dYt, swT.offsets, ...
     'truncationSigmas', Inf, 'verbose', false);
 refT = zeros(1, numel(baseOff));
 for m = 1:numel(baseOff)
-    dYm = buildExpTens({pYt{1} + swT.offsets(1, m), ...
+    dYm = buildMaet({pYt{1} + swT.offsets(1, m), ...
                         pYt{2} + swT.offsets(2, m)}, [], ...
-        sig, rv, z, z, pd, sym, 'verbose', false);
-    refT(m) = cosSimExpTens(dXt, dYm, 'method', 'bulger', ...
+        sig, rv, z, z, pd, exch, 'verbose', false);
+    refT(m) = simMaet(dXt, dYm, 'method', 'bulger', ...
         'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: carried offsets drive the reduction';
@@ -462,17 +462,17 @@ for si = 1:numel(orbShapes)
     rng(800 + si);
     pXo = {randn(K, 5) * 3};
     pYo = {randn(K, 3) * 3};
-    dXo = buildExpTens(pXo, [], 0.9, r, false, false, NaN, true, ...
+    dXo = buildMaet(pXo, [], 0.9, r, false, false, NaN, true, ...
                        'verbose', false);
-    dYo = buildExpTens(pYo, [], 0.9, r, false, false, NaN, true, ...
+    dYo = buildMaet(pYo, [], 0.9, r, false, false, NaN, true, ...
                        'verbose', false);
-    gotO = sweepCosSimExpTens(dXo, dYo, orbOff, 'method', 'orbit', ...
+    gotO = sweepSimMaet(dXo, dYo, orbOff, 'method', 'orbit', ...
                               'truncationSigmas', Inf, 'verbose', false);
     refO = zeros(1, numel(orbOff));
     for m = 1:numel(orbOff)
-        dYm = buildExpTens({pYo{1} + orbOff(m)}, [], 0.9, r, false, ...
+        dYm = buildMaet({pYo{1} + orbOff(m)}, [], 0.9, r, false, ...
                            false, NaN, true, 'verbose', false);
-        refO(m) = cosSimExpTens(dXo, dYm, 'method', 'mobius', ...
+        refO(m) = simMaet(dXo, dYm, 'method', 'mobius', ...
                                 'truncationSigmas', Inf, 'verbose', false);
     end
     results{end+1,1} = sprintf( ...
@@ -489,13 +489,13 @@ rng(810);
 pXm = {randn(3, 5) * 3, randn(3, 5) * 3};
 pYm = {randn(3, 3) * 3, randn(3, 3) * 3};
 svM = [0.9 0.9]; rvM = [2 2]; zM = [false false]; pdM = [NaN NaN];
-symM = [true true];
+exchM = [true true];
 offM = [orbOff; 0.4 * orbOff];
-dXm = buildExpTens(pXm, [], svM, rvM, zM, zM, pdM, symM, 'verbose', false);
-dYm2 = buildExpTens(pYm, [], svM, rvM, zM, zM, pdM, symM, 'verbose', false);
-gotMix = sweepCosSimExpTens(dXm, dYm2, offM, 'method', 'mixture', ...
+dXm = buildMaet(pXm, [], svM, rvM, zM, zM, pdM, exchM, 'verbose', false);
+dYm2 = buildMaet(pYm, [], svM, rvM, zM, zM, pdM, exchM, 'verbose', false);
+gotMix = sweepSimMaet(dXm, dYm2, offM, 'method', 'mixture', ...
                             'truncationSigmas', Inf, 'verbose', false);
-gotOrb = sweepCosSimExpTens(dXm, dYm2, offM, 'method', 'orbit', ...
+gotOrb = sweepSimMaet(dXm, dYm2, offM, 'method', 'orbit', ...
                             'truncationSigmas', Inf, 'verbose', false);
 results{end+1,1} = 'sweep: orbit and mixture routes agree';
 results{end,2} = max(abs(gotMix - gotOrb)) <= 1e-11;
@@ -509,15 +509,15 @@ end
 rng(820);
 pXp3 = {mod(randn(3, 5) * 4, 12)};
 pYp3 = {mod(randn(3, 2) * 4, 12)};
-dXp3 = buildExpTens(pXp3, [], 0.6, 3, false, true, 12, true, 'verbose', false);
-dYp3 = buildExpTens(pYp3, [], 0.6, 3, false, true, 12, true, 'verbose', false);
-gotP3 = sweepCosSimExpTens(dXp3, dYp3, orbOff, 'method', 'orbit', ...
+dXp3 = buildMaet(pXp3, [], 0.6, 3, false, true, 12, true, 'verbose', false);
+dYp3 = buildMaet(pYp3, [], 0.6, 3, false, true, 12, true, 'verbose', false);
+gotP3 = sweepSimMaet(dXp3, dYp3, orbOff, 'method', 'orbit', ...
                            'truncationSigmas', Inf, 'verbose', false);
 refP3 = zeros(1, numel(orbOff));
 for m = 1:numel(orbOff)
-    dYm = buildExpTens({pYp3{1} + orbOff(m)}, [], 0.6, 3, false, true, ...
+    dYm = buildMaet({pYp3{1} + orbOff(m)}, [], 0.6, 3, false, true, ...
                        12, true, 'verbose', false);
-    refP3(m) = cosSimExpTens(dXp3, dYm, 'method', 'mobius', ...
+    refP3(m) = simMaet(dXp3, dYm, 'method', 'mobius', ...
                              'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: orbit route carries a swept periodic attribute';
@@ -529,22 +529,22 @@ end
 
 ok = false;
 try
-    sweepCosSimExpTens(dXp3, dYp3, orbOff, 'method', 'mixture', ...
+    sweepSimMaet(dXp3, dYp3, orbOff, 'method', 'mixture', ...
                        'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:periodicAttribute');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:periodicAttribute');
 end
 results{end+1,1} = 'sweep: mixture still refuses a swept periodic attribute';
 results{end,2} = ok;
 
-gotAuto = sweepCosSimExpTens(dXp3, dYp3, orbOff, ...
+gotAuto = sweepSimMaet(dXp3, dYp3, orbOff, ...
                              'truncationSigmas', Inf, 'verbose', false);
 results{end+1,1} = 'sweep: auto reaches the swept periodic case via orbit';
 results{end,2} = max(abs(gotAuto - refP3)) <= 1e-12;
 
 ok = false;
 try
-    sweepCosSimExpTens(dXo, dYo, orbOff, 'method', 'nonsense', ...
+    sweepSimMaet(dXo, dYo, orbOff, 'method', 'nonsense', ...
                        'verbose', false);
 catch
     ok = true;
@@ -567,28 +567,28 @@ pXord = {randn(5, 6) * 3, randn(5, 6) * 3};
 pYord = {randn(5, 3) * 3, randn(5, 3) * 3};
 svO = [0.9 0.9]; rvO = [3 3]; zO = [false false]; pdO = [NaN NaN];
 offOrd = [baseOff; 0.5 * baseOff];
-dXord = buildExpTens(pXord, [], svO, rvO, zO, zO, pdO, [false false], ...
+dXord = buildMaet(pXord, [], svO, rvO, zO, zO, pdO, [false false], ...
                      'verbose', false);
-dYord = buildExpTens(pYord, [], svO, rvO, zO, zO, pdO, [false false], ...
+dYord = buildMaet(pYord, [], svO, rvO, zO, zO, pdO, [false false], ...
                      'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dXord, dYord, offOrd, 'method', 'orbit', ...
+    sweepSimMaet(dXord, dYord, offOrd, 'method', 'orbit', ...
                        'truncationSigmas', Inf, 'verbose', false);
 catch ME
-    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:orbitUnsupported');
+    ok = strcmp(ME.identifier, 'sweepSimMaet:orbitUnsupported');
 end
 results{end+1,1} = 'sweep: orbit route declines an ordered attribute';
 results{end,2} = ok;
 
-gotOrd = sweepCosSimExpTens(dXord, dYord, offOrd, ...
+gotOrd = sweepSimMaet(dXord, dYord, offOrd, ...
                             'truncationSigmas', Inf, 'verbose', false);
 refOrd = zeros(1, size(offOrd, 2));
 for m = 1:size(offOrd, 2)
-    dYm = buildExpTens({pYord{1} + offOrd(1, m), pYord{2} + offOrd(2, m)}, ...
+    dYm = buildMaet({pYord{1} + offOrd(1, m), pYord{2} + offOrd(2, m)}, ...
                        [], svO, rvO, zO, zO, pdO, [false false], ...
                        'verbose', false);
-    refOrd(m) = cosSimExpTens(dXord, dYm, 'method', 'bulger', ...
+    refOrd(m) = simMaet(dXord, dYm, 'method', 'bulger', ...
                               'truncationSigmas', Inf, 'verbose', false);
 end
 results{end+1,1} = 'sweep: auto falls back to the mixture when ordered';
@@ -606,16 +606,16 @@ results{end,2} = max(abs(gotOrd - refOrd)) <= tol;
 rng(840);
 pXd = {randn(4, 6) * 3};
 pYd = {randn(4, 3) * 3};
-dXd = buildExpTens(pXd, [], 0.9, 3, false, false, NaN, true, ...
+dXd = buildMaet(pXd, [], 0.9, 3, false, false, NaN, true, ...
                    'verbose', false);
-dYd = buildExpTens(pYd, [], 0.9, 3, false, false, NaN, true, ...
+dYd = buildMaet(pYd, [], 0.9, 3, false, false, NaN, true, ...
                    'verbose', false);
 offD = [-2.6, -0.9, 0.0, 1.3, 3.4];
 for methodName = {'mixture', 'orbit', 'auto'}
     mn = methodName{1};
     ok = true;
     try
-        vD = sweepCosSimExpTens(dXd, dYd, offD, 'method', mn, ...
+        vD = sweepSimMaet(dXd, dYd, offD, 'method', mn, ...
                                 'verbose', false);
         ok = all(isfinite(vD)) && numel(vD) == numel(offD);
     catch ME
@@ -629,9 +629,9 @@ for methodName = {'mixture', 'orbit', 'auto'}
 end
 
 % The routes must also agree with each other at the default.
-vMixD = sweepCosSimExpTens(dXd, dYd, offD, 'method', 'mixture', ...
+vMixD = sweepSimMaet(dXd, dYd, offD, 'method', 'mixture', ...
                            'verbose', false);
-vOrbD = sweepCosSimExpTens(dXd, dYd, offD, 'method', 'orbit', ...
+vOrbD = sweepSimMaet(dXd, dYd, offD, 'method', 'orbit', ...
                            'verbose', false);
 results{end+1,1} = 'sweep: routes agree at the default truncation';
 results{end,2} = max(abs(vMixD - vOrbD)) <= 1e-8;

@@ -1,4 +1,4 @@
-%% test_eval_routing.m — v3 evalExpTens centres-path routing parity
+%% test_eval_routing.m — v3 evalMaet centres-path routing parity
 %
 %  Mirrors python/tests/test_eval_routing.py. Verifies that the
 %  v3 refactor of localEvalSingleMultisetCentres (routing through
@@ -58,12 +58,12 @@ for ic = 1:size(er_cases, 1)
     rng(sum(double(label)), 'twister');
     p = sort(1000 * rand(K, 1));
     w = 0.5 + rand(K, 1);
-    dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, ...
+    dens = buildMaet(p, w, sigma, r, isRel, isPer, period, ...
         'verbose', false);
     % Populate heavy fields (Centres, wJ) so the test body can read
-    % them. Production code calls internal.ensureExpTensExpensive inside the
-    % evalExpTens centres-branch before invoking localEvalSingleMultisetCentres.
-    dens = internal.ensureExpTensExpensive(dens);
+    % them. Production code calls internal.ensureMaetExpensive inside the
+    % evalMaet centres-branch before invoking localEvalSingleMultisetCentres.
+    dens = internal.ensureMaetExpensive(dens);
     if isRel
         dim = r - 1;
     else
@@ -90,12 +90,12 @@ for ic = 1:size(er_cases, 1)
     weight_mass = sum(abs(dens.wJ));
     floorBound  = max(1e-12, 10 * weight_mass * exp(-kFloor^2 / 2));
 
-    v_default = evalExpTens(dens, X, 'method', 'centres', 'verbose', false);
+    v_default = evalMaet(dens, X, 'method', 'centres', 'verbose', false);
     results{end+1, 1} = sprintf('eval_routing: default matches reference (%s)', label); %#ok<*AGROW>
     results{end, 2} = max(abs(v_default(:) - ref(:))) < floorBound;
 
     % --- Explicit Inf/double: same floor-width truncation bound ---
-    v_inf = evalExpTens(dens, X, 'method', 'centres', ...
+    v_inf = evalMaet(dens, X, 'method', 'centres', ...
         'truncationSigmas', Inf, 'kernelPrecision', 'double', ...
         'verbose', false);
     results{end+1, 1} = sprintf('eval_routing: Inf/double matches reference (%s)', label);
@@ -107,7 +107,7 @@ for ic = 1:size(er_cases, 1)
     % former "periodic ignores truncation" check is obsolete and removed.
     if ~isPer
         for k = [4, 5, 6]
-            v_trunc = evalExpTens(dens, X, 'method', 'centres', ...
+            v_trunc = evalMaet(dens, X, 'method', 'centres', ...
                 'truncationSigmas', k, 'verbose', false);
             weight_mass = sum(abs(dens.wJ));
             bound = max(1e-12, 10 * weight_mass * exp(-k^2 / 2));
@@ -119,7 +119,7 @@ for ic = 1:size(er_cases, 1)
     end
 
     % --- Single precision within bound ---
-    v_single = evalExpTens(dens, X, 'method', 'centres', ...
+    v_single = evalMaet(dens, X, 'method', 'centres', ...
         'kernelPrecision', 'single', 'verbose', false);
     weight_mass = sum(abs(dens.wJ));
     bound_single = max(1e-12, 1e-5 * weight_mass);
@@ -134,20 +134,20 @@ rng(42, 'twister');
 p = sort(1000 * rand(6, 1));
 w = 0.5 + rand(6, 1);
 sigma = 12;
-dens = buildExpTens(p, w, sigma, 3, true, false, 0, 'verbose', false);
-dens = internal.ensureExpTensExpensive(dens);
+dens = buildMaet(p, w, sigma, 3, true, false, 0, 'verbose', false);
+dens = internal.ensureMaetExpensive(dens);
 X = 1000 * rand(2, 20);
 ref = local_ref_eval(dens, X);
 
 % Default Inf: matches reference (non-periodic, so still bit-identical
 % in practice, but use the same tolerance contract for consistency)
-v1 = evalExpTens(dens, X, 'method', 'centres', 'verbose', false);
+v1 = evalMaet(dens, X, 'method', 'centres', 'verbose', false);
 results{end+1, 1} = 'eval_routing: default Inf matches reference (global)';
 results{end, 2} = local_within_rtol(v1, ref, 1e-12);
 
 % Set global default = 6
 mptDefaults('truncationSigmas', 6);
-v2 = evalExpTens(dens, X, 'method', 'centres', 'verbose', false);
+v2 = evalMaet(dens, X, 'method', 'centres', 'verbose', false);
 weight_mass = sum(abs(dens.wJ));
 bound = max(1e-12, 10 * weight_mass * exp(-18));
 results{end+1, 1} = 'eval_routing: global default 6 within bound';
@@ -155,7 +155,7 @@ results{end, 2} = max(abs(v2 - ref)) < bound;
 
 % Per-call Inf overrides global=4
 mptDefaults('truncationSigmas', 4);
-v3 = evalExpTens(dens, X, 'method', 'centres', ...
+v3 = evalMaet(dens, X, 'method', 'centres', ...
     'truncationSigmas', Inf, 'verbose', false);
 results{end+1, 1} = 'eval_routing: per-call overrides global';
 results{end, 2} = local_within_rtol(v3, ref, 1e-12);
@@ -193,7 +193,7 @@ end
 function v = local_ref_eval(dens, X)
 %LOCAL_REF_EVAL  Frozen v2.0 evalFull body for parity reference.
 %   Assumes `dens` already has its heavy fields materialised (caller
-%   has invoked internal.ensureExpTensExpensive). The frozen body reads
+%   has invoked internal.ensureMaetExpensive). The frozen body reads
 %   the flat single-multiset layout, so present the density through the
 %   view (single-multiset densities are the A = N = 1 corner of a
 %   MaetDensity).

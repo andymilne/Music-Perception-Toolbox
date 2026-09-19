@@ -81,7 +81,7 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA, truncationSigmas)
     % Bulger's restriction on the X side. The identity needs the *Y*
     % perm side to be stable under the same permutation group, i.e. the
     % two densities to carry the same tuple symmetry. Guaranteed by
-    % every caller (the two densities share r_a and isSym), and checked
+    % every caller (the two densities share r_a and isExch), and checked
     % structurally: the Y side must be the same orbit tiling of its own
     % comb side. Twin of the Python guard.
     combX = localCombOf(cx);

@@ -13,8 +13,8 @@ function out = windowedSimilarity(varargin)
 %
 %   The shared geometry is read from their specs, and any of the six
 %   per-attribute parameters -- 'sigma', 'isPer', 'period', 'r',
-%   'rel', 'sym' -- may be given alongside to override it, as at
-%   buildExpTens. An override may name every attribute or be
+%   'rel', 'exch' -- may be given alongside to override it, as at
+%   buildMaet. An override may name every attribute or be
 %   selective, a 1 x A cell whose empty entries keep what the spec
 %   carries: 'sigma', {[], s, []} sweeps the second attribute's
 %   width and leaves the rest to the pre-MAET.
@@ -39,16 +39,16 @@ function out = windowedSimilarity(varargin)
 %   'locate' is 'centroid' (default) | 'start' | 'end' | 'mid' | a handle.
 %   'targetAttr' is the attribute whose weights absorb the window factors
 %   (default: first compared attribute; may coincide with a swept axis).
-%   'specs' carries nested geometry from bindEvents. 'isSym' is the
-%   per-attribute symmetry vector of the flat surface ([] keeps the
+%   'specs' carries nested geometry from bindEvents. 'isExch' is the
+%   per-attribute exchangeability vector of the flat surface ([] keeps the
 %   unordered default); required, in particular, for ordered attributes
-%   carrying a matrix-valued kernel covariance (see intervalKernelCov).
+%   carrying a matrix-valued kernel covariance (see kernelCov).
 %   It is mutually exclusive with 'specs', whose nesting carries its
-%   own per-level sym. The window-factor and
+%   own per-level exch. The window-factor and
 %   comparison-kernel truncation both read the global mptDefaults setting.
 %
 %   See also PREMAET, WINDOWEDENTROPY, WEIGHTEVENTS, TRANSLATEATTRIBUTES,
-%            COSSIMEXPTENS.
+%            SIMMAET.
 
 varargin = internal.windowedPreMaetArgs(varargin, 'windowedSimilarity', 2);
 out = localWindowedSimilarity(varargin{:});
@@ -82,14 +82,14 @@ arguments
     nv.targetAttr = []
     nv.normalize (1,:) char = 'oneSidedDenom'
     nv.specs = []
-    nv.isSym = []
+    nv.isExch = []
     nv.verbose (1,1) logical = false
 end
 
-if ~isempty(nv.isSym) && ~isempty(nv.specs)
-    error('windowedSimilarity:isSymVsSpecs', ...
-        ['isSym applies to the flat per-attribute surface; nested ' ...
-         'geometry carries its per-level sym inside specs. Pass one ' ...
+if ~isempty(nv.isExch) && ~isempty(nv.specs)
+    error('windowedSimilarity:isExchVsSpecs', ...
+        ['isExch applies to the flat per-attribute surface; nested ' ...
+         'geometry carries its per-level exch inside specs. Pass one ' ...
          'or the other.']);
 end
 
@@ -104,7 +104,7 @@ if ~isempty(nv.sweep)
              'multi-axis sweep form locks the query to the sweep.']);
     end
     out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, isRel, ...
-        isPer, period, nv.isSym, nv.sweep, nv.drop, nv.contextWindow, nv.locate, ...
+        isPer, period, nv.isExch, nv.sweep, nv.drop, nv.contextWindow, nv.locate, ...
         nv.normalize, nv.targetAttr, nv.specs);
     return;
 end
@@ -113,7 +113,7 @@ if isempty(nv.dropWindowAttr)
         'dropWindowAttr is required (true places only, false compares).');
 end
 out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, isRel, ...
-    isPer, period, nv.isSym, centres, nv.start, nv.stop, nv.step, nv.queryCentres, ...
+    isPer, period, nv.isExch, centres, nv.start, nv.stop, nv.step, nv.queryCentres, ...
     nv.contextWindow, nv.queryWindow, nv.windowAttr, nv.dropWindowAttr, ...
     nv.locate, nv.targetAttr, nv.normalize, nv.specs);
 end
@@ -123,7 +123,7 @@ end
 %  single-axis core
 % =========================================================================
 function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
-        isRel, isPer, period, isSym, centres, startV, stopV, stepV, queryCentres, ...
+        isRel, isPer, period, isExch, centres, startV, stopV, stepV, queryCentres, ...
         contextWindow, queryWindow, windowAttr, dropWindowAttr, locate, ...
         targetAttr, normalize, specs) %#ok<INUSL>
     A = numel(pContext);
@@ -169,7 +169,7 @@ function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
     end
     relAxis = internal.axisIsRel(specs, isRel, axisIdx);
     [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-    symC = internal.subSymArgs(isSym, keep);
+    exchC = internal.subExchArgs(isExch, keep);
     T = size(qRows, 2);
     out = zeros(Ac, T);
     % The query window attaches to the query, not to the sweep: it is centred
@@ -191,7 +191,7 @@ function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
             axisIdx, ctxCentres(a), gamma, sd, {locate}, target);
         [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, A);
         if nested
-            dc = buildExpTens(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+            dc = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, ...
                 'specs', sc, 'verbose', false);
         end
         for t = 1:T
@@ -204,12 +204,12 @@ function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
             end
             [pq, wq, sq] = internal.dropAxes(pqT, wqT, sqT, dropAxes, A);
             if nested
-                dq = buildExpTens(pq, wq, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+                dq = buildMaet(pq, wq, 'sigma', sg, 'isPer', pr, 'period', pd, ...
                     'specs', sq, 'verbose', false);
-                out(a, t) = cosSimExpTens(dc, dq, 'normalize', normalize, 'verbose', false);
+                out(a, t) = simMaet(dc, dq, 'normalize', normalize, 'verbose', false);
             else
-                out(a, t) = cosSimExpTens(pc, wc, pq, wq, sg, rr, rl, pr, pd, ...
-                    symC{:}, 'normalize', normalize, 'verbose', false);
+                out(a, t) = simMaet(pc, wc, pq, wq, sg, rr, rl, pr, pd, ...
+                    exchC{:}, 'normalize', normalize, 'verbose', false);
             end
         end
     end
@@ -221,7 +221,7 @@ end
 %  multi-axis core
 % =========================================================================
 function out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, ...
-        isRel, isPer, period, isSym, sweepMap, dropMap, contextWindow, locate, ...
+        isRel, isPer, period, isExch, sweepMap, dropMap, contextWindow, locate, ...
         normalize, targetAttr, specs)
     n = numel(pContext);
     [axes, grids] = internal.parseMap(sweepMap);
@@ -261,7 +261,7 @@ function out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, ...
         qLocs(k) = mean(internal.locateRow(pQuery{axes(k)}, locate), 'omitnan');
     end
     [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-    symC = internal.subSymArgs(isSym, keep);
+    exchC = internal.subExchArgs(isExch, keep);
     sizes = cellfun(@numel, grids);
     if K == 1, out = zeros(1, sizes(1)); else, out = zeros(sizes); end
     nTot = prod(sizes);
@@ -285,12 +285,12 @@ function out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, ...
         [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, n);
         [pq, wq, sq] = internal.dropAxes(pqT, wqT, sqT, dropAxes, n);
         if nested
-            dc = buildExpTens(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
-            dq = buildExpTens(pq, wq, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sq, 'verbose', false);
-            out(li) = cosSimExpTens(dc, dq, 'normalize', normalize, 'verbose', false);
+            dc = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
+            dq = buildMaet(pq, wq, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sq, 'verbose', false);
+            out(li) = simMaet(dc, dq, 'normalize', normalize, 'verbose', false);
         else
-            out(li) = cosSimExpTens(pc, wc, pq, wq, sg, rr, rl, pr, pd, ...
-                symC{:}, 'normalize', normalize, 'verbose', false);
+            out(li) = simMaet(pc, wc, pq, wq, sg, rr, rl, pr, pd, ...
+                exchC{:}, 'normalize', normalize, 'verbose', false);
         end
     end
 end

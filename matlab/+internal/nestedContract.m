@@ -47,7 +47,7 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
 %     methodName  the user-facing method name to quote in a decline
 %                 message ('contract' by default).
 %     cacheX, cacheY
-%                 self-IP memo structs (COSSIMEXPTENS's 'keys'/'vals'
+%                 self-IP memo structs (SIMMAET's 'keys'/'vals'
 %                 shape, plus the optional 'nestedCentres' cell holding
 %                 the centres route's memoised tuple-centres bundles,
 %                 see INTERNAL.NESTEDCENTRESMEMOISED); returned updated.
@@ -190,20 +190,20 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
     end
 
     rLevels   = double(specX.r(:)).';
-    symLevels = logical(specX.sym(:)).';
+    exchLevels = logical(specX.exch(:)).';
     % tags: rows index values, columns the inner tag levels (L-1 of them). A
     % MATLAB literal tag vector is a row, whereas buildRecipe takes the value
     % count from dimension 1 (matching the Python 1-D convention), so orient
     % single-level (L=2) tags as a column and undo any transposed matrix.
     tagsX = orientTags(double(specX.tags), size(PX, 1), numel(rLevels));
     tagsY = orientTags(double(specY.tags), size(PY, 1), numel(rLevels));
-    % The two densities must agree on the per-level read-arities and [sym]
+    % The two densities must agree on the per-level read-arities and [exch]
     % flags (same nested attribute); only the leaf cardinalities (tags shape)
     % may differ -- a 4-pitch prototype against an 8-pitch window, say.
     if ~isequal(rLevels, double(specY.r(:)).') ...
-            || ~isequal(symLevels, logical(specY.sym(:)).')
+            || ~isequal(exchLevels, logical(specY.exch(:)).')
         declineContractIfForced(force, methodName, ...
-            'the two nested attributes differ in [r]/[sym]');
+            'the two nested attributes differ in [r]/[exch]');
         return;
     end
     sameStruct = isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY);
@@ -321,11 +321,11 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         % rectangular leaf kernel, the Y recipe the Y axis. They coincide
         % when the densities share a nesting structure (the common case,
         % incl. all XX/YY products).
-        recipeX = buildRecipe(rLevels, symLevels, tagsX, isRel, isPer);
+        recipeX = buildRecipe(rLevels, exchLevels, tagsX, isRel, isPer);
         if sameStruct
             recipeY = recipeX;
         else
-            recipeY = buildRecipe(rLevels, symLevels, tagsY, isRel, isPer);
+            recipeY = buildRecipe(rLevels, exchLevels, tagsY, isRel, isPer);
         end
         ipxy = tripSum(recipeX, recipeY, PX, WX, PY, WY, sigma, period, ...
                        ts, quad, false);
@@ -503,7 +503,7 @@ function route = nestedAttrRoute(densX, densY, a, forceRoute, ts, ...
         % that route is taken whatever it costs.
         if strcmp(admissible{1}, 'taugrid')
             if strcmp(forced, 'centres')
-                error('cosSimExpTens:centresUnavailable', ...
+                error('simMaet:centresUnavailable', ...
                     ['method=''centres'' cannot be honoured on relative-' ...
                      'periodic nested attribute %d at sigma/period = ' ...
                      '%.4g: above %g the minimum-image centres route no ' ...
@@ -518,7 +518,7 @@ function route = nestedAttrRoute(densX, densY, a, forceRoute, ts, ...
             % such branch because 'centres' is the only route its public
             % API can force; this harness can force the grid routes, and
             % forcing one here would silently return the other measure.
-            error('cosSimExpTens:centresUnavailable', ...
+            error('simMaet:centresUnavailable', ...
                 ['forceRoute = ''%s'' cannot be honoured on relative-' ...
                  'periodic nested attribute %d at sigma/period = %.4g ' ...
                  'under wrap = ''single-image'': above %g that wrap ' ...
@@ -561,7 +561,7 @@ function localCheckForcedMode(forced, a, isRel, isPer)
         case 'contract_relnonper', ok = isRel && ~isPer;
         case 'taugrid',            ok = isRel && isPer;
         otherwise
-            error('cosSimExpTens:centresUnavailable', ...
+            error('simMaet:centresUnavailable', ...
                 ['unknown forceRoute ''%s''; expected ''centres'', ' ...
                  '''contract'', ''contract_relnonper'' or ''taugrid''.'], ...
                 forced);
@@ -577,7 +577,7 @@ function localCheckForcedMode(forced, a, isRel, isPer)
         else
             perStr = 'non-periodic';
         end
-        error('cosSimExpTens:centresUnavailable', ...
+        error('simMaet:centresUnavailable', ...
             ['forceRoute = ''%s'' cannot be honoured on nested attribute ' ...
              '%d: the attribute is %s-%s, whose measure that route does ' ...
              'not carry.'], forced, a, relStr, perStr);
@@ -690,7 +690,7 @@ end
 
 
 % ----------------------------------------------------------------------
-%  Self-IP memo access. The cache is COSSIMEXPTENS's 'keys'/'vals' struct;
+%  Self-IP memo access. The cache is SIMMAET's 'keys'/'vals' struct;
 %  the key format lives in INTERNAL.SELFIPKEY so the two files agree.
 % ----------------------------------------------------------------------
 function [hit, val] = cacheGet(cache, key)
@@ -731,10 +731,10 @@ end
 
 
 % ----------------------------------------------------------------------
-function s = tripSum(recipeA, recipeB, PA, WA, PB, WB, sigma, period, ts, quad, sym)
+function s = tripSum(recipeA, recipeB, PA, WA, PB, WB, sigma, period, ts, quad, exch)
     % Sum of the per-event-pair inner products over the pair grid.
     %
-    % sym=true (self inner products): <e_i,e_j> = <e_j,e_i>, so evaluate
+    % exch=true (self inner products): <e_i,e_j> = <e_j,e_i>, so evaluate
     % only the upper triangle and double the off-diagonal terms. recipeA /
     % recipeB index the PA / PB axes of the rectangular kernel.
     %
@@ -749,24 +749,24 @@ function s = tripSum(recipeA, recipeB, PA, WA, PB, WB, sigma, period, ts, quad, 
     % The relative-non-periodic mode keeps the per-pair route, because its
     % factored shortcut (ipRelNonperFactored) is chosen per pair and has no
     % batched form.
-    if nargin < 11; sym = false; end
+    if nargin < 11; exch = false; end
     if batchableMode(recipeA, recipeB, PA, WA, PB, WB, quad)
         s = tripSumBatched(recipeA, recipeB, PA, WA, PB, WB, ...
-                           sigma, period, ts, quad, sym);
+                           sigma, period, ts, quad, exch);
     else
         s = tripSumLooped(recipeA, recipeB, PA, WA, PB, WB, ...
-                          sigma, period, ts, quad, sym);
+                          sigma, period, ts, quad, exch);
     end
 end
 
 
 % ----------------------------------------------------------------------
 function s = tripSumBatched(recipeA, recipeB, PA, WA, PB, WB, ...
-                            sigma, period, ts, quad, sym)
+                            sigma, period, ts, quad, exch)
     % Sum over the event-pair grid, evaluated in batches.
-    [mi, ni] = pairIndices(size(PA, 2), size(PB, 2), sym);
+    [mi, ni] = pairIndices(size(PA, 2), size(PB, 2), exch);
     mult = ones(numel(mi), 1);
-    if sym
+    if exch
         % Upper triangle only, so off-diagonal pairs stand for two terms.
         mult(:) = 2.0;
         mult(mi == ni) = 1.0;
@@ -778,10 +778,10 @@ end
 
 
 % ----------------------------------------------------------------------
-function [mi, ni] = pairIndices(nA, nB, sym)
-    % Event-pair index lists. Under sym only the upper triangle is listed;
+function [mi, ni] = pairIndices(nA, nB, exch)
+    % Event-pair index lists. Under exch only the upper triangle is listed;
     % the caller supplies the multiplicity or scatters the transpose.
-    if sym
+    if exch
         spans = max(nB - (1:nA) + 1, 0);
         nPairs = sum(spans);
         mi = zeros(nPairs, 1);
@@ -922,7 +922,7 @@ function tf = batchableMode(recipeX, recipeY, PA, WA, PB, WB, quad)
         tf = false;
         return;
     end
-    if recipeX.sym || recipeY.sym
+    if recipeX.exch || recipeY.exch
         return;                        % shortcut needs ordered cells
     end
     if recipeX.r ~= numel(recipeX.children) ...
@@ -996,7 +996,7 @@ end
 
 % ----------------------------------------------------------------------
 function s = tripSumLooped(recipeA, recipeB, PA, WA, PB, WB, ...
-                           sigma, period, ts, quad, sym)
+                           sigma, period, ts, quad, exch)
     % Per-event-pair route, retained for the relative-non-periodic mode.
     s = 0.0;
     nA = size(PA, 2);
@@ -1004,11 +1004,11 @@ function s = tripSumLooped(recipeA, recipeB, PA, WA, PB, WB, ...
     for i = 1:nA
         ai = PA(:, i);
         wi = WA(:, i);
-        if sym; j0 = i; else; j0 = 1; end
+        if exch; j0 = i; else; j0 = 1; end
         for j = j0:nB
             v = nestedIp(recipeA, recipeB, ai, PB(:, j), wi, WB(:, j), ...
                          sigma, period, ts, quad);
-            if sym && j ~= i
+            if exch && j ~= i
                 s = s + 2.0 * v;
             else
                 s = s + v;
@@ -1035,14 +1035,14 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
 %   (NESTEDATTRPLAN / NESTEDATTRMATRICES), with the route decided once so
 %   its xy, xx and yy share one measure and, on a relative-periodic
 %   attribute, decided by the declared wrap rather than by cost wherever
-%   the two differ. An ordered-flat attribute ([sym] = false, r > 1, not
+%   the two differ. An ordered-flat attribute ([exch] = false, r > 1, not
 %   nested) goes through the centres path (MOBIUS.CLOSEDFORMATTRCENTRES /
 %   CLOSEDFORMATTRMATRIXFROM): a single ordered level has no symmetric
 %   orbit to reduce, and routing it through the orbit/Moebius matrix would
 %   wrongly symmetrise it (summing its full S_r orbit). Flat-symmetric and
 %   r = 1 attributes go through the orbit/Moebius per-attribute matrix
 %   (MOBIUS.MAPERATTRINNERMATRIX). The matrices multiply element-wise then
-%   sum, mirroring LOCALCOSSIMMAORBIT in COSSIMEXPTENS.
+%   sum, mirroring LOCALCOSSIMMAORBIT in SIMMAET.
 
     triple = [];
     routes = {};
@@ -1095,10 +1095,10 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
                 return;
             end
             if ~isequal(double(specX.r(:)).', double(specY.r(:)).') ...
-                    || ~isequal(logical(specX.sym(:)).', ...
-                                logical(specY.sym(:)).')
+                    || ~isequal(logical(specX.exch(:)).', ...
+                                logical(specY.exch(:)).')
                 declineContractIfForced(force, methodName, ...
-                    'the two nested attributes differ in [r]/[sym]');
+                    'the two nested attributes differ in [r]/[exch]');
                 return;
             end
             kinds{a} = 'nested';
@@ -1170,7 +1170,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
                 % Flat-symmetric or r = 1: the orbit/Moebius per-attribute
                 % matrix, which correctly symmetrises these readings. The
                 % attribute's declared wrap rides through, as it does at
-                % the flat MA call site in COSSIMEXPTENS; omitting it here
+                % the flat MA call site in SIMMAET; omitting it here
                 % read every periodic attribute as full-image whatever the
                 % user had declared.
                 Px = densX.pAttr{a}; Wx = densX.w{a};
@@ -1190,7 +1190,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
                 end
 
             case 'ordered'
-                % Ordered flat ([sym] = false, r > 1, not nested): the
+                % Ordered flat ([exch] = false, r > 1, not nested): the
                 % materialised centres, which read the attribute's own
                 % stored tuples. MOBIUS.MAPERATTRINNERMATRIX would sum the
                 % full S_r orbit and so symmetrise an attribute the user
@@ -1254,14 +1254,14 @@ end
 
 function tf = localIsOrderedFlat(dens, a)
 %LOCALISORDEREDFLAT  A non-nested attribute the user asked to keep
-%   ordered ([sym] = false) at r > 1. Densities built before isSym
+%   ordered ([exch] = false) at r > 1. Densities built before isExch
 %   existed default to the symmetric reading, unchanged.
     tf = false;
     if double(dens.r(a)) <= 1
         return;
     end
-    if isfield(dens, 'isSym') && numel(dens.isSym) >= a
-        tf = ~logical(dens.isSym(a));
+    if isfield(dens, 'isExch') && numel(dens.isExch) >= a
+        tf = ~logical(dens.isExch(a));
     end
 end
 
@@ -1306,7 +1306,7 @@ function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
     PXa = double(densX.pAttr{a});
     PYa = double(densY.pAttr{a});
     rLevels   = double(specX.r(:)).';
-    symLevels = logical(specX.sym(:)).';
+    exchLevels = logical(specX.exch(:)).';
     tagsX = orientTags(double(specX.tags), size(PXa, 1), numel(rLevels));
     tagsY = orientTags(double(specY.tags), size(PYa, 1), numel(rLevels));
     sameStruct = isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY);
@@ -1324,11 +1324,11 @@ function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
         PXa(mXa) = fillVal;  WXa(mXa | isnan(WXa)) = 0;
         PYa(mYa) = fillVal;  WYa(mYa | isnan(WYa)) = 0;
     end
-    recipeX = buildRecipe(rLevels, symLevels, tagsX, isRel, isPer);
+    recipeX = buildRecipe(rLevels, exchLevels, tagsX, isRel, isPer);
     if sameStruct
         recipeY = recipeX;
     else
-        recipeY = buildRecipe(rLevels, symLevels, tagsY, isRel, isPer);
+        recipeY = buildRecipe(rLevels, exchLevels, tagsY, isRel, isPer);
     end
     % (The former mpt:nestedSurrogateResolution warning is gone: see the
     % note at the single-attribute site above.)
@@ -1390,7 +1390,7 @@ function declineContractIfForced(force, methodName, reason)
 %   METHODNAME is quoted so the message names the method the user asked
 %   for ('contract', 'mobius' or 'centres'), not always 'contract'.
     if force
-        error('cosSimExpTens:contractUnavailable', ...
+        error('simMaet:contractUnavailable', ...
             ['method=''%s'' is not available here: %s. Use ' ...
              'method=''auto'' or method=''bulger''.'], methodName, reason);
     end
@@ -1409,19 +1409,19 @@ end
 % ----------------------------------------------------------------------
 %  Recipe: tag tree + permutation/combination index arrays (built once)
 % ----------------------------------------------------------------------
-function recipe = buildRecipe(rLevels, symLevels, tags, isRel, isPer)
+function recipe = buildRecipe(rLevels, exchLevels, tags, isRel, isPer)
     L = numel(rLevels);
     Ktot = size(tags, 1);
-    recipe = buildNode(L - 1, (1:Ktot).', rLevels, symLevels, tags, ...
+    recipe = buildNode(L - 1, (1:Ktot).', rLevels, exchLevels, tags, ...
                        isRel, isPer);
 end
 
 
-function node = buildNode(level, valIdx, rLevels, symLevels, tags, isRel, isPer)
+function node = buildNode(level, valIdx, rLevels, exchLevels, tags, isRel, isPer)
     valIdx = valIdx(:);
     if level == 0
         r0 = rLevels(1);
-        sy0 = symLevels(1);
+        sy0 = exchLevels(1);
         useOrb = orbitEligible(numel(valIdx), r0, sy0, isRel, isPer);
         if useOrb
             xt = zeros(0, r0); yt = zeros(0, r0);   % lazy: orbit needs no tuples
@@ -1429,7 +1429,7 @@ function node = buildNode(level, valIdx, rLevels, symLevels, tags, isRel, isPer)
             [xt, yt] = tupleIndices(numel(valIdx), r0, sy0);
         end
         node = struct('level', 0, 'valIdx', valIdx, 'children', {{}}, ...
-                      'xtup', xt, 'ytup', yt, 'r', r0, 'sym', sy0, ...
+                      'xtup', xt, 'ytup', yt, 'r', r0, 'exch', sy0, ...
                       'useOrbit', useOrb);
         return;
     end
@@ -1439,11 +1439,11 @@ function node = buildNode(level, valIdx, rLevels, symLevels, tags, isRel, isPer)
     children = cell(1, numel(uk));
     for c = 1:numel(uk)
         sub = valIdx(keys == uk(c));
-        children{c} = buildNode(level - 1, sub, rLevels, symLevels, tags, ...
+        children{c} = buildNode(level - 1, sub, rLevels, exchLevels, tags, ...
                                 isRel, isPer);
     end
     rl = rLevels(level + 1);           % Python r_levels[level]
-    syl = symLevels(level + 1);
+    syl = exchLevels(level + 1);
     useOrb = orbitEligible(numel(children), rl, syl, isRel, isPer);
     if useOrb
         xt = zeros(0, rl); yt = zeros(0, rl);
@@ -1451,12 +1451,12 @@ function node = buildNode(level, valIdx, rLevels, symLevels, tags, isRel, isPer)
         [xt, yt] = tupleIndices(numel(children), rl, syl);
     end
     node = struct('level', level, 'valIdx', valIdx, 'children', {children}, ...
-                  'xtup', xt, 'ytup', yt, 'r', rl, 'sym', syl, ...
+                  'xtup', xt, 'ytup', yt, 'r', rl, 'exch', syl, ...
                   'useOrbit', useOrb);
 end
 
 
-function tf = orbitEligible(K, r, sym, isRel, isPer) %#ok<INUSD>
+function tf = orbitEligible(K, r, exch, isRel, isPer) %#ok<INUSD>
     % Is the Mobius reduction *structurally* available at this level?
     %
     % Structure only: the level must be symmetric and r within the shipped
@@ -1472,7 +1472,7 @@ function tf = orbitEligible(K, r, sym, isRel, isPer) %#ok<INUSD>
     % computation actually incurred and compares it against the accuracy
     % the caller asked for.
     ORBIT_R_MAX_SHIPPED = 8;     % match Python _ORBIT_MAX_R
-    tf = sym && r >= 2 && r <= ORBIT_R_MAX_SHIPPED;
+    tf = exch && r >= 2 && r <= ORBIT_R_MAX_SHIPPED;
 end
 
 
@@ -1494,8 +1494,8 @@ function ts = admittingSigmas(bound)
 end
 
 
-function [xt, yt] = tupleIndices(n, r, sym)
-    % X side: permutations of r-combinations if sym, else combinations.
+function [xt, yt] = tupleIndices(n, r, exch)
+    % X side: permutations of r-combinations if exch, else combinations.
     % Y side: combinations. 1-based indices into 1:n.
     if r > n
         xt = zeros(0, r);
@@ -1508,7 +1508,7 @@ function [xt, yt] = tupleIndices(n, r, sym)
         C = nchoosek(1:n, r);          % (nC x r), each row a combination
     end
     yt = C;
-    if sym && r > 1
+    if exch && r > 1
         P = perms(1:r);                % (r! x r)
         nC = size(C, 1);
         nP = size(P, 1);
@@ -1535,10 +1535,10 @@ function v = contractNode(xn, yn, K)
     % level by combinePair's per-size tuple sourcing.
     if xn.level == 0
         block = K(:, xn.valIdx, yn.valIdx);
-        v = combinePair(block, xn.r, xn.sym, xn.useOrbit && yn.useOrbit);
+        v = combinePair(block, xn.r, xn.exch, xn.useOrbit && yn.useOrbit);
     else
         Mc = subtreeOverlaps(xn.children, yn.children, K);
-        v = combinePair(Mc, xn.r, xn.sym, xn.useOrbit && yn.useOrbit);
+        v = combinePair(Mc, xn.r, xn.exch, xn.useOrbit && yn.useOrbit);
     end
 end
 
@@ -1558,7 +1558,7 @@ function tf = siblingsUniform(nodes)
     tf = true;
     for k = 1:numel(nodes)
         nd = nodes{k};
-        if nodeSpan(nd) ~= span || nd.r ~= rep.r || nd.sym ~= rep.sym ...
+        if nodeSpan(nd) ~= span || nd.r ~= rep.r || nd.exch ~= rep.exch ...
                 || nd.useOrbit ~= rep.useOrbit
             tf = false; return;
         end
@@ -1574,7 +1574,7 @@ function M = leafOverlaps(xnodes, ynodes, K)
     nX = size(K, 2);
     nY = size(K, 3);
     r = xnodes{1}.r;
-    sym = xnodes{1}.sym;
+    exch = xnodes{1}.exch;
     if r == 1
         % r0 = 1: M(q,a,b) = sum_{i in Sxa, j in Syb} K(q,i,j) (weights folded).
         Gx = zeros(gx, nX);
@@ -1606,7 +1606,7 @@ function M = leafOverlaps(xnodes, ynodes, K)
         end
         useOrbit = xnodes{1}.useOrbit && ynodes{1}.useOrbit;
         vals = combinePair(reshape(blocks, [gx * gy * Q, mx, my]), ...
-                           r, sym, useOrbit);
+                           r, exch, useOrbit);
         M = permute(reshape(vals, [gx, gy, Q]), [3, 1, 2]);
         return;
     end
@@ -1615,7 +1615,7 @@ function M = leafOverlaps(xnodes, ynodes, K)
         for b = 1:gy
             uo = xnodes{a}.useOrbit && ynodes{b}.useOrbit;
             M(:, a, b) = combinePair(K(:, xnodes{a}.valIdx, ynodes{b}.valIdx), ...
-                                     r, sym, uo);
+                                     r, exch, uo);
         end
     end
 end
@@ -1631,7 +1631,7 @@ function M = subtreeOverlaps(xnodes, ynodes, K)
     gy = numel(ynodes);
     Q = size(K, 1);
     r = xnodes{1}.r;
-    sym = xnodes{1}.sym;
+    exch = xnodes{1}.exch;
     xsizes = zeros(1, gx);
     xflat = {};
     for k = 1:gx
@@ -1663,7 +1663,7 @@ function M = subtreeOverlaps(xnodes, ynodes, K)
         end
         useOrbit = xnodes{1}.useOrbit && ynodes{1}.useOrbit;
         vals = combinePair(reshape(blocks, [gx * gy * Q, gcx, gcy]), ...
-                           r, sym, useOrbit);
+                           r, exch, useOrbit);
         M = permute(reshape(vals, [gx, gy, Q]), [3, 1, 2]);
         return;
     end
@@ -1673,7 +1673,7 @@ function M = subtreeOverlaps(xnodes, ynodes, K)
         for b = 1:gy
             cb = yoffs(b) + 1 : yoffs(b + 1);
             uo = xnodes{a}.useOrbit && ynodes{b}.useOrbit;
-            M(:, a, b) = combinePair(Mc(:, ra, cb), r, sym, uo);
+            M(:, a, b) = combinePair(Mc(:, ra, cb), r, exch, uo);
         end
     end
 end
@@ -1753,7 +1753,7 @@ function w = enumWork(Q, gx, gy, r)
 end
 
 
-function v = combinePair(M, r, sym, useOrbit)
+function v = combinePair(M, r, exch, useOrbit)
     % Combine a (Q, gx, gy) block at one level: X-side perm tuples over gx,
     % Y-side comb tuples over gy (the r!-cancelled perm x comb form, same
     % scale as combine). gx and gy are read from the block, so unequal X/Y
@@ -1827,8 +1827,8 @@ function v = combinePair(M, r, sym, useOrbit)
                 end
                 warning('mpt:nestedOrbitCost', '%s%s', head, tail);
             end
-            [xt, ~] = tupleIndices(gx, r, sym);
-            [~, yt] = tupleIndices(gy, r, sym);
+            [xt, ~] = tupleIndices(gx, r, exch);
+            [~, yt] = tupleIndices(gy, r, exch);
             v = combineChunked(M, xt, yt);
             return;
         end
@@ -1858,8 +1858,8 @@ function v = combinePair(M, r, sym, useOrbit)
         end
         return;
     end
-    [xt, ~] = tupleIndices(gx, r, sym);
-    [~, yt] = tupleIndices(gy, r, sym);
+    [xt, ~] = tupleIndices(gx, r, exch);
+    [~, yt] = tupleIndices(gy, r, exch);
     v = combineChunked(M, xt, yt);
 end
 
@@ -2014,8 +2014,8 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
 %   differences: sum_tau prod_a g(refX_a - refY_a - tau). Returns [] when
 %   the structure is not of this form (then the caller uses the generic path).
     ipv = [];
-    if recipeX.sym || recipeY.sym
-        return;                        % need ordered cells (outer [sym] = 0)
+    if recipeX.exch || recipeY.exch
+        return;                        % need ordered cells (outer [exch] = 0)
     end
     if recipeX.r ~= numel(recipeX.children) ...
             || recipeY.r ~= numel(recipeY.children)
@@ -2206,17 +2206,17 @@ function out = localNestedTerms(densX, densY, a, ts, skipXX, skipYY)
         specX = densX.nested{a};
         specY = densY.nested{a};
         rLevels   = double(specX.r(:)).';
-        symLevels = logical(specX.sym(:)).';
+        exchLevels = logical(specX.exch(:)).';
         tagsX = orientTags(double(specX.tags), size(densX.pAttr{a}, 1), numel(rLevels));
         tagsY = orientTags(double(specY.tags), size(densY.pAttr{a}, 1), numel(rLevels));
-        [mPermX, mCombX] = tupleCounts(rLevels, symLevels, tagsX);
-        [mPermY, mCombY] = tupleCounts(rLevels, symLevels, tagsY);
-        mult = internal.nestedOrbitMult(rLevels, symLevels);
-        rx = buildRecipe(rLevels, symLevels, tagsX, isRel, isPer);
+        [mPermX, mCombX] = tupleCounts(rLevels, exchLevels, tagsX);
+        [mPermY, mCombY] = tupleCounts(rLevels, exchLevels, tagsY);
+        mult = internal.nestedOrbitMult(rLevels, exchLevels);
+        rx = buildRecipe(rLevels, exchLevels, tagsX, isRel, isPer);
         if isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY)
             ry = rx;
         else
-            ry = buildRecipe(rLevels, symLevels, tagsY, isRel, isPer);
+            ry = buildRecipe(rLevels, exchLevels, tagsY, isRel, isPer);
         end
         workX = recipeWork(rx);
         workY = recipeWork(ry);
@@ -2226,11 +2226,11 @@ function out = localNestedTerms(densX, densY, a, ts, skipXX, skipYY)
         [mPermX, mCombX] = localAttrCounts(densX, a);
         [mPermY, mCombY] = localAttrCounts(densY, a);
         rA = double(densX.r(a));
-        isSymA = true;
-        if isfield(densX, 'isSym') && numel(densX.isSym) >= a
-            isSymA = logical(densX.isSym(a));
+        isExchA = true;
+        if isfield(densX, 'isExch') && numel(densX.isExch) >= a
+            isExchA = logical(densX.isExch(a));
         end
-        if isSymA && rA > 1
+        if isExchA && rA > 1
             mult = factorial(rA);
         else
             mult = 1;
@@ -2321,19 +2321,19 @@ function [mPerm, mComb] = localAttrCounts(dens, a)
     if isNested
         spec = dens.nested{a};
         rLevels   = double(spec.r(:)).';
-        symLevels = logical(spec.sym(:)).';
+        exchLevels = logical(spec.exch(:)).';
         tg = orientTags(double(spec.tags), size(dens.pAttr{a}, 1), numel(rLevels));
-        [mPerm, mComb] = tupleCounts(rLevels, symLevels, tg);
+        [mPerm, mComb] = tupleCounts(rLevels, exchLevels, tg);
         return;
     end
     rA = double(dens.r(a));
     K = size(dens.pAttr{a}, 1);
-    isSym = true;
-    if isfield(dens, 'isSym') && numel(dens.isSym) >= a
-        isSym = logical(dens.isSym(a));
+    isExch = true;
+    if isfield(dens, 'isExch') && numel(dens.isExch) >= a
+        isExch = logical(dens.isExch(a));
     end
     mComb = nchoosekCount(K, rA);
-    if isSym && rA > 1
+    if isExch && rA > 1
         mPerm = mComb * factorial(rA);
     else
         mPerm = mComb;
@@ -2364,19 +2364,19 @@ end
 % ----------------------------------------------------------------------
 %  Analytic tuple counts (elementary symmetric polynomials) + tree work
 % ----------------------------------------------------------------------
-function [mPerm, mComb] = tupleCounts(rLevels, symLevels, tags)
+function [mPerm, mComb] = tupleCounts(rLevels, exchLevels, tags)
     L = numel(rLevels);
     Ktot = size(tags, 1);
-    mPerm = countSide((1:Ktot).', L - 1, true, rLevels, symLevels, tags);
-    mComb = countSide((1:Ktot).', L - 1, false, rLevels, symLevels, tags);
+    mPerm = countSide((1:Ktot).', L - 1, true, rLevels, exchLevels, tags);
+    mComb = countSide((1:Ktot).', L - 1, false, rLevels, exchLevels, tags);
 end
 
 
-function c = countSide(valIdx, level, useSym, rLevels, symLevels, tags)
+function c = countSide(valIdx, level, useExch, rLevels, exchLevels, tags)
     if level == 0
         r0 = rLevels(1);
         c = nchoosekCount(numel(valIdx), r0);
-        if useSym && symLevels(1)
+        if useExch && exchLevels(1)
             c = c * factorial(r0);
         end
         return;
@@ -2387,11 +2387,11 @@ function c = countSide(valIdx, level, useSym, rLevels, symLevels, tags)
     subs = zeros(1, numel(uk));
     for iGrp = 1:numel(uk)
         sub = valIdx(keys == uk(iGrp));
-        subs(iGrp) = countSide(sub, level - 1, useSym, rLevels, symLevels, tags);
+        subs(iGrp) = countSide(sub, level - 1, useExch, rLevels, exchLevels, tags);
     end
     rl = rLevels(level + 1);
     c = elemSym(subs, rl);
-    if useSym && symLevels(level + 1)
+    if useExch && exchLevels(level + 1)
         c = c * factorial(rl);
     end
 end

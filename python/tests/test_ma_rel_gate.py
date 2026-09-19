@@ -343,7 +343,7 @@ def test_forcing_a_route_does_not_change_the_value():
     out = {}
     for route in ("centres", "grid"):
         mpt.set_default(rel_attr_route=route)
-        out[route] = mpt.cos_sim_exp_tens(
+        out[route] = mpt.sim_maet(
             px, None, py, None, 6.0, 2, 1, 1, 1200.0,
             method="mobius", verbose=False)
     assert abs(out["centres"] - out["grid"]) < 1.5e-8

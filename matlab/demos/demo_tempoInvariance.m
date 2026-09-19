@@ -1,17 +1,20 @@
 %% demo_tempoInvariance.m
 %  Anisotropic kernels for tempo tolerance and tempo invariance:
 %  searching for a rhythmic motif in an onset stream with
-%  intervalKernelCov and windowedSimilarity.
+%  kernelCov and windowedSimilarity.
 %
 %  A matrix-valued kernel covariance (accepted wherever sigma is, on an
 %  ordered, absolute, non-periodic, non-nested attribute whose tuple is
 %  its whole multiset, r == K) lets one Gaussian kernel express several
 %  independent sources of perceptual tolerance at once. The constructor
-%  intervalKernelCov(r, 'sdPosition', ., 'sdInterval', ., 'sdShift', .)
-%  builds the covariance for an ordered tuple of r consecutive
-%  differences (intervals) of r + 1 underlying positions:
+%  kernelCov(r, 'differenced', ., 'sdValue', ., 'sdInterval', ., 'sdShift', .)
+%  builds the covariance from three sources of variance -- value
+%  noise, interval noise, and a common shift -- propagated according to
+%  whether the tuple holds values or their first differences. Here
+%  the tuple holds differences ('differenced', true), r consecutive
+%  intervals of r + 1 onsets:
 %
-%      Sigma = sdPosition^2 * (D * D')   (tridiagonal: 2 / -1 / -1)
+%      Sigma = sdValue^2 * (D * D')   (tridiagonal: 2 / -1 / -1)
 %            + sdInterval^2 * eye(r)     (diagonal)
 %            + sdShift^2    * ones(r)    (rank-one ridge)
 %
@@ -21,11 +24,11 @@
 %  log(a), along the all-ones diagonal. That makes the three
 %  constructor terms three musically distinct tolerances:
 %
-%    sdPosition   Uncertainty on the underlying positions whose
+%    sdValue   Uncertainty on the underlying values (onsets) whose
 %                 consecutive differences are the tuple's intervals.
 %                 Shared endpoints propagate it to the tridiagonal
-%                 sdPosition^2 * (D * D'): displacing one interior
-%                 position lengthens one interval and shortens its
+%                 sdValue^2 * (D * D'): displacing one interior
+%                 onset lengthens one interval and shortens its
 %                 neighbour by the same amount. On log-IOIs this
 %                 models onset-level timing jitter that scales with
 %                 the local inter-onset interval (Weber-like motor
@@ -170,14 +173,14 @@ fprintf('  Each trigram is one event: an ordered K = 3 atom multiset\n');
 fprintf('  read at r = 3, timed at the onset that completes its first\n');
 fprintf('  interval (the window-placing attribute).\n');
 
-%% ===== 2. intervalKernelCov: shaping the kernel covariance =====
+%% ===== 2. kernelCov: shaping the kernel covariance =====
 
-% intervalKernelCov builds the covariance of the trigram attribute's
+% kernelCov builds the covariance of the trigram attribute's
 % Gaussian kernel -- the object that sets how much of each kind of
 % departure from the motif the search treats as small. The covariance
 % is a sum of three independently scaled terms, one per source of
 % uncertainty being smoothed over:
-%   sdPosition -- jitter in the underlying onset times. Neighbouring
+%   sdValue -- jitter in the underlying onset times. Neighbouring
 %     intervals share an onset, so this uncertainty couples them: it
 %     enters as a tridiagonal term (2 sd^2 on the diagonal, -sd^2
 %     between neighbours).
@@ -192,22 +195,22 @@ fprintf('  interval (the window-placing attribute).\n');
 %     convergence.
 % The three cases below turn on one term at a time so each contribution
 % to the covariance is visible on its own.
-fprintf('\n=== 2. intervalKernelCov: the kernel covariance ===\n\n');
-fprintf(['  intervalKernelCov builds the covariance of the trigram ' ...
+fprintf('\n=== 2. kernelCov: the kernel covariance ===\n\n');
+fprintf(['  kernelCov builds the covariance of the trigram ' ...
     'attribute''s\n']);
 fprintf(['  Gaussian kernel from three terms, one per source of ' ...
     'uncertainty\n']);
-fprintf(['  the search smooths over: onset-time jitter (sdPosition), ' ...
+fprintf(['  the search smooths over: onset-time jitter (sdValue), ' ...
     'per-\n']);
 fprintf(['  interval noise (sdInterval), and a common tempo shift ' ...
     '(sdShift).\n']);
 fprintf('  Each case below turns on one term:\n\n');
 
-sPos = intervalKernelCov(3, 'sdPosition', 0.05);
-sInt = intervalKernelCov(3, 'sdInterval', 0.05 * sqrt(2));
-sRdg = intervalKernelCov(3, 'sdPosition', 0.05, 'sdShift', 0.25);
+sPos = kernelCov(3, 'differenced', true, 'sdValue', 0.05);
+sInt = kernelCov(3, 'differenced', true, 'sdInterval', 0.05 * sqrt(2));
+sRdg = kernelCov(3, 'differenced', true, 'sdValue', 0.05, 'sdShift', 0.25);
 
-fprintf(['  sdPosition = 0.05 alone -- onset-time jitter, coupled ' ...
+fprintf(['  sdValue = 0.05 alone -- onset-time jitter, coupled ' ...
     'across\n']);
 fprintf(['  shared onsets (tridiagonal, 2 sd^2 diagonal, -sd^2 ' ...
     'off):\n']);
@@ -218,7 +221,7 @@ fprintf(['  noise (diagonal; chosen to match the tridiagonal''s ' ...
     'per-interval\n']);
 fprintf('  marginal variance of 0.005):\n');
 disp(sInt);
-fprintf(['  sdPosition = 0.05 with sdShift = 0.25 -- onset jitter ' ...
+fprintf(['  sdValue = 0.05 with sdShift = 0.25 -- onset jitter ' ...
     'plus a\n']);
 fprintf('  common-shift ridge (rank-one, added to every entry):\n');
 disp(sRdg);
@@ -237,7 +240,7 @@ pertNames = {'displaced onset (0,+e,-e)', ...
              'tempo shift     (e, e, e)'};
 perts = {[0; epsPert; -epsPert], [0; epsPert; 0], ...
          [epsPert; epsPert; epsPert]};
-pureNames = {'position', 'interval', 'pos+shift'};
+pureNames = {'value', 'interval', 'val+shift'};
 pureKernels = {sPos, sInt, sRdg};
 w3 = ones(3, 1);
 
@@ -249,7 +252,7 @@ fprintf('  %s\n', repmat('-', 1, 35 + 12 * 3));
 for p = 1:numel(perts)
     row = zeros(1, 3);
     for k = 1:3
-        row(k) = cosSimExpTens(xMotif, w3, xMotif + perts{p}, w3, ...
+        row(k) = simMaet(xMotif, w3, xMotif + perts{p}, w3, ...
             pureKernels{k}, 3, false, false, 0, false, ...
             'normalize', 'oneSidedDenom', 'verbose', false);
     end
@@ -259,18 +262,18 @@ end
 
 fprintf('\n');
 fprintf('  Reading the columns:\n');
-fprintf('  - position: the displaced onset is CHEAPER than the single\n');
+fprintf('  - value: the displaced onset is CHEAPER than the single\n');
 fprintf('    stretched interval despite having twice its squared norm\n');
 fprintf('    -- anticorrelated perturbation of adjacent intervals is\n');
 fprintf('    exactly what shared-endpoint noise generates, and the\n');
 fprintf('    -sd^2 off-diagonals penalize it accordingly. The tempo shift\n');
 fprintf('    is all but forbidden: the sum of the r intervals equals\n');
 fprintf('    the difference of the two endpoint positions, so its\n');
-fprintf('    variance under position noise is 2 sd^2 regardless of r\n');
+fprintf('    variance under value (onset) noise is 2 sd^2 regardless of r\n');
 fprintf('    -- a common drift of all intervals is highly atypical of\n');
-fprintf('    position noise.\n');
+fprintf('    onset noise.\n');
 fprintf('  - interval: the penalty is by Euclidean norm alone (the two\n');
-fprintf('    marginals are matched to the position column), so the\n');
+fprintf('    marginals are matched to the value column), so the\n');
 fprintf('    ordering of the first two rows reverses.\n');
 fprintf('  - pos+shift: the ridge makes the tempo shift the cheapest\n');
 fprintf('    direction while leaving the within-shape penalties\n');
@@ -280,32 +283,32 @@ fprintf('    essentially unchanged.\n');
 
 fprintf('\n=== 3. Searching the stream for the motif ===\n\n');
 
-% Six kernels. sd values are in natural-log units: sdPosition = 0.10
+% Six kernels. sd values are in natural-log units: sdValue = 0.10
 % tolerates onset jitter of roughly 10% of the local inter-onset
 % interval; sdShift = 0.25 makes one sd a tempo factor of
 % exp(0.25) ~ 1.28 (or its reciprocal). The rel entry is exact tempo
 % invariance; its scalar sigma = 0.10*sqrt(2) matches the timing
-% kernel's per-interval marginal (2 * sdPosition^2).
+% kernel's per-interval marginal (2 * sdValue^2).
 kernelNames = {'strict', 'timing', 'tempo', 'timing+tempo', ...
                'large-shift', 'rel'};
-kernelSigmas = {intervalKernelCov(3, 'sdPosition', 0.02), ...
-                intervalKernelCov(3, 'sdPosition', 0.10), ...
-                intervalKernelCov(3, 'sdPosition', 0.02, ...
+kernelSigmas = {kernelCov(3, 'differenced', true, 'sdValue', 0.02), ...
+                kernelCov(3, 'differenced', true, 'sdValue', 0.10), ...
+                kernelCov(3, 'differenced', true, 'sdValue', 0.02, ...
                                   'sdShift', 0.25), ...
-                intervalKernelCov(3, 'sdPosition', 0.10, ...
+                kernelCov(3, 'differenced', true, 'sdValue', 0.10, ...
                                   'sdShift', 0.25), ...
-                intervalKernelCov(3, 'sdInterval', 0.10 * sqrt(2), ...
+                kernelCov(3, 'differenced', true, 'sdInterval', 0.10 * sqrt(2), ...
                                   'sdShift', 100), ...
                 0.10 * sqrt(2)};
 kernelSpecs = {spBound{1}, spBound{1}, spBound{1}, spBound{1}, ...
                spBound{1}, spBoundRel{1}};
-fprintf('  strict       : intervalKernelCov(3, ''sdPosition'', 0.02)\n');
-fprintf('  timing       : intervalKernelCov(3, ''sdPosition'', 0.10)\n');
-fprintf(['  tempo        : intervalKernelCov(3, ''sdPosition'', 0.02, ' ...
+fprintf('  strict       : kernelCov(3, ''differenced'', true, ''sdValue'', 0.02)\n');
+fprintf('  timing       : kernelCov(3, ''differenced'', true, ''sdValue'', 0.10)\n');
+fprintf(['  tempo        : kernelCov(3, ''differenced'', true, ''sdValue'', 0.02, ' ...
     '''sdShift'', 0.25)\n']);
-fprintf(['  timing+tempo : intervalKernelCov(3, ''sdPosition'', 0.10, ' ...
+fprintf(['  timing+tempo : kernelCov(3, ''differenced'', true, ''sdValue'', 0.10, ' ...
     '''sdShift'', 0.25)\n']);
-fprintf(['  large-shift  : intervalKernelCov(3, ''sdInterval'', ' ...
+fprintf(['  large-shift  : kernelCov(3, ''differenced'', true, ''sdInterval'', ' ...
     '0.10*sqrt(2), ''sdShift'', 100)\n']);
 fprintf(['  rel          : relOuter=true bind spec, sigma = ' ...
     '0.10*sqrt(2)  (exact tempo invariance)\n']);
@@ -366,7 +369,7 @@ fprintf('\n');
 fprintf('  Reading the rows:\n');
 fprintf('  - 20%% faster / double speed: pure tempo changes. Positional\n');
 fprintf('    sigma alone barely admits them at any tolerable width\n');
-fprintf('    (''timing'' gives 0.016 at sdPosition = 0.10); sdShift\n');
+fprintf('    (''timing'' gives 0.016 at sdValue = 0.10); sdShift\n');
 fprintf('    admits the moderate change and GRADES the large one\n');
 fprintf('    (''tempo'' gives 0.876 and 0.147); rel admits both\n');
 fprintf('    exactly.\n');
@@ -385,7 +388,7 @@ fprintf('    jittered-and-faster cell is the jittered cell under a\n');
 fprintf('    pure tempo change (its displacement scales with the\n');
 fprintf('    tempo), and rel quotients tempo out.\n');
 fprintf('  - reversed: same interval multiset as the motif; the\n');
-fprintf('    ordered outer read (symOuter = false, the bind default)\n');
+fprintf('    ordered outer read (exchOuter = false, the bind default)\n');
 fprintf('    keeps it at zero under every kernel.\n');
 fprintf('  - isochronous: a genuinely different shape; near zero\n');
 fprintf('    throughout.\n');
@@ -424,10 +427,10 @@ end
 % a trigram's tread spans its first inter-onset interval and its value
 % sits at the right edge (the trigram's stamp), with a dot marking
 % each stamp. Tile titles carry each kernel's constructor parameters.
-kernelParamLabels = {'sdPosition = 0.02', ...
-                     'sdPosition = 0.10', ...
-                     'sdPosition = 0.02, sdShift = 0.25', ...
-                     'sdPosition = 0.10, sdShift = 0.25', ...
+kernelParamLabels = {'sdValue = 0.02', ...
+                     'sdValue = 0.10', ...
+                     'sdValue = 0.02, sdShift = 0.25', ...
+                     'sdValue = 0.10, sdShift = 0.25', ...
                      'sdInterval = 0.10*sqrt(2), sdShift = 100', ...
                      'relOuter = true, sigma = 0.10*sqrt(2)'};
 cellSpans = zeros(nCells, 2);
@@ -535,7 +538,7 @@ fprintf('  while the within-shape metric is left behind. With the\n');
 fprintf('  within-shape term supplied by sdInterval = 0.08, the limit\n');
 fprintf('  is EXACTLY isRel = true at sigma = 0.08, because rel\n');
 fprintf('  mode''s isotropic within-shape kernel is the limit of the\n');
-fprintf('  diagonal (sdInterval) family. (The sdPosition family also\n');
+fprintf('  diagonal (sdInterval) family. (The sdValue family also\n');
 fprintf('  has a shift-invariant limit, but its within-shape metric\n');
 fprintf('  is the tridiagonal restricted to the zero-sum subspace,\n');
 fprintf('  which is not isotropic, so no scalar rel sigma reproduces\n');
@@ -549,10 +552,10 @@ shifts = [0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 20.0];
 fprintf('  %-12s%15s%15s\n', 'sdShift', targetNames{:});
 fprintf('  %s\n', repmat('-', 1, 12 + 15 * 2));
 for ss = shifts
-    s = intervalKernelCov(3, 'sdInterval', sdInt, 'sdShift', ss);
+    s = kernelCov(3, 'differenced', true, 'sdInterval', sdInt, 'sdShift', ss);
     row = zeros(1, 2);
     for j = 1:2
-        row(j) = cosSimExpTens(xMotif, w3, targetVals{j}, w3, s, 3, ...
+        row(j) = simMaet(xMotif, w3, targetVals{j}, w3, s, 3, ...
             false, false, 0, false, ...
             'normalize', 'oneSidedDenom', 'verbose', false);
     end
@@ -560,7 +563,7 @@ for ss = shifts
 end
 row = zeros(1, 2);
 for j = 1:2
-    row(j) = cosSimExpTens(xMotif, w3, targetVals{j}, w3, sdInt, 3, ...
+    row(j) = simMaet(xMotif, w3, targetVals{j}, w3, sdInt, 3, ...
         true, false, 0, false, ...
         'normalize', 'oneSidedDenom', 'verbose', false);
 end
@@ -577,9 +580,9 @@ hCurves = gobjects(1, 2);
 for j = 1:2
     curve = zeros(size(ssDense));
     for i = 1:numel(ssDense)
-        s = intervalKernelCov(3, 'sdInterval', sdInt, ...
+        s = kernelCov(3, 'differenced', true, 'sdInterval', sdInt, ...
             'sdShift', ssDense(i));
-        curve(i) = cosSimExpTens(xMotif, w3, targetVals{j}, w3, s, ...
+        curve(i) = simMaet(xMotif, w3, targetVals{j}, w3, s, ...
             3, false, false, 0, false, ...
             'normalize', 'oneSidedDenom', 'verbose', false);
     end

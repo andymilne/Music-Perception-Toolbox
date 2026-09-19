@@ -44,17 +44,17 @@ The `+jmm` package supplies the three works as the article encoded them.
 | Demo | Article | Question | Toolbox functions |
 |:--|:--|:--|:--|
 | `demo_jmm_1_1_entropy.m` | Analysis 1.1 | Where is the chorale's spectral pitch content most and least concentrated, per event and under a smooth window? | `addSpectra`, `windowedEntropy` (`'method', 'differential'`) |
-| `demo_jmm_1_2_similarity.m` | Analysis 1.2 | When do two chords count as alike? Six chord pairs under voice-aware, simplex-voice, and voice-agnostic encodings across the pitch–pitch-class blend (`HEATMAPS = true` adds the N × N event-pair matrices). Helpers: `jmm.buildVoiceAware`, `jmm.buildSimplexVoice`, `jmm.buildVoiceAgnostic`. | `buildExpTens`, `cosSimExpTens` (density lists, elementwise and broadcast modes), `simplexVertices` |
-| `demo_jmm_1_3_tonic_tuple_size.m` | Analysis 1.3 | How does raising the tuple size sharpen chord matching, across absolute/relative and periodic/non-periodic readings? | `buildExpTens`, `cosSimExpTens` |
-| `demo_jmm_1_4_cadence_nesting.m` | Analysis 1.4 | Where do cadences of each type occur, in any key? Nested two- and three-chord prototypes (chords unordered within an ordered, outer-relative succession) swept across the beat aggregates of the chorale, with pitch-derived inversion flags. Helpers: `jmm.bwvWindowState`, `jmm.winEvents`, `jmm.aggregate`, `jmm.boundDensity`, `jmm.buildPair`, `jmm.dyadQuery`, `jmm.queryDensity`, `jmm.sonAt`, `jmm.isRootPosition`, `jmm.isSixFour`, `jmm.b2bar`, `jmm.prototypeSweep`, `jmm.dyadSweep` (the twins of `bwv_window.py`). | `bindEvents`, `flatSpecs`, `buildExpTens`, `cosSimExpTens` (`'normalize', 'oneSidedDenom'`) |
-| `demo_jmm_3_1_diff.m` | Analysis 3.1 | Does joint differencing of pitch and time expose the accelerandi of the phasing voice at the timing JND? | `differenceEvents`, `buildExpTens`, `evalExpTens`, windowed Rényi-2 entropy |
+| `demo_jmm_1_2_similarity.m` | Analysis 1.2 | When do two chords count as alike? Six chord pairs under voice-aware, simplex-voice, and voice-agnostic encodings across the pitch–pitch-class blend (`HEATMAPS = true` adds the N × N event-pair matrices). Helpers: `jmm.buildVoiceAware`, `jmm.buildSimplexVoice`, `jmm.buildVoiceAgnostic`. | `buildMaet`, `simMaet` (density lists, elementwise and broadcast modes), `simplexVertices` |
+| `demo_jmm_1_3_tonic_tuple_size.m` | Analysis 1.3 | How does raising the tuple size sharpen chord matching, across absolute/relative and periodic/non-periodic readings? | `buildMaet`, `simMaet` |
+| `demo_jmm_1_4_cadence_nesting.m` | Analysis 1.4 | Where do cadences of each type occur, in any key? Nested two- and three-chord prototypes (chords unordered within an ordered, outer-relative succession) swept across the beat aggregates of the chorale, with pitch-derived inversion flags. Helpers: `jmm.bwvWindowState`, `jmm.winEvents`, `jmm.aggregate`, `jmm.boundDensity`, `jmm.buildPair`, `jmm.dyadQuery`, `jmm.queryDensity`, `jmm.sonAt`, `jmm.isRootPosition`, `jmm.isSixFour`, `jmm.b2bar`, `jmm.prototypeSweep`, `jmm.dyadSweep` (the twins of `bwv_window.py`). | `bindEvents`, `flatSpecs`, `buildMaet`, `simMaet` (`'normalize', 'oneSidedDenom'`) |
+| `demo_jmm_3_1_diff.m` | Analysis 3.1 | Does joint differencing of pitch and time expose the accelerandi of the phasing voice at the timing JND? | `differenceEvents`, `buildMaet`, `evalMaet`, windowed Rényi-2 entropy |
 | `demo_jmm_3_2_texture.m` | Analysis 3.2 | How does the pooled texture's local entropy track the phase, at a fusing and a resolving time kernel? | `windowedEntropy` (`'method', 'renyi2'`) |
 | `demo_jmm_3_3_xcorr.m` | Analysis 3.3 | Can the running phase between the pianos be read as the ridge of a lag cross-correlogram? | `windowedSimilarity` (one-sided matched filter) |
 
-The Python demo's `cos_sim_exp_tens(..., mode='cartesian')` (the full
+The Python demo's `sim_maet(..., mode='cartesian')` (the full
 N × N matrix in one call) has no MATLAB counterpart; the MATLAB scripts
 build the same matrices one row at a time with the struct-versus-cell
-broadcast form of `cosSimExpTens`, which gives the same numbers.
+broadcast form of `simMaet`, which gives the same numbers.
 
 Still to be added from the article's scripts: the *Acknowledgement*
 analyses 2.1–2.3 (motif recovery, joint pitch-and-time windowing,

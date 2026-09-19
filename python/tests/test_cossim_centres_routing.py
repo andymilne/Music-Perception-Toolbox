@@ -1,10 +1,10 @@
-"""Stage 2b: verify cos_sim_exp_tens routes the single-multiset centres-IP through
+"""Stage 2b: verify sim_maet routes the single-multiset centres-IP through
 :func:`gaussian_kernel_sum` for abs and rel-non-periodic modes, and
 that the ``truncation_sigmas`` / ``kernel_precision`` kwargs reach the
 helper from the public entry point.
 
 Coverage:
-    - cos_sim_exp_tens(dens_x, dens_y, truncation_sigmas=k) returns the
+    - sim_maet(dens_x, dens_y, truncation_sigmas=k) returns the
       same value as the exact path for abs ±periodic and rel-non-periodic
       densities, to within the helper's truncation tolerance.
     - The rel+periodic case (pairwise-wrap quadratic form) stays on the
@@ -20,8 +20,8 @@ import pytest
 
 from mpt import (
     add_spectra,
-    build_exp_tens,
-    cos_sim_exp_tens,
+    build_maet,
+    sim_maet,
     reset_defaults,
     set_default,
 )
@@ -37,9 +37,9 @@ def _build_density_pair(*, is_rel: bool, is_per: bool, sigma=12.0,
     """Two small chord-like densities."""
     p_x = np.array([0., 400., 700.])
     p_y = np.array([0., 300., 700.])
-    dens_x = build_exp_tens(p_x, np.ones(3), sigma, r, is_rel, is_per,
+    dens_x = build_maet(p_x, np.ones(3), sigma, r, is_rel, is_per,
                             period if is_per else 0.0)
-    dens_y = build_exp_tens(p_y, np.ones(3), sigma, r, is_rel, is_per,
+    dens_y = build_maet(p_y, np.ones(3), sigma, r, is_rel, is_per,
                             period if is_per else 0.0)
     return dens_x, dens_y
 
@@ -54,10 +54,10 @@ class TestCosSimSACentresRouting:
     def test_exact_vs_truncated_small(self, is_rel, is_per):
         reset_defaults()
         dens_x, dens_y = _build_density_pair(is_rel=is_rel, is_per=is_per)
-        s_exact = cos_sim_exp_tens(
+        s_exact = sim_maet(
             dens_x, dens_y, method='bulger', verbose=False,
         )
-        s_trunc = cos_sim_exp_tens(
+        s_trunc = sim_maet(
             dens_x, dens_y, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
@@ -79,10 +79,10 @@ class TestCosSimSACentresRouting:
         to better than the truncation tail ``exp(-k^2/2)``."""
         reset_defaults()
         dens_x, dens_y = _build_density_pair(is_rel=True, is_per=True)
-        s_exact = cos_sim_exp_tens(
+        s_exact = sim_maet(
             dens_x, dens_y, method='bulger', verbose=False,
         )
-        s_trunc = cos_sim_exp_tens(
+        s_trunc = sim_maet(
             dens_x, dens_y, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
@@ -99,14 +99,14 @@ class TestCosSimSACentresRouting:
         reset_defaults()
         dens_x, dens_y = _build_density_pair(is_rel=True, is_per=False)
 
-        s_explicit = cos_sim_exp_tens(
+        s_explicit = sim_maet(
             dens_x, dens_y, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
 
         set_default(truncation_sigmas=6.0)
         try:
-            s_global = cos_sim_exp_tens(
+            s_global = sim_maet(
                 dens_x, dens_y, method='bulger', verbose=False,
             )
         finally:
@@ -127,23 +127,23 @@ class TestCosSimListPath:
         reset_defaults()
         # Three rel-non-per chords, pairwise mode.
         densities_x = [
-            build_exp_tens(np.array([0., 400., 700.]), np.ones(3),
+            build_maet(np.array([0., 400., 700.]), np.ones(3),
                            12.0, 3, True, False, 0.0),
-            build_exp_tens(np.array([0., 300., 700.]), np.ones(3),
+            build_maet(np.array([0., 300., 700.]), np.ones(3),
                            12.0, 3, True, False, 0.0),
-            build_exp_tens(np.array([0., 400., 800.]), np.ones(3),
+            build_maet(np.array([0., 400., 800.]), np.ones(3),
                            12.0, 3, True, False, 0.0),
         ]
         densities_y = [
-            build_exp_tens(np.array([0., 350., 700.]), np.ones(3),
+            build_maet(np.array([0., 350., 700.]), np.ones(3),
                            12.0, 3, True, False, 0.0)
         ] * 3
 
-        s_exact = cos_sim_exp_tens(
+        s_exact = sim_maet(
             densities_x, densities_y, method='bulger',
             mode='pairwise', verbose=False,
         )
-        s_trunc = cos_sim_exp_tens(
+        s_trunc = sim_maet(
             densities_x, densities_y, method='bulger', mode='pairwise',
             truncation_sigmas=6.0, verbose=False,
         )

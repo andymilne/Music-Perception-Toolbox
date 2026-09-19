@@ -1,20 +1,20 @@
-function dens = ensureExpTensExpensive(dens)
-%ENSUREEXPTENSEXPENSIVE  Populate per-tuple fields on a skinny density.
+function dens = ensureMaetExpensive(dens)
+%ENSUREMAETEXPENSIVE  Populate per-tuple fields on a skinny density.
 %
-%   DENS = ENSUREEXPTENSEXPENSIVE(DENS) returns DENS with the per-tuple
+%   DENS = ENSUREMAETEXPENSIVE(DENS) returns DENS with the per-tuple
 %   "expensive" fields populated. If DENS already has those fields
-%   (e.g. it came from buildExpTens with 'lazy', false), the call is a
+%   (e.g. it came from buildMaet with 'lazy', false), the call is a
 %   no-op pass-through.
 %
-%   This is the helper used by consumer entry points (cosSimExpTens,
-%   evalExpTens, entropyExpTens, etc.) on density inputs.
-%   buildExpTens defaults to 'lazy', true, returning a skinny density
+%   This is the helper used by consumer entry points (simMaet,
+%   evalMaet, entropyMaet, etc.) on density inputs.
+%   buildMaet defaults to 'lazy', true, returning a skinny density
 %   that exposes only cheap fields (pAttr, w, sigma, r, isRel,
 %   isPer, period, dim, etc.). Orbit-method consumers operate
 %   directly on the cheap fields and skip this helper; pairwise/centre
 %   consumers prepend a single call to it.
 %
-%   Cheap fields (always present after buildExpTens):
+%   Cheap fields (always present after buildMaet):
 %     tag 'MaetDensity' (single-multiset is the A = N = 1 corner):
 %       nAttrs, N, r, K, pAttr,
 %       w, sigma, isRel, isPer, period, dim, dimPerAttr
@@ -26,14 +26,14 @@ function dens = ensureExpTensExpensive(dens)
 %   Idempotence: detection is by the presence of `Centres`. Calling on a
 %   fully-populated density returns it unchanged.
 %
-%   See also buildExpTens, cosSimExpTens, evalExpTens.
+%   See also buildMaet, simMaet, evalMaet.
 
     if ~isstruct(dens)
-        error('ensureExpTensExpensive:badInput', ...
-              'Input must be a density struct from buildExpTens.');
+        error('ensureMaetExpensive:badInput', ...
+              'Input must be a density struct from buildMaet.');
     end
     if ~isfield(dens, 'tag')
-        error('ensureExpTensExpensive:missingTag', ...
+        error('ensureMaetExpensive:missingTag', ...
               'Input is not a density struct (no .tag field).');
     end
 
@@ -42,13 +42,13 @@ function dens = ensureExpTensExpensive(dens)
         return
     end
 
-    % Forward the stored isSym flag so an ordered ([sym]=0) density does
+    % Forward the stored isExch flag so an ordered ([exch]=0) density does
     % not silently revert to symmetric when its expensive fields are
     % materialised. Older skinny structs without the field default to
-    % symmetric (empty -> buildExpTens default).
-    symArgs = {};
-    if isfield(dens, 'isSym') && ~isempty(dens.isSym)
-        symArgs = {dens.isSym};
+    % symmetric (empty -> buildMaet default).
+    exchArgs = {};
+    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
+        exchArgs = {dens.isExch};
     end
 
     % Forward the per-attribute nesting spec (representation B) so a
@@ -84,7 +84,7 @@ function dens = ensureExpTensExpensive(dens)
     % materialised --- changing the measure rather than the speed. It
     % shows up only above the sigma/period threshold, where the two
     % forms diverge, which is why it went unnoticed. Twin of the same
-    % carry in internal.prunedExpTens.
+    % carry in internal.prunedMaet.
     savedWrap = {}; hadWrap = false;
     if isfield(dens, 'wrap') && ~isempty(dens.wrap)
         savedWrap = dens.wrap;
@@ -93,16 +93,16 @@ function dens = ensureExpTensExpensive(dens)
 
     switch dens.tag
         case 'MaetDensity'
-            dens = buildExpTens( ...
+            dens = buildMaet( ...
                 dens.pAttr, dens.w, dens.sigma, dens.r, ...
-                dens.isRel, dens.isPer, dens.period, symArgs{:}, ...
+                dens.isRel, dens.isPer, dens.period, exchArgs{:}, ...
                 nestedArgs{:}, 'lazy', false, 'verbose', false);
             if ~isempty(savedNames)
                 dens.names = savedNames;
             end
 
         otherwise
-            error('ensureExpTensExpensive:badTag', ...
+            error('ensureMaetExpensive:badTag', ...
                   'Unknown density tag: %s', dens.tag);
     end
 

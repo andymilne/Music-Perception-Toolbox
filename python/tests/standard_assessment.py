@@ -5,7 +5,7 @@ numerical quantity must pass every regime in
 ``tests/standard_regimes.standard_regimes()``.
 
 When a new quantity is added (e.g., windowed similarity, Möbius-based
-``eval_exp_tens``, harmonicity Möbius method), add it here as another
+``eval_maet``, harmonicity Möbius method), add it here as another
 quantity entry.
 """
 import math
@@ -15,8 +15,8 @@ import numpy as np
 # Allow running directly without installation.
 sys.path.insert(0, '.')
 
-from mpt.tensor import build_exp_tens, cos_sim_exp_tens, eval_exp_tens
-from mpt.entropy import entropy_exp_tens
+from mpt.tensor import build_maet, sim_maet, eval_maet
+from mpt.entropy import entropy_maet
 from tests.standard_regimes import (
     standard_regimes,
     materialise_cell,
@@ -54,7 +54,7 @@ def _cell_pairwise_feasible(cell):
 
 def _build_dens(cell):
     args = materialise_cell(cell)
-    return build_exp_tens(*args, verbose=False)
+    return build_maet(*args, verbose=False)
 
 
 # -----------------------------------------------------------------
@@ -63,7 +63,7 @@ def _build_dens(cell):
 
 def cos_self(cell):
     d = _build_dens(cell)
-    return cos_sim_exp_tens(d, d, verbose=False)
+    return sim_maet(d, d, verbose=False)
 
 def cos_self_ref(cell):
     return 1.0
@@ -94,7 +94,7 @@ def cos_cross_auto(cell):
         return float('nan')
     d_x = _build_dens(cell)
     d_y = _build_y_dens(cell)
-    return cos_sim_exp_tens(d_x, d_y, method='auto', verbose=False)
+    return sim_maet(d_x, d_y, method='auto', verbose=False)
 
 
 def cos_cross_pairwise(cell):
@@ -102,7 +102,7 @@ def cos_cross_pairwise(cell):
         return float('nan')
     d_x = _build_dens(cell)
     d_y = _build_y_dens(cell)
-    return cos_sim_exp_tens(d_x, d_y, method='bulger', verbose=False)
+    return sim_maet(d_x, d_y, method='bulger', verbose=False)
 
 
 # -----------------------------------------------------------------
@@ -111,11 +111,11 @@ def cos_cross_pairwise(cell):
 
 def renyi2(cell):
     d = _build_dens(cell)
-    return entropy_exp_tens(d, method='renyi2', normalize=False)
+    return entropy_maet(d, method='renyi2', normalize=False)
 
 
 # -----------------------------------------------------------------
-# Quantity: eval_exp_tens orbit-vs-centres consistency.
+# Quantity: eval_maet orbit-vs-centres consistency.
 # Compute density at a small batch of query points via auto routing
 # and via forced centres; demand FP-precision agreement. single-multiset only —
 # the v3 orbit eval covers single-multiset; an MA orbit eval is on the roadmap.
@@ -148,7 +148,7 @@ def eval_auto(cell):
         return float('nan')
     d = _build_dens(cell)
     x = _eval_query_pts(cell)
-    vals = eval_exp_tens(d, x, method='auto', verbose=False)
+    vals = eval_maet(d, x, method='auto', verbose=False)
     # Reduce to a scalar so the assessor's rel/abs comparison works.
     # Mean is invariant to query-point ordering and exposes any
     # discrepancy uniformly.
@@ -160,7 +160,7 @@ def eval_centres(cell):
         return float('nan')
     d = _build_dens(cell)
     x = _eval_query_pts(cell)
-    vals = eval_exp_tens(d, x, method='centres', verbose=False)
+    vals = eval_maet(d, x, method='centres', verbose=False)
     return float(np.mean(vals))
 
 
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     )
     print_summary(s3)
 
-    print('\n=== Quantity: eval_exp_tens (auto vs centres, single-multiset only) ===')
+    print('\n=== Quantity: eval_maet (auto vs centres, single-multiset only) ===')
     s4 = run_regime_assessment(
         'eval auto vs centres', eval_auto, eval_centres,
         regimes=regimes, rel_tol=1e-10,

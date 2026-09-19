@@ -15,9 +15,9 @@
 %
 % How it is computed. Query and context alike are single events whose
 % pitch attribute is a nested multiset two levels deep: the inner level is
-% each chord's pitch multiset ([sym] = 1, at inner tuple size r = 1, 2, or
+% each chord's pitch multiset ([exch] = 1, at inner tuple size r = 1, 2, or
 % 3, the parameter this analysis varies), the outer level the chords in
-% order ([sym] = 0, r = the progression length). The comparison is taken
+% order ([exch] = 0, r = the progression length). The comparison is taken
 % relative at the outer level alone ([rel] = (0, 1)), removing one common
 % transposition of the whole progression while leaving each chord's own
 % pitch classes absolute, and periodic at the octave (sigma = 0.15
@@ -28,7 +28,7 @@
 % the 1.5 a beat carries — and the aligned span of L consecutive beats,
 % the resolution on the last, is bound into one nested super-event
 % (bindEvents) and compared with the query under the one-sided
-% similarity (cosSimExpTens(..., 'normalize', 'oneSidedDenom')), so a
+% similarity (simMaet(..., 'normalize', 'oneSidedDenom')), so a
 % peak of 1 is one isolated exact match. An optional inversion flag — a
 % second, simplex-coded attribute at +/-0.5 with sigma_flag = 0.1 — marks
 % whether a chosen chord is a root-position triad (the dyad skeleton's
@@ -51,7 +51,7 @@
 % (jmm.boundDensity, jmm.buildPair, jmm.dyadQuery, jmm.queryDensity), the
 % pitch-derived flags (jmm.isRootPosition, jmm.isSixFour), and the sweeps
 % (jmm.prototypeSweep, jmm.dyadSweep). Toolbox: bindEvents, flatSpecs,
-% buildExpTens, cosSimExpTens. Runtime: a minute or two (eight queries,
+% buildMaet, simMaet. Runtime: a minute or two (eight queries,
 % three inner tuple sizes, some sixty resolution moments each, every
 % comparison a nested inner product).
 %
@@ -61,7 +61,7 @@
 % reachable, rather than from the script itself: in a script neither
 % mfilename nor dbstack reports the file, and the current folder need not
 % be the script's own. Adding it puts the +jmm helper package in scope.
-mptRoot = which('buildExpTens');
+mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
         ['The toolbox is not on the path. Add the matlab folder of the ' ...

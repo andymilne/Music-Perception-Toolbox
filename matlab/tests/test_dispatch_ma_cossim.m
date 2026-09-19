@@ -1,4 +1,4 @@
-%% test_dispatch_ma_cossim.m — v3 MA method dispatch in cosSimExpTens
+%% test_dispatch_ma_cossim.m — v3 MA method dispatch in simMaet
 %
 %  Tests for the MA-side method dispatch added in v3 (Commit 6c).
 %  Covers:
@@ -43,29 +43,29 @@ isRel = false;  isPer = false;  period = 0;
 
 ok_badMethod = false;
 try
-    cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
+    simMaet(pAttr, wA, pAttr, wA, sigma, rVec, ...
         isRel, isPer, period, 'method', 'bogus', 'verbose', false);
 catch ME
-    ok_badMethod = strcmp(ME.identifier, 'cosSimExpTens:badMethod');
+    ok_badMethod = strcmp(ME.identifier, 'simMaet:badMethod');
 end
-results{end+1,1} = 'dispatch.MA cossim: bad method string raises cosSimExpTens:badMethod';
+results{end+1,1} = 'dispatch.MA cossim: bad method string raises simMaet:badMethod';
 results{end,2}   = ok_badMethod;
 
 % Method-name vocabulary. Three algorithms, one name each: 'centres'
 % (unrestricted enumeration of the tuple centres), 'bulger' (the
 % within-r-ad decomposition), 'mobius' (the partition-lattice sum).
 % 'direct' is retired: it named Bulger's method here while promising an
-% unrestricted enumeration, and named the centres route in evalExpTens,
+% unrestricted enumeration, and named the centres route in evalMaet,
 % so one word meant two things and neither matched its docstring.
 acceptedMethods = {'auto', 'bulger', 'centres', 'mobius'};
 ok_acceptedMethods = true;
 for iM = 1:numel(acceptedMethods)
     try
-        cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
+        simMaet(pAttr, wA, pAttr, wA, sigma, rVec, ...
             isRel, isPer, period, 'method', acceptedMethods{iM}, ...
             'verbose', false);
     catch ME
-        if strcmp(ME.identifier, 'cosSimExpTens:badMethod')
+        if strcmp(ME.identifier, 'simMaet:badMethod')
             ok_acceptedMethods = false;
         else
             rethrow(ME);
@@ -77,18 +77,18 @@ results{end,2}   = ok_acceptedMethods;
 
 ok_directRetired = false;
 try
-    cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
+    simMaet(pAttr, wA, pAttr, wA, sigma, rVec, ...
         isRel, isPer, period, 'method', 'direct', 'verbose', false);
 catch ME
-    ok_directRetired = strcmp(ME.identifier, 'cosSimExpTens:badMethod');
+    ok_directRetired = strcmp(ME.identifier, 'simMaet:badMethod');
 end
-results{end+1,1} = 'dispatch.MA cossim: retired ''direct'' raises cosSimExpTens:badMethod';
+results{end+1,1} = 'dispatch.MA cossim: retired ''direct'' raises simMaet:badMethod';
 results{end,2}   = ok_directRetired;
 
 % The three routes must agree: they compute the same inner product.
 sVals = zeros(1, 3); routeNames = {'bulger', 'centres', 'mobius'};
 for iM = 1:3
-    sVals(iM) = cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
+    sVals(iM) = simMaet(pAttr, wA, pAttr, wA, sigma, rVec, ...
         isRel, isPer, period, 'method', routeNames{iM}, ...
         'truncationSigmas', Inf, 'verbose', false);
 end
@@ -105,14 +105,14 @@ PxB = sort(1500 * rand(K_pb, N1));   WxB = ones(K_pb, N1);
 PyA = sort(2000 * rand(K_pa, N1));   WyA = ones(K_pa, N1);
 PyB = sort(1500 * rand(K_pb, N1));   WyB = ones(K_pb, N1);
 
-dx = buildExpTens({PxA, PxB}, {WxA, WxB}, [30 30], [3 3], ...
+dx = buildMaet({PxA, PxB}, {WxA, WxB}, [30 30], [3 3], ...
     [false false], [false false], [0 0], 'verbose', false);
-dy = buildExpTens({PyA, PyB}, {WyA, WyB}, [30 30], [3 3], ...
+dy = buildMaet({PyA, PyB}, {WyA, WyB}, [30 30], [3 3], ...
     [false false], [false false], [0 0], 'verbose', false);
 
-s_auto    = cosSimExpTens(dx, dy, 'verbose', false);
-s_orbit   = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
-s_pwise   = cosSimExpTens(dx, dy, 'method', 'bulger', 'verbose', false);
+s_auto    = simMaet(dx, dy, 'verbose', false);
+s_orbit   = simMaet(dx, dy, 'method', 'mobius', 'verbose', false);
+s_pwise   = simMaet(dx, dy, 'method', 'bulger', 'verbose', false);
 
 results{end+1,1} = 'dispatch.MA cossim: r=3 abs nonper auto matches Bulger (1e-10)';
 results{end,2}   = abs(s_auto - s_pwise) < 1e-10;
@@ -125,12 +125,12 @@ rng(53, 'twister');
 period_p = 1200;
 PxP = sort(period_p * rand(7, 3));   WxP = ones(7, 3);
 PyP = sort(period_p * rand(7, 3));   WyP = ones(7, 3);
-dxp = buildExpTens({PxP}, {WxP}, 30, 4, false, true, period_p, ...
+dxp = buildMaet({PxP}, {WxP}, 30, 4, false, true, period_p, ...
     'verbose', false);
-dyp = buildExpTens({PyP}, {WyP}, 30, 4, false, true, period_p, ...
+dyp = buildMaet({PyP}, {WyP}, 30, 4, false, true, period_p, ...
     'verbose', false);
-s_orb_per = cosSimExpTens(dxp, dyp, 'method', 'mobius', 'verbose', false);
-s_pwi_per = cosSimExpTens(dxp, dyp, 'method', 'bulger', 'verbose', false);
+s_orb_per = simMaet(dxp, dyp, 'method', 'mobius', 'verbose', false);
+s_pwi_per = simMaet(dxp, dyp, 'method', 'bulger', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: r=4 abs per Möbius matches Bulger (1e-8)';
 results{end,2}   = abs(s_orb_per - s_pwi_per) < 1e-8;
 
@@ -143,19 +143,19 @@ PyR = sort(period_r * rand(8, 3));   WyR = ones(8, 3);
 % sigma/period = 30/1200 = 0.025, just under 0.03 threshold -> no warning.
 % At A=1 the rel-periodic Möbius u-grid integration cost exceeds Bulger's,
 % so the cost model selects Bulger (auto == Bulger exactly).
-dxR = buildExpTens({PxR}, {WxR}, 30, 3, true, true, period_r, ...
+dxR = buildMaet({PxR}, {WxR}, 30, 3, true, true, period_r, ...
     'verbose', false);
-dyR = buildExpTens({PyR}, {WyR}, 30, 3, true, true, period_r, ...
+dyR = buildMaet({PyR}, {WyR}, 30, 3, true, true, period_r, ...
     'verbose', false);
 % Auto and Bulger should give identical answers (auto picks Bulger).
-s_auto_rel  = cosSimExpTens(dxR, dyR, 'verbose', false);
-s_pwise_rel = cosSimExpTens(dxR, dyR, 'method', 'bulger', 'verbose', false);
+s_auto_rel  = simMaet(dxR, dyR, 'verbose', false);
+s_pwise_rel = simMaet(dxR, dyR, 'method', 'bulger', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: rel-group auto = Bulger (exact)';
 results{end,2}   = isequal(s_auto_rel, s_pwise_rel);
 
 %% ---- Explicit orbit on rel groups: runs un-vectorised, agrees with Bulger ----
 
-s_orb_rel = cosSimExpTens(dxR, dyR, 'method', 'mobius', 'verbose', false);
+s_orb_rel = simMaet(dxR, dyR, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: explicit Möbius on rel groups matches Bulger (1e-6)';
 results{end,2}   = abs(s_orb_rel - s_pwise_rel) < 1e-6;
 
@@ -169,18 +169,18 @@ period_w = 100;
 % and that the cost model still routes to Möbius on large problems.
 PxW = sort(period_w * rand(12, 4));   WxW = ones(12, 4);
 PyW = sort(period_w * rand(12, 4));   WyW = ones(12, 4);
-dxW = buildExpTens({PxW}, {WxW}, 30, 3, true, true, period_w, ...
+dxW = buildMaet({PxW}, {WxW}, 30, 3, true, true, period_w, ...
     'verbose', false);  % sigma/P = 0.30 -> rel-per, previously warned
-dyW = buildExpTens({PyW}, {WyW}, 30, 3, true, true, period_w, ...
+dyW = buildMaet({PyW}, {WyW}, 30, 3, true, true, period_w, ...
     'verbose', false);
 
-w_state = warning('on', 'cosSimExpTens:relPerAllImage');
+w_state = warning('on', 'simMaet:relPerAllImage');
 lastwarn('');
-s_warn = cosSimExpTens(dxW, dyW, 'verbose', true);  %#ok<NASGU>
+s_warn = simMaet(dxW, dyW, 'verbose', true);  %#ok<NASGU>
 [~, lastID] = lastwarn;
 warning(w_state);
 results{end+1,1} = 'dispatch.MA cossim: sigma/P > 0.03 in rel+per stays silent (warning retired)';
-results{end,2}   = ~strcmp(lastID, 'cosSimExpTens:relPerAllImage');
+results{end,2}   = ~strcmp(lastID, 'simMaet:relPerAllImage');
 
 %% ---- r=2 auto routes by the cost model (parity with Python) ----
 
@@ -189,13 +189,13 @@ results{end,2}   = ~strcmp(lastID, 'cosSimExpTens:relPerAllImage');
 % prod_a r_a! * C(K_a, r_a)^2 compounding overtakes the additive Möbius
 % cost, so the model selects the Möbius method: auto equals forced Möbius
 % exactly and Bulger to floating point.
-dx2 = buildExpTens({PxA, PxB}, {WxA, WxB}, [30 30], [2 2], ...
+dx2 = buildMaet({PxA, PxB}, {WxA, WxB}, [30 30], [2 2], ...
     [false false], [false false], [0 0], 'verbose', false);
-dy2 = buildExpTens({PyA, PyB}, {WyA, WyB}, [30 30], [2 2], ...
+dy2 = buildMaet({PyA, PyB}, {WyA, WyB}, [30 30], [2 2], ...
     [false false], [false false], [0 0], 'verbose', false);
-s_auto2  = cosSimExpTens(dx2, dy2, 'verbose', false);
-s_orb2   = cosSimExpTens(dx2, dy2, 'method', 'mobius', 'verbose', false);
-s_pwise2 = cosSimExpTens(dx2, dy2, 'method', 'bulger', 'verbose', false);
+s_auto2  = simMaet(dx2, dy2, 'verbose', false);
+s_orb2   = simMaet(dx2, dy2, 'method', 'mobius', 'verbose', false);
+s_pwise2 = simMaet(dx2, dy2, 'method', 'bulger', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: r=2 large-K auto routes to Möbius (cost model)';
 results{end,2}   = isequal(s_auto2, s_orb2);
 results{end+1,1} = 'dispatch.MA cossim: r=2 auto (Möbius) matches Bulger (1e-10)';
@@ -206,17 +206,17 @@ results{end,2}   = abs(s_auto2 - s_pwise2) < 1e-10;
 rng(57, 'twister');
 PxS = sort(2000 * rand(4, 1));   WxS = ones(4, 1);
 PyS = sort(2000 * rand(4, 1));   WyS = ones(4, 1);
-dxs = buildExpTens({PxS, PxS}, {WxS, WxS}, [30 30], [2 2], ...
+dxs = buildMaet({PxS, PxS}, {WxS, WxS}, [30 30], [2 2], ...
     [false false], [false false], [0 0], 'verbose', false);
-dys = buildExpTens({PyS, PyS}, {WyS, WyS}, [30 30], [2 2], ...
+dys = buildMaet({PyS, PyS}, {WyS, WyS}, [30 30], [2 2], ...
     [false false], [false false], [0 0], 'verbose', false);
-s_autoS  = cosSimExpTens(dxs, dys, 'verbose', false);
-s_pwiseS = cosSimExpTens(dxs, dys, 'method', 'bulger', 'verbose', false);
+s_autoS  = simMaet(dxs, dys, 'verbose', false);
+s_pwiseS = simMaet(dxs, dys, 'method', 'bulger', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: r=2 small-N auto = Bulger (exact)';
 results{end,2}   = isequal(s_autoS, s_pwiseS);
 
 % ---- r_max > _ORBIT_R_MAX_SHIPPED auto routes to Bulger ----
-% v3 verified this at r=7 by running cosSimExpTens end-to-end and
+% v3 verified this at r=7 by running simMaet end-to-end and
 % comparing auto vs forced Bulger. After Phase 5 extended shipped
 % tables to r=2..8, the natural boundary test would be r=9 — but
 % Bulger at r=9 builds a K!/(K-r)! ordered-tuple tensor that exceeds
@@ -228,20 +228,20 @@ results{end,2}   = isequal(s_autoS, s_pwiseS);
 
 %% ---- Self-similarity = 1 on Möbius branch ----
 
-s_self = cosSimExpTens(dx, dx, 'method', 'mobius', 'verbose', false);
+s_self = simMaet(dx, dx, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: self-similarity on Möbius branch = 1 (1e-12)';
 results{end,2}   = abs(s_self - 1) < 1e-12;
 
 %% ---- Skinny dens transparency: orbit branch never forces ensure ----
 
 % Build skinny; check no Centres/U_perm before dispatch; run orbit.
-dens_skinnyX = buildExpTens({PxA, PxB}, {WxA, WxB}, [30 30], [3 3], ...
+dens_skinnyX = buildMaet({PxA, PxB}, {WxA, WxB}, [30 30], [3 3], ...
     [false false], [false false], [0 0], 'verbose', false);
-dens_skinnyY = buildExpTens({PyA, PyB}, {WyA, WyB}, [30 30], [3 3], ...
+dens_skinnyY = buildMaet({PyA, PyB}, {WyA, WyB}, [30 30], [3 3], ...
     [false false], [false false], [0 0], 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: skinny dens has no U_perm before dispatch';
 results{end,2}   = ~isfield(dens_skinnyX, 'U_perm');
-s_skinny = cosSimExpTens(dens_skinnyX, dens_skinnyY, ...
+s_skinny = simMaet(dens_skinnyX, dens_skinnyY, ...
     'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: orbit on skinny dens matches eager-built orbit';
 results{end,2}   = abs(s_skinny - s_orbit) < 1e-12;
@@ -253,13 +253,13 @@ P_ragX = [10 100; 30 200; 50 300; NaN 400; NaN 500];   % (5, 2)
 W_ragX = [1 1; 1 1; 1 1; NaN 1; NaN 1];                 % (5, 2)
 P_ragY = [20 110; 40 220; 60 330; NaN 440; NaN 550];
 W_ragY = [1 1; 1 1; 1 1; NaN 1; NaN 1];
-dx_rag = buildExpTens({P_ragX}, {W_ragX}, 30, 3, false, false, 0, ...
+dx_rag = buildMaet({P_ragX}, {W_ragX}, 30, 3, false, false, 0, ...
     'verbose', false);
-dy_rag = buildExpTens({P_ragY}, {W_ragY}, 30, 3, false, false, 0, ...
+dy_rag = buildMaet({P_ragY}, {W_ragY}, 30, 3, false, false, 0, ...
     'verbose', false);
-s_rag_orbit = cosSimExpTens(dx_rag, dy_rag, 'method', 'mobius', ...
+s_rag_orbit = simMaet(dx_rag, dy_rag, 'method', 'mobius', ...
     'verbose', false);
-s_rag_pwise = cosSimExpTens(dx_rag, dy_rag, 'method', 'bulger', ...
+s_rag_pwise = simMaet(dx_rag, dy_rag, 'method', 'bulger', ...
     'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: ragged K Möbius matches Bulger (1e-8)';
 results{end,2}   = abs(s_rag_orbit - s_rag_pwise) < 1e-8;

@@ -1,6 +1,6 @@
 %% bench_ma_eval_calibration.m
 %  Timing-grid harness for calibrating the multi-attribute EVAL cost
-%  model (internal.selectMaEval, routing evalExpTens between the
+%  model (internal.selectMaEval, routing evalMaet between the
 %  joint-centres accumulator and the factored Möbius evaluator).
 %
 %  WHY THIS EXISTS
@@ -134,17 +134,17 @@ KValsD  = [16 24 48];
 nQValsD = [100 400];
 
 % ---- Global warm-up: exercise every path once, off the clock. ----
-warmAbs = buildExpTens(spanRef * rand(8, 1), 0.2 + 0.8 * rand(8, 1), ...
+warmAbs = buildMaet(spanRef * rand(8, 1), 0.2 + 0.8 * rand(8, 1), ...
     sigmaRef, 3, false, false, 0, 'verbose', false);
-evalExpTens(warmAbs, spanRef * rand(3, 50), 'method', 'centres', 'verbose', false);
-evalExpTens(warmAbs, spanRef * rand(3, 50), 'method', 'mobius',  'verbose', false);
-warmRel = buildExpTens(spanRef * rand(8, 1), 0.2 + 0.8 * rand(8, 1), ...
+evalMaet(warmAbs, spanRef * rand(3, 50), 'method', 'centres', 'verbose', false);
+evalMaet(warmAbs, spanRef * rand(3, 50), 'method', 'mobius',  'verbose', false);
+warmRel = buildMaet(spanRef * rand(8, 1), 0.2 + 0.8 * rand(8, 1), ...
     sigmaRef, 3, true, false, 0, 'verbose', false);
-evalExpTens(warmRel, spanRef * rand(2, 50), 'method', 'centres', 'verbose', false);
-evalExpTens(warmRel, spanRef * rand(2, 50), 'method', 'mobius',  'verbose', false);
-warmPer = buildExpTens(periodP * rand(8, 1), 0.2 + 0.8 * rand(8, 1), ...
+evalMaet(warmRel, spanRef * rand(2, 50), 'method', 'centres', 'verbose', false);
+evalMaet(warmRel, spanRef * rand(2, 50), 'method', 'mobius',  'verbose', false);
+warmPer = buildMaet(periodP * rand(8, 1), 0.2 + 0.8 * rand(8, 1), ...
     sigmaRef, 3, true, true, periodP, 'verbose', false);
-evalExpTens(warmPer, periodP * rand(2, 50), 'method', 'mobius',  'verbose', false);
+evalMaet(warmPer, periodP * rand(2, 50), 'method', 'mobius',  'verbose', false);
 
 % ---- Grid: (isRel, isPer) x r x K x nQ, single attribute. ----
 relPer = {[false false], [true false], [false true], [true true]};
@@ -299,18 +299,18 @@ function rows = sweepCell(rows, isRel, isPer, r, K, nQVals, sg, sp, ...
     joint = factorial(r) * nchoosek(K, r);
     p = span * rand(K, 1);
     w = 0.2 + 0.8 * rand(K, 1);
-    dens = buildExpTens(p, w, sg, r, isRel, isPer, P, 'verbose', false);
+    dens = buildMaet(p, w, sg, r, isRel, isPer, P, 'verbose', false);
     d = dens.dim;   % r for abs, r-1 for rel
     for nQ = nQVals
         xq = span * rand(d, nQ);
 
         if joint <= JOINT_SKIP && joint * double(nQ) <= WORK_SKIP
-            tCen = timeMethod(@() evalExpTens(dens, xq, ...
+            tCen = timeMethod(@() evalMaet(dens, xq, ...
                 'method', 'centres', 'verbose', false), nReps);
         else
             tCen = -1;   % skipped: decisively a Möbius cell
         end
-        tMob = timeMethod(@() evalExpTens(dens, xq, ...
+        tMob = timeMethod(@() evalMaet(dens, xq, ...
             'method', 'mobius', 'verbose', false), nReps);
 
         % Where centres was not timed there is no comparison to report:

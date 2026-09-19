@@ -18,7 +18,7 @@ unequal nested cardinalities, and both inner arities.
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 SIG = 0.15
 SF = 0.1          # flag kernel width (small -> strict categorical match)
@@ -38,17 +38,17 @@ def _dens(events, flags, r_in, rel_out=1):
     cols = [np.array([v for ch in ev for v in ch], float) for ev in events]
     p_harm = np.stack(cols, axis=1)                       # (values, N_events)
     p_flag = np.array(flags, float).reshape(1, -1)        # (1, N_events)
-    specs = [{"tags": tags, "r": [r_in, n_chords], "sym": [True, False],
+    specs = [{"tags": tags, "r": [r_in, n_chords], "exch": [True, False],
               "rel": [0, rel_out]},
-             {"r": 1, "sym": False, "rel": False}]
-    return build_exp_tens([p_harm, p_flag], None, specs=specs,
+             {"r": 1, "exch": False, "rel": False}]
+    return build_maet([p_harm, p_flag], None, specs=specs,
                           sigma=[SIG, SF], is_per=[True, False],
                           period=[P, 1.0], verbose=False)
 
 
 def _both(X, Y):
-    c = cos_sim_exp_tens(X, Y, method="contract", verbose=False)
-    b = cos_sim_exp_tens(X, Y, method="bulger", verbose=False)
+    c = sim_maet(X, Y, method="contract", verbose=False)
+    b = sim_maet(X, Y, method="bulger", verbose=False)
     return c, b
 
 
@@ -100,18 +100,18 @@ def test_ma_nested_factorises_into_harmonic_times_flag():
     r_in = 2
     Xj = _dens([_IVI], [0.5], r_in)
     Yj = _dens([_ivi], [0.5], r_in)         # flags agree -> flag cosine = 1
-    joint = cos_sim_exp_tens(Xj, Yj, method="contract", verbose=False)
+    joint = sim_maet(Xj, Yj, method="contract", verbose=False)
 
     def _harm(ev):
         n_slots = len(ev[0])
         tags = np.concatenate([np.full(n_slots, k) for k in range(len(ev))])
         p = np.array([v for ch in ev for v in ch], float).reshape(-1, 1)
-        return build_exp_tens([p], None,
+        return build_maet([p], None,
                               specs=[{"tags": tags, "r": [r_in, len(ev)],
-                                      "sym": [True, False], "rel": [0, 1]}],
+                                      "exch": [True, False], "rel": [0, 1]}],
                               sigma=[SIG], is_per=[True], period=[P],
                               verbose=False)
-    s_harm = cos_sim_exp_tens(_harm(_IVI), _harm(_ivi), method="contract",
+    s_harm = sim_maet(_harm(_IVI), _harm(_ivi), method="contract",
                               verbose=False)
     s_flag = math.exp(-(0.5 - 0.5) ** 2 / (4 * SF ** 2))   # = 1
     assert joint == pytest.approx(s_harm * s_flag, abs=1e-9)
@@ -135,9 +135,9 @@ def _dens_sm(events, r_in, rel_out=1):
     tags = np.concatenate([np.full(n_slots, k) for k in range(n_chords)])
     cols = [np.array([v for ch in ev for v in ch], float) for ev in events]
     p_harm = np.stack(cols, axis=1)
-    specs = [{"tags": tags, "r": [r_in, n_chords], "sym": [True, False],
+    specs = [{"tags": tags, "r": [r_in, n_chords], "exch": [True, False],
               "rel": [0, rel_out]}]
-    return build_exp_tens([p_harm], None, specs=specs, sigma=[SIG],
+    return build_maet([p_harm], None, specs=specs, sigma=[SIG],
                           is_per=[True], period=[P], verbose=False)
 
 
@@ -148,11 +148,11 @@ def test_one_sided_contraction_matches_bulger_single_multiset(r_in):
     # the auto dispatch must pick the contraction and agree.
     X = _dens_sm([_IVI2], r_in)        # doubled chords: the costly enumeration case
     Y = _dens_sm([_IVI], r_in)
-    contract = cos_sim_exp_tens(X, Y, method="contract",
+    contract = sim_maet(X, Y, method="contract",
                                 normalize="oneSidedDenom", verbose=False)
-    bulger = cos_sim_exp_tens(X, Y, method="bulger",
+    bulger = sim_maet(X, Y, method="bulger",
                               normalize="oneSidedDenom", verbose=False)
-    auto = cos_sim_exp_tens(X, Y, normalize="oneSidedDenom", verbose=False)
+    auto = sim_maet(X, Y, normalize="oneSidedDenom", verbose=False)
     assert contract == pytest.approx(bulger, abs=1e-9)
     assert auto == pytest.approx(bulger, abs=1e-9)
     assert np.isfinite(bulger) and bulger > 0.0
@@ -163,11 +163,11 @@ def test_one_sided_contraction_matches_bulger_ma(r_in):
     # Multi-attribute (nested (x) flag): the second gate.
     X = _dens([_IVI2], [0.5], r_in)
     Y = _dens([_IVI], [0.5], r_in)
-    contract = cos_sim_exp_tens(X, Y, method="contract",
+    contract = sim_maet(X, Y, method="contract",
                                 normalize="oneSidedDenom", verbose=False)
-    bulger = cos_sim_exp_tens(X, Y, method="bulger",
+    bulger = sim_maet(X, Y, method="bulger",
                               normalize="oneSidedDenom", verbose=False)
-    auto = cos_sim_exp_tens(X, Y, normalize="oneSidedDenom", verbose=False)
+    auto = sim_maet(X, Y, normalize="oneSidedDenom", verbose=False)
     assert contract == pytest.approx(bulger, abs=1e-9)
     assert auto == pytest.approx(bulger, abs=1e-9)
     assert np.isfinite(bulger) and bulger > 0.0

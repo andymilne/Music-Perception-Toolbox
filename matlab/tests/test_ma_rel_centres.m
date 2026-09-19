@@ -2,7 +2,7 @@
 %  Tests the tuple-centres route for relative attributes in the
 %  multi-attribute Möbius path (mobius.maRelAttrPrefersCentres,
 %  mobius.closedFormAttrCentres, mobius.closedFormAttrMatrixFrom, and
-%  the routing inside cosSimExpTens's MA Möbius orchestrator).
+%  the routing inside simMaet's MA Möbius orchestrator).
 %
 %  Tests:
 %    - rel-per small K: method='mobius' (centres route) agrees with
@@ -41,24 +41,24 @@ makeMa = @(N, K, r, isRelP, isPerP, seed) localMakeMa(N, K, r, ...
 % --- rel-per small K: mobius (centres) vs bulger ---
 dx = makeMa(30, 4, 2, true, true, 11);
 dy = makeMa(30, 4, 2, true, true, 22);
-sBul = cosSimExpTens(dx, dy, 'method', 'bulger', 'verbose', false);
-sMob = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
+sBul = simMaet(dx, dy, 'method', 'bulger', 'verbose', false);
+sMob = simMaet(dx, dy, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'MA rel-per centres route: mobius matches bulger (1e-8)';
 results{end,2}   = abs(sMob - sBul) < 1e-8;
 
 % --- rel-nonper: mobius (centres) vs bulger ---
 dx = makeMa(30, 4, 2, true, false, 13);
 dy = makeMa(30, 4, 2, true, false, 24);
-sBul = cosSimExpTens(dx, dy, 'method', 'bulger', 'verbose', false);
-sMob = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
+sBul = simMaet(dx, dy, 'method', 'bulger', 'verbose', false);
+sMob = simMaet(dx, dy, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'MA rel-nonper centres route: mobius matches bulger (1e-8)';
 results{end,2}   = abs(sMob - sBul) < 1e-8;
 
 % --- ragged rel-per ---
 dxR = localMakeMaRagged(24, 4, 2, true, true, 15);
 dyR = localMakeMaRagged(24, 4, 2, true, true, 26);
-sBul = cosSimExpTens(dxR, dyR, 'method', 'bulger', 'verbose', false);
-sMob = cosSimExpTens(dxR, dyR, 'method', 'mobius', 'verbose', false);
+sBul = simMaet(dxR, dyR, 'method', 'bulger', 'verbose', false);
+sMob = simMaet(dxR, dyR, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'MA rel-per centres route ragged: mobius matches bulger (1e-8)';
 results{end,2}   = abs(sMob - sBul) < 1e-8;
 
@@ -199,7 +199,7 @@ function dens = localMakeMa(N, K, r, isRelP, isPerP, seed)
     rng(seed);
     pitches = rand(K, N) * 1200;
     onsets  = (0:N-1) * 250 + randn(1, N) * 10;
-    dens = buildExpTens({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
+    dens = buildMaet({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
         [false, isRelP], [false, isPerP], [4000, 1200], ...
         'verbose', false);
 end
@@ -210,7 +210,7 @@ function dens = localMakeMaRagged(N, K, r, isRelP, isPerP, seed)
     pitches = rand(K, N) * 1200;
     pitches(K, 1:3:N) = NaN;   % every third event loses its last value
     onsets  = (0:N-1) * 250 + randn(1, N) * 10;
-    dens = buildExpTens({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
+    dens = buildMaet({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
         [false, isRelP], [false, isPerP], [4000, 1200], ...
         'verbose', false);
 end
@@ -274,10 +274,10 @@ mrc_rs = RandStream('twister', 'Seed', 11);
 mrc_px = sort(rand(mrc_rs, 1, 5) * 1200);
 mrc_py = sort(rand(mrc_rs, 1, 24) * 1200);
 mptDefaults('relAttrRoute', 'centres');
-mrc_vC = cosSimExpTens(mrc_px, [], mrc_py, [], 6, 2, 1, 1, 1200, ...
+mrc_vC = simMaet(mrc_px, [], mrc_py, [], 6, 2, 1, 1, 1200, ...
     'method', 'mobius');
 mptDefaults('relAttrRoute', 'grid');
-mrc_vG = cosSimExpTens(mrc_px, [], mrc_py, [], 6, 2, 1, 1, 1200, ...
+mrc_vG = simMaet(mrc_px, [], mrc_py, [], 6, 2, 1, 1, 1200, ...
     'method', 'mobius');
 results{end+1,1} = 'relAttrRoute: forcing a route does not change the value';
 results{end,2}   = abs(mrc_vC - mrc_vG) < 1.5e-8;
@@ -324,9 +324,9 @@ results{end+1,1} = sprintf( ...
 results{end,2}   = abs(nprel_mean - nprel_mid) > ...
                    internal.relWindowMargin(6) * 6;
 
-nprel_ref = cosSimExpTens(nprel_p, nprel_wp, nprel_q, nprel_wq, ...
+nprel_ref = simMaet(nprel_p, nprel_wp, nprel_q, nprel_wq, ...
     6, 2, 1, 0, 0, 'method', 'bulger', 'verbose', false);
-nprel_got = cosSimExpTens(nprel_p, nprel_wp, nprel_q, nprel_wq, ...
+nprel_got = simMaet(nprel_p, nprel_wp, nprel_q, nprel_wq, ...
     6, 2, 1, 0, 0, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = sprintf( ...
     ['relInnerBatched: non-periodic relative matches direct ' ...
@@ -341,9 +341,9 @@ nprel_p3 = linspace(0, 1200, nprel_K3);
 nprel_q3 = linspace(0, 1200, nprel_K3);
 nprel_wp3 = exp(-linspace(0, 6, nprel_K3));
 nprel_wq3 = exp(-linspace(6, 0, nprel_K3));
-nprel_ref2 = cosSimExpTens(nprel_p3, nprel_wp3, nprel_q3, nprel_wq3, ...
+nprel_ref2 = simMaet(nprel_p3, nprel_wp3, nprel_q3, nprel_wq3, ...
     6, 3, 1, 0, 0, 'method', 'bulger', 'verbose', false);
-nprel_got2 = cosSimExpTens(nprel_p3, nprel_wp3, nprel_q3, nprel_wq3, ...
+nprel_got2 = simMaet(nprel_p3, nprel_wp3, nprel_q3, nprel_wq3, ...
     6, 3, 1, 0, 0, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = sprintf( ...
     ['relInnerBatched: non-periodic relative at r = 3 matches direct ' ...

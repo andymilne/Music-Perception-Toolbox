@@ -1,7 +1,7 @@
-function dens = prunedExpTens(dens)
-%PRUNEDEXPTENS  Density restricted to its live events (performance view).
+function dens = prunedMaet(dens)
+%PRUNEDMAET  Density restricted to its live events (performance view).
 %
-%   DENS = internal.prunedExpTens(DENS) returns a density equivalent to
+%   DENS = internal.prunedMaet(DENS) returns a density equivalent to
 %   DENS but carrying only its live events/elements. A dead event
 %   contributes nothing to any inner product or total mass, so dropping
 %   such events leaves every such quantity unchanged while shrinking the
@@ -17,7 +17,7 @@ function dens = prunedExpTens(dens)
 %       column. An all-zero or all-NaN column kills the event (the
 %       per-attribute factors multiply); a partly-zero column does not.
 %
-%   The source build (buildExpTens) stays faithful --- it keeps every
+%   The source build (buildMaet) stays faithful --- it keeps every
 %   event. This reduced form is the opt-in performance density consumed
 %   by the inner-product / total-mass paths (Rényi-2 entropy, cosine
 %   similarity). It is the MATLAB counterpart of the Python density
@@ -57,18 +57,18 @@ function dens = prunedExpTens(dens)
                     return;
                 end
                 p1 = dens.pAttr{1};
-                symArg = {};
-                if isfield(dens, 'isSym') && ~isempty(dens.isSym)
-                    symArg = {dens.isSym(1)};
+                exchArg = {};
+                if isfield(dens, 'isExch') && ~isempty(dens.isExch)
+                    exchArg = {dens.isExch(1)};
                 end
                 wrapArg = {};
                 if isfield(dens, 'wrap') && ~isempty(dens.wrap)
                     wrapArg = {'wrap', dens.wrap{1}};
                 end
-                dens = buildExpTens( ...
+                dens = buildMaet( ...
                     p1(live), w1(live), dens.sigma(1), dens.r(1), ...
                     dens.isRel(1), dens.isPer(1), dens.period(1), ...
-                    symArg{:}, wrapArg{:}, 'lazy', true, 'verbose', false);
+                    exchArg{:}, wrapArg{:}, 'lazy', true, 'verbose', false);
                 return;
             end
 
@@ -93,7 +93,7 @@ function dens = prunedExpTens(dens)
             out.isRel        = dens.isRel;
             out.isPer        = dens.isPer;
             out.period       = dens.period;
-            if isfield(dens, 'isSym'); out.isSym = dens.isSym; end
+            if isfield(dens, 'isExch'); out.isExch = dens.isExch; end
             out.dim          = dens.dim;
             out.dimPerAttr   = dens.dimPerAttr;
             % Per-value nesting spec (representation B): tags are

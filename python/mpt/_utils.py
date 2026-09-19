@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 import warnings
@@ -146,7 +147,7 @@ def maybe_print_batched_estimate(
     """Print a batched-mode upfront time estimate, gated on threshold.
 
     Used by the batched dispatch helpers in ``template_harmonicity``,
-    ``virtual_pitches``, ``spectral_entropy``, ``entropy_exp_tens``,
+    ``virtual_pitches``, ``spectral_entropy``, ``entropy_maet``,
     ``tensor_harmonicity``, and similar functions, which compute their
     estimates empirically (warm-up plus a sample of K rows) rather than
     via :func:`estimate_comp_time`. The threshold and formatting match
@@ -203,8 +204,8 @@ def progress_stride(t_per_row: float, target_sec: float = 5.0) -> int:
     then be more frequent than the target, which is the best achievable
     without wider stride options.
 
-    Used by the batched helpers (``cos_sim_exp_tens``, ``template_harmonicity``,
-    ``spectral_entropy``, ``virtual_pitches``, ``entropy_exp_tens``) to
+    Used by the batched helpers (``sim_maet``, ``template_harmonicity``,
+    ``spectral_entropy``, ``virtual_pitches``, ``entropy_maet``) to
     set the cadence of their "X / Y rows computed" progress prints.
     Callers also gate the prints on ``est_total >= target_sec`` (i.e.
     only show progress at all when the loop is expected to take long
@@ -404,7 +405,7 @@ def kernel_chunk_bytes_resolved() -> int:
     :func:`available_memory_bytes`).
 
     To avoid per-call OS queries when a top-level function recurses
-    (e.g. :func:`cosine_sim_exp_tens` batched-raw mode dispatching
+    (e.g. :func:`sim_maet` batched-raw mode dispatching
     inner per-pair calls), top-level entry points wrap their body in
     :func:`pin_kernel_chunk_bytes`. While pinned, this function
     returns the same cached value rather than re-querying the OS.
@@ -455,8 +456,8 @@ def pin_kernel_chunk_bytes():
     """Pin the resolved kernel_chunk_bytes budget for the duration of the
     ``with`` block.
 
-    Used at top-level entry points (e.g. ``cosine_sim_exp_tens``,
-    ``eval_exp_tens``) so that recursive or nested inner calls share
+    Used at top-level entry points (e.g. ``sim_maet``,
+    ``eval_maet``) so that recursive or nested inner calls share
     one OS query rather than re-resolving ``'auto'`` per call. Nested
     pins are no-ops; only the outermost ``with`` block actually
     resolves and pins. Thread-local: each thread has its own pin.
@@ -465,7 +466,7 @@ def pin_kernel_chunk_bytes():
     (no OS query to amortise).
 
     Sibling calls — e.g. a ``template_harmonicity`` loop invoking
-    ``eval_exp_tens`` repeatedly — each get their own pin instance.
+    ``eval_maet`` repeatedly — each get their own pin instance.
     To avoid one OS query per sibling, ``pin_kernel_chunk_bytes``
     consults the module-level TTL cache before resolving fresh; if
     the cache is warm (set within the last
@@ -526,7 +527,7 @@ def with_kernel_chunk_bytes_pin(func):
 
     Applied to top-level user-facing functions whose internal control
     flow may recurse or invoke other top-level toolbox functions —
-    e.g. :func:`cosine_sim_exp_tens` in batched-raw mode.
+    e.g. :func:`sim_maet` in batched-raw mode.
     """
     import functools
 
@@ -536,3 +537,136 @@ def with_kernel_chunk_bytes_pin(func):
             return func(*args, **kwargs)
 
     return wrapper
+
+
+# --- Kernel thread pool ---------------------------------------------
+# The elementwise Gaussian work that dominates every evaluation route is
+# perfectly parallel in the evaluation points, and NumPy releases the
+# GIL inside its ufunc inner loops, so plain threads scale on it. They
+# are used only above a work threshold, below which the pool overhead
+# outweighs the gain, and the partition is by contiguous ranges of
+# points so that every element's arithmetic — the image sum inside the
+# wrapped kernel, the accumulation over a query's own centres — keeps
+# the order it has serially. Results are therefore bit-identical to the
+# serial path at any thread count.
+#
+# MATLAB needs no equivalent: its elementwise transcendental functions
+# are threaded by the runtime, and inside parfor each worker is already
+# reduced to one computational thread. kernel_threads is consequently a
+# Python-only default.
+
+#: Threads beyond this buy little on elementwise kernel work, which
+#: becomes memory-bandwidth bound well before a large core count is
+#: saturated. Caps the 'auto' resolution, not an explicit setting.
+_KERNEL_THREAD_CAP = 8
+
+#: A thread is given work only if it receives at least this many
+#: elements. Below it the pool dispatch costs more than the arithmetic
+#: saved.
+_MIN_ELEMENTS_PER_THREAD = 250_000
+
+_kernel_pool_lock = threading.Lock()
+_kernel_pool = None            # ThreadPoolExecutor | None
+_kernel_pool_size: int = 0
+#: Set while a thread is running inside the pool, so that a nested
+#: kernel call does not fan out again on top of an existing fan-out.
+_kernel_thread_state = threading.local()
+
+
+def kernel_threads_resolved() -> int:
+    """Return the resolved thread count for elementwise kernel work.
+
+    Reads the ``kernel_threads`` toolbox default. A positive integer is
+    returned as-is (1 meaning serial). The factory value ``'auto'``
+    takes ``OMP_NUM_THREADS`` when the environment sets it — the
+    convention by which a batch scheduler communicates its allocation —
+    and otherwise the core count, capped at
+    :data:`_KERNEL_THREAD_CAP`.
+    """
+    from ._defaults import get_default
+    val = get_default("kernel_threads")
+    if not (isinstance(val, str) and val == "auto"):
+        return max(1, int(val))
+    env = os.environ.get("OMP_NUM_THREADS", "").strip()
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    return max(1, min(_KERNEL_THREAD_CAP, os.cpu_count() or 1))
+
+
+def kernel_thread_count(work: int) -> int:
+    """Threads to spend on *work* independent elements.
+
+    One means run serially, which is the answer whenever the work is
+    too small to divide, the caller is already running inside the pool,
+    or the default asks for it.
+    """
+    if getattr(_kernel_thread_state, "inside", False):
+        return 1
+    n = kernel_threads_resolved()
+    if n <= 1 or work <= 0:
+        return 1
+    return max(1, min(n, int(work // _MIN_ELEMENTS_PER_THREAD)))
+
+
+def _kernel_pool_of(size: int):
+    """The shared pool, created on first use and resized on demand."""
+    from concurrent.futures import ThreadPoolExecutor
+    global _kernel_pool, _kernel_pool_size
+    with _kernel_pool_lock:
+        if _kernel_pool is None or _kernel_pool_size < size:
+            if _kernel_pool is not None:
+                _kernel_pool.shutdown(wait=False)
+            _kernel_pool = ThreadPoolExecutor(
+                max_workers=size, thread_name_prefix="mpt-kernel"
+            )
+            _kernel_pool_size = size
+        return _kernel_pool
+
+
+def run_in_kernel_threads(func, tasks) -> list:
+    """Run *func* over *tasks* on the shared pool and return the results.
+
+    The caller has already decided how many ways to split the work;
+    ``tasks`` is that split. One task runs inline. Exceptions propagate
+    from the first task that raised.
+    """
+    tasks = list(tasks)
+    if len(tasks) <= 1:
+        return [func(t) for t in tasks]
+
+    def guarded(task):
+        _kernel_thread_state.inside = True
+        try:
+            return func(task)
+        finally:
+            _kernel_thread_state.inside = False
+
+    pool = _kernel_pool_of(len(tasks))
+    return list(pool.map(guarded, tasks))
+
+
+def split_ranges(n: int, parts: int) -> list[tuple[int, int]]:
+    """Partition ``range(n)`` into *parts* contiguous half-open spans.
+
+    The spans differ in length by at most one and none is empty.
+    """
+    parts = max(1, min(parts, n))
+    edges = [(i * n) // parts for i in range(parts + 1)]
+    return [(a, b) for a, b in zip(edges[:-1], edges[1:]) if b > a]
+
+
+def shutdown_kernel_pool() -> None:
+    """Discard the shared pool, so the next use rebuilds it.
+
+    Called by ``reset_defaults``; also usable by a caller that wants no
+    toolbox threads left alive.
+    """
+    global _kernel_pool, _kernel_pool_size
+    with _kernel_pool_lock:
+        if _kernel_pool is not None:
+            _kernel_pool.shutdown(wait=False)
+        _kernel_pool = None
+        _kernel_pool_size = 0

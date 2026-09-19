@@ -12,7 +12,7 @@
 % at increasing tuple size r, on a single chord (no nesting).
 %
 % Each cadence tonic (the final chord of cadences C1-C4) is one event with
-% a single pitch attribute, the unordered chord multiset (sym = 1, K = 4).
+% a single pitch attribute, the unordered chord multiset (exch = 1, K = 4).
 % The four tonics are compared pairwise under the cross of absolute vs
 % relative mode and non-periodic vs periodic, each swept over r in {1,2,3}.
 % Because the comparison is on one attribute (not a role product), raising
@@ -34,7 +34,7 @@
 % Toolbox-dependency notes
 % ------------------------
 % Uses
-%     buildExpTens, cosSimExpTens; jmm.bwv347Grid.
+%     buildMaet, simMaet; jmm.bwv347Grid.
 %
 % The Python mirror is demos/jmm/demo_jmm_1_3_tonic_tuple_size.py.
 
@@ -42,7 +42,7 @@
 % reachable, rather than from the script itself: in a script neither
 % mfilename nor dbstack reports the file, and the current folder need not
 % be the script's own. Adding it puts the +jmm helper package in scope.
-mptRoot = which('buildExpTens');
+mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
         ['The toolbox is not on the path. Add the matlab folder of the ' ...
@@ -114,17 +114,17 @@ for row = 1:2
                 continue;
             end
             % All pairwise tonic similarities: each tonic is a single-event
-            % density (one pitch attribute, sym = 1); the 4 x 4 matrix (unit
+            % density (one pitch attribute, exch = 1); the 4 x 4 matrix (unit
             % diagonal, symmetric) comes from one broadcast density-list
             % call per row.
             dens = cell(1, 4);
             for c = 1:4
-                dens{c} = buildExpTens({tonics(c, :).'}, [], SIGMA_PITCH, r, ...
+                dens{c} = buildMaet({tonics(c, :).'}, [], SIGMA_PITCH, r, ...
                                        isRel, isPer, PERIOD, 'verbose', false);
             end
             M = zeros(4, 4);
             for i = 1:4
-                M(i, :) = cell2mat(cosSimExpTens(dens{i}, dens, 'verbose', false));
+                M(i, :) = cell2mat(simMaet(dens{i}, dens, 'verbose', false));
             end
             imagesc(ax, M, [0 1]);
             colormap(ax, jmm.colourMap('viridis'));
@@ -169,7 +169,7 @@ for row = 1:2
 end
 annotation(fig, 'textbox', [0.05 0.905 0.9 0.09], 'String', ...
            {'BWV 347 cadence-tonic pair similarity (single chords), \sigma_{pitch} = 15 cents', ...
-            ['single pitch attribute, sym 1 (unordered chord); cosine in [0,1], ' ...
+            ['single pitch attribute, exch 1 (unordered chord); cosine in [0,1], ' ...
              'diagonals 1, symmetric; relative r = 1 omitted (degenerate); ' ...
              'major/minor separation appears at r = 3']}, ...
            'HorizontalAlignment', 'center', 'FontSize', 11, 'EdgeColor', 'none');

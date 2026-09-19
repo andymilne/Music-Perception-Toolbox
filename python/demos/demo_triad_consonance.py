@@ -202,9 +202,9 @@ print(f"Computing features for {n_upper} unique triads "
 t0_total = time.time()
 
 # --- Tensor harmonicity ---
-# One eval_exp_tens call: the harmonic-template arrays (tp, tw) are
+# One eval_maet call: the harmonic-template arrays (tp, tw) are
 # queried at all upper-triangle interval pairs in a single
-# (2, n_upper) query matrix. eval_exp_tens builds the template tensor
+# (2, n_upper) query matrix. eval_maet builds the template tensor
 # internally and prints its own time estimate via estimate_comp_time
 # when called with verbose=True.
 #
@@ -220,7 +220,7 @@ t0_total = time.time()
 if do_tensor:
     int_mat = np.vstack([int1_lin, int2_lin])    # (2, n_upper)
     t0 = time.time()
-    tens_lin = mpt.eval_exp_tens(
+    tens_lin = mpt.eval_maet(
         tp, tw, sigma_tens, 3, True, False, 1200, int_mat, verbose=True,
     )
     print(f"  Tensor harmonicity:   {time.time() - t0:.2f} s actual "

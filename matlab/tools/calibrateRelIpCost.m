@@ -298,8 +298,8 @@ function [row, est] = localCell(ra, Kx, Ky, N, shape, profile, isPer, sg, ...
     % that carries events: it keeps a (K, N) matrix as K values across N
     % events. The single-multiset signature flattens the same array into
     % one event of K*N values, which is a different density entirely.
-    densX = buildExpTens({px}, {wx}, sg, ra, 1, isPer, P, 'verbose', false);
-    densY = buildExpTens({py}, {wy}, sg, ra, 1, isPer, P, 'verbose', false);
+    densX = buildMaet({px}, {wx}, sg, ra, 1, isPer, P, 'verbose', false);
+    densY = buildMaet({py}, {wy}, sg, ra, 1, isPer, P, 'verbose', false);
     arms = { 'B', 'bulger', 'auto',    pairs * Mbig^2; ...
              'C', 'mobius', 'centres', pairs * Mbig^2; ...
              'G', 'mobius', 'grid',    pairs * row.nu * Kbig };
@@ -380,9 +380,9 @@ function nFail = localCheck(period)
 
     % The multi-attribute signature (cells) carries events; the
     % single-multiset signature flattens the same array into one event.
-    densMA = buildExpTens({px}, {wx}, sigma, r, 1, true, period, ...
+    densMA = buildMaet({px}, {wx}, sigma, r, 1, true, period, ...
                           'verbose', false);
-    densFlat = buildExpTens(px, wx, sigma, r, 1, true, period, ...
+    densFlat = buildMaet(px, wx, sigma, r, 1, true, period, ...
                             'verbose', false);
     nEv = size(densMA.pAttr{1}, 2);
     nFail = nFail + localOk('event count reaches the density', ...
@@ -393,7 +393,7 @@ function nFail = localCheck(period)
                 size(densFlat.pAttr{1}, 2)));
 
     % A multi-event density is one density, so its cosine is one number.
-    v = cosSimExpTens(densMA, densMA, 'method', 'mobius', 'verbose', false);
+    v = simMaet(densMA, densMA, 'method', 'mobius', 'verbose', false);
     nFail = nFail + localOk('multi-event call returns one cosine', ...
         isscalar(v), sprintf('numel %d', numel(v)));
     nFail = nFail + localOk('self-similarity is 1', ...
@@ -423,7 +423,7 @@ function nFail = localCheck(period)
     vv = zeros(1, 2);
     for ii = 1:2
         mptDefaults('relAttrRoute', routes{ii + 1});
-        vv(ii) = cosSimExpTens(densMA, densMA, 'method', 'mobius', ...
+        vv(ii) = simMaet(densMA, densMA, 'method', 'mobius', ...
                                'verbose', false);
     end
     mptDefaults('relAttrRoute', 'auto');
@@ -432,9 +432,9 @@ function nFail = localCheck(period)
 
     % Unequal value counts must reach both sides.
     py = sort(rand(rs, 3 * K, N) * period, 1);
-    densY = buildExpTens({py}, {ones(3 * K, N)}, sigma, r, 1, true, ...
+    densY = buildMaet({py}, {ones(3 * K, N)}, sigma, r, 1, true, ...
                          period, 'verbose', false);
-    v2 = cosSimExpTens(densMA, densY, 'method', 'mobius', 'verbose', false);
+    v2 = simMaet(densMA, densY, 'method', 'mobius', 'verbose', false);
     nFail = nFail + localOk('unequal value counts run', all(isfinite(v2(:))));
 
     % Weight profiles must actually differ.
@@ -608,7 +608,7 @@ function [t, v, est, why] = localTimed(densX, densY, method, route, opt, ...
     mptDefaults('relAttrRoute', route);
     try
         tic;
-        v = cosSimExpTens(densX, densY, 'method', method, ...
+        v = simMaet(densX, densY, 'method', method, ...
             'verbose', false);
         tWarm = toc;
         if tWarm > opt.budgetSec
@@ -616,7 +616,7 @@ function [t, v, est, why] = localTimed(densX, densY, method, route, opt, ...
         elseif tWarm > opt.repeatBelowSec
             t = tWarm * 1e3;
         else
-            f = @() cosSimExpTens(densX, densY, 'method', method, ...
+            f = @() simMaet(densX, densY, 'method', method, ...
                 'verbose', false);
             t = internal.timeRepeated(f) * 1e3;
         end

@@ -57,20 +57,20 @@ function bundle = closedFormAttrCentres(dens, a)
     isPer_a = logical(dens.isPer(a));
     period_a = dens.period(a);
 
-    % The attribute's own [sym] flag rides through the rebuild, as it
-    % does in Python (_closed_form_attr_centres passes is_sym_vec[a]).
+    % The attribute's own [exch] flag rides through the rebuild, as it
+    % does in Python (_closed_form_attr_centres passes is_exch_vec[a]).
     % An ordered attribute must not be symmetrised by the rebuild: its
     % perm side is its comb side, and the comb-side restriction below
     % detects that structurally (nJ == nK, not r_a! * nK) and declines.
-    % Densities built before isSym existed default to the symmetric
+    % Densities built before isExch existed default to the symmetric
     % reading, unchanged.
-    isSym_a = true;
-    if isfield(dens, 'isSym') && numel(dens.isSym) >= a
-        isSym_a = logical(dens.isSym(a));
+    isExch_a = true;
+    if isfield(dens, 'isExch') && numel(dens.isExch) >= a
+        isExch_a = logical(dens.isExch(a));
     end
 
     % Nested attribute: forward the stored (already normalised) spec.
-    % Its per-level [r] / [sym] / tags carry the geometry, and the
+    % Its per-level [r] / [exch] / tags carry the geometry, and the
     % attribute-level isRel must be passed false --- exactly as the
     % original build received it --- so that the spec's own [rel]
     % selector derives it and the build's vacuous-level collapse
@@ -83,11 +83,11 @@ function bundle = closedFormAttrCentres(dens, a)
         spec_a = dens.nested{a};
     end
     if isempty(spec_a)
-        da = buildExpTens({Pa}, {Wa}, sigma_a, r_a, isRel_a, isPer_a, ...
-            period_a, isSym_a, 'lazy', false, 'verbose', false);
+        da = buildMaet({Pa}, {Wa}, sigma_a, r_a, isRel_a, isPer_a, ...
+            period_a, isExch_a, 'lazy', false, 'verbose', false);
     else
-        da = buildExpTens({Pa}, {Wa}, sigma_a, r_a, false, isPer_a, ...
-            period_a, isSym_a, 'nested', {spec_a}, ...
+        da = buildMaet({Pa}, {Wa}, sigma_a, r_a, false, isPer_a, ...
+            period_a, isExch_a, 'nested', {spec_a}, ...
             'lazy', false, 'verbose', false);
     end
 
@@ -176,7 +176,7 @@ function comb = localCombRestriction(da, r_a, isRel_a)
 %   combinations and scaling by |G| costs nK * nJ kernel evaluations in
 %   place of nJ * nJ, a factor |G|: 2 at flat r = 2, 24 at flat r = 4,
 %   and prod_l r_l!^(nodes_l) over a nested attribute's symmetric levels
-%   (8 for r = [2, 2], sym = [1, 1]).
+%   (8 for r = [2, 2], exch = [1, 1]).
 %
 %   The level structure is read from DA itself rather than from the
 %   caller's spec, because the build is authoritative: it collapses a
@@ -188,7 +188,7 @@ function comb = localCombRestriction(da, r_a, isRel_a)
 %
 %     - r_a < 2 for a flat attribute, or |G| < 2 for a nested one
 %       (every level ordered): there is no orbit;
-%     - an ordered flat attribute (isSym = false): the build sets the
+%     - an ordered flat attribute (isExch = false): the build sets the
 %       perm side equal to the comb side, so scaling by r_a! would be
 %       wrong;
 %     - any density whose materialised sides do not satisfy
@@ -215,7 +215,7 @@ function comb = localCombRestriction(da, r_a, isRel_a)
         end
         mult = factorial(r_a);
     else
-        mult = internal.nestedOrbitMult(specDa.r, specDa.sym);
+        mult = internal.nestedOrbitMult(specDa.r, specDa.exch);
         if mult < 2
             return;
         end
@@ -238,7 +238,7 @@ function C = localReducedCentresFromValues(V, spec, r_a, isRel_a)
 %   (r_a rows), in the same reduction the build applies to the perm
 %   side. Mirror of Python
 %   _mobius_inner._reduced_centres_from_values, and of the Centres
-%   block of BUILDEXPTENS's LOCALFILLMAEXPENSIVE for the attributes
+%   block of BUILDMAET's LOCALFILLMAEXPENSIVE for the attributes
 %   that reach the closed form: a whole-tuple relative reading anchors
 %   at position 0; absolute keeps the values. Both sides of the overlap
 %   array must be in the same coordinates, so the comb side is reduced

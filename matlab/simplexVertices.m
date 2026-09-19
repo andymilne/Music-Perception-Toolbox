@@ -45,7 +45,7 @@ function V = simplexVertices(N, edgeLength)
 %     % (S, A, T, or B). Use these as values for the 3 numerical
 %     % sub-attributes of the categorical group.
 %
-%   See also BUILDEXPTENS.
+%   See also BUILDMAET.
 
     arguments
         N          (1,1) double {mustBeInteger, mustBeGreaterThanOrEqual(N, 2)}

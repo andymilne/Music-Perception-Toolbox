@@ -1,5 +1,5 @@
 function [pOut, sigmaOut, covOut, cholOut] = resolveAnisoSigma( ...
-    pIn, sigmaIn, rIn, isRelIn, isPerIn, isSymIn, nestedIn)
+    pIn, sigmaIn, rIn, isRelIn, isPerIn, isExchIn, nestedIn)
 %RESOLVEANISOSIGMA  Resolve matrix-valued sigma for build-time whitening.
 %
 %   Two forms, selected by the type of PIN:
@@ -15,7 +15,7 @@ function [pOut, sigmaOut, covOut, cholOut] = resolveAnisoSigma( ...
 %   attributes.
 %
 %   Scalar geometry inputs are broadcast per attribute where vectors
-%   are expected. isSymIn may be [] (the buildExpTens default,
+%   are expected. isExchIn may be [] (the buildMaet default,
 %   symmetric), which the constraint check will reject for a matrix
 %   entry with the appropriate message.
 
@@ -23,10 +23,10 @@ function [pOut, sigmaOut, covOut, cholOut] = resolveAnisoSigma( ...
         % ----- single-multiset form -----
         p = double(pIn(:));
         K = numel(p);
-        isSym = true;
-        if nargin >= 6 && ~isempty(isSymIn), isSym = logical(isSymIn); end
+        isExch = true;
+        if nargin >= 6 && ~isempty(isExchIn), isExch = logical(isExchIn); end
         internal.checkAnisoConstraints(rIn, K, isRelIn, isPerIn, ...
-            isSym, false, 'sigma');
+            isExch, false, 'sigma');
         [Sigma, R] = internal.validateKernelCov(sigmaIn, double(rIn), ...
             'sigma');
         pOut = internal.whitenValues(R, p);
@@ -70,15 +70,15 @@ function [pOut, sigmaOut, covOut, cholOut] = resolveAnisoSigma( ...
             nestedA = ~isempty(nestedIn{a});
         end
         P = double(pIn{a});
-        % Rows are values, columns are events (buildExpTens's coercion):
+        % Rows are values, columns are events (buildMaet's coercion):
         % no reshape — a 1 x N row vector is one value across N events
         % and correctly fails the r == K check below.
         Ka = size(P, 1);
         rA = expand(rIn, a, []);
         relA = expand(isRelIn, a, false);
         perA = expand(isPerIn, a, false);
-        symA = expand(isSymIn, a, true);
-        internal.checkAnisoConstraints(rA, Ka, relA, perA, symA, ...
+        exchA = expand(isExchIn, a, true);
+        internal.checkAnisoConstraints(rA, Ka, relA, perA, exchA, ...
             nestedA, sprintf('sigma{%d}', a));
         [Sigma, R] = internal.validateKernelCov(sigmaIn{a}, ...
             double(rA), sprintf('sigma{%d}', a));

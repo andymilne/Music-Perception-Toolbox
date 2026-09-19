@@ -1,4 +1,4 @@
-"""Stage 2a benchmark: measure actual eval_exp_tens speedup on the
+"""Stage 2a benchmark: measure actual eval_maet speedup on the
 demo-style tensor-harmonicity workload, near the regime of
 demo_triad_consonance.py (harmonic-24 template, dup=3, r=3 rel;
 sigma = 12 here against the demo's 10, and a coarser grid, below).
@@ -10,7 +10,7 @@ import numpy as np
 
 import mpt
 from mpt.spectra import add_spectra
-from mpt.tensor import build_exp_tens, eval_exp_tens
+from mpt.tensor import build_maet, eval_maet
 
 
 def main():
@@ -27,7 +27,7 @@ def main():
     print(f"Template: {tp.size} partials in [{tp.min():.0f}, {tp.max():.0f}] cents")
 
     # Build the density (r=3 rel, non-periodic)
-    dens = build_exp_tens(
+    dens = build_maet(
         tp, tw, sigma, r, True, False, 0.0, verbose=False,
     )
     print(f"Density: n_j = {dens.n_j}")
@@ -50,7 +50,7 @@ def main():
     # Reference: the exact, untruncated computation. This is not the
     # default (truncation_sigmas defaults to 6), so it is asked for.
     t0 = time.perf_counter()
-    v_ref = eval_exp_tens(dens, queries, method='centres',
+    v_ref = eval_maet(dens, queries, method='centres',
                           truncation_sigmas=float('inf'), verbose=False)
     t_ref = time.perf_counter() - t0
     print(f"{'exact (truncationSigmas=Inf)':<40s} {t_ref:>10.3f} {1.0:>10.2f}x")
@@ -58,7 +58,7 @@ def main():
     # Truncated at k=5, 6, 7
     for k in [5, 6, 7]:
         t0 = time.perf_counter()
-        v_trunc = eval_exp_tens(
+        v_trunc = eval_maet(
             dens, queries, method='centres',
             truncation_sigmas=k, verbose=False,
         )
@@ -75,7 +75,7 @@ def main():
 
     # Single precision (no truncation)
     t0 = time.perf_counter()
-    v_single = eval_exp_tens(
+    v_single = eval_maet(
         dens, queries, method='centres', truncation_sigmas=float('inf'),
         kernel_precision='single', verbose=False,
     )
@@ -90,7 +90,7 @@ def main():
 
     # Combined: truncation=6 + single
     t0 = time.perf_counter()
-    v_both = eval_exp_tens(
+    v_both = eval_maet(
         dens, queries, method='centres',
         truncation_sigmas=6, kernel_precision='single', verbose=False,
     )

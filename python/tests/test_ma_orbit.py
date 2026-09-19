@@ -16,12 +16,12 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens, unpack_pre_maet
+from mpt import build_maet, sim_maet, unpack_pre_maet
 from mpt._tensor.dispatch import _predict_pairwise_kernel_size
 from mpt.tensor import (
     _ORBIT_R_MAX_SHIPPED,
-    _cos_sim_exp_tens_ma_orbit,
-    _cos_sim_exp_tens_ma_pairwise,
+    _sim_maet_ma_orbit,
+    _sim_maet_ma_pairwise,
     _select_ma_inner_product_method,
 )
 
@@ -308,7 +308,7 @@ def _build_ma_pitch_time(rng, N, K_pitch=3, sigma_pitch=10.0, sigma_time=0.05,
     """Pitch + time MA density with N events, K_pitch partials per event."""
     pitch = rng.uniform(0, P, (K_pitch, N))
     time = np.atleast_2d(rng.uniform(0, N * 0.5, N))  # 1 × N
-    return build_exp_tens(
+    return build_maet(
         [pitch, time], None,
         [sigma_pitch, sigma_time], [r_pitch, r_time], 
         [pitch_rel, False], [pitch_per, False], [P, 0.0],
@@ -343,8 +343,8 @@ def test_orbit_ma_matches_pairwise_pitch_time(r_pitch, K_pitch, pitch_rel):
         rng, N, K_pitch=K_pitch, r_pitch=r_pitch, pitch_rel=pitch_rel,
     )
 
-    cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='auto', verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+    cos_orbit = sim_maet(dens_x, dens_y, method='auto', verbose=False)
+    cos_pw = sim_maet(dens_x, dens_y, method='bulger', verbose=False)
     abs_err = abs(cos_orbit - cos_pw)
     rel_err = abs_err / max(abs(cos_orbit), abs(cos_pw), 1e-300)
     assert rel_err < 1e-9 or abs_err < 1e-12, (
@@ -365,21 +365,21 @@ def test_orbit_ma_matches_pairwise_single_attr():
     N = 8
     K = 5
     pitch = rng.uniform(0, 1200, (K, N))
-    dens_x = build_exp_tens(
+    dens_x = build_maet(
         [pitch], None,
         [12.0], [3], 
         [True], [True], [1200.0],
         verbose=False,
     )
     pitch2 = rng.uniform(0, 1200, (K, N))
-    dens_y = build_exp_tens(
+    dens_y = build_maet(
         [pitch2], None,
         [12.0], [3], 
         [True], [True], [1200.0],
         verbose=False,
     )
-    cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='auto', verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+    cos_orbit = sim_maet(dens_x, dens_y, method='auto', verbose=False)
+    cos_pw = sim_maet(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(cos_orbit - cos_pw) < 1e-10
 
 
@@ -407,22 +407,22 @@ def test_orbit_ma_matches_pairwise_rel_nonper(r_a, K_a, N):
                 for _ in range(A)]
     p_attr_Y = [np.sort(rng.uniform(0, 1000, (K_a, N)), axis=0)
                 for _ in range(A)]
-    dens_x = build_exp_tens(
+    dens_x = build_maet(
         p_attr_X, None,
         [12.0]*A, [r_a]*A,
         [True]*A, [False]*A, [1200.0]*A,   # rel + nonper, shared geometry
         verbose=False,
     )
-    dens_y = build_exp_tens(
+    dens_y = build_maet(
         p_attr_Y, None,
         [12.0]*A, [r_a]*A,
         [True]*A, [False]*A, [1200.0]*A,
         verbose=False,
     )
-    cos_orbit = cos_sim_exp_tens(
+    cos_orbit = sim_maet(
         dens_x, dens_y, method='mobius', verbose=False,
     )
-    cos_pw = cos_sim_exp_tens(
+    cos_pw = sim_maet(
         dens_x, dens_y, method='bulger', verbose=False,
     )
     abs_err = abs(cos_orbit - cos_pw)
@@ -438,7 +438,7 @@ def test_orbit_ma_self_cosine_is_one():
     """<X, X> / sqrt(<X,X><X,X>) = 1 under orbit MA."""
     rng = np.random.default_rng(seed=11)
     dens = _build_ma_pitch_time(rng, N=5, K_pitch=4, r_pitch=2)
-    cos_self = cos_sim_exp_tens(dens, dens, method='auto', verbose=False)
+    cos_self = sim_maet(dens, dens, method='auto', verbose=False)
     assert abs(cos_self - 1.0) < 1e-12
 
 
@@ -460,7 +460,7 @@ def test_orbit_ma_handles_r1_attribute():
     N = 6
     a1 = np.atleast_2d(rng.uniform(0, 1200, N))
     a2 = np.atleast_2d(rng.uniform(0, 1200, N))
-    dens_x = build_exp_tens(
+    dens_x = build_maet(
         [a1, a2], None,
         [10.0, 10.0], [1, 1], 
         [False, False], [True, True], [1200.0, 1200.0],
@@ -468,16 +468,16 @@ def test_orbit_ma_handles_r1_attribute():
     )
     a1y = np.atleast_2d(rng.uniform(0, 1200, N))
     a2y = np.atleast_2d(rng.uniform(0, 1200, N))
-    dens_y = build_exp_tens(
+    dens_y = build_maet(
         [a1y, a2y], None,
         [10.0, 10.0], [1, 1], 
         [False, False], [True, True], [1200.0, 1200.0],
         verbose=False,
     )
     # Force orbit: dispatcher would route to pairwise at r_max=1 by default.
-    ip_xy_o, ip_xx_o, ip_yy_o = _cos_sim_exp_tens_ma_orbit(dens_x, dens_y)
+    ip_xy_o, ip_xx_o, ip_yy_o = _sim_maet_ma_orbit(dens_x, dens_y)
     cos_orbit = ip_xy_o / np.sqrt(ip_xx_o * ip_yy_o)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+    cos_pw = sim_maet(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(cos_orbit - cos_pw) < 1e-10
 
 
@@ -501,13 +501,13 @@ def test_nan_in_p_attr_low_k_margin_routes_pairwise():
     weights_x = np.ones_like(pitch_x)
     weights_x[2, 1] = np.nan
     weights_y = np.ones_like(pitch_y)
-    dens_x = build_exp_tens(
+    dens_x = build_maet(
         [pitch_x], [weights_x],
         [12.0], [2], 
         [True], [True], [1200.0],
         verbose=False,
     )
-    dens_y = build_exp_tens(
+    dens_y = build_maet(
         [pitch_y], [weights_y],
         [12.0], [2], 
         [True], [True], [1200.0],
@@ -515,8 +515,8 @@ def test_nan_in_p_attr_low_k_margin_routes_pairwise():
     )
     # Sanity: at least one density carries NaN in p_attr.
     assert any(np.isnan(M).any() for M in dens_x.p_attr)
-    cos_default = cos_sim_exp_tens(dens_x, dens_y, verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+    cos_default = sim_maet(dens_x, dens_y, verbose=False)
+    cos_pw = sim_maet(dens_x, dens_y, method='bulger', verbose=False)
     assert cos_default == cos_pw
 
 
@@ -545,13 +545,13 @@ def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
     pitch_y[5:, 1] = np.nan; weights_y[5:, 1] = np.nan
     pitch_y[5:, 4] = np.nan; weights_y[5:, 4] = np.nan
 
-    dens_x = build_exp_tens(
+    dens_x = build_maet(
         [pitch_x], [weights_x],
         [25.0], [3], 
         [False], [False], [0.0],
         verbose=False,
     )
-    dens_y = build_exp_tens(
+    dens_y = build_maet(
         [pitch_y], [weights_y],
         [25.0], [3], 
         [False], [False], [0.0],
@@ -559,8 +559,8 @@ def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
     )
     assert all(any(np.isnan(M).any() for M in d.p_attr)
                for d in (dens_x, dens_y))
-    cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='mobius', verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+    cos_orbit = sim_maet(dens_x, dens_y, method='mobius', verbose=False)
+    cos_pw = sim_maet(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(cos_orbit - cos_pw) < 1e-8
 
 
@@ -579,8 +579,8 @@ def test_ma_orbit_pairwise_bare_ratio_is_consistent():
     rng = np.random.default_rng(seed=2026)
     dens_x = _build_ma_pitch_time(rng, N=5, K_pitch=4, r_pitch=2)
     dens_y = _build_ma_pitch_time(rng, N=5, K_pitch=4, r_pitch=2)
-    ip_xy_o, ip_xx_o, ip_yy_o = _cos_sim_exp_tens_ma_orbit(dens_x, dens_y)
-    ip_xy_p, ip_xx_p, ip_yy_p = _cos_sim_exp_tens_ma_pairwise(
+    ip_xy_o, ip_xx_o, ip_yy_o = _sim_maet_ma_orbit(dens_x, dens_y)
+    ip_xy_p, ip_xx_p, ip_yy_p = _sim_maet_ma_pairwise(
         dens_x, dens_y, verbose=False,
     )
     r_xy = ip_xy_o / ip_xy_p
@@ -603,7 +603,7 @@ def test_ma_orbit_pairwise_bare_ratio_is_consistent():
 def test_ma_dispatcher_ordered_attrs_not_spuriously_infeasible():
     """Ordered attributes taken whole are one tuple each, not K!.
 
-    An ordered ([sym] = 0) attribute's enumerated tuple set is its
+    An ordered ([exch] = 0) attribute's enumerated tuple set is its
     C(K, r) combinations (the perm side equals the comb side; see
     _enum_flat_attr), so at r = K it holds exactly one tuple. The
     forced-Bulger feasibility guard must therefore not raise for
@@ -615,17 +615,17 @@ def test_ma_dispatcher_ordered_attrs_not_spuriously_infeasible():
     """
     kw = _disp_kwargs(r_max=_ORBIT_R_MAX_SHIPPED + 1,
                       K=_ORBIT_R_MAX_SHIPPED + 1, A=3)
-    kw["sym_vec"] = [False, False, False]
+    kw["exch_vec"] = [False, False, False]
     assert _select_ma_inner_product_method(**kw) == "bulger"
 
 
-def test_ma_dispatcher_mixed_sym_still_guards_the_unordered_factor():
+def test_ma_dispatcher_mixed_exch_still_guards_the_unordered_factor():
     """One unordered attribute at large K restores the K!/(K-r)! factor,
     so the guard fires even when the remaining attributes are ordered
     (their factors are the modest C(K, r))."""
     from mpt._tensor.dispatch import SingleImageInfeasibleError
     kw = _disp_kwargs(r_max=_ORBIT_R_MAX_SHIPPED + 1, K=12, A=3)
-    kw["sym_vec"] = [True, False, False]
+    kw["exch_vec"] = [True, False, False]
     with pytest.raises(SingleImageInfeasibleError, match="single-image"):
         _select_ma_inner_product_method(**kw)
 
@@ -635,10 +635,10 @@ def test_ordered_bound_r9_cos_sim_end_to_end():
     relative) passes auto-dispatch and matches the closed-form
     single-pair cosine: exp(-sum_a Q_a(delta_a) / (4 sigma_a^2)), with
     the relative attribute's delta projected off the common shift.
-    Before the sym-aware guard this shape raised
+    Before the exch-aware guard this shape raised
     SingleImageInfeasibleError from a K!-per-attribute overcount.
     """
-    from mpt import bind_events, build_exp_tens, cos_sim_exp_tens
+    from mpt import bind_events, build_maet, sim_maet
     rng = np.random.default_rng(3)
     L = 9
     sig = [0.3, 0.4, 0.5]
@@ -649,11 +649,11 @@ def test_ordered_bound_r9_cos_sim_end_to_end():
         p_attr = [v[None, :] for v in vals]
         p_b, w_b, sp_b = unpack_pre_maet(bind_events(p_attr, None, L,
                                      rel_outer=[False, True, False]))
-        return build_exp_tens(p_b, w_b, specs=sp_b, sigma=sig,
+        return build_maet(p_b, w_b, specs=sp_b, sigma=sig,
                               is_per=[False] * 3, period=[None] * 3,
                               verbose=False)
 
-    got = cos_sim_exp_tens(dens(x), dens(y), verbose=False)
+    got = sim_maet(dens(x), dens(y), verbose=False)
 
     q = 0.0
     for a, (xa, ya) in enumerate(zip(x, y)):

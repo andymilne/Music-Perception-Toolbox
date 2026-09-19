@@ -5,7 +5,7 @@ These tests cover the Stage 2c invariant that user-facing wrappers
 (``tensor_harmonicity``, ``template_harmonicity``, ``virtual_pitches``,
 ``spectral_entropy``) do NOT pin down an internal algorithm choice and
 DO forward ``truncation_sigmas`` / ``kernel_precision`` to their
-underlying :func:`eval_exp_tens` calls.
+underlying :func:`eval_maet` calls.
 
 The numerical contract for any wrapper W and a representative chord
 battery is: ``W(...)`` (default) and ``W(..., truncation_sigmas=k)``

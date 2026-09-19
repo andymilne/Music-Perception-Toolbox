@@ -1,9 +1,10 @@
-%% demo_expTensorPlots.m
-%  Visualizes expectation tensor densities in 1 to 4 dimensions for
-%  user-specified combinations of r, isRel, and isPer.
+%% demo_maetPlots.m
+%  Visualizes expectation tensor densities in 1 to 3 dimensions for
+%  user-specified combinations of r, isRel, isPer, and isExch, each
+%  configuration drawn both unordered and ordered.
 %
-%  Uses buildExpTens to precompute the density object once per configuration,
-%  then passes it to evalExpTens.
+%  Uses buildMaet to precompute the density object once per configuration,
+%  then passes it to evalMaet.
 %
 %  Each figure includes an interactive transform-mode selector (Off /
 %  Gamma / Saturation) for real-time adjustment of dynamic-range
@@ -15,10 +16,14 @@
 %  Edit the parameters below to experiment with different multisets,
 %  smoothing widths, plot configurations, and visualization modes.
 %
-%  Uses: buildExpTens, evalExpTens (from the Music Perception Toolbox).
+%  The three-dimensional plots are drawn by the toolbox's own
+%  plotMaet3d, whose method is chosen by plot3Dmode below.
+%
+%  Uses: buildMaet, evalMaet, plotMaet3d (from the Music Perception
+%  Toolbox).
 
 %% === User-editable parameters ===
-
+close
 % Pitch set and weights
 p = [0; 200; 400; 500; 700; 900; 1100];
 w = [];
@@ -51,28 +56,48 @@ eta   = 5;
 period = 1200;
 
 % === Plot configurations ===
-% Each row specifies one plot: [r, isRel, isPer]
-%   r     — tuple size
-%   isRel — 0 = absolute, 1 = relative (transposition-invariant)
-%   isPer — 0 = non-periodic, 1 = periodic
+% Each row specifies one plot: [r, isRel, isPer, isExch]
+%   r      — tuple size
+%   isRel  — 0 = absolute, 1 = relative (transposition-invariant)
+%   isPer  — 0 = non-periodic, 1 = periodic
+%   isExch — 1 = unordered (exchangeable tuples), 0 = ordered
 %
-% The effective query dimensionality is dim = r - isRel.
+% The effective query dimensionality is dim = r - isRel, and only one
+% to three dimensions are drawn: a four-dimensional density has no
+% honest picture, and the grid of two-dimensional slices this demo used
+% to draw for it showed three arbitrary cuts rather than the density.
+%
+% Every configuration appears twice, unordered and then ordered. An
+% ordered density counts each arrangement of a tuple separately, so it
+% is unsymmetric in its arguments and has the fuller support; the
+% unordered one is its symmetrization.
+%
 % Add, remove, or reorder rows to control which plots are produced.
+% r = 1 has one slot, so ordering means nothing there and it appears
+% once only.
 configs = [
-1,  0,  0;
-1,  0,  1;
-2,  0,  0;
-2,  0,  1;
-2,  1,  0;
-2,  1,  1;
-3,  0,  0;
-3,  0,  1;
-3,  1,  0;
-3,  1,  1;
-4,  0,  0;
-4,  0,  1;
-4,  1,  0;
-4,  1,  1;
+1,  0,  0,  1;
+1,  0,  1,  1;
+2,  0,  0,  1;
+2,  0,  0,  0;
+2,  0,  1,  1;
+2,  0,  1,  0;
+2,  1,  0,  1;
+2,  1,  0,  0;
+2,  1,  1,  1;
+2,  1,  1,  0;
+3,  0,  0,  1;
+3,  0,  0,  0;
+3,  0,  1,  1;
+3,  0,  1,  0;
+3,  1,  0,  1;
+3,  1,  0,  0;
+3,  1,  1,  1;
+3,  1,  1,  0;
+4,  1,  0,  1;
+4,  1,  0,  0;
+4,  1,  1,  1;
+4,  1,  1,  0;
 ];
 
 % === Grid resolution as step size ===
@@ -80,10 +105,17 @@ configs = [
 % effective dimensionality. The number of grid points per axis is computed
 % automatically from the axis range and step size.
 % Smaller step = finer grid = slower computation (scales as step^(-dim)).
+%
+% The step that matters is the step measured against sigma, not against
+% the axis range: a blob is a few sigma across, so a grid coarser than
+% sigma steps straight over it and the density appears to have peaks
+% missing rather than blurred. At sigma = 10 a ten-cent step puts about
+% one sample per sigma, which is the least that shows the shape.
+% 'ellipsoids' evaluates no grid and ignores step_3d entirely, so it is
+% the mode to check a blob count against.
 step_1d = 1;     % e.g., 1 cent per grid point
 step_2d = 5;     % e.g., 1 cent per dimension
-step_3d = 20;     % e.g., 5 cents per dimension
-step_4d = 50;    % e.g., 10 cents per dimension
+step_3d = 10;    % about one sample per sigma at sigma = 10
 
 % === Axis range for non-periodic configurations ===
 % For periodic configurations, the range is always [0, period].
@@ -93,26 +125,23 @@ axMaxNonPer = 2400;
 
 % === 3D visualization settings ===
 
-% Isosurface threshold (fraction of max density)
-isoFrac = 0.3;
+% 3D plot mode, passed straight to plotMaet3d as its 'method':
+%   'ellipsoids' — one ellipsoid per tuple centre, shaped by the
+%                  kernel's covariance and coloured by the density
+%                  there. No grid is evaluated, so it is by far the
+%                  cheapest, and it shows the kernels rather than the
+%                  sum they make.
+%   'points'     — one translucent mark per grid node above a
+%                  threshold, coloured and made translucent by the
+%                  value. Shows what lies between the peaks, and is the
+%                  only mode the transform controls can drive.
+%   'slices'     — the volume as a stack of textured planes, a true
+%                  volume rendering: what a ray accumulates along its
+%                  length is what the picture shows.
+plot3Dmode = 'points';
 
-% 3D plot mode: 'isosurface', 'volumetric', or 'scatter'
-%   'isosurface'  — Single isosurface at isoFrac of max (fast, clean).
-%                   Note: power slider is not available for this mode
-%                   (would require recomputing isosurfaces on each change).
-%   'volumetric'  — Stacked isosurfaces at graded alpha levels. Same
-%                   limitation as isosurface regarding the power slider.
-%   'scatter'     — scatter3 with per-point alpha mapped to density value
-%                   (most literal, but slower and noisier). Power slider
-%                   updates color and alpha in real time.
-% All three modes set explicit axis limits to [axMin, axMax].
-plot3Dmode = 'scatter';
-
-% Number of isosurface layers for 'volumetric' mode (more = smoother)
-nIsoLayers = 8;
-
-% Minimum density threshold for 'scatter' mode (fraction of max).
-% Points below this are not plotted, to reduce clutter and speed things up.
+% Nodes below this fraction of the largest value are left undrawn in
+% 'points' mode, to reduce clutter and speed things up.
 scatterThreshFrac = 0.05;
 
 
@@ -126,6 +155,7 @@ for ci = 1:nConfigs
     rc      = configs(ci, 1);
     isRelC  = logical(configs(ci, 2));
     isPerC  = logical(configs(ci, 3));
+    isExchC = logical(configs(ci, 4));
 
     % Skip invalid configs (same logic as main loop)
     if rc > numel(p), continue; end
@@ -147,8 +177,7 @@ for ci = 1:nConfigs
     switch dimC
         case 1, stepC = step_1d;
         case 2, stepC = step_2d;
-        case 3, stepC = step_3d;
-        otherwise, stepC = step_4d;
+        otherwise, stepC = step_3d;
     end
     resC = max(2, round((axMaxC - axMinC) / stepC) + 1);
 
@@ -199,10 +228,10 @@ else
     totalTimeStr = sprintf('%.1f hr', totalEstSec / 3600);
 end
 if totalEstSec > 2
-    fprintf('plotExpTens (total): estimated time ~%s (Ctrl+C to cancel).\n\n', ...
+    fprintf('plotMaet (total): estimated time ~%s (Ctrl+C to cancel).\n\n', ...
         totalTimeStr);
 else
-    fprintf('plotExpTens (total): estimated time ~%s.\n\n', totalTimeStr);
+    fprintf('plotMaet (total): estimated time ~%s.\n\n', totalTimeStr);
 end
 
 
@@ -212,6 +241,7 @@ for ci = 1:nConfigs
     r      = configs(ci, 1);
     isRelR = logical(configs(ci, 2));
     isPerR = logical(configs(ci, 3));
+    isExchR = logical(configs(ci, 4));
 
     % --- Validation ---
     if r > numel(p)
@@ -241,8 +271,7 @@ for ci = 1:nConfigs
     switch dim
         case 1, stepSize = step_1d;
         case 2, stepSize = step_2d;
-        case 3, stepSize = step_3d;
-        otherwise, stepSize = step_4d;
+        otherwise, stepSize = step_3d;
     end
     res = max(2, round((axMax - axMin) / stepSize) + 1);
 
@@ -261,14 +290,21 @@ for ci = 1:nConfigs
         perStr = 'non-periodic';
     end
 
-    titleStr = sprintf('r = %d, %s, %s, \\sigma = %.2f', ...
-        r, modeStr, perStr, sigma);
+    if isExchR
+        ordStr = 'unordered';
+    else
+        ordStr = 'ordered';
+    end
 
-    fprintf('Config %d: r = %d (%s, %s, dim = %d, res = %d): precomputing...', ...
-        ci, r, modeStr, perStr, dim, res);
+    titleStr = sprintf('r = %d, %s, %s, %s, \\sigma = %.2f', ...
+        r, modeStr, perStr, ordStr, sigma);
+
+    fprintf(['Config %d: r = %d (%s, %s, %s, dim = %d, res = %d): ' ...
+             'precomputing...'], ...
+        ci, r, modeStr, perStr, ordStr, dim, res);
 
     % --- Precompute the density object ---
-    dens = buildExpTens(p, w, sigma, r, isRelR, isPerR, period);
+    dens = buildMaet(p, w, sigma, r, isRelR, isPerR, period, isExchR);
 
     fprintf(' evaluating...');
 
@@ -284,7 +320,7 @@ for ci = 1:nConfigs
             x = linspace(axMin, axMax, res);
             X = x;  % 1 x res
 
-            vals = evalExpTens(dens, X, normalize);
+            vals = evalMaet(dens, X, normalize);
 
             fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim));
             hLine = plot(x, applyTransform(vals, 'off', gamma, eta), 'LineWidth', 1.5);
@@ -309,18 +345,22 @@ for ci = 1:nConfigs
             x = linspace(axMin, axMax, res);
             [Ga, Gb] = meshgrid(x, x);
 
-            % Exploit symmetry: density at (a,b) = density at (b,a).
-            % Evaluate only the upper triangle (including diagonal),
-            % then mirror to fill the full matrix.
-            upperMask = triu(true(res));
-            Xu = [Ga(upperMask)'; Gb(upperMask)'];
-
-            valsU = evalExpTens(dens, Xu, normalize);
-
-            Vraw = zeros(res, res);
-            Vraw(upperMask) = valsU;
-            Vraw = Vraw + Vraw.' - diag(diag(Vraw));
-            vals = Vraw(:).';  % 1 x res^2 for compatibility with rawVals
+            % An exchangeable density is symmetric in its arguments,
+            % so half the grid can be evaluated and mirrored. An
+            % ordered one is not -- being unsymmetric is the whole of
+            % what distinguishes it -- so it is evaluated whole.
+            if isExchR
+                upperMask = triu(true(res));
+                Xu = [Ga(upperMask)'; Gb(upperMask)'];
+                valsU = evalMaet(dens, Xu, normalize);
+                Vraw = zeros(res, res);
+                Vraw(upperMask) = valsU;
+                Vraw = Vraw + Vraw.' - diag(diag(Vraw));
+                vals = Vraw(:).';
+            else
+                vals = evalMaet(dens, [Ga(:)'; Gb(:)'], normalize);
+                vals = vals(:).';
+            end
 
             V = reshape(applyTransform(vals, 'off', gamma, eta), res, res);
 
@@ -365,191 +405,41 @@ for ci = 1:nConfigs
             addPlotControls(fig, info, gamma, eta);
 
         % =============================================================
-        %  dim = 3: volumetric / isosurface / scatter
+        %  dim = 3: drawn by the toolbox's own plotMaet3d
         % =============================================================
         case 3
-            x = linspace(axMin, axMax, res);
-            [Ga, Gb, Gc] = ndgrid(x, x, x);
-            X = [Ga(:)'; Gb(:)'; Gc(:)'];  % 3 x (res^3)
-
-            vals = evalExpTens(dens, X, normalize);
-            V = reshape(vals, res, res, res);
-            maxVal = max(vals);
-
-            fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim));
-
-            switch plot3Dmode
-
-                case 'isosurface'
-                    isoVal = isoFrac * maxVal;
-                    ptch = patch(isosurface(x, x, x, V, isoVal));
-                    set(ptch, 'FaceColor', [0.2 0.5 0.8], ...
-                        'EdgeColor', 'none', 'FaceAlpha', 0.6);
-                    lighting gouraud;
-                    camlight headlight;
-                    title(sprintf('%s — isosurface at %.0f%%', ...
-                        titleStr, isoFrac * 100));
-
-                case 'volumetric'
-                    thresholds = linspace(0.05, 0.95, nIsoLayers);
-                    alphas     = linspace(0.05, 0.6, nIsoLayers);
-                    cmap       = parula(nIsoLayers);
-
-                    for li = 1:nIsoLayers
-                        isoVal = thresholds(li) * maxVal;
-                        fv = isosurface(x, x, x, V, isoVal);
-                        if isempty(fv.vertices)
-                            continue;
-                        end
-                        ptch = patch(fv);
-                        set(ptch, ...
-                            'FaceColor', cmap(li, :), ...
-                            'EdgeColor', 'none', ...
-                            'FaceAlpha', alphas(li));
-                    end
-                    lighting gouraud;
-                    camlight headlight;
-                    title(sprintf('%s — volumetric (%d layers)', ...
-                        titleStr, nIsoLayers));
-
-                case 'scatter'
-                    thresh = scatterThreshFrac * maxVal;
-                    mask   = vals > thresh;
-                    gx     = Ga(mask);  gx = gx(:);
-                    gy     = Gb(mask);  gy = gy(:);
-                    gz     = Gc(mask);  gz = gz(:);
-                    vMask  = vals(mask); vMask = vMask(:);
-
-                    % Initial render: 'off' mode with max-only normalisation
-                    % (matching the redraw path in addPlotControls).
-                    M_init = max(vMask);
-                    if M_init > 0
-                        vNorm = vMask / M_init;
-                    else
-                        vNorm = vMask;
-                    end
-
-                    sc = scatter3(gx, gy, gz, 10, vNorm, 'filled');
-                    sc.MarkerFaceAlpha = 'flat';
-                    sc.AlphaData = vNorm;
-
-                    colormap(gca, parula);
-                    colorbar;
-                    title(sprintf('%s — scatter', titleStr));
-
-                otherwise
-                    error('Unknown plot3Dmode: ''%s''.', plot3Dmode);
-            end
-
+            fig = figure('Name', ...
+                sprintf('Config %d: r=%d dim=%d', ci, r, dim));
+            h3 = plotMaet3d(dens, 'method', plot3Dmode, ...
+                            'limits', [axMin axMax], 'step', stepSize, ...
+                            'colourGamma', 1, ...
+                            'threshFrac', scatterThreshFrac);
             xlabel(sprintf('%s 1', axLabel));
             ylabel(sprintf('%s 2', axLabel));
             zlabel(sprintf('%s 3', axLabel));
-            xlim([axMin axMax]);
-            ylim([axMin axMax]);
-            zlim([axMin axMax]);
-            daspect([1 1 1]);
-            grid on;
-            view([-30 30]);
+            title(sprintf('%s — %s', titleStr, plot3Dmode));
 
-            % Power slider for scatter mode only (isosurface/volumetric
-            % would require regenerating patch objects, which is slow)
-            if strcmp(plot3Dmode, 'scatter')
-                info.mode    = 'scatter3';
-                info.rawVals = vMask;
-                info.hScatter = sc;
+            % The transform controls drive the colour and the opacity of
+            % a mark, so they apply to 'points' alone: the ellipsoids
+            % carry their value in geometry that would have to be
+            % rebuilt, and a slice's opacity cannot be changed once its
+            % plane exists.
+            if strcmp(plot3Dmode, 'points')
+                info.mode     = 'scatter3';
+                info.rawVals  = h3.AlphaData(:);
+                info.hScatter = h3;
                 addPlotControls(fig, info, gamma, eta);
             end
 
         % =============================================================
-        %  dim >= 4: grid of 2D slices (fix all but first two dims)
+        %  dim >= 4: not drawn
         % =============================================================
         otherwise
-            x = linspace(axMin, axMax, res);
-            [Ga, Gb] = meshgrid(x, x);
+            error('demo_maetPlots:tooManyDimensions', ...
+                  ['Config %d has dim = %d. Only one to three ' ...
+                   'dimensions are drawn: a four-dimensional density ' ...
+                   'has no honest picture.'], ci, dim);
 
-            % Choose fixed values for the extra dimensions
-            if isRelR
-                allIntervals = sort(unique(diff(sort(p))));
-                if numel(allIntervals) >= 3
-                    fixedVals = allIntervals(1:3)';
-                else
-                    fixedVals = linspace(axMin, axMax, 3);
-                end
-            else
-                if numel(p) >= 3
-                    fixedVals = p(1:min(3, numel(p)))';
-                else
-                    fixedVals = linspace(axMin, axMax, 3);
-                end
-            end
-
-            % Number of extra dimensions beyond the first two
-            nExtra = dim - 2;
-
-            % Build all combinations of fixed values for extra dims
-            fixedGrid = fixedVals(:);
-            for d = 2:nExtra
-                nPrev = size(fixedGrid, 1);
-                nNew  = numel(fixedVals);
-                fixedGrid = [repmat(fixedGrid, nNew, 1), ...
-                    kron(fixedVals(:), ones(nPrev, 1))];
-            end
-            nSlices = size(fixedGrid, 1);
-
-            % Determine subplot grid layout
-            nCols = ceil(sqrt(nSlices));
-            nRows = ceil(nSlices / nCols);
-
-            fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim));
-            sgtitle(sprintf('%s — 2D slices', titleStr));
-
-            % Collect raw data and image handles for the power slider
-            allSliceVals   = cell(nSlices, 1);
-            allSliceImages = gobjects(nSlices, 1);
-
-            nPts = numel(Ga);
-            for si = 1:nSlices
-                Xq = [Ga(:)'; Gb(:)'];
-                for d = 1:nExtra
-                    Xq = [Xq; fixedGrid(si, d) * ones(1, nPts)]; %#ok<AGROW>
-                end
-
-                sliceVals = evalExpTens(dens, Xq, normalize);
-                allSliceVals{si} = sliceVals;
-                Vs = reshape(applyTransform(sliceVals, 'off', gamma, eta), res, res);
-
-                subplot(nRows, nCols, si);
-                allSliceImages(si) = imagesc(x, x, Vs);
-                axis xy equal tight;
-
-                fixStr = '';
-                for d = 1:nExtra
-                    if d > 1
-                        fixStr = [fixStr, ', ']; %#ok<AGROW>
-                    end
-                    fixStr = [fixStr, sprintf('%s %d=%.1f', ...
-                        lower(axLabel), d + 2, fixedGrid(si, d))]; %#ok<AGROW>
-                end
-                title(fixStr, 'FontSize', 8);
-
-                if si > (nRows - 1) * nCols
-                    xlabel(sprintf('%s 1', axLabel));
-                end
-                if mod(si - 1, nCols) == 0
-                    ylabel(sprintf('%s 2', axLabel));
-                end
-            end
-
-            colormap(gca, 'parula');
-
-            % Store raw data and add slider
-            info.mode        = 'slices';
-            info.rawVals     = allSliceVals;
-            info.hImages     = allSliceImages;
-            info.res         = res;
-            info.nRows       = nRows;
-            info.nCols       = nCols;
-            addPlotControls(fig, info, gamma, eta);
     end
 
     fprintf(' done.\n');

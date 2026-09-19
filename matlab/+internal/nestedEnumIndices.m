@@ -1,5 +1,5 @@
 function [permIdx, combIdx] = nestedEnumIndices( ...
-        validValues, tagsValid, rLevels, symLevels)
+        validValues, tagsValid, rLevels, exchLevels)
 %NESTEDENUMINDICES  Tag-scoped nested r-tuple enumeration (rep. B).
 %   Generalises the two-level enumeration to arbitrary nesting depth by
 %   recursing outermost-inward through the grouping columns of the tag
@@ -10,24 +10,24 @@ function [permIdx, combIdx] = nestedEnumIndices( ...
 %                column L-1 the outermost). A Kv-vector is the single-
 %                column (L = 2) case.
 %   rLevels    : 1 x L read-arities, innermost-outward (rLevels(1) leaf).
-%   symLevels  : 1 x L per-level symmetrisation.
+%   exchLevels  : 1 x L per-level symmetrisation.
 %   Returns permIdx, combIdx: D x M value-index arrays, D = prod(rLevels).
 %   permIdx is the symmetrised deposit (each level permuted into its
-%   orbit when that level's sym is set, else listed order); combIdx is
+%   orbit when that level's exch is set, else listed order); combIdx is
 %   the canonical one-per-combination side (combinations at every level)
 %   used for inner-product pairing. Columns concatenate outermost-group-
-%   major, innermost-value-minor. Shared by buildExpTens's nested fill
-%   loop and evalExpTens's factored centres path.
+%   major, innermost-value-minor. Shared by buildMaet's nested fill
+%   loop and evalMaet's factored centres path.
     if isvector(tagsValid)
         tagsValid = tagsValid(:);            % Kv x 1 (L = 2 single column)
     end
     rLevels = rLevels(:).';
-    symLevels = logical(symLevels(:).');
+    exchLevels = logical(exchLevels(:).');
     L = numel(rLevels);
     D = prod(rLevels);
     Kv = numel(validValues);
     permCols = localEnumSide(1:Kv, L, validValues(:).', tagsValid, ...
-                             rLevels, symLevels);
+                             rLevels, exchLevels);
     combCols = localEnumSide(1:Kv, L, validValues(:).', tagsValid, ...
                              rLevels, false(1, L));
     if isempty(permCols), permIdx = zeros(D, 0); else, permIdx = [permCols{:}]; end
@@ -36,7 +36,7 @@ end
 
 
 function cols = localEnumSide(rowset, level, validValues, tagsValid, ...
-                              rLevels, symFlags)
+                              rLevels, exchFlags)
     %LOCALENUMSIDE  Recursive enumeration. `rowset` are row indices into
     %   validValues/tagsValid. Returns a cell row of column vectors, each of
     %   length prod(rLevels(1:level)) holding emitted value indices.
@@ -59,7 +59,7 @@ function cols = localEnumSide(rowset, level, validValues, tagsValid, ...
             combPos = nchoosek(1:k, r0);              % nCk x r0 position rows
             combRows = reshape(rowset(combPos), size(combPos));
         end
-        if symFlags(1)
+        if exchFlags(1)
             combRows = localExpandPerms(combRows);
         end
         nC = size(combRows, 1);
@@ -82,7 +82,7 @@ function cols = localEnumSide(rowset, level, validValues, tagsValid, ...
     else
         gsel = nchoosek(1:ng, rg);                    % nG x rg positions
     end
-    if symFlags(level)
+    if exchFlags(level)
         gsel = localExpandPerms(gsel);
     end
     cols = {};
@@ -94,7 +94,7 @@ function cols = localEnumSide(rowset, level, validValues, tagsValid, ...
             g = ug(pickPos(j));
             subrows = rowset(gids == g);
             perGroup{j} = localEnumSide(subrows, level - 1, validValues, ...
-                                        tagsValid, rLevels, symFlags);
+                                        tagsValid, rLevels, exchFlags);
             if isempty(perGroup{j})
                 ok = false;
                 break

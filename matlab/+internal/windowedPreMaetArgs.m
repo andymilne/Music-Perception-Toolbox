@@ -10,7 +10,7 @@ function args = windowedPreMaetArgs(args, fname, nPre)
 %
 %   The two pre-MAETs of windowedSimilarity describe one comparison, so
 %   they must agree on the structural geometry: same attribute count, and
-%   the same r, [rel], [sym], and nesting on every attribute. The context
+%   the same r, [rel], [exch], and nesting on every attribute. The context
 %   supplies the specs; a disagreement is an error rather than a silent
 %   choice between them.
 %
@@ -55,7 +55,7 @@ end
 % is left is passed on untouched.
 [kw, rest] = localTakeOverrides(rest);
 
-specs = internal.overrideSpecs(specs, kw.r, kw.rel, kw.sym, A);
+specs = internal.overrideSpecs(specs, kw.r, kw.rel, kw.exch, A);
 [~, ~, ~, ~, names, specKernel] = internal.normaliseSpecs(specs, A);
 sigma  = internal.resolveKernelParam(kw.sigma,  specKernel.sigma,  ...
                                      'sigma',  names, A, false);
@@ -63,7 +63,7 @@ isPer  = internal.resolveKernelParam(kw.isPer,  specKernel.isPer,  ...
                                      'isPer',  names, A, false);
 period = internal.resolveKernelParam(kw.period, specKernel.period, ...
                                      'period', names, A, true);
-[rVec, isRelVec, isSymVec, nestedList] = internal.normaliseSpecs(specs, A);
+[rVec, isRelVec, isExchVec, nestedList] = internal.normaliseSpecs(specs, A);
 
 parts = cell(1, 2 * nPre);
 for k = 1:nPre
@@ -74,7 +74,7 @@ args = [parts, {sigma, rVec, isRelVec, isPer, period}, rest];
 if any(~cellfun(@isempty, nestedList))
     args = [args, {'specs', specs}];         % nested geometry travels on
 else
-    args = [args, {'isSym', isSymVec}];
+    args = [args, {'isExch', isExchVec}];
 end
 end
 
@@ -82,7 +82,7 @@ end
 function [kw, rest] = localTakeOverrides(rest)
 %LOCALTAKEOVERRIDES  Remove the six per-attribute overrides from rest.
     kw = struct('sigma', [], 'isPer', [], 'period', [], ...
-                'r', [], 'rel', [], 'sym', []);
+                'r', [], 'rel', [], 'exch', []);
     keys = fieldnames(kw);
     keep = true(1, numel(rest));
     i = 1;
@@ -111,7 +111,7 @@ function localCheckAgrees(specsA, specsB, A, fname)
                'and both carry specs: they describe one comparison.']);
     end
     for a = 1:A
-        for f = {'r', 'rel', 'sym', 'tags'}
+        for f = {'r', 'rel', 'exch', 'tags'}
             va = localField(specsA{a}, f{1});
             vb = localField(specsB{a}, f{1});
             if ~isequaln(double(va(:)).', double(vb(:)).')

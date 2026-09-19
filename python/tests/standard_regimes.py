@@ -33,7 +33,7 @@ Each regime is a dict with at least:
 * ``cells``: a list of dicts, each describing one parameter point. The
   cell schema depends on the regime, but always carries a ``seed``
   (or ``seeds`` list) plus enough information to construct the
-  density via ``build_exp_tens``.
+  density via ``build_maet``.
 
 Reading a regime list does not by itself construct any densities;
 the caller materialises them from the cell parameters.
@@ -354,10 +354,10 @@ def standard_regimes(thorough=False, P=P_DEFAULT):
 
 def materialise_cell(cell, default_pitch_range=None):
     """Turn a cell parameter dict into the positional argument tuple
-    expected by build_exp_tens (single-multiset or MA, depending on cell['kind']).
+    expected by build_maet (single-multiset or MA, depending on cell['kind']).
 
-    single-multiset call: ``build_exp_tens(p, w, sigma, r, is_rel, is_per, period)``
-    MA call: ``build_exp_tens(p_attr, w, sigma, r, is_rel, is_per, period)``
+    single-multiset call: ``build_maet(p, w, sigma, r, is_rel, is_per, period)``
+    MA call: ``build_maet(p_attr, w, sigma, r, is_rel, is_per, period)``
     """
     if cell['kind'] == 'single-multiset':
         K = cell['K']

@@ -68,11 +68,11 @@ p_mat_b = np.column_stack([
 ])
 
 # Single batch call. The reference triad (a 1-D vector) is broadcast
-# against all rows of p_mat_b by cos_sim_exp_tens.
+# against all rows of p_mat_b by sim_maet.
 print(f"Computing SPCS for {ref_name} reference "
       f"(N={n_harm}, rho={rho})...")
 
-sim_vector = mpt.cos_sim_exp_tens(
+sim_vector = mpt.sim_maet(
     ref_pitches, None, p_mat_b, None,
     sigma, r, is_rel, is_per, period,
     spectrum=['harmonic', n_harm, 'powerlaw', rho],

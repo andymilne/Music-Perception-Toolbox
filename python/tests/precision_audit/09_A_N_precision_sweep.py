@@ -15,7 +15,7 @@ even at A=4 N=8 r=4 (worst case here).
 import numpy as np
 import warnings
 from mpt.tensor import (
-    build_exp_tens, _cos_sim_exp_tens_ma_orbit, _cos_sim_exp_tens_ma_pairwise,
+    build_maet, _sim_maet_ma_orbit, _sim_maet_ma_pairwise,
 )
 
 
@@ -44,10 +44,10 @@ def err(p1, w1, p2, w2, sigma, P, r, A, is_rel, is_per):
     is_rels = [is_rel]
     is_pers = [is_per]
     periods = [P]
-    d1 = build_exp_tens(p1, w1, sigmas, rs, is_rels, is_pers, periods, verbose=False)
-    d2 = build_exp_tens(p2, w2, sigmas, rs, is_rels, is_pers, periods, verbose=False)
-    o_xy, o_xx, o_yy = _cos_sim_exp_tens_ma_orbit(d1, d2)
-    p_xy, p_xx, p_yy = _cos_sim_exp_tens_ma_pairwise(d1, d2, verbose=False)
+    d1 = build_maet(p1, w1, sigmas, rs, is_rels, is_pers, periods, verbose=False)
+    d2 = build_maet(p2, w2, sigmas, rs, is_rels, is_pers, periods, verbose=False)
+    o_xy, o_xx, o_yy = _sim_maet_ma_orbit(d1, d2)
+    p_xy, p_xx, p_yy = _sim_maet_ma_pairwise(d1, d2, verbose=False)
     co = o_xy / np.sqrt(o_xx * o_yy)
     cp = p_xy / np.sqrt(p_xx * p_yy)
     return abs(co - cp) / max(abs(cp), 1e-300)

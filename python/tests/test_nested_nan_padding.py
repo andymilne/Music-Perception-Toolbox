@@ -9,7 +9,7 @@ normalisation, an accompanying plain attribute, and all four
 import numpy as np
 import pytest
 
-from mpt import bind_events, flat_specs, build_exp_tens, cos_sim_exp_tens, unpack_pre_maet
+from mpt import bind_events, flat_specs, build_maet, sim_maet, unpack_pre_maet
 
 
 def _bound(chords, *, r_inner, rel_outer, per, flag=None):
@@ -20,18 +20,18 @@ def _bound(chords, *, r_inner, rel_outer, per, flag=None):
     for j, c in enumerate(chords):
         P[:len(c), j] = c
         W[:len(c), j] = 1.0
-    specs = flat_specs([P], r=r_inner, rel=False, sym=True)
+    specs = flat_specs([P], r=r_inner, rel=False, exch=True)
     pb, wb, sb = unpack_pre_maet(bind_events([P], [W], L, rel_outer=rel_outer, specs=specs))
     attrs, ws, sp = [pb[0]], [wb[0]], [sb[0]]
     sigma, is_per, period = [0.15], [per], [12.0]
     if flag is not None:
         attrs.append(np.array([[float(flag)]]))
         ws.append(np.array([[1.0]]))
-        sp.extend(flat_specs([attrs[-1]], r=1, rel=False, sym=False))
+        sp.extend(flat_specs([attrs[-1]], r=1, rel=False, exch=False))
         sigma.append(0.1)
         is_per.append(False)
         period.append(0.0)
-    return build_exp_tens(attrs, ws, specs=sp, sigma=sigma, is_per=is_per,
+    return build_maet(attrs, ws, specs=sp, sigma=sigma, is_per=is_per,
                           period=period, verbose=False)
 
 
@@ -45,9 +45,9 @@ _Y = ([60.0, 64.0, 67.0], [55.0, 59.0, 62.0, 65.0, 67.0])    # ragged: K = 3, 5
 def test_nan_padded_contract_equals_enumeration(r_inner, rel_outer, per):
     dx = _bound(_X, r_inner=r_inner, rel_outer=rel_outer, per=per)
     dy = _bound(_Y, r_inner=r_inner, rel_outer=rel_outer, per=per)
-    v_auto = float(cos_sim_exp_tens(dx, dy, normalize='oneSidedDenom',
+    v_auto = float(sim_maet(dx, dy, normalize='oneSidedDenom',
                                     verbose=False))
-    v_enum = float(cos_sim_exp_tens(dx, dy, normalize='oneSidedDenom',
+    v_enum = float(sim_maet(dx, dy, normalize='oneSidedDenom',
                                     method='bulger', verbose=False))
     assert v_auto == pytest.approx(v_enum, abs=1e-9)
 
@@ -56,6 +56,6 @@ def test_nan_padded_contract_equals_enumeration(r_inner, rel_outer, per):
 def test_nan_padded_contract_ma_with_plain_attribute(r_inner):
     dx = _bound(_X, r_inner=r_inner, rel_outer=True, per=True, flag=+0.5)
     dy = _bound(_Y, r_inner=r_inner, rel_outer=True, per=True, flag=-0.5)
-    v_auto = float(cos_sim_exp_tens(dx, dy, verbose=False))
-    v_enum = float(cos_sim_exp_tens(dx, dy, method='bulger', verbose=False))
+    v_auto = float(sim_maet(dx, dy, verbose=False))
+    v_enum = float(sim_maet(dx, dy, method='bulger', verbose=False))
     assert v_auto == pytest.approx(v_enum, abs=1e-9)

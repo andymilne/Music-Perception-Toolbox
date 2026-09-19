@@ -1,6 +1,6 @@
 """Per-level Möbius point evaluation of nested densities.
 
-``eval_exp_tens(method='mobius')`` on a nested density runs the per-level
+``eval_maet(method='mobius')`` on a nested density runs the per-level
 Möbius evaluator (:mod:`mpt._tensor._nested_mobius_eval`), which must
 agree with the tuple-centres route on every nested shape: any depth,
 symmetric or ordered levels, absolute or any co-transposition unit,
@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, eval_exp_tens
+from mpt import build_maet, eval_maet
 from mpt._tensor._nested_mobius_eval import eval_nested_attr_orbit
 
 P = 12.0
@@ -31,12 +31,12 @@ def _at_the_accuracy_floor():
         mpt.set_default(truncation_sigmas=prev)
 
 
-def _density(tags, r, sym, rel, per, K, seed, *, sigma=0.7, N=2,
+def _density(tags, r, exch, rel, per, K, seed, *, sigma=0.7, N=2,
              wrap='full-image'):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
-    spec = {"tags": tags, "r": r, "sym": sym, "rel": rel}
-    return build_exp_tens([p], None, specs=[spec], sigma=[sigma],
+    spec = {"tags": tags, "r": r, "exch": exch, "rel": rel}
+    return build_maet([p], None, specs=[spec], sigma=[sigma],
                           is_per=[per], period=[P], wrap=[wrap],
                           verbose=False)
 
@@ -60,9 +60,9 @@ def _assert_routes_agree(d, X, rtol):
     # centres route drops every tuple kernel below 1e-12, and over a few
     # thousand tuples the dropped mass can reach 1e-9 of the maximum
     # (seen on the MATLAB twin), which is truncation, not disagreement.
-    vc = eval_exp_tens(d, X, method="centres", truncation_sigmas=40.0,
+    vc = eval_maet(d, X, method="centres", truncation_sigmas=40.0,
                        verbose=False)
-    vm = eval_exp_tens(d, X, method="mobius", truncation_sigmas=40.0,
+    vm = eval_maet(d, X, method="mobius", truncation_sigmas=40.0,
                        verbose=False)
     scale = max(float(np.max(np.abs(vc))), 1e-300)
     np.testing.assert_allclose(vm, vc, rtol=0, atol=rtol * scale)
@@ -74,7 +74,7 @@ T3L = np.array([[0, 0], [0, 0], [1, 0], [1, 0],
                 [2, 1], [2, 1], [3, 1], [3, 1]])   # three levels
 
 
-@pytest.mark.parametrize("sym", [[True, True], [True, False], [False, True]])
+@pytest.mark.parametrize("exch", [[True, True], [True, False], [False, True]])
 @pytest.mark.parametrize("per", [False, True])
 @pytest.mark.parametrize("tags,r,rel,K", [
     (T2, [1, 2], [0, 0], 6),
@@ -83,8 +83,8 @@ T3L = np.array([[0, 0], [0, 0], [1, 0], [1, 0],
     (T3, [2, 2], [0, 1], 9),      # outer unit
     (T3, [2, 3], [0, 0], 9),
 ])
-def test_two_levels_match_centres(tags, r, rel, K, per, sym):
-    d = _density(tags, r, sym, rel, per, K, seed=1)
+def test_two_levels_match_centres(tags, r, rel, K, per, exch):
+    d = _density(tags, r, exch, rel, per, K, seed=1)
     X = _queries(d, seed=1)
     # Relative-periodic compares the all-image (Möbius) against the
     # minimum-image (centres) reading; at sigma/P = 0.058 they agree to
@@ -94,11 +94,11 @@ def test_two_levels_match_centres(tags, r, rel, K, per, sym):
 
 
 @pytest.mark.parametrize("rel", [[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]])
-@pytest.mark.parametrize("sym,per", [([True, True, True], False),
+@pytest.mark.parametrize("exch,per", [([True, True, True], False),
                                      ([True, False, True], True),
                                      ([False, True, False], False)])
-def test_three_levels_match_centres(rel, sym, per):
-    d = _density(T3L, [2, 2, 2], sym, rel, per, 8, seed=2, sigma=0.6)
+def test_three_levels_match_centres(rel, exch, per):
+    d = _density(T3L, [2, 2, 2], exch, rel, per, 8, seed=2, sigma=0.6)
     if d.dim == 0:
         pytest.skip("degenerate zero-dimensional layout")
     X = _queries(d, seed=2)
@@ -118,8 +118,8 @@ def test_ragged_events_with_nan_padding():
     p = np.sort(rng.uniform(0.0, P, size=(6, 3)), axis=0)
     p[5, 0] = np.nan                    # event 0 has one value fewer
     p[4:, 2] = np.nan                   # event 2 has two fewer
-    spec = {"tags": T2, "r": [1, 2], "sym": [True, True], "rel": [0, 0]}
-    d = build_exp_tens([p], None, specs=[spec], sigma=[0.7], is_per=[False],
+    spec = {"tags": T2, "r": [1, 2], "exch": [True, True], "rel": [0, 0]}
+    d = build_maet([p], None, specs=[spec], sigma=[0.7], is_per=[False],
                        period=[0.0], verbose=False)
     X = _queries(d, seed=4)
     _assert_routes_agree(d, X, 1e-10)
@@ -130,10 +130,10 @@ def test_nested_tensored_with_flat_attributes():
     p0 = np.sort(rng.uniform(0.0, P, size=(6, 3)), axis=0)
     p1 = np.sort(rng.uniform(0.0, P, size=(3, 3)), axis=0)
     p2 = rng.uniform(0.0, 10.0, size=(1, 3))
-    specs = [{"tags": T2, "r": [1, 2], "sym": [True, True], "rel": [0, 1]},
-             {"r": 2, "sym": True, "rel": False},
-             {"r": 1, "sym": True, "rel": False}]
-    d = build_exp_tens([p0, p1, p2], None, specs=specs,
+    specs = [{"tags": T2, "r": [1, 2], "exch": [True, True], "rel": [0, 1]},
+             {"r": 2, "exch": True, "rel": False},
+             {"r": 1, "exch": True, "rel": False}]
+    d = build_maet([p0, p1, p2], None, specs=specs,
                        sigma=[0.5, 0.8, 1.0], is_per=[True, False, False],
                        period=[P, 0.0, 0.0], verbose=False)
     X = _queries(d, seed=5)
@@ -161,9 +161,9 @@ def test_auto_follows_the_nested_cost_row():
     X = _queries(d, seed=6)
     chosen = _select_ma_eval(d, X.shape[1], method="auto")[0]
     assert chosen in ("centres", "mobius")
-    va = eval_exp_tens(d, X, method="auto", truncation_sigmas=40.0,
+    va = eval_maet(d, X, method="auto", truncation_sigmas=40.0,
                        verbose=False)
-    vc = eval_exp_tens(d, X, method=chosen, truncation_sigmas=40.0,
+    vc = eval_maet(d, X, method=chosen, truncation_sigmas=40.0,
                        verbose=False)
     np.testing.assert_allclose(va, vc, rtol=1e-12)
 
@@ -173,9 +173,9 @@ def test_auto_follows_the_nested_cost_row():
     assert m_ms < c_ms
     assert _select_ma_eval(big, 20, method="auto")[0] == "mobius"
     Xb = _queries(big, seed=16)
-    va = eval_exp_tens(big, Xb, method="auto", truncation_sigmas=40.0,
+    va = eval_maet(big, Xb, method="auto", truncation_sigmas=40.0,
                        verbose=False)
-    vc = eval_exp_tens(big, Xb, method="centres", truncation_sigmas=40.0,
+    vc = eval_maet(big, Xb, method="centres", truncation_sigmas=40.0,
                        verbose=False)
     np.testing.assert_allclose(va, vc, rtol=0, atol=1e-9 * np.max(np.abs(vc)))
 
@@ -185,7 +185,7 @@ def test_auto_follows_the_nested_cost_row():
 
 def test_nested_tuple_count_matches_the_enumeration():
     from mpt._tensor.dispatch import nested_tuple_count
-    for tags, r, sym, expect in [
+    for tags, r, exch, expect in [
         (T2, [1, 2], [True, True], 18),
         (T2, [1, 2], [True, False], 9),
         (T2, [3, 2], [False, True], 2),
@@ -193,7 +193,7 @@ def test_nested_tuple_count_matches_the_enumeration():
         (np.repeat(np.arange(4), 3), [2, 4], [False, True], 1944),
         (T3L, [2, 2, 2], [True, True, True], 2 * 2 * 4 * 4 * 2 * 2 // 2),
     ]:
-        assert nested_tuple_count(tags, r, sym) == expect
+        assert nested_tuple_count(tags, r, exch) == expect
     # ragged groups: the elementary symmetric polynomial over the children
     tags = np.array([0, 0, 0, 1, 1])
     assert nested_tuple_count(tags, [2, 2], [True, True]) == 2 * (6 * 2)
@@ -205,10 +205,10 @@ def test_nested_tuple_count_matches_the_enumeration():
 def test_ordered_flat_attribute_still_refuses_mobius():
     rng = np.random.default_rng(7)
     p = np.sort(rng.uniform(0.0, P, size=(4, 2)), axis=0)
-    d = build_exp_tens([p], None, specs=[{"r": 2, "sym": False, "rel": False}],
+    d = build_maet([p], None, specs=[{"r": 2, "exch": False, "rel": False}],
                        sigma=[0.5], is_per=[False], period=[0.0], verbose=False)
     with pytest.raises(ValueError, match="ordered"):
-        eval_exp_tens(d, np.zeros((d.dim, 2)), method="mobius", verbose=False)
+        eval_maet(d, np.zeros((d.dim, 2)), method="mobius", verbose=False)
 
 
 def test_per_level_evaluator_reference_values():
@@ -244,15 +244,15 @@ def test_per_level_evaluator_is_much_cheaper_than_the_centres_route():
     rng = np.random.default_rng(8)
     tags = np.repeat(np.arange(4), 3)
     p = np.sort(rng.uniform(0.0, P, size=(12, 4)), axis=0)
-    spec = {"tags": tags, "r": [3, 3], "sym": [True, True], "rel": [0, 0]}
-    d = build_exp_tens([p], None, specs=[spec], sigma=[0.7], is_per=[False],
+    spec = {"tags": tags, "r": [3, 3], "exch": [True, True], "rel": [0, 0]}
+    d = build_maet([p], None, specs=[spec], sigma=[0.7], is_per=[False],
                        period=[0.0], verbose=False)
     X = rng.uniform(0.0, P, size=(d.dim, 50))
     t0 = time.perf_counter()
-    vc = eval_exp_tens(d, X, method="centres", verbose=False)
+    vc = eval_maet(d, X, method="centres", verbose=False)
     tc = time.perf_counter() - t0
     t0 = time.perf_counter()
-    vm = eval_exp_tens(d, X, method="mobius", verbose=False)
+    vm = eval_maet(d, X, method="mobius", verbose=False)
     tm = time.perf_counter() - t0
     np.testing.assert_allclose(vm, vc, rtol=0, atol=1e-7 * np.max(np.abs(vc)))
     assert tm < tc

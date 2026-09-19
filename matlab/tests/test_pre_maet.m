@@ -74,7 +74,7 @@ results{end,2}   = throwsError(@() unpackPreMaet(pC));
 
 % A density struct also has a pAttr field; it must not be read as a
 % pre-MAET, since showPreMaet accepts both.
-densC = buildExpTens(pC, wC, 'specs', spC, KWC{:});
+densC = buildMaet(pC, wC, 'specs', spC, KWC{:});
 results{end+1,1} = 'preMaet: a density is not a pre-MAET'; %#ok<SAGROW>
 results{end,2}   = ~internal.isPreMaet(densC);
 
@@ -123,14 +123,14 @@ results{end,2}   = internal.isPreMaet(pmRead) ...
 
 % ---- The boundary: build, eval, cosine ----
 
-densCar = buildExpTens(pmC, KWC{:});
+densCar = buildMaet(pmC, KWC{:});
 Xq = [60; 0];
-results{end+1,1} = 'preMaet: buildExpTens takes a pre-MAET'; %#ok<SAGROW>
-results{end,2}   = abs(evalExpTens(densCar, Xq, 'verbose', false) ...
-                       - evalExpTens(densC, Xq, 'verbose', false)) < 1e-12;
+results{end+1,1} = 'preMaet: buildMaet takes a pre-MAET'; %#ok<SAGROW>
+results{end,2}   = abs(evalMaet(densCar, Xq, 'verbose', false) ...
+                       - evalMaet(densC, Xq, 'verbose', false)) < 1e-12;
 
-results{end+1,1} = 'preMaet: buildExpTens rejects weights twice'; %#ok<SAGROW>
-results{end,2}   = throwsError(@() buildExpTens(pmC, wC, KWC{:}));
+results{end+1,1} = 'preMaet: buildMaet rejects weights twice'; %#ok<SAGROW>
+results{end,2}   = throwsError(@() buildMaet(pmC, wC, KWC{:}));
 
 spK = spC;
 for a = 1:2
@@ -139,26 +139,26 @@ for a = 1:2
     spK{a}.period = 0;
 end
 pmK = preMaet(pC, wC, spK);
-results{end+1,1} = 'preMaet: evalExpTens takes a pre-MAET'; %#ok<SAGROW>
-results{end,2}   = abs(evalExpTens(pmK, Xq, 'verbose', false) ...
-                       - evalExpTens(densC, Xq, 'verbose', false)) < 1e-12;
+results{end+1,1} = 'preMaet: evalMaet takes a pre-MAET'; %#ok<SAGROW>
+results{end,2}   = abs(evalMaet(pmK, Xq, 'verbose', false) ...
+                       - evalMaet(densC, Xq, 'verbose', false)) < 1e-12;
 
-results{end+1,1} = 'preMaet: entropyExpTens takes a pre-MAET'; %#ok<SAGROW>
-results{end,2}   = abs(entropyExpTens(pmK, 'method', 'renyi2', ...
+results{end+1,1} = 'preMaet: entropyMaet takes a pre-MAET'; %#ok<SAGROW>
+results{end,2}   = abs(entropyMaet(pmK, 'method', 'renyi2', ...
                                       'verbose', false) ...
-                       - entropyExpTens(densC, 'method', 'renyi2', ...
+                       - entropyMaet(densC, 'method', 'renyi2', ...
                                         'verbose', false)) < 1e-10;
 
-results{end+1,1} = 'preMaet: cosSimExpTens takes a pre-MAET'; %#ok<SAGROW>
-results{end,2}   = abs(cosSimExpTens(pmK, pmK, 'verbose', false) - 1) < 1e-10;
+results{end+1,1} = 'preMaet: simMaet takes a pre-MAET'; %#ok<SAGROW>
+results{end,2}   = abs(simMaet(pmK, pmK, 'verbose', false) - 1) < 1e-10;
 
 % ---- windowedSimilarity and windowedEntropy take whole pre-MAETs ----
 
 pWC = {[60 64 67 60 64 67], [0 1 2 5 6 7]};
 pWQ = {[60 64 67], [0 1 2]};
-spW = {struct('name','pitch','r',1,'rel',false,'sym',true, ...
+spW = {struct('name','pitch','r',1,'rel',false,'exch',true, ...
               'sigma',0.5,'isPer',true,'period',12), ...
-       struct('name','time','r',1,'rel',false,'sym',true, ...
+       struct('name','time','r',1,'rel',false,'exch',true, ...
               'sigma',0.25,'isPer',false,'period',0)};
 pmWC = preMaet(pWC, [], spW);
 pmWQ = preMaet(pWQ, [], spW);
@@ -202,35 +202,35 @@ mkPm = @(v) preMaet({v, [0 1 2]}, [], ...
               'isPer', [true false], 'period', [12 0]));
 pmL1 = mkPm([60 64 67]);
 pmL2 = mkPm([62 65 69]);
-dL1  = buildExpTens(pmL1, 'verbose', false);
-dL2  = buildExpTens(pmL2, 'verbose', false);
+dL1  = buildMaet(pmL1, 'verbose', false);
+dL2  = buildMaet(pmL2, 'verbose', false);
 
-gotLL = cosSimExpTens({pmL1, pmL1}, {pmL2, pmL2}, 'verbose', false);
-refLL = cosSimExpTens({dL1, dL1}, {dL2, dL2}, 'verbose', false);
+gotLL = simMaet({pmL1, pmL1}, {pmL2, pmL2}, 'verbose', false);
+refLL = simMaet({dL1, dL1}, {dL2, dL2}, 'verbose', false);
 results{end+1,1} = 'preMaet: cell vs cell matches a cell of densities'; %#ok<SAGROW>
 results{end,2}   = abs(gotLL{1} - refLL{1}) == 0 && abs(gotLL{2} - refLL{2}) == 0;
 
-gotSL = cosSimExpTens(pmL1, {pmL2, pmL1}, 'verbose', false);
+gotSL = simMaet(pmL1, {pmL2, pmL1}, 'verbose', false);
 results{end+1,1} = 'preMaet: scalar vs cell broadcasts'; %#ok<SAGROW>
 results{end,2}   = abs(gotSL{2} - 1) < 1e-12;
 
 Xq2 = [60; 0];
-gotEv = evalExpTens({pmL1, pmL2}, Xq2, 'verbose', false);
-refEv = evalExpTens({dL1, dL2}, Xq2, 'verbose', false);
-results{end+1,1} = 'preMaet: evalExpTens takes a cell'; %#ok<SAGROW>
+gotEv = evalMaet({pmL1, pmL2}, Xq2, 'verbose', false);
+refEv = evalMaet({dL1, dL2}, Xq2, 'verbose', false);
+results{end+1,1} = 'preMaet: evalMaet takes a cell'; %#ok<SAGROW>
 results{end,2}   = abs(gotEv{1} - refEv{1}) == 0 && abs(gotEv{2} - refEv{2}) == 0;
 
 % translateAttributes' sweep form carries one pre-MAET whose pAttr is a
 % 1 x M sweep; it stands as a cell of densities on the shared geometry.
 pmSweep = translateAttributes(pmL1, {[0 3 7], []});
-gotSw = cosSimExpTens(pmL1, pmSweep, 'verbose', false);
+gotSw = simMaet(pmL1, pmSweep, 'verbose', false);
 refSw = cell(1, 3);
 for m = 1:3
-    refSw{m} = buildExpTens( ...
+    refSw{m} = buildMaet( ...
         preMaet(pmSweep.pAttr{m}, pmSweep.wAttr, pmSweep.specs), ...
         'verbose', false);
 end
-refSwS = cosSimExpTens(dL1, refSw, 'verbose', false);
+refSwS = simMaet(dL1, refSw, 'verbose', false);
 okSw = abs(gotSw{1} - 1) < 1e-12;
 for m = 1:3
     okSw = okSw && abs(gotSw{m} - refSwS{m}) == 0;
@@ -238,7 +238,7 @@ end
 results{end+1,1} = 'preMaet: a sweep pre-MAET is a cell of densities'; %#ok<SAGROW>
 results{end,2}   = okSw;
 
-% ---- r / rel / sym overrides ----
+% ---- r / rel / exch overrides ----
 
 pChord = {[60 62 64; 64 65 67], [0 1 2]};
 spCh   = flatSpecs(pChord, 'r', 1);
@@ -246,22 +246,22 @@ pmCh   = preMaet(pChord, [], spCh);
 KWCh   = {'sigma', [0.5 0.25], 'isPer', [false false], ...
           'period', [0 0], 'verbose', false};
 
-dR = buildExpTens(pmCh, 'r', [2 1], KWCh{:});
+dR = buildMaet(pmCh, 'r', [2 1], KWCh{:});
 results{end+1,1} = 'preMaet: r overrides the specs'; %#ok<SAGROW>
 results{end,2}   = isequal(double(dR.r(:)'), [2 1]);
 
-dRS = buildExpTens(pmCh, 'r', [2 1], 'rel', [true false], ...
-                   'sym', [false true], KWCh{:});
-results{end+1,1} = 'preMaet: rel and sym override the specs'; %#ok<SAGROW>
+dRS = buildMaet(pmCh, 'r', [2 1], 'rel', [true false], ...
+                   'exch', [false true], KWCh{:});
+results{end+1,1} = 'preMaet: rel and exch override the specs'; %#ok<SAGROW>
 results{end,2}   = isequal(logical(dRS.isRel(:)'), [true false]) ...
-                   && isequal(logical(dRS.isSym(:)'), [false true]);
+                   && isequal(logical(dRS.isExch(:)'), [false true]);
 
 % A sweep over any of the six parameters stays one call per value, and
 % leaves the pre-MAET it sweeps unchanged.
 sigmas = [0.25 0.5 1];
 got = zeros(1, numel(sigmas));
 for k = 1:numel(sigmas)
-    dK = buildExpTens(pmC, 'sigma', [sigmas(k) 0.25], ...
+    dK = buildMaet(pmC, 'sigma', [sigmas(k) 0.25], ...
                       'isPer', [false false], 'period', [0 0], ...
                       'verbose', false);
     got(k) = dK.sigma(1);
@@ -272,13 +272,13 @@ results{end,2}   = max(abs(got - sigmas)) < 1e-12 ...
 
 pmBound = bindEvents(pmC, [2 2]);
 results{end+1,1} = 'preMaet: nested geometry is not overridable'; %#ok<SAGROW>
-results{end,2}   = throwsError(@() buildExpTens(pmBound, 'r', 2, KWC{:}));
+results{end,2}   = throwsError(@() buildMaet(pmBound, 'r', 2, KWC{:}));
 
 results{end+1,1} = 'preMaet: wrong-length override errors'; %#ok<SAGROW>
-results{end,2}   = throwsError(@() buildExpTens(pmC, 'r', [1 1 1], KWC{:}));
+results{end,2}   = throwsError(@() buildMaet(pmC, 'r', [1 1 1], KWC{:}));
 
 results{end+1,1} = 'preMaet: unknown name-value errors'; %#ok<SAGROW>
-results{end,2}   = throwsError(@() buildExpTens(pmC, 'sigmaa', 0.5, ...
+results{end,2}   = throwsError(@() buildMaet(pmC, 'sigmaa', 0.5, ...
                                                 'verbose', false));
 
 

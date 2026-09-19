@@ -20,28 +20,29 @@ from one semitone to several octaves — narrow, and pitches must agree
 in octave to count as similar; wide, and pitch-class equivalence
 dominates. Voice information enters in one of three ways:
   (i)   Voice-aware: one event per chord; each attribute holds the
-        ordered (S, A, T, B) voicing — K = 4, [sym] = 0, r = 4 — so
+        ordered (S, A, T, B) voicing — K = 4, [exch] = 0, r = 4 — so
         matching is voice by voice, a multiplicative AND across voices.
   (ii)  Simplex-voice: one event per note (N = 4 single-pitch events);
         pitch class and pitch height at r = 1, plus a voice attribute
         holding each note's vertex of a regular tetrahedron
         (``simplex_vertices(4)``, its three coordinates taken in order:
-        [sym] = 0, r = 3, sigma_voice = 0.2), so matching accrues
+        [exch] = 0, r = 3, sigma_voice = 0.2), so matching accrues
         additive partial credit, voice by voice.
-  (iii) Voice-agnostic: one event per chord; the four pitches as an
-        unordered multiset (K = 4, r = 1) on both attributes; voice
-        identity is not encoded.
+  (iii) Voice-agnostic: one event per note (N = 4, K = 1, r = 1) on the
+        same two attributes -- the simplex-voice encoding without its
+        voice attribute, so each note's pitch class stays bound to its
+        own height; voice identity is not encoded.
 Each chord's density is built once per encoding and sigma_ph
-(``build_exp_tens``), and the six pair similarities come from one
-batched ``cos_sim_exp_tens`` call on density lists (mode='pairwise').
+(``build_maet``), and the six pair similarities come from one
+batched ``sim_maet`` call on density lists (mode='pairwise').
 
 An appendix figure (``--heatmaps``) extends the same three encodings to
 every event of the chorale: N x N cosine-similarity matrices over the
-272 sixteenth-note grid points, one ``cos_sim_exp_tens`` call in
+272 sixteenth-note grid points, one ``sim_maet`` call in
 mode='cartesian' per encoding, at three pitch-height widths.
 
-Data: ``jmm_data.bwv347_grid``. Toolbox: ``build_exp_tens``,
-``cos_sim_exp_tens``, ``simplex_vertices``. Runtime: seconds for the
+Data: ``jmm_data.bwv347_grid``. Toolbox: ``build_maet``,
+``sim_maet``, ``simplex_vertices``. Runtime: seconds for the
 sweep; a few minutes more for the heat maps.
 """
 from __future__ import annotations
@@ -63,7 +64,7 @@ import mpt
 SAVE_FIGURES = False
 FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 mpt.set_default(show_hints=False)
-from mpt import (build_exp_tens, cos_sim_exp_tens, show_pre_maet,
+from mpt import (build_maet, sim_maet, show_pre_maet,
                  simplex_vertices)
 
 from jmm_data import bwv347_grid, GRID_STEP_QN
@@ -115,18 +116,18 @@ V_SIMPLEX = simplex_vertices(4)
 # ---------------------------------------------------------------------------
 def build_voice_aware(satb_cents, sigma_pc, sigma_ph):
     """Two attributes (PC, pitch height), each the ordered (S, A, T, B)
-    voicing: K = 4 per event, [sym] = 0 (ordered), r = 4. Numerically
+    voicing: K = 4 per event, [exch] = 0 (ordered), r = 4. Numerically
     identical to four r = 1 per-voice attributes."""
     voicing = np.asarray(satb_cents, dtype=float).reshape(4, 1)   # K=4, N=1
     p_attr = [voicing, voicing]
-    return build_exp_tens(
+    return build_maet(
         p_attr, None,
         [sigma_pc, sigma_ph],     # sigma per attribute
         [4, 4],                    # r per attribute
         [False, False],            # is_rel
         [True, False],             # is_per: PC periodic, pitch height not
         [1200.0, 0.0],             # period
-        [False, False],            # is_sym = 0 -> ordered (voice-aware)
+        [False, False],            # is_exch = 0 -> ordered (voice-aware)
         verbose=False,
     )
 
@@ -134,35 +135,39 @@ def build_voice_aware(satb_cents, sigma_pc, sigma_ph):
 def build_simplex_voice(satb_cents, sigma_pc, sigma_ph, sigma_voice=SIGMA_VOICE):
     """One event per voice (N = 4): PC and pitch-height attributes (r = 1)
     plus a voice attribute carrying the simplex vertex as an ordered
-    categorical attribute (K = 3 coordinates, [sym] = 0, r = 3)."""
+    categorical attribute (K = 3 coordinates, [exch] = 0, r = 3)."""
     s, a, t, b = satb_cents
     pitches = np.array([[s, a, t, b]], dtype=float)        # (1,4): K=1, N=4
     voice = np.asarray(V_SIMPLEX, dtype=float).T           # (3,4): 3 coords x 4 voices
     p_attr = [pitches, pitches, voice]
-    return build_exp_tens(
+    return build_maet(
         p_attr, None,
         [sigma_pc, sigma_ph, sigma_voice],
         [1, 1, 3],
         [False, False, False],
         [True, False, False],
         [1200.0, 0.0, 0.0],
-        [True, True, False],       # voice attribute ordered ([sym] = 0)
+        [True, True, False],       # voice attribute ordered ([exch] = 0)
         verbose=False,
     )
 
 
 def build_voice_agnostic(satb_cents, sigma_pc, sigma_ph):
-    """Two attributes (PC, pitch height): the four sounding pitches as an
-    unordered multiset (K = 4) at r = 1; voice identity is not encoded."""
-    p4 = np.asarray(satb_cents, dtype=float).reshape(4, 1)
-    return build_exp_tens(
+    """Two attributes (PC, pitch height), one event per note (N = 4, K = 1,
+    r = 1): the simplex-voice encoding without its voice attribute. Each
+    event binds a note's pitch class to its own pitch height; a single
+    K = 4 event on both attributes would instead tensor the PC of one note
+    with the height of another (16 cross terms) and lose that binding.
+    Voice identity is not encoded."""
+    p4 = np.asarray(satb_cents, dtype=float).reshape(1, 4)
+    return build_maet(
         [p4, p4], None,
         [sigma_pc, sigma_ph],
         [1, 1],
         [False, False],
         [True, False],
         [1200.0, 0.0],
-        [True, True],              # unordered (moot at r = 1)
+        [True, True],              # moot at K = 1, r = 1
         verbose=False,
     )
 
@@ -199,7 +204,7 @@ def sweep():
             dens = {t: build(chords[t], SIGMA_PC, sigma_ph) for t in chord_times}
             # One batched call per encoding: list-vs-list pairwise mode
             # returns all six pair similarities at once.
-            sims[b_idx, :, sp_idx] = cos_sim_exp_tens(
+            sims[b_idx, :, sp_idx] = sim_maet(
                 [dens[ti] for _, ti, _ in REFERENCE_PAIRS],
                 [dens[tj] for _, _, tj in REFERENCE_PAIRS],
                 mode='pairwise', verbose=False)
@@ -262,7 +267,7 @@ def heatmaps():
             dens = [build(pitches_cents[i], SIGMA_PC, sigma_ph) for i in range(N)]
             # One cartesian-mode call per encoding returns the full N x N
             # matrix (unit diagonal, symmetric) directly.
-            out[(sigma_ph, b_idx)] = cos_sim_exp_tens(dens, dens, mode='cartesian',
+            out[(sigma_ph, b_idx)] = sim_maet(dens, dens, mode='cartesian',
                                                       verbose=False)
     return out
 

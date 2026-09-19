@@ -1,9 +1,9 @@
-function vals = evalNestedAttrOrbit(p, w, tags, rLevels, symLevels, relUnit, ...
+function vals = evalNestedAttrOrbit(p, w, tags, rLevels, exchLevels, relUnit, ...
                                     sigma, x, opts)
 %MOBIUS.EVALNESTEDATTRORBIT  Per-level Möbius point evaluator for a nested
 %   attribute (one event).
 %
-%   vals = mobius.evalNestedAttrOrbit(p, w, tags, rLevels, symLevels, ...
+%   vals = mobius.evalNestedAttrOrbit(p, w, tags, rLevels, exchLevels, ...
 %                                     relUnit, sigma, x, 'is_per', tf, ...
 %                                     'period', P, 'wrap', wrap, ...
 %                                     'truncationSigmas', ts, ...
@@ -51,14 +51,14 @@ function vals = evalNestedAttrOrbit(p, w, tags, rLevels, symLevels, relUnit, ...
 %       p, w       (K x 1) the event's live (non-NaN) values and weights.
 %       tags       (K x (L-1)) grouping tags, innermost grouping first
 %                  (a vector for L = 2).
-%       rLevels, symLevels   length-L per-level tuple size and symmetry,
+%       rLevels, exchLevels   length-L per-level tuple size and symmetry,
 %                  innermost first.
 %       relUnit    [], NaN, or 0 (absolute) or the 1-based co-transposition
-%                  level (buildExpTens stores NaN for an absolute nested
+%                  level (buildMaet stores NaN for an absolute nested
 %                  attribute).
 %       sigma      kernel width.
 %       x          (dim_a x n_q) query coordinates in the attribute's
-%                  reduced layout (as documented for buildExpTens centres).
+%                  reduced layout (as documented for buildMaet centres).
 %
 %   Output
 %       vals       (n_q x 1) raw (un-normalised) per-event density values,
@@ -71,7 +71,7 @@ function vals = evalNestedAttrOrbit(p, w, tags, rLevels, symLevels, relUnit, ...
         w double
         tags double
         rLevels double
-        symLevels
+        exchLevels
         relUnit
         sigma (1,1) double
         x double
@@ -86,7 +86,7 @@ function vals = evalNestedAttrOrbit(p, w, tags, rLevels, symLevels, relUnit, ...
     w = double(w(:));
     K = numel(p);
     rLevels = double(rLevels(:)).';
-    symLevels = logical(symLevels(:)).';
+    exchLevels = logical(exchLevels(:)).';
     L = numel(rLevels);
     if isvector(tags)
         tags = tags(:);
@@ -121,7 +121,7 @@ function vals = evalNestedAttrOrbit(p, w, tags, rLevels, symLevels, relUnit, ...
                                                   opts.truncationSigmas);
     end
 
-    root = localBuildNode(L, (1:K).', rLevels, symLevels, tags);
+    root = localBuildNode(L, (1:K).', rLevels, exchLevels, tags);
     if size(x, 1) ~= localWidth(ctx, L)
         error('mpt:evalNestedAttrOrbit:queryDim', ...
               ['nested query has %d rows; expected %d for this ' ...
@@ -136,11 +136,11 @@ end
 %  Tree (levels are 1-based: level 1 = leaf group, level L = root)
 % =====================================================================
 
-function node = localBuildNode(level, valIdx, rLevels, symLevels, tags)
+function node = localBuildNode(level, valIdx, rLevels, exchLevels, tags)
     valIdx = valIdx(:);
     if level == 1
         node = struct('level', 1, 'valIdx', valIdx, 'children', {{}}, ...
-                      'r', rLevels(1), 'sym', symLevels(1));
+                      'r', rLevels(1), 'exch', exchLevels(1));
         return;
     end
     keys = tags(valIdx, level - 1);
@@ -148,10 +148,10 @@ function node = localBuildNode(level, valIdx, rLevels, symLevels, tags)
     children = cell(1, numel(uk));
     for c = 1:numel(uk)
         children{c} = localBuildNode(level - 1, valIdx(keys == uk(c)), ...
-                                     rLevels, symLevels, tags);
+                                     rLevels, exchLevels, tags);
     end
     node = struct('level', level, 'valIdx', valIdx, 'children', {children}, ...
-                  'r', rLevels(level), 'sym', symLevels(level));
+                  'r', rLevels(level), 'exch', exchLevels(level));
 end
 
 function wdt = localWidth(ctx, level)
@@ -198,7 +198,7 @@ function v = localContractAbs(node, xq, ctx)
             % M(v, t, q) = w_v theta(x(t, q) - p_v)
             d = reshape(xq(:, c0:c1), [1, r, c1 - c0 + 1]) - reshape(pv, [nV, 1, 1]);
             M = reshape(wv, [nV, 1, 1]) .* localTheta(d, ctx);
-            v(c0:c1) = localCombine(M, r, node.sym);
+            v(c0:c1) = localCombine(M, r, node.exch);
         end
         return;
     end
@@ -212,7 +212,7 @@ function v = localContractAbs(node, xq, ctx)
                                  [1, 1, n_q]);
         end
     end
-    v = localCombine(M, r, node.sym);
+    v = localCombine(M, r, node.exch);
 end
 
 function th = localTheta(d, ctx)
@@ -229,7 +229,7 @@ function th = localTheta(d, ctx)
     th = exp(-(d .* d) / (2 * ctx.sigma^2));
 end
 
-function v = localCombine(M, r, sym)
+function v = localCombine(M, r, exch)
     % Sum over r-tuples of distinct children of prod_t M(c_t, t, :).
     % M is (nChildren x r x n_q). Symmetric: the Möbius set-partition sum
     % over the r slots. Ordered: children in listed order, by a dynamic
@@ -244,7 +244,7 @@ function v = localCombine(M, r, sym)
         v = zeros(n_q, 1);
         return;
     end
-    if sym
+    if exch
         [uniqueBlocks, partBlockIdx, mus] = mobius.getPartitionBlockStructure(r);
         blockContrib = cell(1, numel(uniqueBlocks));
         for k = 1:numel(uniqueBlocks)

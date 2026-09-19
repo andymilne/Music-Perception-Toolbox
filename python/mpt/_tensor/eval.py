@@ -2,11 +2,9 @@
 
 Public entry points:
 
-* :func:`eval_exp_tens` --- evaluate a density at query points, with
+* :func:`eval_maet` --- evaluate a density at query points, with
   dispatch over centres / Möbius / direct paths and over normalise
   modes (``none``, ``gaussian``, ``pdf``).
-* :func:`eval_exp_tens_raw` --- deprecated shim; raw-array signature
-  is now accepted by :func:`eval_exp_tens` directly.
 
 The bulk of the file is the per-method implementations (single-multiset centres
 fast, single-multiset centres chunked, single-multiset orbit, multi-attribute centres) and the small set of
@@ -21,6 +19,7 @@ See USER_GUIDE §5 ("Method selection") and :doc:`/ARCHITECTURE` §4
 """
 from __future__ import annotations
 
+import math
 import warnings
 
 import numpy as np
@@ -28,12 +27,15 @@ import numpy as np
 from .._defaults import _maybe_show_dispatch_msg, _with_dispatch_scope
 from .._utils import (
     kernel_chunk_bytes_resolved,
+    kernel_thread_count,
+    run_in_kernel_threads,
+    split_ranges,
     with_kernel_chunk_bytes_pin,
 )
 from .._kernel import gaussian_kernel_sum
 from ..spectra import add_spectra
 
-from .build import _looks_like_multi_attr, build_exp_tens
+from .build import _looks_like_multi_attr, build_maet
 from .canonical import _chord_canonical_key
 from .density import is_single_multiset
 from .density import MaetDensity
@@ -45,18 +47,18 @@ from .dispatch import (_compute_Q, _compute_Q_inner_blocks, _inner_r_vec,
 
 
 # -------------------------------------------------------------------
-#  eval_exp_tens
+#  eval_maet
 # -------------------------------------------------------------------
 
 
 # -------------------------------------------------------------------
-#  eval_exp_tens  (public dispatcher)
+#  eval_maet  (public dispatcher)
 # -------------------------------------------------------------------
 
 
 @_with_dispatch_scope
 @with_kernel_chunk_bytes_pin
-def eval_exp_tens(*args,
+def eval_maet(*args,
                   normalize: str = "none",
                   dedup: bool = True,
                   spectrum=None,
@@ -69,7 +71,7 @@ def eval_exp_tens(*args,
 
     Input forms, in the order to reach for them: a single multiset; a
     pre-MAET, the canonical entry for everything else; a density built
-    by :func:`build_exp_tens`; then the raw positional multi-attribute
+    by :func:`build_maet`; then the raw positional multi-attribute
     and batched forms.
 
     Unified entry point. Accepts five input forms, dispatched on the
@@ -77,39 +79,57 @@ def eval_exp_tens(*args,
 
     **Raw single-multiset scalar input**:
 
-    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X)``.
+    - ``eval_maet(p, w, sigma, r, is_rel, is_per, period, X)``.
       Returns ``(nQ,)``.
-    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X, normalize)``.
+    - ``eval_maet(p, w, sigma, r, is_rel, is_per, period, X, normalize)``.
+    - ``eval_maet(p, w, sigma, r, is_rel, is_per, period, is_exch, X)``,
+      the optional ``is_exch`` sitting between ``period`` and ``X``.
 
     **Pre-MAET input**:
 
-    - ``eval_exp_tens(pm, X)``. A pre-MAET (:func:`~mpt.pre_maet`)
-      holds everything :func:`build_exp_tens` needs, so it stands
+    - ``eval_maet(pm, X)``. A pre-MAET (:func:`~mpt.pre_maet`)
+      holds everything :func:`build_maet` needs, so it stands
       wherever a density does: it is built internally and evaluated
       at ``X``. Returns ``(nQ,)``.
 
     **Pre-built density input** (plus polymorphic lists):
 
-    - ``eval_exp_tens(dens, X)`` — scalar density.
+    - ``eval_maet(dens, X)`` — scalar density.
       Returns ``(nQ,)``.
-    - ``eval_exp_tens(dens, X, normalize)`` — same with positional
+    - ``eval_maet(dens, X, normalize)`` — same with positional
       ``normalize``.
-    - ``eval_exp_tens([d1, d2, …], X)`` — list of densities at shared
+    - ``eval_maet([d1, d2, …], X)`` — list of densities at shared
       query ``X``. Returns ``(M, nQ)`` — every density evaluated at
       every query point. ``normalize`` (positional or kwarg) applies
       to all rows.
 
     **Raw multi-attribute scalar input**:
 
-    - ``eval_exp_tens(p_attr, w_attr, sigma_vec, r_vec,
-      is_rel_vec, is_per_vec, period_vec, X)``, with ``w_attr`` the
-      per-attribute weights. Returns ``(nQ,)``.
+    - ``eval_maet(p_attr, w_attr, sigma_vec, r_vec,
+      is_rel_vec, is_per_vec, period_vec[, is_exch_vec], X)``, with
+      ``w_attr`` the per-attribute weights. Returns ``(nQ,)``.
 
     **Raw single-multiset batched input**:
 
-    - ``eval_exp_tens(P, W, sigma, r, is_rel, is_per, period, X)``
+    - ``eval_maet(P, W, sigma, r, is_rel, is_per, period[, is_exch], X)``
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
       Returns ``(M, nQ)``.
+
+      Shape rule (differs from MATLAB). Batched-raw mode is entered on
+      ``ndim == 2``, so a ``(K, 1)`` array is K rows of one element
+      each. MATLAB enters it on a matrix with both dimensions greater
+      than one, where a ``K``-by-1 column is a vector and takes the
+      single-multiset path. A batch of one-element multisets is
+      written the same way in both languages: pad to two columns with
+      NaN, the padding being stripped per row before each density is
+      built.
+
+    In every raw form the geometry may end with an optional
+    ``is_exch`` (single multiset, batched) or ``is_exch_vec``
+    (multi-attribute) after ``period``: true (the default) for an
+    exchangeable (unordered) multiset, whose density is invariant under
+    permuting a tuple's coordinates; false for an ordered one, where
+    position in the tuple carries identity. See :func:`build_maet`.
 
     Parameters
     ----------
@@ -176,7 +196,7 @@ def eval_exp_tens(*args,
     default) checks its output and, when any value is non-finite, warns
     and re-evaluates through the centres path; every shape reaches this
     guard through the one multi-attribute evaluator, so the
-    single-multiset corner inherits it (MATLAB: ``evalExpTens``).
+    single-multiset corner inherits it (MATLAB: ``evalMaet``).
 
     ``kernel_precision='single'`` is honoured on the Möbius route and on
     every centres leaf (the single-multiset kernel, the factored
@@ -188,18 +208,17 @@ def eval_exp_tens(*args,
     output from accumulated Möbius per-term error. None has been
     observed in extensive testing, but a sum-level cancellation
     diagnostic that would close this residual gap is planned. See
-    :func:`cos_sim_exp_tens` Notes for the parallel discussion on the
+    :func:`sim_maet` Notes for the parallel discussion on the
     inner-product path.
 
     See Also
     --------
-    build_exp_tens, cos_sim_exp_tens
-    eval_exp_tens_raw : deprecated; superseded by raw input mode here.
+    build_maet, sim_maet
     """
     args = _build_pre_maet_args(args, verbose=verbose)
     if len(args) < 2:
         raise TypeError(
-            "eval_exp_tens requires at least 2 positional arguments."
+            "eval_maet requires at least 2 positional arguments."
         )
 
     # Resolve the truncation width once, at the single entry point, so
@@ -248,13 +267,13 @@ def eval_exp_tens(*args,
                 "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
         if is_density_scalar:
-            return _eval_exp_tens_scalar(
+            return _eval_maet_scalar(
                 dens, x, normalize, method=method,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 verbose=verbose,
             )
-        return _eval_exp_tens_density_list(
+        return _eval_maet_density_list(
             dens, x, normalize, dedup=dedup, method=method,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -266,24 +285,24 @@ def eval_exp_tens(*args,
     # ------------------------------------------------------------------
     if _looks_like_multi_attr(a):
         # Positional geometry order: p_attr, w, sigma_vec, r_vec,
-        # is_rel_vec, is_per_vec, period_vec, [is_sym_vec], x.
-        # 8 args omit is_sym_vec (defaults to symmetric); 9 supply it.
+        # is_rel_vec, is_per_vec, period_vec, [is_exch_vec], x.
+        # 8 args omit is_exch_vec (defaults to symmetric); 9 supply it.
         # normalize is keyword-only in raw mode.
-        is_sym_vec = None
+        is_exch_vec = None
         if len(args) == 8:
             (p_attr, w_in, sigma_vec, r_vec,
              is_rel_vec, is_per_vec, period_vec, x) = args
         elif len(args) == 9:
             (p_attr, w_in, sigma_vec, r_vec,
-             is_rel_vec, is_per_vec, period_vec, is_sym_vec, x) = args
+             is_rel_vec, is_per_vec, period_vec, is_exch_vec, x) = args
         elif len(args) == 10:
             (p_attr, w_in, sigma_vec, r_vec,
-             is_rel_vec, is_per_vec, period_vec, is_sym_vec, x, normalize) = args
+             is_rel_vec, is_per_vec, period_vec, is_exch_vec, x, normalize) = args
         else:
             raise TypeError(
                 f"Raw multi-attribute input expects 8, 9, or 10 positional "
                 f"arguments (p_attr, w, sigma_vec, r_vec, "
-                f"is_rel_vec, is_per_vec, period_vec[, is_sym_vec], x"
+                f"is_rel_vec, is_per_vec, period_vec[, is_exch_vec], x"
                 f"[, normalize]); got {len(args)}."
             )
         from .aniso import sigma_vec_has_kernel_cov
@@ -293,13 +312,13 @@ def eval_exp_tens(*args,
                     "'spectrum' is not supported with a matrix-valued "
                     "kernel covariance."
                 )
-            from .build import build_exp_tens as _bet
+            from .build import build_maet as _bet
             dens_a = _bet(
                 p_attr, w_in, sigma_vec, r_vec,
-                is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+                is_rel_vec, is_per_vec, period_vec, is_exch_vec,
                 verbose=False,
             )
-            return _eval_exp_tens_scalar(
+            return _eval_maet_scalar(
                 dens_a, x, normalize, method=method,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision, verbose=verbose,
@@ -313,9 +332,9 @@ def eval_exp_tens(*args,
             raise TypeError(
                 "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
-        return _eval_exp_tens_raw_ma_scalar(
+        return _eval_maet_raw_ma_scalar(
             p_attr, w_in, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec, is_sym_vec, x, normalize,
+            is_rel_vec, is_per_vec, period_vec, is_exch_vec, x, normalize,
             method=method, truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision, verbose=verbose,
         )
@@ -324,20 +343,20 @@ def eval_exp_tens(*args,
     # Raw single-multiset dispatch (1-D = scalar, 2-D = batch)
     # ------------------------------------------------------------------
     # Positional geometry order: p, w, sigma, r, is_rel, is_per, period,
-    # [is_sym], x [, normalize]. 8 args omit is_sym (defaults symmetric)
-    # and normalize (kwarg/default); 9 supply is_sym; 10 supply both.
-    is_sym = None
+    # [is_exch], x [, normalize]. 8 args omit is_exch (defaults symmetric)
+    # and normalize (kwarg/default); 9 supply is_exch; 10 supply both.
+    is_exch = None
     if len(args) == 8:
         p, w, sigma, r_, is_rel, is_per, period, x = args
     elif len(args) == 9:
-        p, w, sigma, r_, is_rel, is_per, period, is_sym, x = args
+        p, w, sigma, r_, is_rel, is_per, period, is_exch, x = args
     elif len(args) == 10:
-        p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize = args
+        p, w, sigma, r_, is_rel, is_per, period, is_exch, x, normalize = args
     else:
         raise TypeError(
             f"Raw single-multiset input expects 8, 9, or 10 positional "
             f"arguments (p, w, sigma, r, is_rel, is_per, period"
-            f"[, is_sym], x[, normalize]); got {len(args)}."
+            f"[, is_exch], x[, normalize]); got {len(args)}."
         )
 
     try:
@@ -365,12 +384,12 @@ def eval_exp_tens(*args,
                 "events of an ordered multi-attribute form, or build "
                 "per-row density objects."
             )
-        from .build import build_exp_tens as _bet
+        from .build import build_maet as _bet
         dens_a = _bet(
             p, w, sigma, r_, is_rel, is_per, period,
-            (True if is_sym is None else is_sym), verbose=False,
+            (True if is_exch is None else is_exch), verbose=False,
         )
-        return _eval_exp_tens_scalar(
+        return _eval_maet_scalar(
             dens_a, x, normalize, method=method,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision, verbose=verbose,
@@ -381,15 +400,15 @@ def eval_exp_tens(*args,
             raise TypeError(
                 "'precision' kwarg is only valid for raw single-multiset batched input."
             )
-        return _eval_exp_tens_raw_single_multiset_scalar(
-            p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
+        return _eval_maet_raw_single_multiset_scalar(
+            p, w, sigma, r_, is_rel, is_per, period, is_exch, x, normalize,
             spectrum=spectrum, method=method,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision, verbose=verbose,
         )
     if a_arr.ndim == 2:
-        return _eval_exp_tens_raw_single_multiset_batch(
-            p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
+        return _eval_maet_raw_single_multiset_batch(
+            p, w, sigma, r_, is_rel, is_per, period, is_exch, x, normalize,
             spectrum=spectrum, precision=precision,
             dedup=dedup, method=method,
             truncation_sigmas=truncation_sigmas,
@@ -408,7 +427,7 @@ _EVAL_NORMALIZE_VALUES = ("none", "gaussian", "pdf")
 def _validate_eval_normalize(normalize) -> str:
     """Canonical ``normalize`` for point evaluation, or ``ValueError``.
 
-    Twin of the MATLAB ``evalExpTens`` check: the value must be one of
+    Twin of the MATLAB ``evalMaet`` check: the value must be one of
     ``'none'``, ``'gaussian'`` or ``'pdf'`` (case-insensitive).
     """
     if not isinstance(normalize, str) \
@@ -420,13 +439,13 @@ def _validate_eval_normalize(normalize) -> str:
     return normalize.lower()
 
 
-def _eval_exp_tens_scalar(
+def _eval_maet_scalar(
     dens, x, normalize: str, *, method: str = "auto",
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool,
 ) -> np.ndarray:
-    """Density-scalar dispatch for :func:`eval_exp_tens`.
+    """Density-scalar dispatch for :func:`eval_maet`.
 
     Threads ``truncation_sigmas`` / ``kernel_precision`` through to the
     single-multiset centres path; MA centres routing is deferred (Stage 3).
@@ -456,7 +475,7 @@ def _eval_exp_tens_scalar(
     # so the interception is no longer needed --- the corner is the
     # general case at A=1.)
     if isinstance(dens, MaetDensity):
-        vals = _eval_exp_tens_ma(
+        vals = _eval_maet_ma(
             dens, x, normalize,
             method=method,
             truncation_sigmas=truncation_sigmas,
@@ -472,7 +491,7 @@ def _eval_exp_tens_scalar(
 
 
 
-def _eval_exp_tens_density_list(
+def _eval_maet_density_list(
     dens_list, x, normalize: str,
     *, dedup: bool, method: str = "auto",
     truncation_sigmas: float | None = None,
@@ -519,7 +538,7 @@ def _eval_exp_tens_density_list(
                 period=float(d.period[0]),
             )
             if key not in result_cache:
-                result_cache[key] = _eval_exp_tens_scalar(
+                result_cache[key] = _eval_maet_scalar(
                     d, x, normalize, method=method,
                     truncation_sigmas=truncation_sigmas,
                     kernel_precision=kernel_precision,
@@ -528,17 +547,17 @@ def _eval_exp_tens_density_list(
             rows.append(result_cache[key])
         if verbose:
             print(
-                f"eval_exp_tens: {m} densities, "
+                f"eval_maet: {m} densities, "
                 f"{len(result_cache)} unique after canonical-form dedup."
             )
     else:
         if dedup and verbose:
             print(
-                "eval_exp_tens: dedup=True requested but input includes "
+                "eval_maet: dedup=True requested but input includes "
                 "multi-attribute densities; computing without dedup."
             )
         rows = [
-            _eval_exp_tens_scalar(
+            _eval_maet_scalar(
                 d, x, normalize, method=method,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
@@ -551,8 +570,8 @@ def _eval_exp_tens_density_list(
 
 
 
-def _eval_exp_tens_raw_single_multiset_scalar(
-    p, w, sigma, r, is_rel, is_per, period, is_sym,
+def _eval_maet_raw_single_multiset_scalar(
+    p, w, sigma, r, is_rel, is_per, period, is_exch,
     x, normalize: str,
     *, spectrum=None, method: str = "auto",
     truncation_sigmas: float | None = None,
@@ -565,11 +584,11 @@ def _eval_exp_tens_raw_single_multiset_scalar(
         w_arr = (np.ones_like(p_arr) if w is None
                  else np.asarray(w, dtype=np.float64))
         p, w = add_spectra(p_arr, w_arr, *spectrum)
-    dens = build_exp_tens(
+    dens = build_maet(
         p, w, sigma, r, is_rel, is_per, period,
-        True if is_sym is None else is_sym, verbose=verbose,
+        True if is_exch is None else is_exch, verbose=verbose,
     )
-    return _eval_exp_tens_scalar(
+    return _eval_maet_scalar(
         dens, x, normalize, method=method,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision, verbose=verbose,
@@ -577,8 +596,8 @@ def _eval_exp_tens_raw_single_multiset_scalar(
 
 
 
-def _eval_exp_tens_raw_single_multiset_batch(
-    P, W, sigma, r, is_rel, is_per, period, is_sym,
+def _eval_maet_raw_single_multiset_batch(
+    P, W, sigma, r, is_rel, is_per, period, is_exch,
     x, normalize: str,
     *, spectrum=None, precision: int | None = None,
     dedup: bool = True, method: str = "auto",
@@ -598,15 +617,15 @@ def _eval_exp_tens_raw_single_multiset_batch(
 
     # The per-row dedup keys rows by a multiset canonical form, which
     # collapses rows that share a multiset but differ in order. That is
-    # correct only for the symmetric reading: under [sym]=0 the order is
+    # correct only for the symmetric reading: under [exch]=0 the order is
     # significant, so the dedup would silently merge distinct ordered
     # densities. Reject rather than return a wrong answer. Order-aware
     # batched dedup is a tracked follow-up; use scalar input for ordered
     # densities.
-    if (is_sym is not None) and (not bool(np.all(is_sym))) and r > 1:
+    if (is_exch is not None) and (not bool(np.all(is_exch))) and r > 1:
         raise NotImplementedError(
-            "eval_exp_tens batched (2-D) input does not yet support "
-            "[sym]=0 (ordered) densities at r > 1: the batched dedup "
+            "eval_maet batched (2-D) input does not yet support "
+            "[exch]=0 (ordered) densities at r > 1: the batched dedup "
             "canonicalises each row's multiset and would merge "
             "order-distinct rows. Evaluate ordered densities one row at "
             "a time (scalar input)."
@@ -648,9 +667,9 @@ def _eval_exp_tens_raw_single_multiset_batch(
                     *spectrum,
                 )
                 w_canon = w_canon_aug
-            dens_cache[key] = build_exp_tens(
+            dens_cache[key] = build_maet(
                 p_canon, w_canon, sigma, r, is_rel, is_per, period,
-                True if is_sym is None else is_sym,
+                True if is_exch is None else is_exch,
                 verbose=False,
             )
         row_to_key[i] = key
@@ -660,7 +679,7 @@ def _eval_exp_tens_raw_single_multiset_batch(
 
     if verbose:
         print(
-            f"eval_exp_tens: {M} rows, {n_valid} valid, "
+            f"eval_maet: {M} rows, {n_valid} valid, "
             f"{n_unique} unique chords after canonical-form dedup."
         )
 
@@ -678,7 +697,7 @@ def _eval_exp_tens_raw_single_multiset_batch(
     # Evaluate each unique density once at x.
     eval_cache: dict = {}
     for key, dens in dens_cache.items():
-        eval_cache[key] = _eval_exp_tens_scalar(
+        eval_cache[key] = _eval_maet_scalar(
             dens, x, normalize, method=method,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision, verbose=False,
@@ -697,9 +716,9 @@ def _eval_exp_tens_raw_single_multiset_batch(
 
 
 
-def _eval_exp_tens_raw_ma_scalar(
+def _eval_maet_raw_ma_scalar(
     p_attr, w, sigma_vec, r_vec,
-    is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+    is_rel_vec, is_per_vec, period_vec, is_exch_vec,
     x, normalize: str,
     *, method: str = "auto",
     truncation_sigmas: float | None = None,
@@ -707,11 +726,11 @@ def _eval_exp_tens_raw_ma_scalar(
     verbose: bool,
 ) -> np.ndarray:
     """Raw MA scalar dispatch: build MA density, evaluate."""
-    dens = build_exp_tens(
+    dens = build_maet(
         p_attr, w, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=verbose,
     )
-    return _eval_exp_tens_scalar(
+    return _eval_maet_scalar(
         dens, x, normalize, method=method,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision, verbose=verbose,
@@ -722,7 +741,7 @@ def _eval_exp_tens_raw_ma_scalar(
 def _split_query_to_attr_list(dens: MaetDensity, x):
     """Normalise query input to a list of A per-attribute (dim_a, nQ) arrays.
 
-    Mirrors the logic inside _eval_exp_tens_ma but returns the per-
+    Mirrors the logic inside _eval_maet_ma but returns the per-
     attribute list rather than running evaluation.
     """
     A = dens.n_attrs
@@ -757,7 +776,7 @@ def _split_query_to_attr_list(dens: MaetDensity, x):
 
 
 # -------------------------------------------------------------------
-#  _eval_exp_tens_ma  (multi-attribute path)
+#  _eval_maet_ma  (multi-attribute path)
 # -------------------------------------------------------------------
 
 
@@ -845,7 +864,7 @@ def _ma_eval_normalize(dens: MaetDensity, vals: np.ndarray,
     return vals
 
 
-def _eval_exp_tens_ma(
+def _eval_maet_ma(
     dens: MaetDensity,
     x,
     normalize: str = "none",
@@ -909,10 +928,10 @@ def _eval_exp_tens_ma(
     # model is probe-free, and the dispatch message reports the
     # decision only, so no estimate accompanies it.
     _maybe_show_dispatch_msg(
-        "eval_exp_tens (MAET)", chosen, routing_reason,
+        "eval_maet (MAET)", chosen, routing_reason,
     )
     from ._timeest import _maybe_warn_eval_time
-    _maybe_warn_eval_time("eval_exp_tens (MAET)", dens, n_q_hint, chosen)
+    _maybe_warn_eval_time("eval_maet (MAET)", dens, n_q_hint, chosen)
     if chosen == "mobius":
         from ._ma_eval_orbit import eval_ma_orbit
         # The factored evaluator takes the joint query as a single
@@ -927,16 +946,16 @@ def _eval_exp_tens_ma(
         # a copy: a non-finite Möbius value (an overflowed alternating
         # sum, or a NaN from a degenerate block) is not a density value,
         # so warn and re-evaluate through the centres path, which never
-        # cancels. Twin of the MATLAB evalExpTens guard.
+        # cancels. Twin of the MATLAB evalMaet guard.
         from .._defaults import get_default as _gd_guard
         if _gd_guard("post_hoc_guards") and not np.all(np.isfinite(vals)):
             warnings.warn(
-                "eval_exp_tens: the Möbius evaluator returned non-finite "
+                "eval_maet: the Möbius evaluator returned non-finite "
                 "values; falling back to the centres path for this call.",
                 RuntimeWarning, stacklevel=2,
             )
             _maybe_show_dispatch_msg(
-                "eval_exp_tens (MAET)", "centres",
+                "eval_maet (MAET)", "centres",
                 "post-hoc guard: non-finite Möbius output")
         else:
             return _ma_eval_normalize(dens, vals, normalize)
@@ -1176,7 +1195,7 @@ def _ma_eval_factored(
     is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
-    is_sym = [bool(v) for v in np.atleast_1d(dens.is_sym)]
+    is_exch = [bool(v) for v in np.atleast_1d(dens.is_exch)]
     inner_r = _inner_r_vec(dens)
     nested = dens.nested
     ts = resolve_truncation_sigmas(truncation_sigmas)
@@ -1196,11 +1215,11 @@ def _ma_eval_factored(
             tags = np.asarray(spec["tags"])[ever_valid]
             pm, _ = _nested_enum_indices(
                 ever_valid, tags,
-                np.asarray(spec["r"]).ravel(), np.asarray(spec["sym"]).ravel(),
+                np.asarray(spec["r"]).ravel(), np.asarray(spec["exch"]).ravel(),
             )
         else:
             pm, _, _, _ = _enum_flat_attr(
-                np.zeros(P[a].shape[0]), ever_valid, r_vec[a], is_sym[a],
+                np.zeros(P[a].shape[0]), ever_valid, r_vec[a], is_exch[a],
                 np.ones(P[a].shape[0]),
             )
         perm.append(pm)
@@ -1345,7 +1364,7 @@ def _ma_eval_full(
     """
     # ---- Resolve precision from defaults ----
     # ``truncation_sigmas`` is already resolved to a finite width at
-    # the :func:`eval_exp_tens` entry (None -> global default; inf ->
+    # the :func:`eval_maet` entry (None -> global default; inf ->
     # the accuracy-floor width per the truncation contract), so it is
     # never None or non-finite on any reachable call and truncation
     # always applies. The former "default-mode bypass" that ran an
@@ -1509,17 +1528,35 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
     ct = t_white @ centres
     xt = t_white @ x_q
 
-    # Bucket grid over the transformed centres' bounding box.
+    # Bucket grid over the transformed centres' bounding box, with one
+    # empty bucket of margin on every face. The margin is what lets the
+    # neighbour expansion below be pure arithmetic: with it, no
+    # neighbour of an occupied-region bucket can fall off the lattice,
+    # so there is no bounds test to apply and no masked copy of the
+    # coordinate array to take. A neighbour that used to be discarded
+    # for lying outside now lands in a padded bucket, which holds no
+    # centres and so is discarded by the occupancy test a few lines
+    # later -- at the same place in the same sequence, leaving the
+    # surviving (query, centre) pairs and their order unchanged.
     bucket_size = k_sigma * sigma
     c_min = ct.min(axis=1, keepdims=True)
     c_max = ct.max(axis=1, keepdims=True)
     n_buckets = np.maximum(
         1, np.ceil((c_max - c_min).ravel() / bucket_size).astype(np.int64) + 1
     )
+    padded = n_buckets + 2
+    # Row-major strides of the padded lattice, so that a bucket's linear
+    # index is the dot product of its coordinates with these. Computing
+    # the index this way, rather than through ravel_multi_index on a
+    # coordinate array, is what makes the expansion a single broadcast
+    # addition.
+    strides = np.ones(dim, dtype=np.int64)
+    for axis in range(dim - 2, -1, -1):
+        strides[axis] = strides[axis + 1] * padded[axis + 1]
     buck_c = np.clip(
         np.floor((ct - c_min) / bucket_size).astype(np.int64), 0, n_buckets[:, None] - 1
-    )
-    lin_c = np.ravel_multi_index(tuple(buck_c), tuple(n_buckets))
+    ) + 1
+    lin_c = strides @ buck_c
 
     # Group centres by bucket: sort, find runs, and look buckets up by
     # membership in the sorted list of occupied ones.
@@ -1543,57 +1580,237 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
 
     buck_x = np.clip(
         np.floor((xt - c_min) / bucket_size).astype(np.int64), 0, n_buckets[:, None] - 1
-    )
+    ) + 1
     offsets = _neighbour_offsets(dim)
     n_off = offsets.shape[1]
+    # One linear index per query, and one linear displacement per
+    # neighbour offset; their outer sum is the neighbourhood.
+    base_q = strides @ buck_x                          # (n_q,)
+    delta = strides @ offsets                          # (n_off,)
 
     # Query-chunk loop bounds the transient (query, centre) pair workspace;
     # per-query pair count ~ n_off * (n_j / total buckets).
     per_query = max(1.0, n_off * n_j / max(float(np.prod(n_buckets)), 1.0))
-    chunk = max(1, int(kernel_chunk_bytes_resolved() / ((2 * dim + 4) * 8 * per_query)))
-    for c0 in range(0, n_q, chunk):
-        c1 = min(c0 + chunk, n_q)
-        n_qc = c1 - c0
 
-        # Expand each query to its 3**dim neighbour buckets.
-        nb = (buck_x[:, c0:c1][:, :, None] + offsets[:, None, :]).reshape(dim, n_qc * n_off)
-        q_of = np.repeat(np.arange(n_qc), n_off)
-        in_bounds = np.all((nb >= 0) & (nb < n_buckets[:, None]), axis=0)
-        if not in_bounds.any():
-            continue
-        nb = nb[:, in_bounds]
-        q_of = q_of[in_bounds]
+    # Queries are independent: each writes only its own entry of v, and
+    # accumulates over its own centres in an order that does not depend
+    # on which other queries share its chunk. Contiguous spans of the
+    # query range therefore run on the shared kernel thread pool with
+    # bit-identical results. Threads hold their chunks at the same time,
+    # so the budget is divided among them and the peak transient is what
+    # it was serially; the chunk is then capped again so that no thread
+    # is left without one.
+    n_threads = kernel_thread_count(int(n_q * per_query))
+    budget = kernel_chunk_bytes_resolved() / max(1, n_threads)
+    chunk = max(1, int(budget / ((2 * dim + 4) * 8 * per_query)))
+    if n_threads > 1:
+        chunk = min(chunk, max(1, -(-n_q // n_threads)))
 
-        nb_lin = np.ravel_multi_index(tuple(nb), tuple(n_buckets))
-        pos = np.searchsorted(run_lin, nb_lin)
-        pos = np.minimum(pos, run_lin.size - 1)
-        has_run = run_lin[pos] == nb_lin
-        if not has_run.any():
-            continue
-        run_idx = pos[has_run]
-        q_of = q_of[has_run]
+    def _sum_queries(lo, hi):
+        for c0 in range(lo, hi, chunk):
+            c1 = min(c0 + chunk, hi)
+            n_qc = c1 - c0
 
-        # Ragged-expand each (query, run) into (query, centre) pairs via cumsum.
-        lens = run_end[run_idx] - run_start[run_idx]
-        total = int(lens.sum())
-        if total == 0:
-            continue
-        member = np.repeat(np.arange(lens.size), lens)
-        start_pos = np.cumsum(lens) - lens
-        centre = perm[run_start[run_idx[member]] + (np.arange(total) - start_pos[member])]
-        query = q_of[member]
+            # Expand each query to its 3**dim neighbour buckets, as
+            # linear indices directly.
+            nb_lin = (base_q[c0:c1][:, None] + delta[None, :]).ravel()
+            q_of = np.repeat(np.arange(n_qc), n_off)
 
-        dq = centres[:, centre] - x_q[:, c0 + query]
-        if is_rel:
-            q_form = (dq * dq).sum(axis=0) - dq.sum(axis=0) ** 2 / r
-        else:
-            q_form = (dq * dq).sum(axis=0)
-        keep = q_form <= threshold2
-        if not keep.any():
-            continue
-        np.add.at(
-            v, c0 + query[keep], w_j[centre[keep]] * np.exp(-q_form[keep] * inv_2s2)
-        )
+            pos = np.searchsorted(run_lin, nb_lin)
+            pos = np.minimum(pos, run_lin.size - 1)
+            has_run = run_lin[pos] == nb_lin
+            if not has_run.any():
+                continue
+            run_idx = pos[has_run]
+            q_of = q_of[has_run]
+
+            # Ragged-expand each (query, run) into (query, centre) pairs via cumsum.
+            lens = run_end[run_idx] - run_start[run_idx]
+            total = int(lens.sum())
+            if total == 0:
+                continue
+            member = np.repeat(np.arange(lens.size), lens)
+            start_pos = np.cumsum(lens) - lens
+            centre = perm[run_start[run_idx[member]] + (np.arange(total) - start_pos[member])]
+            query = q_of[member]
+
+            dq = centres[:, centre] - x_q[:, c0 + query]
+            if is_rel:
+                q_form = (dq * dq).sum(axis=0) - dq.sum(axis=0) ** 2 / r
+            else:
+                q_form = (dq * dq).sum(axis=0)
+            keep = q_form <= threshold2
+            if not keep.any():
+                continue
+            np.add.at(
+                v, c0 + query[keep], w_j[centre[keep]] * np.exp(-q_form[keep] * inv_2s2)
+            )
+
+    run_in_kernel_threads(lambda span: _sum_queries(*span),
+                          split_ranges(n_q, n_threads))
+    return v
+
+
+
+def _rel_per_cull_half_width(r, sigma, k_sigma, period):
+    """Half-width, per reduced coordinate, of a box containing the
+    truncation region of a relative periodic density.
+
+    ``Q = [sum_k wrap(D_k)**2 + sum_{i<j} wrap(D_i - D_j)**2] / r``, and
+    the inner terms are non-negative, so a pair surviving
+    ``Q <= (k sigma)**2`` has every ``|wrap(D_k)| <= sqrt(r) k sigma``.
+    That is the bound this returns when it is all that holds.
+
+    When the period leaves room for it, a tighter one applies. On that
+    a-priori region no inner pair can wrap --- the wrapped coordinates
+    span at most ``2 sqrt(r) k sigma``, which is under half the period
+    --- so ``Q`` there is exactly the quadratic form ``w' (I - J/r) w``
+    on the reduced coordinates. That matrix is ``I_{r-1} - J_{r-1}/r``,
+    whose inverse is ``I + J``; the diagonal of the inverse is the
+    squared half-width of the ellipsoid's bounding box in units of the
+    radius, and it is 2 in every coordinate whatever ``r`` is. So the
+    region fits in a box of half-width ``sqrt(2) k sigma``, which for
+    ``r = 4`` is a candidate set some eight times smaller than the
+    a-priori bound gives.
+    """
+    rho = float(k_sigma) * float(sigma)
+    loose = math.sqrt(float(r)) * rho
+    if 4.0 * loose < float(period):
+        return math.sqrt(2.0) * rho
+    return loose
+
+
+def _rel_per_cull_worthwhile(dim, n_j, n_q, r, sigma, k_sigma, period):
+    """Whether the relative periodic cull applies and is worth running.
+
+    It needs the truncation window to be narrower than the circle --- at
+    least three buckets around it, so that a query's three-bucket span
+    in a coordinate does not wrap onto itself --- and, as for the
+    non-periodic cull, it needs the per-query neighbourhood lookup to
+    cost less than the tuple count it saves.
+    """
+    half_width = _rel_per_cull_half_width(r, sigma, k_sigma, period)
+    if not (half_width > 0.0) or float(period) < 3.0 * half_width:
+        return False
+    n_offsets = 3 ** int(dim)
+    if n_offsets >= int(n_j):
+        return False
+    return int(dim) * n_offsets * 8 * int(n_q) <= kernel_chunk_bytes_resolved()
+
+
+def _truncated_kernel_sum_culled_rel_per(centres, w_j, x_q, sigma, r,
+                                         period, k_sigma):
+    """Bucket-grid spatial cull for the relative periodic centres path.
+
+    The periodic twin of :func:`_truncated_kernel_sum_culled`. The
+    lattice is pitched on the circle rather than on the centres' bounding
+    box: each reduced coordinate is divided into whole buckets of at
+    least :func:`_rel_per_cull_half_width`, and a query's neighbour
+    indices are taken modulo the bucket count, so the lattice wraps as
+    the density does and needs no margin. Every tuple whose quadratic
+    form is inside the truncation threshold lies within one bucket of the
+    query in every coordinate, so the neighbourhood holds it; the form is
+    then evaluated exactly, by the same :func:`_compute_Q` the dense path
+    uses, and thresholded identically. The result is therefore the dense
+    path's, up to the order the surviving terms are summed in.
+
+    Queries are independent, so contiguous spans of them go to the
+    shared kernel thread pool, as on the non-periodic path.
+    """
+    dim, n_j = centres.shape
+    n_q = x_q.shape[1]
+    v = np.zeros(n_q)
+    if n_j == 0 or n_q == 0:
+        return v
+
+    half_width = _rel_per_cull_half_width(r, sigma, k_sigma, period)
+    n_b = int(period // half_width)
+    b_size = float(period) / n_b
+    q_threshold = (float(k_sigma) * float(sigma)) ** 2
+    inv_2s2 = 1.0 / (2.0 * float(sigma) * float(sigma))
+
+    # Both operands reduced to the principal period, then bucketed. The
+    # clip only catches a coordinate landing exactly on the period.
+    c_red = centres - period * np.floor(centres / period)
+    x_red = x_q - period * np.floor(x_q / period)
+    buck_c = np.clip((c_red / b_size).astype(np.int64), 0, n_b - 1)
+    buck_x = np.clip((x_red / b_size).astype(np.int64), 0, n_b - 1)
+
+    # Row-major strides of the (wrapping) lattice.
+    strides = n_b ** np.arange(dim - 1, -1, -1, dtype=np.int64)
+    lin_c = strides @ buck_c
+
+    # Group centres by bucket: sort, find runs, look buckets up by
+    # membership in the sorted list of occupied ones, exactly as the
+    # non-periodic path does.
+    perm = np.argsort(lin_c, kind="stable")
+    sorted_lin = lin_c[perm]
+    bounds = np.concatenate(([0], np.nonzero(np.diff(sorted_lin))[0] + 1))
+    run_start = bounds
+    run_end = np.concatenate((bounds[1:], [n_j]))          # exclusive
+    run_lin = sorted_lin[bounds]                           # ascending
+
+    offsets = _neighbour_offsets(dim)
+    n_off = offsets.shape[1]
+
+    per_query = max(1.0, n_off * n_j / max(float(n_b) ** dim, 1.0))
+    n_threads = kernel_thread_count(int(n_q * per_query))
+    budget = kernel_chunk_bytes_resolved() / max(1, n_threads)
+    chunk = max(1, int(budget / ((2 * dim + 4) * 8 * per_query)))
+    if n_threads > 1:
+        chunk = min(chunk, max(1, -(-n_q // n_threads)))
+
+    def _sum_queries(lo, hi):
+        for c0 in range(lo, hi, chunk):
+            c1 = min(c0 + chunk, hi)
+            n_qc = c1 - c0
+
+            # Neighbour buckets as linear indices. The wrap is per
+            # coordinate, so unlike the non-periodic path the index is
+            # accumulated a coordinate at a time rather than as one
+            # outer sum.
+            shifted = [[(buck_x[d, c0:c1] + o) % n_b for o in (-1, 0, 1)]
+                       for d in range(dim)]
+            nb_lin = np.empty((n_qc, n_off), dtype=np.int64)
+            for j in range(n_off):
+                acc = shifted[0][int(offsets[0, j]) + 1] * strides[0]
+                for d in range(1, dim):
+                    acc = acc + shifted[d][int(offsets[d, j]) + 1] * strides[d]
+                nb_lin[:, j] = acc
+            nb_lin = nb_lin.ravel()
+            q_of = np.repeat(np.arange(n_qc), n_off)
+
+            pos = np.searchsorted(run_lin, nb_lin)
+            pos = np.minimum(pos, run_lin.size - 1)
+            has_run = run_lin[pos] == nb_lin
+            if not has_run.any():
+                continue
+            run_idx = pos[has_run]
+            q_of = q_of[has_run]
+
+            # Ragged-expand each (query, run) into (query, centre) pairs.
+            lens = run_end[run_idx] - run_start[run_idx]
+            total = int(lens.sum())
+            if total == 0:
+                continue
+            member = np.repeat(np.arange(lens.size), lens)
+            start_pos = np.cumsum(lens) - lens
+            centre = perm[run_start[run_idx[member]]
+                          + (np.arange(total) - start_pos[member])]
+            query = q_of[member]
+
+            d_q = centres[:, centre] - x_q[:, c0 + query]
+            q_form = _compute_Q(d_q, r, True, True, period, reduced=True)
+            keep = q_form <= q_threshold
+            if not keep.any():
+                continue
+            np.add.at(
+                v, c0 + query[keep],
+                w_j[centre[keep]] * np.exp(-q_form[keep] * inv_2s2)
+            )
+
+    run_in_kernel_threads(lambda span: _sum_queries(*span),
+                          split_ranges(n_q, n_threads))
     return v
 
 
@@ -1640,6 +1857,26 @@ def _eval_core(
             centres, w_j, x, sigma, is_rel, r, float(truncation_sigmas)
         )
 
+    # Relative periodic: the same cull on a lattice that wraps with the
+    # density instead of ending at the centres' bounding box. Absolute
+    # periodic is left to the dense path below, where the distinct-value
+    # table already collapses the per-tuple kernel to one evaluation per
+    # distinct source value.
+    if (
+        truncation_sigmas is not None
+        and np.isfinite(truncation_sigmas)
+        and truncation_sigmas > 0
+        and is_per
+        and is_rel
+        and _rel_per_cull_worthwhile(int(dim), int(n_j), int(n_q), int(r),
+                                     float(sigma), float(truncation_sigmas),
+                                     float(period))
+    ):
+        return _truncated_kernel_sum_culled_rel_per(
+            centres, w_j, x, sigma, r, float(period),
+            float(truncation_sigmas)
+        )
+
     # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × 8 (broadcast
     # difference, its square, and the summed/exponentiated intermediate
     # are briefly co-resident).
@@ -1678,7 +1915,7 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
     """Fully vectorized single-multiset density evaluation.
 
     Uses the pairwise-wrap form (Eq 6 of the preprint) for
-    periodic+relative, matching cosSimExpTens. The algebraic form
+    periodic+relative, matching simMaet. The algebraic form
     used by v2.0 in this mode silently differed from the
     inner-product convention; v2.X corrects it.
 
@@ -1764,55 +2001,10 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
 
 
 # -------------------------------------------------------------------
-#  eval_exp_tens from raw args (convenience)
-# -------------------------------------------------------------------
-
-
-def eval_exp_tens_raw(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    sigma: float,
-    r: int,
-    is_rel: bool,
-    is_per: bool,
-    period: float,
-    x: np.ndarray,
-    normalize: str = "none",
-    *,
-    verbose: bool = True,
-) -> np.ndarray:
-    """Deprecated. Use :func:`eval_exp_tens` directly with raw input.
-
-    .. deprecated:: 2.1
-       The raw-input dispatch has been folded into the unified
-       :func:`eval_exp_tens` entry point. Pass raw arrays directly:
-
-       .. code-block:: python
-
-          # Old:
-          vals = eval_exp_tens_raw(p, w, sigma, r, is_rel, is_per, period, x)
-          # New (identical signature):
-          vals = eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, x)
-
-    This shim will be removed in a future release.
-    """
-    warnings.warn(
-        "eval_exp_tens_raw is deprecated. The same call signature is "
-        "now supported directly by eval_exp_tens (pass raw arrays as the "
-        "first arguments instead of pre-built density objects). This shim "
-        "will be removed in a future release.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return eval_exp_tens(
-        p, w, sigma, r, is_rel, is_per, period, x, normalize=normalize,
-        verbose=verbose,
-    )
-
 def _build_pre_maet_args(args, *, verbose=True):
     """Replace any whole pre-MAET among the positional arguments.
 
-    A pre-MAET is a density in waiting: it holds everything build_exp_tens
+    A pre-MAET is a density in waiting: it holds everything build_maet
     needs, so it stands wherever a density does and is built here. That
     goes for a *list* of them too: a list of pre-MAETs stands wherever a
     list of densities does, so the list and scalar-vs-list forms take
@@ -1838,15 +2030,15 @@ def _build_pre_maet_args(args, *, verbose=True):
 
     if not any(is_pre_maet(a) or _listish(a) for a in args):
         return args
-    from .build import build_exp_tens
+    from .build import build_maet
 
     def _one(a):
         if _is_sweep_pm(a):
             # One geometry, one density per sweep entry; the offsets ride
-            # along so cos_sim_exp_tens can still reduce the sweep to a
+            # along so sim_maet can still reduce the sweep to a
             # mixture in the offset.
             sweep = a["p_attr"]
-            built = [build_exp_tens({"p_attr": list(block),
+            built = [build_maet({"p_attr": list(block),
                                      "w_attr": a.get("w_attr"),
                                      "specs": a.get("specs")},
                                     verbose=verbose)
@@ -1855,9 +2047,9 @@ def _build_pre_maet_args(args, *, verbose=True):
                                    sweep_offsets=sweep.sweep_offsets,
                                    sweep_base=sweep.sweep_base)
         if is_pre_maet(a):
-            return build_exp_tens(a, verbose=verbose)
+            return build_maet(a, verbose=verbose)
         if _listish(a):
-            return [build_exp_tens(x, verbose=verbose) if is_pre_maet(x) else x
+            return [build_maet(x, verbose=verbose) if is_pre_maet(x) else x
                     for x in a]
         return a
 

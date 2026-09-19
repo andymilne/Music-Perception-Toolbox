@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +34,7 @@ def _at_the_accuracy_floor():
 P = 12.0
 CHORD, N_CHORDS, N_EVENTS = 3, 2, 2
 TAGS = np.repeat(np.arange(N_CHORDS), CHORD).reshape(-1, 1)
-SPEC = {"tags": TAGS, "r": [2, N_CHORDS], "sym": [True, False],
+SPEC = {"tags": TAGS, "r": [2, N_CHORDS], "exch": [True, False],
         "rel": [0, 0]}
 
 
@@ -42,7 +42,7 @@ def _dens(seed, sigma, wrap='full-image'):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(CHORD * N_CHORDS, N_EVENTS)),
                 axis=0)
-    return build_exp_tens([p], None, specs=[dict(SPEC)], sigma=[sigma],
+    return build_maet([p], None, specs=[dict(SPEC)], sigma=[sigma],
                           is_per=[True], period=[P], wrap=[wrap],
                           verbose=False)
 
@@ -55,8 +55,8 @@ def test_contract_matches_centres_on_nested_abs_per(sigma_over_P, wrap):
     tolerance is the floor and not the 6-sigma truncation error."""
     sigma = sigma_over_P * P
     x, y = _dens(1, sigma, wrap), _dens(2, sigma, wrap)
-    c = cos_sim_exp_tens(x, y, method='contract', verbose=False)
-    b = cos_sim_exp_tens(_dens(1, sigma, wrap), _dens(2, sigma, wrap),
+    c = sim_maet(x, y, method='contract', verbose=False)
+    b = sim_maet(_dens(1, sigma, wrap), _dens(2, sigma, wrap),
                          method='bulger', verbose=False)
     assert c == pytest.approx(b, rel=1e-11, abs=1e-13)
 
@@ -65,10 +65,10 @@ def test_full_and_single_image_differ_where_the_floor_asks_for_images():
     """The two wraps are genuinely different measures at sigma/P = 0.2 --
     so the agreement above is not both routes taking the same shortcut."""
     sigma = 0.2 * P
-    full = cos_sim_exp_tens(_dens(1, sigma, 'full-image'),
+    full = sim_maet(_dens(1, sigma, 'full-image'),
                             _dens(2, sigma, 'full-image'),
                             method='contract', verbose=False)
-    single = cos_sim_exp_tens(_dens(1, sigma, 'single-image'),
+    single = sim_maet(_dens(1, sigma, 'single-image'),
                               _dens(2, sigma, 'single-image'),
                               method='contract', verbose=False)
     assert abs(full - single) > 1e-3
@@ -84,8 +84,8 @@ def test_batched_contraction_matches_the_reference_ip():
     sigma = 0.2 * P
     x, y = _dens(1, sigma), _dens(2, sigma)
     r_levels = np.asarray(SPEC["r"])
-    sym_levels = np.asarray(SPEC["sym"])
-    rec = build_recipe(r_levels, sym_levels, TAGS, is_rel=False, is_per=True)
+    exch_levels = np.asarray(SPEC["exch"])
+    rec = build_recipe(r_levels, exch_levels, TAGS, is_rel=False, is_per=True)
     PX = np.asarray(x.p_attr[0], float)
     PY = np.asarray(y.p_attr[0], float)
     M = nested_attr_matrix(rec, rec, PX, PY, x.w[0], y.w[0], sigma,

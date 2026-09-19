@@ -5,11 +5,11 @@ size r, multiset size K, and the four modes.
 
 Two tasks, selected with --task:
 
-  ip    the inner product (cos_sim_exp_tens): 'centres' (unrestricted
+  ip    the inner product (sim_maet): 'centres' (unrestricted
         enumeration of the tuple centres, the O(K^(2r)) baseline),
         'bulger' (the within-r-ad decomposition), and 'mobius' (the
         Moebius-orbit decomposition).
-  eval  point evaluation (eval_exp_tens): 'centres' (the centres array)
+  eval  point evaluation (eval_maet): 'centres' (the centres array)
         and 'mobius' (the Moebius point evaluator). Bulger's identity
         has no analogue here, there being no two-sided pairing to
         exploit, so evaluation has two routes rather than three.
@@ -228,8 +228,8 @@ def make_pair(K, rng):
 def build(pair, r, is_rel, is_per, sigma=None):
     (p, wp), (q, wq) = pair
     sigma = SIGMA if sigma is None else sigma
-    A = mpt.build_exp_tens(p, wp, sigma, r, is_rel, is_per, PERIOD, verbose=False)
-    B = mpt.build_exp_tens(q, wq, sigma, r, is_rel, is_per, PERIOD, verbose=False)
+    A = mpt.build_maet(p, wp, sigma, r, is_rel, is_per, PERIOD, verbose=False)
+    B = mpt.build_maet(q, wq, sigma, r, is_rel, is_per, PERIOD, verbose=False)
     return A, B
 
 
@@ -244,7 +244,7 @@ def call_eval(A, pts, method, trunc):
     kw = dict(method=method, verbose=False)
     if trunc is not None:
         kw['truncation_sigmas'] = trunc
-    return float(np.sum(mpt.eval_exp_tens(A, pts, **kw)))
+    return float(np.sum(mpt.eval_maet(A, pts, **kw)))
 
 
 def clear_self_ip(*densities):
@@ -274,7 +274,7 @@ def call(A, B, method, trunc):
     kw = dict(method=method, verbose=False)
     if trunc is not None:
         kw['truncation_sigmas'] = trunc
-    return float(mpt.cos_sim_exp_tens(A, B, **kw))
+    return float(mpt.sim_maet(A, B, **kw))
 
 
 def timed(fn, target_ms=TARGET_MS, budget_s=None):
@@ -367,9 +367,9 @@ def calibrate_rate():
     rng = LCG(SEED)
     p, w = draw(12, rng)
     q, wq = draw(12, rng)
-    A = mpt.build_exp_tens(p, w, SIGMA, 3, False, False, PERIOD, verbose=False)
-    B = mpt.build_exp_tens(q, wq, SIGMA, 3, False, False, PERIOD, verbose=False)
-    fn = lambda: mpt.cos_sim_exp_tens(A, B, method='bulger',
+    A = mpt.build_maet(p, w, SIGMA, 3, False, False, PERIOD, verbose=False)
+    B = mpt.build_maet(q, wq, SIGMA, 3, False, False, PERIOD, verbose=False)
+    fn = lambda: mpt.sim_maet(A, B, method='bulger',
                                       truncation_sigmas=float('inf'), verbose=False)
     t, _, _ = timed(fn, 60.0)
     return t / pair_count('bulger', 3, 12)
@@ -537,7 +537,7 @@ def run_eval(args, modes, rs, ks, rng, rows, failures, abandoned, done,
                 if K < r + 1:
                     continue
                 (p, w), _ = make_pair(K, rng)
-                A = mpt.build_exp_tens(p, w, args.sigma, r, is_rel, is_per,
+                A = mpt.build_maet(p, w, args.sigma, r, is_rel, is_per,
                                        PERIOD, verbose=False)
                 pts = eval_points(r, is_rel, rng)
 
@@ -570,7 +570,7 @@ def run_eval(args, modes, rs, ks, rng, rows, failures, abandoned, done,
                         failures.append((mlabel, r, K, m,
                                          f'deviates from centres by {devs[m]:.2e}'))
                 for m in vals:
-                    A2 = mpt.build_exp_tens(p, w, args.sigma, r, is_rel, is_per,
+                    A2 = mpt.build_maet(p, w, args.sigma, r, is_rel, is_per,
                                             PERIOD, verbose=False)
                     try:
                         def fn_eval(m=m, A2=A2):

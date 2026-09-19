@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 from mpt._tensor import _nested_cost as _nc
 from mpt._tensor import cosine as _cos
 from mpt._tensor.cosine import (
@@ -44,7 +44,7 @@ def _quiet():
     mpt.reset_defaults()
 
 
-def _dens(values, sigma, *, r_levels=(2, 2), sym=(1, 1), chord=3,
+def _dens(values, sigma, *, r_levels=(2, 2), exch=(1, 1), chord=3,
           is_rel=True, is_per=True, wrap='full-image', extra=None,
           extra_r=1):
     v = np.asarray(values, float)
@@ -52,7 +52,7 @@ def _dens(values, sigma, *, r_levels=(2, 2), sym=(1, 1), chord=3,
         v = v.reshape(-1, 1)
     ngroup = v.shape[0] // chord
     tags = np.repeat(np.arange(ngroup), chord)
-    spec = dict(r=list(r_levels), sym=[bool(s) for s in sym], tags=tags,
+    spec = dict(r=list(r_levels), exch=[bool(s) for s in exch], tags=tags,
                 rel=([0] * (len(r_levels) - 1) + [1] if is_rel else None))
     p = [v]
     specs = [spec]
@@ -63,12 +63,12 @@ def _dens(values, sigma, *, r_levels=(2, 2), sym=(1, 1), chord=3,
     if extra is not None:
         ex = np.asarray(extra, float)
         p.append(ex.reshape(1, -1) if ex.ndim == 1 else ex)
-        specs.append(dict(r=extra_r, rel=False, sym=True))
+        specs.append(dict(r=extra_r, rel=False, exch=True))
         sig.append(1.0)
         per.append(False)
         period.append(0.0)
         wraps.append('full-image')
-    return build_exp_tens(p, None, specs=specs, sigma=sig, is_per=per,
+    return build_maet(p, None, specs=specs, sigma=sig, is_per=per,
                           period=period, wrap=wraps, verbose=False)
 
 
@@ -229,10 +229,10 @@ def _cheap_enumeration(monkeypatch, factor=1e-6):
 def test_the_enumeration_is_taken_where_it_is_priced_cheaper(monkeypatch):
     sigma = _below_threshold_sigma()
     dx, dy = _dens(_VX, sigma), _dens(_VY, sigma)
-    reference = cos_sim_exp_tens(_dens(_VX, sigma), _dens(_VY, sigma),
+    reference = sim_maet(_dens(_VX, sigma), _dens(_VY, sigma),
                                  method='bulger', verbose=False)
     _cheap_enumeration(monkeypatch)
-    got = cos_sim_exp_tens(dx, dy, verbose=False)
+    got = sim_maet(dx, dy, verbose=False)
     assert _LAST_NESTED_COSTS["chosen"] == "bulger"
     assert _LAST_NESTED_COSTS["enum_ms"] < _LAST_NESTED_COSTS["plan_ms"]
     assert got == pytest.approx(reference, rel=1e-9, abs=1e-12)
@@ -245,7 +245,7 @@ def test_the_plan_is_kept_where_the_enumeration_is_priced_dearer(monkeypatch):
         _nc, "nested_route_cost_ms",
         lambda route, order, term, n_matrices=3:
             (1e9 if route == "bulger" else 1.0))
-    cos_sim_exp_tens(dx, dy, verbose=False)
+    sim_maet(dx, dy, verbose=False)
     assert _LAST_NESTED_COSTS["chosen"] == "contract"
     assert _cos._LAST_NESTED_ROUTES == ["centres"] or \
         _cos._LAST_NESTED_ROUTES == ["taugrid"]
@@ -257,7 +257,7 @@ def test_a_near_tie_keeps_the_plan(monkeypatch):
     sigma = _below_threshold_sigma()
     dx, dy = _dens(_VX, sigma), _dens(_VY, sigma)
     _cheap_enumeration(monkeypatch, factor=1.0 / _nc._NESTED_ENUM_SAFETY)
-    cos_sim_exp_tens(dx, dy, verbose=False)
+    sim_maet(dx, dy, verbose=False)
     assert _LAST_NESTED_COSTS["chosen"] == "contract"
 
 
@@ -267,7 +267,7 @@ def test_the_enumeration_is_inadmissible_above_the_threshold(monkeypatch):
     dx, dy = _dens(_VX, sigma), _dens(_VY, sigma)
     assert not _cos._nested_enumeration_admissible(dx, dy)
     _cheap_enumeration(monkeypatch)
-    cos_sim_exp_tens(dx, dy, verbose=False)
+    sim_maet(dx, dy, verbose=False)
     assert _LAST_NESTED_COSTS["chosen"] == "contract"
     assert _LAST_NESTED_COSTS["enum_ms"] == float("inf")
 
@@ -275,7 +275,7 @@ def test_the_enumeration_is_inadmissible_above_the_threshold(monkeypatch):
 def test_a_forced_method_is_never_diverted(monkeypatch):
     sigma = _below_threshold_sigma()
     _cheap_enumeration(monkeypatch)
-    cos_sim_exp_tens(_dens(_VX, sigma), _dens(_VY, sigma),
+    sim_maet(_dens(_VX, sigma), _dens(_VY, sigma),
                      method='contract', verbose=False)
     assert _cos._LAST_NESTED_ROUTES != []
 
@@ -296,12 +296,12 @@ def test_the_multi_attribute_plan_is_priced_too(monkeypatch):
     ex = np.array([[0.3, 1.1, 2.0], [0.7, 1.5, 2.6], [1.2, 2.1, 3.3]])
     ey = ex + 0.2
     kw = dict(extra_r=2)
-    reference = cos_sim_exp_tens(
+    reference = sim_maet(
         _dens(vx0(), sigma, extra=ex, **kw),
         _dens(vy0(), sigma, extra=ey, **kw),
         method='bulger', verbose=False)
     _cheap_enumeration(monkeypatch)
-    got = cos_sim_exp_tens(_dens(vx0(), sigma, extra=ex, **kw),
+    got = sim_maet(_dens(vx0(), sigma, extra=ex, **kw),
                            _dens(vy0(), sigma, extra=ey, **kw),
                            verbose=False)
     assert _LAST_NESTED_COSTS["chosen"] == "bulger"

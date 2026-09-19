@@ -36,7 +36,7 @@ import pytest
 
 import mpt
 import mpt.entropy as E
-from mpt import build_exp_tens, entropy_exp_tens
+from mpt import build_maet, entropy_maet
 
 
 def _h(dens, block, ts=5.0):
@@ -51,7 +51,7 @@ def _h(dens, block, ts=5.0):
     try:
         E._DIFF_CELL_BLOCK = int(block)
         return float(
-            entropy_exp_tens(
+            entropy_maet(
                 dens, method="differential", base=2.0,
                 truncation_sigmas=ts, verbose=False,
             )
@@ -67,7 +67,7 @@ def d1():
     n = 48
     p = rng.uniform(0.0, 4000.0, (1, n))      # wide span vs sigma -> fine grid
     w = rng.uniform(0.2, 1.0, (1, n))
-    return build_exp_tens(
+    return build_maet(
         [p], [w], [20.0], [1], [False], [False], [0.0], verbose=False
     )
 
@@ -81,7 +81,7 @@ def d2():
     p1 = rng.uniform(0.0, 300.0, (1, n))
     w0 = rng.uniform(0.2, 1.0, (1, n))
     w1 = np.ones((1, n))
-    return build_exp_tens(
+    return build_maet(
         [p0, p1], [w0, w1], [20.0, 15.0], [1, 1],
         [False, False], [False, False], [0.0, 0.0], verbose=False,
     )

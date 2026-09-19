@@ -9,13 +9,13 @@ function [pCan, wCan] = canonicalizeSet(p, w, isRel, isPer, period)
 %   the period (if isPer && isRel) produce identical (pCan, wCan)
 %   outputs.
 %
-%   The cyclic canonical form is valid because cosSimExpTens (and the
+%   The cyclic canonical form is valid because simMaet (and the
 %   other downstream consumers) wrap pairwise differences in the isRel
 %   quadratic form when isPer is true, restoring exact
 %   transposition-modulo-period invariance on the circle.
 %
 %   Used by:
-%     - batchCosSimExpTens (paired-set dedup with shift-locking)
+%     - simMaet's batched-raw mode (paired-set dedup with shift-locking)
 %     - The harmony-batched dispatchers (templateHarmonicity,
 %       virtualPitches, spectralEntropy) for chord-side dedup.
 %

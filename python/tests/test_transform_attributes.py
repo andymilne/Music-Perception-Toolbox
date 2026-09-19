@@ -175,7 +175,7 @@ class TestListForm:
 
     def test_caller_spec_not_mutated_when_sigma_is_dropped(self):
         p = [np.array([1.0, 2.0])]
-        specs = [{"r": 2, "rel": False, "sym": True, "name": "x",
+        specs = [{"r": 2, "rel": False, "exch": True, "name": "x",
                   "sigma": 0.5}]
         _, _, s = unpack_pre_maet(transform_attributes(p, None, ["log"], specs=specs))
         assert np.isnan(s[0]["sigma"])
@@ -195,12 +195,12 @@ class TestListForm:
         np.testing.assert_allclose(out[0], [[math.log(3), math.log(4), 0.0]])
         np.testing.assert_array_equal(out[1], [[0.5, -0.5, 0.0]])
         np.testing.assert_array_equal(out[2], [[1.0, 1.0, 1.0]])
-        assert s[1] == {"r": 1, "rel": False, "sym": True, "name": "ivl_sign"}
+        assert s[1] == {"r": 1, "rel": False, "exch": True, "name": "ivl_sign"}
         assert w == [1.0, 1.0, 2.0]
 
     def test_sign_on_a_nested_spec_clears_rel(self):
         p = [np.array([[1.0, -2.0], [-3.0, 4.0]])]
-        spec = {"tags": [0, 1], "r": [1, 2], "sym": [True, True], "rel": [0, 1]}
+        spec = {"tags": [0, 1], "r": [1, 2], "exch": [True, True], "rel": [0, 1]}
         out, _, s = unpack_pre_maet(transform_attributes(p, None, [("power", {"exponent": 0.5})],
                                          specs=[spec], sign=True))
         np.testing.assert_array_equal(out[1], [[0.5, -0.5], [-0.5, 0.5]])
@@ -257,11 +257,11 @@ class TestComposition:
         d, w, specs = mpt.unpack_pre_maet(mpt.difference_events([pitch.reshape(1, -1)], None, 1))
         p, w, specs = unpack_pre_maet(transform_attributes(d, w, [("log", {"offset": 1})],
                                            specs=specs, sign=True))
-        dens = mpt.build_exp_tens(p, w, specs=specs, sigma=[0.2, 0.3],
+        dens = mpt.build_maet(p, w, specs=specs, sigma=[0.2, 0.3],
                                   is_per=[False, False], period=[0, 0],
                                   verbose=False)
         assert len(dens.sigma) == 2
-        s = mpt.cos_sim_exp_tens(dens, dens, verbose=False)
+        s = mpt.sim_maet(dens, dens, verbose=False)
         assert s == pytest.approx(1.0)
 
 

@@ -27,22 +27,22 @@ import math
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 
 # ----------------------------------------------------------------------
 #  Independent brute-force oracle for the absolute nested inner product
 # ----------------------------------------------------------------------
-def _xtuples(n, r, sym):
+def _xtuples(n, r, exch):
     combs = list(combinations(range(n), r))
-    return ([p for c in combs for p in permutations(c)] if sym else combs)
+    return ([p for c in combs for p in permutations(c)] if exch else combs)
 
 
-def _ytuples(n, r, sym):
+def _ytuples(n, r, exch):
     return list(combinations(range(n), r))
 
 
-def _bf_ip(x_chords, y_chords, r_in, r_out, sym_in, sym_out, sigma):
+def _bf_ip(x_chords, y_chords, r_in, r_out, exch_in, exch_out, sigma):
     """Absolute nested inner product by direct enumeration of the tuples.
 
     X side enumerates permutations of r-combinations at each symmetric level,
@@ -53,14 +53,14 @@ def _bf_ip(x_chords, y_chords, r_in, r_out, sym_in, sym_out, sigma):
         return math.exp(-(a - b) ** 2 / (4.0 * sigma ** 2))
 
     total = 0.0
-    for tx in _xtuples(len(x_chords), r_out, sym_out):
-        for ty in _ytuples(len(y_chords), r_out, sym_out):
+    for tx in _xtuples(len(x_chords), r_out, exch_out):
+        for ty in _ytuples(len(y_chords), r_out, exch_out):
             prod = 1.0
             for k in range(r_out):
                 xch, ych = x_chords[tx[k]], y_chords[ty[k]]
                 inner = 0.0
-                for a in _xtuples(len(xch), r_in, sym_in):
-                    for b in _ytuples(len(ych), r_in, sym_in):
+                for a in _xtuples(len(xch), r_in, exch_in):
+                    for b in _ytuples(len(ych), r_in, exch_in):
                         term = 1.0
                         for m in range(r_in):
                             term *= g(xch[a[m]], ych[b[m]])
@@ -70,43 +70,43 @@ def _bf_ip(x_chords, y_chords, r_in, r_out, sym_in, sym_out, sigma):
     return total
 
 
-def _bf_cos(X, Y, r_in, r_out, sym_in, sym_out, sigma):
-    xy = _bf_ip(X, Y, r_in, r_out, sym_in, sym_out, sigma)
-    xx = _bf_ip(X, X, r_in, r_out, sym_in, sym_out, sigma)
-    yy = _bf_ip(Y, Y, r_in, r_out, sym_in, sym_out, sigma)
+def _bf_cos(X, Y, r_in, r_out, exch_in, exch_out, sigma):
+    xy = _bf_ip(X, Y, r_in, r_out, exch_in, exch_out, sigma)
+    xx = _bf_ip(X, X, r_in, r_out, exch_in, exch_out, sigma)
+    yy = _bf_ip(Y, Y, r_in, r_out, exch_in, exch_out, sigma)
     return xy / math.sqrt(xx * yy)
 
 
 # ----------------------------------------------------------------------
 #  Density builders
 # ----------------------------------------------------------------------
-def _nested_density(chords, r_in, r_out, sym_in, sym_out, *, rel_out,
+def _nested_density(chords, r_in, r_out, exch_in, exch_out, *, rel_out,
                     is_per, period, sigma):
     counts = [len(c) for c in chords]
     tags = np.concatenate([np.full(counts[k], k) for k in range(len(chords))])
     pitches = np.array([v for c in chords for v in c], float).reshape(-1, 1)
     spec = {"tags": tags, "r": [r_in, r_out],
-            "sym": [sym_in, sym_out], "rel": [0, rel_out]}
-    return build_exp_tens([pitches], None, specs=[spec], sigma=[sigma],
+            "exch": [exch_in, exch_out], "rel": [0, rel_out]}
+    return build_maet([pitches], None, specs=[spec], sigma=[sigma],
                           is_per=[is_per], period=[period], verbose=False)
 
 
-def _cos(chords_x, chords_y, *, r_in, r_out, sym_in, sym_out, rel_out,
+def _cos(chords_x, chords_y, *, r_in, r_out, exch_in, exch_out, rel_out,
          is_per, period, sigma, method="contract"):
-    dx = _nested_density(chords_x, r_in, r_out, sym_in, sym_out,
+    dx = _nested_density(chords_x, r_in, r_out, exch_in, exch_out,
                          rel_out=rel_out, is_per=is_per, period=period,
                          sigma=sigma)
-    dy = _nested_density(chords_y, r_in, r_out, sym_in, sym_out,
+    dy = _nested_density(chords_y, r_in, r_out, exch_in, exch_out,
                          rel_out=rel_out, is_per=is_per, period=period,
                          sigma=sigma)
-    return cos_sim_exp_tens(dx, dy, method=method, verbose=False)
+    return sim_maet(dx, dy, method=method, verbose=False)
 
 
 # ----------------------------------------------------------------------
 #  1. Absolute mode: contraction == independent brute force
 # ----------------------------------------------------------------------
 _ABS_CASES = [
-    # (label, X, Y, r_in, r_out, sym_in, sym_out)
+    # (label, X, Y, r_in, r_out, exch_in, exch_out)
     ("equal 2v2 ri2", [[1., 3.], [7., 9.]],
      [[1.2, 2.8], [6.7, 9.3]], 2, 2, True, False),
     ("equal 3v3 ri2", [[1., 3., 5.], [7., 9., 11.]],
@@ -117,21 +117,21 @@ _ABS_CASES = [
      [[1., 3., 5., 2.], [7., 9., 11., 8.]], 2, 2, True, False),
     ("uneq 3v4 ri3", [[1., 3., 5.], [7., 9., 11.]],
      [[1., 3., 5., 2.], [7., 9., 11., 8.]], 3, 2, True, False),
-    ("uneq 2v3 outer-sym", [[1., 3.], [7., 9.]],
+    ("uneq 2v3 outer-exch", [[1., 3.], [7., 9.]],
      [[1.2, 2.8, 5.1], [6.7, 9.3, 10.8]], 2, 2, True, True),
     ("uneq 2v3 inner-ordered", [[1., 3.], [7., 9.]],
      [[1.2, 2.8, 5.1], [6.7, 9.3, 10.8]], 2, 2, False, False),
 ]
 
 
-@pytest.mark.parametrize("label,X,Y,r_in,r_out,sym_in,sym_out", _ABS_CASES,
+@pytest.mark.parametrize("label,X,Y,r_in,r_out,exch_in,exch_out", _ABS_CASES,
                          ids=[c[0] for c in _ABS_CASES])
 def test_absolute_contraction_matches_bruteforce(
-        label, X, Y, r_in, r_out, sym_in, sym_out):
+        label, X, Y, r_in, r_out, exch_in, exch_out):
     sigma = 0.5
-    got = _cos(X, Y, r_in=r_in, r_out=r_out, sym_in=sym_in, sym_out=sym_out,
+    got = _cos(X, Y, r_in=r_in, r_out=r_out, exch_in=exch_in, exch_out=exch_out,
                rel_out=0, is_per=False, period=1e9, sigma=sigma)
-    want = _bf_cos(X, Y, r_in, r_out, sym_in, sym_out, sigma)
+    want = _bf_cos(X, Y, r_in, r_out, exch_in, exch_out, sigma)
     assert got == pytest.approx(want, abs=1e-10)
 
 
@@ -145,7 +145,7 @@ def test_unequal_cardinality_r2_relperiodic_nonzero_symmetric():
     P, sigma = 12.0, 0.15
     proto = [[0., 4., 7., 0.], [7., 11., 2., 7.], [0., 4., 7., 0.]]
     window = [c + c for c in proto]           # each chord doubled -> 8 pitches
-    kw = dict(r_in=2, r_out=3, sym_in=True, sym_out=False, rel_out=1,
+    kw = dict(r_in=2, r_out=3, exch_in=True, exch_out=False, rel_out=1,
               is_per=True, period=P, sigma=sigma)
     xy = _cos(proto, window, **kw)
     yx = _cos(window, proto, **kw)
@@ -160,7 +160,7 @@ def test_equal_cardinality_r2_unchanged():
     P, sigma = 12.0, 0.15
     a = [[0., 4., 7., 0.], [7., 11., 2., 7.], [0., 4., 7., 0.]]
     b = [[0., 3., 7., 0.], [7., 11., 2., 7.], [0., 3., 7., 0.]]
-    kw = dict(r_in=2, r_out=3, sym_in=True, sym_out=False, rel_out=1,
+    kw = dict(r_in=2, r_out=3, exch_in=True, exch_out=False, rel_out=1,
               is_per=True, period=P, sigma=sigma)
     assert _cos(a, a, **kw) == pytest.approx(1.0, abs=1e-12)
     assert _cos(a, b, **kw) == pytest.approx(_cos(b, a, **kw), abs=1e-12)
@@ -185,7 +185,7 @@ def test_relperiodic_unequal_contract_matches_enumeration(
         label, X, Y, r_in, r_out):
     # Small sigma/period keeps the transposition-average surrogate exact, so
     # it agrees with the bulger enumeration to numerical precision.
-    kw = dict(r_in=r_in, r_out=r_out, sym_in=True, sym_out=False, rel_out=1,
+    kw = dict(r_in=r_in, r_out=r_out, exch_in=True, exch_out=False, rel_out=1,
               is_per=True, period=12.0, sigma=0.2)
     contract = _cos(X, Y, method="contract", **kw)
     bulger = _cos(X, Y, method="bulger", **kw)
@@ -202,9 +202,9 @@ def test_absolute_nonperiodic_finite_period_does_not_wrap():
     want = _bf_cos(X, Y, 2, 2, True, False, sigma)   # genuinely non-periodic
     # A small finite period that *would* alias if periodicity were (wrongly)
     # inferred from period rather than the [per] flag.
-    got_small = _cos(X, Y, r_in=2, r_out=2, sym_in=True, sym_out=False,
+    got_small = _cos(X, Y, r_in=2, r_out=2, exch_in=True, exch_out=False,
                      rel_out=0, is_per=False, period=2.0, sigma=sigma)
-    got_huge = _cos(X, Y, r_in=2, r_out=2, sym_in=True, sym_out=False,
+    got_huge = _cos(X, Y, r_in=2, r_out=2, exch_in=True, exch_out=False,
                     rel_out=0, is_per=False, period=1e9, sigma=sigma)
     assert got_small == pytest.approx(want, abs=1e-10)
     assert got_small == pytest.approx(got_huge, abs=1e-10)

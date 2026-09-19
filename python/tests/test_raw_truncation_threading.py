@@ -1,7 +1,7 @@
 """Raw entry forms must thread the truncation width.
 
 Regression cover for the parameter-dropping class of bug where a raw
-(loose-array) entry form of ``eval_exp_tens`` / ``cos_sim_exp_tens`` failed
+(loose-array) entry form of ``eval_maet`` / ``sim_maet`` failed
 to forward ``truncation_sigmas`` (and ``kernel_precision``) to the shared
 core. Two consequences were possible:
 
@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, eval_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, eval_maet, sim_maet
 
 mpt.set_default(show_hints=False)
 
@@ -60,12 +60,12 @@ def test_eval_raw_scalar_matches_prebuilt(r, K, is_rel, is_per, span, period):
     sigma = 15.0
     dim = r - 1 if is_rel else r
     x = np.random.default_rng(7).uniform(0.0, span, (dim, 40))
-    dens = build_exp_tens(
+    dens = build_maet(
         [p.reshape(K, 1)], [w.reshape(K, 1)], [sigma], [r],
         [is_rel], [is_per], [period], verbose=False,
     )
-    v_pre = eval_exp_tens(dens, x, verbose=False)
-    v_raw = eval_exp_tens(
+    v_pre = eval_maet(dens, x, verbose=False)
+    v_raw = eval_maet(
         p, w, sigma, r, is_rel, is_per, period, x, verbose=False,
     )
     # Exact agreement also witnesses the raw form is truncated (not dense).
@@ -80,7 +80,7 @@ def test_eval_raw_scalar_honours_width(r, K, is_rel, is_per, span, period):
     x = np.random.default_rng(3).uniform(0.0, span, (dim, 40))
 
     def val(ts):
-        return eval_exp_tens(
+        return eval_maet(
             p, w, sigma, r, is_rel, is_per, period, x,
             truncation_sigmas=ts, verbose=False,
         )
@@ -99,21 +99,21 @@ def test_eval_raw_batch_matches_prebuilt_and_honours_width():
     # Agreement with per-row prebuilt densities.
     rows = []
     for p, w in ((p1, w1), (p2, w2)):
-        d = build_exp_tens(
+        d = build_maet(
             [p.reshape(K, 1)], [w.reshape(K, 1)], [sigma], [r],
             [False], [False], [0.0], verbose=False,
         )
-        rows.append(eval_exp_tens(d, x, verbose=False))
+        rows.append(eval_maet(d, x, verbose=False))
     v_pre = np.vstack(rows)
-    v_raw = eval_exp_tens(P, W, sigma, r, False, False, 0.0, x, verbose=False)
+    v_raw = eval_maet(P, W, sigma, r, False, False, 0.0, x, verbose=False)
     assert np.max(np.abs(v_raw - v_pre)) == 0.0
 
     # Width honoured on the batched path.
-    d3 = eval_exp_tens(
+    d3 = eval_maet(
         P, W, sigma, r, False, False, 0.0, x,
         truncation_sigmas=3.0, verbose=False,
     )
-    d9 = eval_exp_tens(
+    d9 = eval_maet(
         P, W, sigma, r, False, False, 0.0, x,
         truncation_sigmas=9.0, verbose=False,
     )
@@ -128,7 +128,7 @@ def test_eval_raw_ma_honours_method_and_width():
     w_attr = [w.reshape(K, 1)]
 
     def val(ts):
-        return eval_exp_tens(
+        return eval_maet(
             p_attr, w_attr, [sigma], [r], [False], [False], [0.0], x,
             truncation_sigmas=ts, verbose=False,
         )
@@ -152,13 +152,13 @@ def test_cos_sim_raw_forms_honour_width():
     p2, w2 = _chord(21, K, span)
 
     def sm(ts):
-        return cos_sim_exp_tens(
+        return sim_maet(
             p1, w1, p2, w2, sigma, r, True, False, 0.0,
             truncation_sigmas=ts, method='bulger', verbose=False,
         )
 
     def ma(ts):
-        return cos_sim_exp_tens(
+        return sim_maet(
             [p1.reshape(K, 1)], [w1.reshape(K, 1)],
             [p2.reshape(K, 1)], [w2.reshape(K, 1)],
             [sigma], [r], [True], [False], [0.0],

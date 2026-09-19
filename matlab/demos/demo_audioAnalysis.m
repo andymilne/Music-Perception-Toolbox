@@ -20,7 +20,7 @@
 %  The audio files are in the audio/ subfolder.
 %
 %  Uses: audioPeaks, transformAttributes, spectralEntropy, templateHarmonicity,
-%        roughness, virtualPitches, cosSimExpTens
+%        roughness, virtualPitches, simMaet
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -159,7 +159,7 @@ for i = 1:nResults
         elseif j == i
             fprintf('%-12s', '1.000');
         else
-            s = cosSimExpTens(results(i).p, results(i).w, ...
+            s = simMaet(results(i).p, results(i).w, ...
                               results(j).p, results(j).w, ...
                               sigma, 1, false, true, 1200, ...
                               'verbose', false);

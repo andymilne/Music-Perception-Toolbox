@@ -176,7 +176,7 @@ def build_density(row):
     """Rebuild the single-attribute density a CSV row describes."""
     p = np.linspace(0.0, row["spread"], row["K"])
     w = np.ones(row["K"])
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         p, w, row["sigma"], row["r"], row["rel"], row["per"],
         row["span"] if row["per"] else 0.0, verbose=False,
     )

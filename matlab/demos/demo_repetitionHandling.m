@@ -53,7 +53,7 @@
 %       count attribute is what keeps them apart.
 %
 %  Exact invariances only ('relOuter' flags); the graded counterparts
-%  (the sdShift ridge of intervalKernelCov, tending to rel in the
+%  (the sdShift ridge of kernelCov, tending to rel in the
 %  limit) are the subject of demo_tempoInvariance.
 
 clear; close all;
@@ -194,7 +194,7 @@ for sc = [0.25, 0.75, 1.5, 3.0]
         SIGMA_IOI_BEATS, SIGMA_LOGIOI, sc);
     dHeld = buildDensity(evHeld, true, SIGMA_SIGN, SIGMA_LOGMAG, ...
         SIGMA_IOI_BEATS, SIGMA_LOGIOI, sc);
-    s = cosSimExpTens(dRef, dHeld, 'verbose', false);
+    s = simMaet(dRef, dHeld, 'verbose', false);
     fprintf('    count sigma = %.2f: similarity = %.3f\n', sc, s);
 end
 fprintf('\n');
@@ -222,7 +222,7 @@ for t = 2:3   % prolong, count
     d2 = buildDensity(makeEvents(pUnorep, tUnorep, treatments{t}), true, ...
         SIGMA_SIGN, SIGMA_LOGMAG, SIGMA_IOI_BEATS, SIGMA_LOGIOI, ...
         SIGMA_COUNT);
-    s = cosSimExpTens(d1, d2, 'verbose', false);
+    s = simMaet(d1, d2, 'verbose', false);
     fprintf('    %-8s: doubled figure vs closed-up figure = %.3f\n', ...
         treatments{t}, s);
 end
@@ -327,7 +327,7 @@ function dens = buildDensity(ev, logIoi, sigmaSign, sigmaLogmag, ...
             'isPer', false(1, numel(sig)), 'maxElements', 6);
         fprintf('\n');
     end
-    dens = buildExpTens(pB, wB, 'specs', spB, 'sigma', sig, ...
+    dens = buildMaet(pB, wB, 'specs', spB, 'sigma', sig, ...
         'isPer', false(1, numel(sig)), 'period', zeros(1, numel(sig)), ...
         'verbose', false);
 end
@@ -355,7 +355,7 @@ function similarityTable(logIoi, treatments, pitchesRef, onsetsRef, ...
                 makeEvents(variantP{v}, variantT{v}, treatments{t}), ...
                 logIoi, sigmaSign, sigmaLogmag, sigmaIoiBeats, ...
                 sigmaLogioi, sigmaCount);
-            s = cosSimExpTens(refDens{t}, d, 'verbose', false);
+            s = simMaet(refDens{t}, d, 'verbose', false);
             fprintf('%10.3f', s);
         end
         fprintf('\n');

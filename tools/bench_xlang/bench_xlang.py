@@ -1,7 +1,7 @@
 """Cross-language benchmark runner (Python side).
 
 Generates deterministic inputs (identical to the MATLAB runner),
-times eval_exp_tens and cos_sim_exp_tens across a small grid varying
+times eval_maet and sim_maet across a small grid varying
 one axis at a time from a base configuration, and writes CSV.
 
 Usage:
@@ -39,14 +39,14 @@ import numpy as np
 import mpt
 
 # Sanity check: the bench uses the v3+ ``wrap=`` keyword throughout,
-# so make sure ``build_exp_tens`` is the version that supports it.
+# so make sure ``build_maet`` is the version that supports it.
 # If not, print where mpt was loaded from and bail out with a clear
 # actionable message rather than 27 identical FAIL lines.
-_bet_params = inspect.signature(mpt.build_exp_tens).parameters
+_bet_params = inspect.signature(mpt.build_maet).parameters
 if 'wrap' not in _bet_params:
     _mpt_file = getattr(mpt, '__file__', '<unknown>')
     print(f"ERROR: the mpt package loaded here does not support the "
-          f"wrap= keyword on build_exp_tens.")
+          f"wrap= keyword on build_maet.")
     print(f"  loaded from: {_mpt_file}")
     print(f"  expected:    {_REPO_PYTHON / 'mpt' / '__init__.py'}")
     print()
@@ -235,7 +235,7 @@ def run_eval(cfg):
     dim = sum(dim_per)
     X = make_queries(dim, nQ, PERIOD)
 
-    d = mpt.build_exp_tens(
+    d = mpt.build_maet(
         p_all, w_all,
         [sigma] * A, [r] * A,
         [isRel] * A, [isPer] * A, [period_val] * A,
@@ -244,7 +244,7 @@ def run_eval(cfg):
     n_j = int(getattr(d, 'n_j', -1))
 
     def call():
-        return mpt.eval_exp_tens(d, X, verbose=False)
+        return mpt.eval_maet(d, X, verbose=False)
 
     t, result, n_inner = adaptive_time(call)
     return t, result, n_j, n_inner
@@ -261,13 +261,13 @@ def run_cossim(cfg, method='auto'):
     # Second density: shift positions by a fixed offset.
     p_all_2 = [pa + 37.5 for pa in p_all]
 
-    dx = mpt.build_exp_tens(
+    dx = mpt.build_maet(
         p_all, w_all,
         [sigma] * A, [r] * A,
         [isRel] * A, [isPer] * A, [period_val] * A,
         wrap=wrap, verbose=False,
     )
-    dy = mpt.build_exp_tens(
+    dy = mpt.build_maet(
         p_all_2, w_all,
         [sigma] * A, [r] * A,
         [isRel] * A, [isPer] * A, [period_val] * A,
@@ -276,7 +276,7 @@ def run_cossim(cfg, method='auto'):
     n_j = int(getattr(dx, 'n_j', -1))
 
     def call():
-        return mpt.cos_sim_exp_tens(dx, dy, method=method, verbose=False)
+        return mpt.sim_maet(dx, dy, method=method, verbose=False)
 
     t, result, n_inner = adaptive_time(call)
     return t, result, n_j, n_inner
@@ -299,7 +299,7 @@ def main():
     ap.add_argument('--out', default='bench_python.csv')
     ap.add_argument('--method', default='auto',
                     choices=['auto', 'bulger', 'mobius'],
-                    help="Force cos_sim_exp_tens method (default: auto). "
+                    help="Force sim_maet method (default: auto). "
                          "'auto' lets the cost model choose; 'bulger' and "
                          "'mobius' force each specific route to isolate "
                          "route-vs-routing discrepancies.")

@@ -48,7 +48,7 @@ chord_names = ["Major", "Minor", "Dim"]
 # Batched call: the scale (a 1-D vector) is broadcast against every
 # row of chord_mat. The 'spectrum' kwarg enriches both
 # sides identically.
-s = mpt.cos_sim_exp_tens(
+s = mpt.sim_maet(
     np.asarray(scale_cents, dtype=float), None, chord_mat, None,
     10, 1, False, True, 1200,
     spectrum=['harmonic', 24, 'powerlaw', 1],

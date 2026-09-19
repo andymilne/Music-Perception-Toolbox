@@ -7,7 +7,7 @@
 %       and, at a between-pulse centre, can drop both flanking edge
 %       pulses and leave a zero-mass density.
 %
-%  #21  entropyExpTens with method='renyi2' returns NaN for a zero-mass
+%  #21  entropyMaet with method='renyi2' returns NaN for a zero-mass
 %       density (for instance a windowed sweep centre with no event in
 %       support) rather than raising. Sweep callers already want NaN
 %       outside the data.
@@ -77,7 +77,7 @@ results{end+1, 1} = 'rectWindow: Gaussian shape peak-normalised with no hard edg
 results{end, 2}   = abs(rwF5(3) - 1) < 1e-12 && all(rwF5 > 0);
 
 % --- 6. renyi2 on an all-zero-weight single multiset returns NaN ------
-rwH1 = entropyExpTens([0 4 7], [0 0 0], 1, 1, false, false, 0, ...
+rwH1 = entropyMaet([0 4 7], [0 0 0], 1, 1, false, false, 0, ...
                       'method', 'renyi2', 'verbose', false);
 results{end+1, 1} = 'renyi2: all-zero weights return NaN, not an error';
 results{end, 2}   = isnan(rwH1);
@@ -87,16 +87,16 @@ rwPitch7 = [60 62 64];
 rwTime7  = [0 1 2];
 [rwPa, rwWa, rwSp] = unpackPreMaet(weightEvents({rwPitch7, rwTime7}, [], 2, 1, 100, 1, ...
                                   'width', 1, 'dropInputAttr', false));
-rwDens = buildExpTens(rwPa, rwWa, 'specs', rwSp, 'sigma', [1 1], ...
+rwDens = buildMaet(rwPa, rwWa, 'specs', rwSp, 'sigma', [1 1], ...
                       'isPer', [false false], 'period', [0 0], ...
                       'verbose', false);
-rwH2 = entropyExpTens(rwDens, 'method', 'renyi2', 'verbose', false);
+rwH2 = entropyMaet(rwDens, 'method', 'renyi2', 'verbose', false);
 results{end+1, 1} = 'renyi2: out-of-support window returns NaN, not an error';
 results{end, 2}   = isnan(rwH2);
 
 % --- 8. A healthy density still returns a finite value ----------------
 %  Guards against the NaN paths above swallowing every case.
-rwH3 = entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
+rwH3 = entropyMaet([0 4 7], [], 30, 2, false, false, 0, ...
                       'method', 'renyi2', 'verbose', false);
 results{end+1, 1} = 'renyi2: a healthy density still returns a finite value';
 results{end, 2}   = isfinite(rwH3);

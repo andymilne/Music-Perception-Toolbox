@@ -81,7 +81,7 @@ class TestRenyi2ZeroMassNaN:
     """#21: zero-mass density -> NaN from renyi2, not a raise."""
 
     def test_single_multiset_zero_weight_returns_nan(self):
-        v = mpt.entropy_exp_tens([0., 4., 7.], [0., 0., 0.], 1.0, 1,
+        v = mpt.entropy_maet([0., 4., 7.], [0., 0., 0.], 1.0, 1,
                                  False, False, 0.0, method="renyi2",
                                  verbose=False)
         assert np.isnan(v)
@@ -94,9 +94,9 @@ class TestRenyi2ZeroMassNaN:
             [pitch, time], None, input_attr=1, target_attr=0,
             centre=100.0, shape=1.0, width=1.0, drop_input_attr=False,
         ))
-        dens = mpt.build_exp_tens(
+        dens = mpt.build_maet(
             pa, wa, specs=sp, sigma=[1.0, 1.0],
             is_per=[False, False], period=[0., 0.], verbose=False,
         )
-        v = mpt.entropy_exp_tens(dens, method="renyi2", verbose=False)
+        v = mpt.entropy_maet(dens, method="renyi2", verbose=False)
         assert np.isnan(v)

@@ -1,6 +1,6 @@
 %% test_inner_product_scale.m — the bare inner product on the canonical scale
 %
-%  cosSimExpTens(..., 'normalize', 'none') returns <X, Y> on one scale
+%  simMaet(..., 'normalize', 'none') returns <X, Y> on one scale
 %  whatever route ran, and the Rényi-2 entropy is computed from it. Both
 %  are pinned here against an explicit enumeration of every tuple pair on
 %  every shape the routes cover: flat symmetric, ordered, relative,
@@ -30,24 +30,24 @@ ips_T2 = repelem(0:1, 3);
 ips_T3 = repelem(0:2, 3);
 ips_T3L = [0 0; 0 0; 1 0; 1 0; 2 1; 2 1; 3 1; 3 1];
 
-% --- flat shapes: {K, N, r, rel, per, sym} ---
+% --- flat shapes: {K, N, r, rel, per, exch} ---
 ips_flat = { 6,3,2,false,false,true;  6,3,3,false,false,true;  6,3,2,true,false,true; ...
              6,3,3,true,false,true;   6,3,2,false,true,true;   6,3,2,true,true,true; ...
              6,3,1,false,false,true;  6,3,1,false,true,true;   6,3,2,false,false,false; ...
              6,3,3,true,true,false;   6,3,3,true,false,false };
 for ips_i = 1:size(ips_flat, 1)
-    [K, N, r, rel, per, sym] = ips_flat{ips_i, :};
-    d = ipsFlat(K, N, r, rel, per, sym, ips_P, 0);
+    [K, N, r, rel, per, exch] = ips_flat{ips_i, :};
+    d = ipsFlat(K, N, r, rel, per, exch, ips_P, 0);
     [ips_ok, ips_msg] = ipsCheckMethods(d, {'auto', 'bulger', 'mobius', 'centres'});
-    results{end+1, 1} = sprintf('ip scale: flat r=%d rel=%d per=%d sym=%d every route on scale%s', r, rel, per, sym, ips_msg); %#ok<*SAGROW>
+    results{end+1, 1} = sprintf('ip scale: flat r=%d rel=%d per=%d exch=%d every route on scale%s', r, rel, per, exch, ips_msg); %#ok<*SAGROW>
     results{end, 2} = ips_ok;
     [ips_ip, ips_Z] = ipsReferenceSelfIp(d);
-    h = entropyExpTens(d, 'method', 'renyi2', 'base', exp(1), 'verbose', false);
-    results{end+1, 1} = sprintf('ip scale: renyi2 flat r=%d rel=%d per=%d sym=%d matches enumeration', r, rel, per, sym);
+    h = entropyMaet(d, 'method', 'renyi2', 'base', exp(1), 'verbose', false);
+    results{end+1, 1} = sprintf('ip scale: renyi2 flat r=%d rel=%d per=%d exch=%d matches enumeration', r, rel, per, exch);
     results{end, 2} = abs(h - (-log(ips_ip / ips_Z^2))) <= 10 * ipsTol(d);
 end
 
-% --- nested shapes: {tags, r, sym, rel, per, K} ---
+% --- nested shapes: {tags, r, exch, rel, per, K} ---
 ips_nested = { ips_T2,[1 2],[1 1],[0 0],false,6;  ips_T2,[1 2],[1 0],[0 0],false,6; ...
                ips_T2,[1 2],[0 1],[0 0],true,6;   ips_T3,[2 2],[1 1],[0 0],false,9; ...
                ips_T3,[2 2],[1 1],[0 0],true,9;   ips_T3,[2 2],[1 1],[1 0],false,9; ...
@@ -58,14 +58,14 @@ ips_nested = { ips_T2,[1 2],[1 1],[0 0],false,6;  ips_T2,[1 2],[1 0],[0 0],false
                ips_T3L,[2 2 2],[1 1 1],[0 0 0],false,8; ips_T3L,[2 2 2],[1 0 1],[0 0 1],true,8; ...
                ips_T3L,[2 2 2],[0 1 0],[0 0 1],false,8 };
 for ips_i = 1:size(ips_nested, 1)
-    [tags, r, sym, rel, per, K] = ips_nested{ips_i, :};
-    d = ipsNested(tags, r, sym, rel, per, K, ips_P, 0);
+    [tags, r, exch, rel, per, K] = ips_nested{ips_i, :};
+    d = ipsNested(tags, r, exch, rel, per, K, ips_P, 0);
     [ips_ok, ips_msg] = ipsCheckMethods(d, {'auto', 'bulger', 'mobius', 'centres', 'contract'});
-    results{end+1, 1} = sprintf('ip scale: nested r=[%s] sym=[%s] rel=[%s] per=%d every route on scale%s', num2str(r), num2str(sym), num2str(rel), per, ips_msg);
+    results{end+1, 1} = sprintf('ip scale: nested r=[%s] exch=[%s] rel=[%s] per=%d every route on scale%s', num2str(r), num2str(exch), num2str(rel), per, ips_msg);
     results{end, 2} = ips_ok;
     [ips_ip, ips_Z] = ipsReferenceSelfIp(d);
-    h = entropyExpTens(d, 'method', 'renyi2', 'base', exp(1), 'verbose', false);
-    results{end+1, 1} = sprintf('ip scale: renyi2 nested r=[%s] sym=[%s] rel=[%s] per=%d matches enumeration', num2str(r), num2str(sym), num2str(rel), per);
+    h = entropyMaet(d, 'method', 'renyi2', 'base', exp(1), 'verbose', false);
+    results{end+1, 1} = sprintf('ip scale: renyi2 nested r=[%s] exch=[%s] rel=[%s] per=%d matches enumeration', num2str(r), num2str(exch), num2str(rel), per);
     results{end, 2} = abs(h - (-log(ips_ip / ips_Z^2))) <= 10 * ipsTol(d);
 end
 
@@ -87,45 +87,45 @@ results{end, 2} = ips_ok;
 % --- mixed density and the cross term ---
 rng(5, 'twister');
 p0 = sort(ips_P * rand(6, 3), 1); p1 = sort(ips_P * rand(4, 3), 1); p2 = sort(ips_P * rand(4, 3), 1);
-specs = { struct('tags', ips_T2, 'r', [1 2], 'sym', [true true], 'rel', [0 0]), ...
-          struct('r', 2, 'sym', true, 'rel', true), struct('r', 2, 'sym', false, 'rel', false) };
-d = buildExpTens({p0, p1, p2}, {[], [], []}, 'specs', specs, 'sigma', [0.7 0.5 0.9], ...
+specs = { struct('tags', ips_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 0]), ...
+          struct('r', 2, 'exch', true, 'rel', true), struct('r', 2, 'exch', false, 'rel', false) };
+d = buildMaet({p0, p1, p2}, {[], [], []}, 'specs', specs, 'sigma', [0.7 0.5 0.9], ...
                  'isPer', [false false true], 'period', [ips_P ips_P ips_P], 'verbose', false);
 [ips_ok, ips_msg] = ipsCheckMethods(d, {'auto', 'bulger', 'mobius', 'centres', 'contract'});
 results{end+1, 1} = ['ip scale: mixed nested + relative flat + ordered flat' ips_msg];
 results{end, 2} = ips_ok;
-e = buildExpTens({p0(:, end:-1:1) + 0.3, p1 + 0.1, p2 - 0.2}, {[], [], []}, 'specs', specs, ...
+e = buildMaet({p0(:, end:-1:1) + 0.3, p1 + 0.1, p2 - 0.2}, {[], [], []}, 'specs', specs, ...
                  'sigma', [0.7 0.5 0.9], 'isPer', [false false true], 'period', [ips_P ips_P ips_P], 'verbose', false);
-xy = cosSimExpTens(d, e, 'normalize', 'none', 'verbose', false);
-xx = cosSimExpTens(d, d, 'normalize', 'none', 'verbose', false);
-yy = cosSimExpTens(e, e, 'normalize', 'none', 'verbose', false);
-c = cosSimExpTens(d, e, 'verbose', false);
+xy = simMaet(d, e, 'normalize', 'none', 'verbose', false);
+xx = simMaet(d, d, 'normalize', 'none', 'verbose', false);
+yy = simMaet(e, e, 'normalize', 'none', 'verbose', false);
+c = simMaet(d, e, 'verbose', false);
 results{end+1, 1} = 'ip scale: the cosine recomposes from three bare inner products';
 results{end, 2} = abs(xy / sqrt(xx * yy) - c) <= 1e-9 * abs(c);
 
 % --- the bare value does not form a self inner product ---
 d = ipsFlat(6, 3, 2, false, false, true, ips_P, 0);
 e = ipsFlat(6, 3, 2, false, false, true, ips_P, 1);
-[~, dX, dY] = cosSimExpTens(d, e, 'normalize', 'none', 'verbose', false);
+[~, dX, dY] = simMaet(d, e, 'normalize', 'none', 'verbose', false);
 results{end+1, 1} = 'ip scale: normalize none forms no self inner product';
 results{end, 2} = ~internal.selfIpMemoised(dX.selfIP) && ~internal.selfIpMemoised(dY.selfIP);
-[~, ~, dY] = cosSimExpTens(d, e, 'normalize', 'oneSidedDenom', 'verbose', false);
+[~, ~, dY] = simMaet(d, e, 'normalize', 'oneSidedDenom', 'verbose', false);
 results{end+1, 1} = 'ip scale: oneSidedDenom still memoises <Y,Y>';
 results{end, 2} = internal.selfIpMemoised(dY.selfIP);
 
 % --- ragged events ---
 rng(4, 'twister');
 p = sort(ips_P * rand(6, 3), 1); p(6, 1) = NaN; p(5:6, 3) = NaN;
-d = buildExpTens({p}, {[]}, 'specs', {struct('tags', ips_T2, 'r', [1 2], 'sym', [true true], 'rel', [0 0])}, ...
+d = buildMaet({p}, {[]}, 'specs', {struct('tags', ips_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 0])}, ...
                  'sigma', 0.7, 'isPer', false, 'period', 0, 'verbose', false);
 [ips_ip, ips_Z] = ipsReferenceSelfIp(d);
-h = entropyExpTens(d, 'method', 'renyi2', 'base', exp(1), 'verbose', false);
+h = entropyMaet(d, 'method', 'renyi2', 'base', exp(1), 'verbose', false);
 results{end+1, 1} = 'ip scale: renyi2 with ragged events matches enumeration';
 results{end, 2} = abs(h - (-log(ips_ip / ips_Z^2))) <= 1e-9 * abs(h);
 
 % --- renyi2 takes the inner-product route ---
 d = ipsNested(repelem(0:3, 3), [2 3], [1 1], [0 0], false, 12, ips_P, 0);
-entropyExpTens(d, 'method', 'renyi2', 'verbose', false);
+entropyMaet(d, 'method', 'renyi2', 'verbose', false);
 results{end+1, 1} = 'ip scale: renyi2 runs the route the inner-product selector picks';
 results{end, 2} = isequal(internal.lastNestedRoutes(), {'contract'});
 
@@ -150,23 +150,23 @@ if standalone
 end
 
 
-function d = ipsFlat(K, N, r, rel, per, sym, P, seed, sigma)
+function d = ipsFlat(K, N, r, rel, per, exch, P, seed, sigma)
     if nargin < 9; sigma = 0.7; end
     rng(seed, 'twister');
     p = sort(P * rand(K, N), 1);
     w = 0.5 + rand(K, N);
-    d = buildExpTens({p}, {w}, 'specs', {struct('r', r, 'sym', sym, 'rel', rel)}, ...
+    d = buildMaet({p}, {w}, 'specs', {struct('r', r, 'exch', exch, 'rel', rel)}, ...
                      'sigma', sigma, 'isPer', per, 'period', P, 'verbose', false);
 end
 
 
-function d = ipsNested(tags, r, sym, rel, per, K, P, seed, sigma)
+function d = ipsNested(tags, r, exch, rel, per, K, P, seed, sigma)
     if nargin < 9; sigma = 0.7; end
     rng(seed, 'twister');
     p = sort(P * rand(K, 3), 1);
     w = 0.5 + rand(K, 3);
-    spec = struct('tags', tags, 'r', r, 'sym', logical(sym), 'rel', rel);
-    d = buildExpTens({p}, {w}, 'specs', {spec}, 'sigma', sigma, 'isPer', per, ...
+    spec = struct('tags', tags, 'r', r, 'exch', logical(exch), 'rel', rel);
+    d = buildMaet({p}, {w}, 'specs', {spec}, 'sigma', sigma, 'isPer', per, ...
                      'period', P, 'verbose', false);
 end
 
@@ -188,7 +188,7 @@ function [ok, msg] = ipsCheckMethods(d, methods)
     ok = true; msg = '';
     for i = 1:numel(methods)
         try
-            v = cosSimExpTens(d, d, 'normalize', 'none', 'method', methods{i}, 'verbose', false);
+            v = simMaet(d, d, 'normalize', 'none', 'method', methods{i}, 'verbose', false);
         catch err
             % a forced route the shape does not admit; the message says so
             if isempty(strfind(err.message, 'not available')) && isempty(strfind(err.message, 'cannot be honoured')) %#ok<STREMP>
@@ -206,7 +206,7 @@ end
 function [ip, Z] = ipsReferenceSelfIp(dens)
     % (<T,T>, Z) by enumeration, composing attributes as the Rényi-2
     % factorisation does.
-    dens = internal.prunedExpTens(dens);
+    dens = internal.prunedMaet(dens);
     A = double(dens.nAttrs); N = double(dens.N);
     P_xx = ones(N, N); Zs = ones(N, A);
     for a = 1:A
@@ -228,7 +228,7 @@ function [I_a, Z_a] = ipsRefAttr(dens, a)
 %   kernel overlap (pi sigma^2)^(d/2)/sqrt(det M) exp(-Q/(4 sigma^2)),
 %   mass (2 pi sigma^2)^(d/2)/sqrt(det M), over the attribute's full
 %   ordered tuple set (every arrangement a symmetric level admits). This
-%   is the enumeration entropyExpTens carried for nested and ordered
+%   is the enumeration entropyMaet carried for nested and ordered
 %   attributes until the inner-product machinery served it.
     sig  = dens.sigma(a);
     isper = dens.isPer(a);
@@ -239,20 +239,20 @@ function [I_a, Z_a] = ipsRefAttr(dens, a)
     if isNestedA
         % Nested attribute: rebuild from its resolved spec.
         spec = dens.nested{a};
-        da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, 'specs', {spec}, ...
+        da = buildMaet({dens.pAttr{a}}, {dens.w{a}}, 'specs', {spec}, ...
                           'sigma', sig, 'isPer', isper, 'period', per, ...
                           'lazy', false, 'verbose', false);
     else
         % Flat ordered attribute: rebuild from its flat parameters with
-        % isSym = false, so the materialised tuples are the C(K, r_a)
+        % isExch = false, so the materialised tuples are the C(K, r_a)
         % ordered sub-tuples (one kernel each, no orbit).
         spec = [];
         r_a0   = dens.r(a);
         isRel0 = dens.isRel(a);
-        sym0 = true;
-        if isfield(dens, 'isSym') && ~isempty(dens.isSym); sym0 = logical(dens.isSym(a)); end
-        da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, sig, r_a0, ...
-                          isRel0, isper, per, sym0, ...
+        exch0 = true;
+        if isfield(dens, 'isExch') && ~isempty(dens.isExch); exch0 = logical(dens.isExch(a)); end
+        da = buildMaet({dens.pAttr{a}}, {dens.w{a}}, sig, r_a0, ...
+                          isRel0, isper, per, exch0, ...
                           'lazy', false, 'verbose', false);
     end
     C   = da.Centres{1};         % (d_a x nJ) reduced centres
@@ -312,7 +312,7 @@ end
 function Q = ipsBlockMetricQ(C, blockSize, isRel, r_a, isPer, per)
 %LOCALBLOCKMETRICQ  Pairwise block-diagonal co-transposition quadratic
 %form on reduced centres. Mirrors the reduced-convention block metric used
-%in evalExpTens (qInnerBlocksReducedLocal) and the whole-tuple _compute_Q,
+%in evalMaet (qInnerBlocksReducedLocal) and the whole-tuple _compute_Q,
 %but operates on the (nJ x nJ) pairwise difference tensor.
     d_a = size(C, 1);
     nj  = size(C, 2);

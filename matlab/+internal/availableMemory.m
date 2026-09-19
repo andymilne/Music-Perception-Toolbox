@@ -28,7 +28,7 @@ function bytes = availableMemory()
 
     % Reading available memory shells out to the OS (vm_stat on macOS,
     % /proc/meminfo on Linux), so it must not run once per dispatch
-    % decision: a batched cosSimExpTens issues one dispatch decision per
+    % decision: a batched simMaet issues one dispatch decision per
     % unique pair. Physical availability changes slowly relative to a
     % batch, so probe at most once per TTL seconds and reuse the cached
     % value otherwise.

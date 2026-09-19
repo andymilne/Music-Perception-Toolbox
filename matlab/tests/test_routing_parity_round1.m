@@ -43,7 +43,7 @@ rp1_P = 12.0;
 rng(7, 'twister');
 rp1_VX = sort(rp1_P * rand(9, 1));
 rp1_VY = sort(rp1_P * rand(9, 1));
-rp1_absWarn = warning('off', 'buildExpTens:absPerSingleImage');
+rp1_absWarn = warning('off', 'buildMaet:absPerSingleImage');
 rp1_warnCleanup = onCleanup(@() warning(rp1_absWarn)); %#ok<NASGU>
 
 % --- A-1 / B-1: the nested measure rule reads the per-call width ---
@@ -53,12 +53,12 @@ rp1_warnCleanup = onCleanup(@() warning(rp1_absWarn)); %#ok<NASGU>
 dx = rp1Nested(rp1_VX, 0.045 * rp1_P, true, true, 'full-image', rp1_P);
 dy = rp1Nested(rp1_VY, 0.045 * rp1_P, true, true, 'full-image', rp1_P);
 results{end+1, 1} = 'parity round1: nested centres refused at ts=6 (sigma/P=0.045)'; %#ok<*SAGROW>
-results{end, 2}   = throwsErrorWithId(@() cosSimExpTens(dx, dy, ...
+results{end, 2}   = throwsErrorWithId(@() simMaet(dx, dy, ...
     'method', 'centres', 'truncationSigmas', 6, 'verbose', false), ...
-    'cosSimExpTens:centresUnavailable');
+    'simMaet:centresUnavailable');
 rp1_ok = false;
 try
-    v = cosSimExpTens(dx, dy, 'method', 'centres', 'truncationSigmas', 4, ...
+    v = simMaet(dx, dy, 'method', 'centres', 'truncationSigmas', 4, ...
                       'verbose', false);
     rp1_ok = isfinite(v);
 catch
@@ -72,8 +72,8 @@ for rp1_isPer = [false true]
     if rp1_isPer; rp1_sig = 1.0; else; rp1_sig = 0.4; end
     ax = rp1Nested(rp1_VX, rp1_sig, false, rp1_isPer, 'full-image', rp1_P);
     ay = rp1Nested(rp1_VY, rp1_sig, false, rp1_isPer, 'full-image', rp1_P);
-    ref = cosSimExpTens(ax, ay, 'method', 'contract', 'verbose', false);
-    [coarse, axOut] = cosSimExpTens(ax, ay, 'method', 'contract', ...
+    ref = simMaet(ax, ay, 'method', 'contract', 'verbose', false);
+    [coarse, axOut] = simMaet(ax, ay, 'method', 'contract', ...
         'truncationSigmas', 2, 'verbose', false);
     keys = axOut.selfIP.keys;
     keyOk = ~isempty(keys) && all(cellfun(@(k) ~isempty(regexp(k, ...
@@ -89,8 +89,8 @@ end
 % --- A-1 / B-1: the multi-attribute nested path resolves the same width ---
 mx = rp1NestedPlusR1(rp1_VX);
 my = rp1NestedPlusR1(rp1_VY);
-ref = cosSimExpTens(mx, my, 'method', 'contract', 'verbose', false);
-[coarse, mxOut] = cosSimExpTens(mx, my, 'method', 'contract', ...
+ref = simMaet(mx, my, 'method', 'contract', 'verbose', false);
+[coarse, mxOut] = simMaet(mx, my, 'method', 'contract', ...
     'truncationSigmas', 2, 'verbose', false);
 keys = mxOut.selfIP.keys;
 results{end+1, 1} = 'parity round1: nested-MA contraction truncates at ts=2';
@@ -102,9 +102,9 @@ results{end, 2}   = ~isempty(keys) && all(cellfun(@(k) ~isempty(regexp(k, ...
 % --- B-14: nested route skips <X,X> under 'oneSidedDenom' ---
 ax = rp1Nested(rp1_VX, 0.4, false, false, 'full-image', rp1_P);
 ay = rp1Nested(rp1_VY, 0.4, false, false, 'full-image', rp1_P);
-[v, axOut, ayOut] = cosSimExpTens(ax, ay, 'method', 'contract', ...
+[v, axOut, ayOut] = simMaet(ax, ay, 'method', 'contract', ...
     'normalize', 'oneSidedDenom', 'verbose', false);
-b = cosSimExpTens(ax, ay, 'method', 'bulger', ...
+b = simMaet(ax, ay, 'method', 'bulger', ...
     'normalize', 'oneSidedDenom', 'verbose', false);
 results{end+1, 1} = 'parity round1: nested oneSidedDenom neither forms nor memoises <X,X>';
 results{end, 2}   = isfinite(v) && isempty(axOut.selfIP.keys) ...
@@ -116,12 +116,12 @@ results{end, 2}   = abs(v - b) <= 1e-6 * max(abs(b), 1e-12);
 fx = rp1Flat(1, 0.2 * rp1_P, 2, false, true, 'full-image', rp1_P);
 fy = rp1Flat(2, 0.2 * rp1_P, 2, false, true, 'single-image', rp1_P);
 results{end+1, 1} = 'parity round1: flat wrap mismatch raises mpt:wrapMismatch';
-results{end, 2}   = throwsErrorWithId(@() cosSimExpTens(fx, fy, ...
+results{end, 2}   = throwsErrorWithId(@() simMaet(fx, fy, ...
     'verbose', false), 'mpt:wrapMismatch');
 nx = rp1Nested(rp1_VX, 0.2 * rp1_P, true, true, 'full-image', rp1_P);
 ny = rp1Nested(rp1_VY, 0.2 * rp1_P, true, true, 'single-image', rp1_P);
 results{end+1, 1} = 'parity round1: nested wrap mismatch raises mpt:wrapMismatch';
-results{end, 2}   = throwsErrorWithId(@() cosSimExpTens(nx, ny, ...
+results{end, 2}   = throwsErrorWithId(@() simMaet(nx, ny, ...
     'method', 'contract', 'verbose', false), 'mpt:wrapMismatch');
 
 % --- B-9: a rel-nonper attribute at the default wrap does not mix with
@@ -149,14 +149,14 @@ results{end, 2}   = internal.autoNtauDefault(rp1_P, 0.5, 3) ...
 %     evaluation untouched, with the guard on and off ---
 rng(11, 'twister');
 pA = {sort(rp1_P * rand(6, 1), 1), sort(rp1_P * rand(6, 1), 1)};
-dMA = buildExpTens(pA, [], [0.8 0.8], [2 2], [false false], ...
+dMA = buildMaet(pA, [], [0.8 0.8], [2 2], [false false], ...
                    [false false], [0 0], 'verbose', false);
 XqA = rp1_P * rand(4, 7);
-refC = evalExpTens(dMA, XqA, 'method', 'centres', 'verbose', false);
+refC = evalMaet(dMA, XqA, 'method', 'centres', 'verbose', false);
 phgPrev = mptDefaults('postHocGuards');
-mobOn = evalExpTens(dMA, XqA, 'method', 'mobius', 'verbose', false);
+mobOn = evalMaet(dMA, XqA, 'method', 'mobius', 'verbose', false);
 mptDefaults('postHocGuards', false);
-mobOff = evalExpTens(dMA, XqA, 'method', 'mobius', 'verbose', false);
+mobOff = evalMaet(dMA, XqA, 'method', 'mobius', 'verbose', false);
 mptDefaults('postHocGuards', phgPrev);
 results{end+1, 1} = 'parity round1: MA mobius eval agrees with centres with the guard on and off';
 results{end, 2}   = all(isfinite(mobOn)) && all(isfinite(mobOff)) ...
@@ -168,8 +168,8 @@ dS = rp1Flat(5, 0.6, 2, false, false, 'full-image', 0, 8, 3);
 rng(3, 'twister');
 XqS = rp1_P * rand(2, 64);
 for rp1_m = {'centres', 'mobius'}
-    dbl = evalExpTens(dS, XqS, 'method', rp1_m{1}, 'verbose', false);
-    sgl = evalExpTens(dS, XqS, 'method', rp1_m{1}, ...
+    dbl = evalMaet(dS, XqS, 'method', rp1_m{1}, 'verbose', false);
+    sgl = evalMaet(dS, XqS, 'method', rp1_m{1}, ...
                       'kernelPrecision', 'single', 'verbose', false);
     results{end+1, 1} = sprintf( ...
         'parity round1: eval kernelPrecision=single honoured (%s)', rp1_m{1});
@@ -179,11 +179,11 @@ end
 
 % --- A-9: entropy list form forwards the width (relative density, grid) ---
 dR = rp1Flat(4, 0.5, 2, true, false, 'full-image', 0, 5, 2);
-hScalar = entropyExpTens(dR, 'method', 'shannon', 'nPointsPerDim', 64, ...
+hScalar = entropyMaet(dR, 'method', 'shannon', 'nPointsPerDim', 64, ...
     'xMin', -6, 'xMax', 6, 'truncationSigmas', 1.5, 'verbose', false);
-hList = entropyExpTens({dR}, 'method', 'shannon', 'nPointsPerDim', 64, ...
+hList = entropyMaet({dR}, 'method', 'shannon', 'nPointsPerDim', 64, ...
     'xMin', -6, 'xMax', 6, 'truncationSigmas', 1.5, 'verbose', false);
-hDefault = entropyExpTens(dR, 'method', 'shannon', 'nPointsPerDim', 64, ...
+hDefault = entropyMaet(dR, 'method', 'shannon', 'nPointsPerDim', 64, ...
     'xMin', -6, 'xMax', 6, 'verbose', false);
 if iscell(hList); hList = hList{1}; end
 results{end+1, 1} = 'parity round1: entropy list form forwards truncationSigmas';
@@ -193,12 +193,12 @@ results{end, 2}   = abs(hList - hScalar) <= 1e-12 * max(abs(hScalar), 1) ...
 % --- A-10 / B-12: cosine list forms forward method and truncationSigmas ---
 ax = rp1Nested(rp1_VX, 0.4, false, false, 'full-image', rp1_P);
 ay = rp1Nested(rp1_VY, 0.4, false, false, 'full-image', rp1_P);
-sScalar = cosSimExpTens(ax, ay, 'method', 'contract', ...
+sScalar = simMaet(ax, ay, 'method', 'contract', ...
     'truncationSigmas', 2, 'verbose', false);
-sDefault = cosSimExpTens(ax, ay, 'verbose', false);
-sPair = cosSimExpTens({ax}, {ay}, 'method', 'contract', ...
+sDefault = simMaet(ax, ay, 'verbose', false);
+sPair = simMaet({ax}, {ay}, 'method', 'contract', ...
     'truncationSigmas', 2, 'verbose', false);
-sBroad = cosSimExpTens(ax, {ay}, 'method', 'contract', ...
+sBroad = simMaet(ax, {ay}, 'method', 'contract', ...
     'truncationSigmas', 2, 'verbose', false);
 results{end+1, 1} = 'parity round1: (cell,cell) list form forwards method and truncationSigmas';
 results{end, 2}   = abs(sPair{1} - sScalar) <= 1e-12 ...
@@ -208,21 +208,21 @@ results{end, 2}   = abs(sBroad{1} - sScalar) <= 1e-12;
 
 % --- A-10: the r = 1 broadcast fast path is gated on method ---
 rng(21, 'twister');
-r1x = buildExpTens({sort(rp1_P * rand(5, 2), 1)}, [], 0.5, 1, false, ...
+r1x = buildMaet({sort(rp1_P * rand(5, 2), 1)}, [], 0.5, 1, false, ...
                    false, 0, 'verbose', false);
-r1y = buildExpTens({sort(rp1_P * rand(5, 2), 1)}, [], 0.5, 1, false, ...
+r1y = buildMaet({sort(rp1_P * rand(5, 2), 1)}, [], 0.5, 1, false, ...
                    false, 0, 'verbose', false);
-sAuto = cosSimExpTens(r1x, {r1y}, 'verbose', false);
-sMob  = cosSimExpTens(r1x, {r1y}, 'method', 'mobius', 'verbose', false);
-sRef  = cosSimExpTens(r1x, r1y, 'method', 'mobius', 'verbose', false);
+sAuto = simMaet(r1x, {r1y}, 'verbose', false);
+sMob  = simMaet(r1x, {r1y}, 'method', 'mobius', 'verbose', false);
+sRef  = simMaet(r1x, r1y, 'method', 'mobius', 'verbose', false);
 results{end+1, 1} = 'parity round1: r = 1 broadcast honours method=mobius';
 results{end, 2}   = abs(sMob{1} - sRef) <= 1e-12 ...
     && abs(sAuto{1} - sRef) <= 1e-9 * max(abs(sRef), 1);
 
-% --- A-11: evalExpTens list form forwards method ---
-vList = evalExpTens({dS}, XqS, 'method', 'mobius', 'verbose', false);
-vRef  = evalExpTens(dS, XqS, 'method', 'mobius', 'verbose', false);
-results{end+1, 1} = 'parity round1: evalExpTens list form forwards method';
+% --- A-11: evalMaet list form forwards method ---
+vList = evalMaet({dS}, XqS, 'method', 'mobius', 'verbose', false);
+vRef  = evalMaet(dS, XqS, 'method', 'mobius', 'verbose', false);
+results{end+1, 1} = 'parity round1: evalMaet list form forwards method';
 results{end, 2}   = isequal(vList{1}, vRef);
 
 % --- B-5: the factored MA evaluation route honours the wrap ---
@@ -231,7 +231,7 @@ for rp1_w = {'full-image', 'single-image'}
     dW = rp1TwoAbsPer(rp1_w{1}, 21, rp1_P);
     rng(9, 'twister');
     XqW = rp1_P * rand(4, 12);
-    outs.(strrep(rp1_w{1}, '-', '_')) = evalExpTens(dW, XqW, ...
+    outs.(strrep(rp1_w{1}, '-', '_')) = evalMaet(dW, XqW, ...
         'method', 'centres', 'verbose', false);
 end
 results{end+1, 1} = 'parity round1: factored eval route: the two wraps differ at sigma/P=0.2';
@@ -243,9 +243,9 @@ relX = rp1Flat(31, 0.5, 2, true, false, 'full-image', 0, 6, 2);
 relY = rp1Flat(32, 0.5, 2, true, false, 'full-image', 0, 6, 2);
 relAttrPrev = mptDefaults('relAttrRoute');
 mptDefaults('relAttrRoute', 'centres');
-sC6 = cosSimExpTens(relX, relY, 'method', 'mobius', ...
+sC6 = simMaet(relX, relY, 'method', 'mobius', ...
     'truncationSigmas', 6, 'verbose', false);
-sC4 = cosSimExpTens(relX, relY, 'method', 'mobius', ...
+sC4 = simMaet(relX, relY, 'method', 'mobius', ...
     'truncationSigmas', 4, 'verbose', false);
 mptDefaults('relAttrRoute', relAttrPrev);
 results{end+1, 1} = 'parity round1: flat Möbius centres branch accepts the per-call width';
@@ -253,14 +253,14 @@ results{end, 2}   = isfinite(sC6) && isfinite(sC4);
 
 % --- A-17: the sweep orbit route resolves an explicit Inf ---
 rng(31, 'twister');
-sx = buildExpTens({randn(4, 5) * 3}, [], 0.9, 2, false, false, NaN, true, ...
+sx = buildMaet({randn(4, 5) * 3}, [], 0.9, 2, false, false, NaN, true, ...
                   'verbose', false);
-sy = buildExpTens({randn(4, 3) * 3}, [], 0.9, 2, false, false, NaN, true, ...
+sy = buildMaet({randn(4, 3) * 3}, [], 0.9, 2, false, false, NaN, true, ...
                   'verbose', false);
 offS = [-2 0 1.5];
-swInf = sweepCosSimExpTens(sx, sy, offS, 'method', 'orbit', ...
+swInf = sweepSimMaet(sx, sy, offS, 'method', 'orbit', ...
     'truncationSigmas', Inf, 'verbose', false);
-swFloor = sweepCosSimExpTens(sx, sy, offS, 'method', 'orbit', ...
+swFloor = sweepSimMaet(sx, sy, offS, 'method', 'orbit', ...
     'truncationSigmas', internal.accuracyFloor('sigmas'), 'verbose', false);
 results{end+1, 1} = 'parity round1: sweep orbit route resolves an explicit Inf';
 results{end, 2}   = isequal(swInf, swFloor);
@@ -294,14 +294,14 @@ function d = rp1Nested(values, sigma, isRel, isPer, wrap, P)
     else
         relSpec = [0 0];
     end
-    spec = struct('tags', tags, 'r', [2 2], 'sym', [true true], ...
+    spec = struct('tags', tags, 'r', [2 2], 'exch', [true true], ...
                   'rel', relSpec);
     if isPer
         period = P;
     else
         period = 0;
     end
-    d = buildExpTens({v}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
+    d = buildMaet({v}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
                      'isPer', isPer, 'period', period, 'wrap', {wrap}, ...
                      'verbose', false);
 end
@@ -311,9 +311,9 @@ function d = rp1NestedPlusR1(values)
     % An absolute nested attribute tensored with an r = 1 absolute one.
     v = double(values(:));
     tags = repelem(0:2, 3);
-    sp0 = struct('tags', tags, 'r', [2 2], 'sym', [true true], 'rel', [0 0]);
-    sp1 = struct('r', 1, 'sym', true, 'rel', false);
-    d = buildExpTens({v, 3.0}, {[], []}, 'specs', {sp0, sp1}, ...
+    sp0 = struct('tags', tags, 'r', [2 2], 'exch', [true true], 'rel', [0 0]);
+    sp1 = struct('r', 1, 'exch', true, 'rel', false);
+    d = buildMaet({v, 3.0}, {[], []}, 'specs', {sp0, sp1}, ...
                      'sigma', [0.4 1.0], 'isPer', [false false], ...
                      'period', [0 0], 'verbose', false);
 end
@@ -329,7 +329,7 @@ function d = rp1Flat(seed, sigma, r, isRel, isPer, wrap, P, K, N)
     else
         period = 0;
     end
-    d = buildExpTens({p}, {[]}, sigma, r, isRel, isPer, period, ...
+    d = buildMaet({p}, {[]}, sigma, r, isRel, isPer, period, ...
                      'wrap', {wrap}, 'verbose', false);
 end
 
@@ -337,7 +337,7 @@ end
 function d = rp1TwoAbsPer(wrap, seed, P)
     rng(seed, 'twister');
     p = {sort(P * rand(4, 2), 1), sort(P * rand(4, 2), 1)};
-    d = buildExpTens(p, {[], []}, [0.2 * P, 0.2 * P], [2 2], ...
+    d = buildMaet(p, {[], []}, [0.2 * P, 0.2 * P], [2 2], ...
                      [false false], [true true], [P P], ...
                      'wrap', {wrap, wrap}, 'verbose', false);
 end

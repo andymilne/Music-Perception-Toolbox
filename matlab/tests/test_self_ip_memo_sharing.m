@@ -60,7 +60,7 @@ sms_absY = 2.5 + mod(11 * sms_i.^2, 19) / 2.0;
 sms_perX = mod(1.7 * sms_i.^2 + 0.6, sms_P);
 sms_perY = mod(2.3 * sms_i.^2 + 3.1, sms_P);
 
-smsFlat = @(v, sigma, r, isRel, isPer) buildExpTens( ...
+smsFlat = @(v, sigma, r, isRel, isPer) buildMaet( ...
     {v}, [], sigma, r, isRel, isPer, sms_P, 'verbose', false);
 
 
@@ -148,9 +148,9 @@ results{end, 2} = ~internal.selfIpMemoised(sms_sweepCache);
 % values are the same quantity in different units and are stored that way.
 sms_dx = smsFlat(sms_absX, 0.5, 2, false, false);
 sms_dy = smsFlat(sms_absY, 0.5, 2, false, false);
-[~, sms_dx, sms_dy] = cosSimExpTens(sms_dx, sms_dy, 'method', 'bulger', ...
+[~, sms_dx, sms_dy] = simMaet(sms_dx, sms_dy, 'method', 'bulger', ...
                                     'verbose', false);
-[~, sms_dx, sms_dy] = cosSimExpTens(sms_dx, sms_dy, 'method', 'mobius', ...
+[~, sms_dx, sms_dy] = simMaet(sms_dx, sms_dy, 'method', 'mobius', ...
                                     'verbose', false);
 sms_keys = sms_dx.selfIP.keys;
 results{end+1, 1} = ['selfIpShare: two routes leave two memo entries, ' ...
@@ -175,9 +175,9 @@ smsCells = {[5 4], [9 4]};
 smsAllRoutes = {'bulger', 'centres', 'mobius'};
 
 smsLockin = @(KN) deal( ...
-    buildExpTens({mod(1.9 * (1:KN(1)).' .^ 2 + 0.4 * (1:KN(2)), sms_P)}, ...
+    buildMaet({mod(1.9 * (1:KN(1)).' .^ 2 + 0.4 * (1:KN(2)), sms_P)}, ...
                  [], 0.25, 2, true, true, sms_P, 'verbose', false), ...
-    buildExpTens({mod(2.6 * (1:KN(1)).' .^ 2 + 0.7 * (1:KN(2)), sms_P)}, ...
+    buildMaet({mod(2.6 * (1:KN(1)).' .^ 2 + 0.7 * (1:KN(2)), sms_P)}, ...
                  [], 0.25, 2, true, true, sms_P, 'verbose', false));
 
 % The route that wrote a memo is the key's prefix, up to the first '|'.
@@ -203,7 +203,7 @@ sms_valOk = true;
 for sms_ci = 1:numel(smsCells)
     sms_KN = smsCells{sms_ci};
     [sms_lx, sms_ly] = smsLockin(sms_KN);
-    [sms_cold, sms_lx, sms_ly] = cosSimExpTens(sms_lx, sms_ly, 'verbose', false);
+    [sms_cold, sms_lx, sms_ly] = simMaet(sms_lx, sms_ly, 'verbose', false);
     sms_coldRoutes = smsRoutesOf(sms_lx);
     sms_definite = sms_definite && (numel(sms_coldRoutes) == 1);
     if numel(sms_coldRoutes) ~= 1
@@ -213,7 +213,7 @@ for sms_ci = 1:numel(smsCells)
     % Reference warm route: the cold route's memo is present either way,
     % so it is the route that appears in the second call, or the cold
     % route again if none did.
-    [~, sms_lx, ~] = cosSimExpTens(sms_lx, sms_ly, 'verbose', false);
+    [~, sms_lx, ~] = simMaet(sms_lx, sms_ly, 'verbose', false);
     sms_warmRoutes = smsRoutesOf(sms_lx);
     sms_new = sms_warmRoutes(~strcmp(sms_warmRoutes, sms_coldRoute));
     if isempty(sms_new)
@@ -226,12 +226,12 @@ for sms_ci = 1:numel(smsCells)
             continue
         end
         [sms_ax, sms_ay] = smsLockin(sms_KN);
-        [~, sms_ax, sms_ay] = cosSimExpTens(sms_ax, sms_ay, ...
+        [~, sms_ax, sms_ay] = simMaet(sms_ax, sms_ay, ...
             'method', sms_o{1}, 'verbose', false);
         sms_forced = smsRoutesOf(sms_ax);
         sms_noLock = sms_noLock && numel(sms_forced) == 1 ...
             && strcmp(sms_forced{1}, sms_o{1});
-        [sms_warm, sms_ax, ~] = cosSimExpTens(sms_ax, sms_ay, ...
+        [sms_warm, sms_ax, ~] = simMaet(sms_ax, sms_ay, ...
                                               'verbose', false);
         % Exactly the rival's memo plus the reference route's (one entry
         % when they coincide): auto took the reference route, no other.
@@ -259,14 +259,14 @@ results{end, 2} = sms_valOk;
 
 % The remaining blocks work on the first cell alone.
 [sms_lx, sms_ly] = smsLockin(smsCells{1});
-sms_cold = cosSimExpTens(sms_lx, sms_ly, 'verbose', false);
+sms_cold = simMaet(sms_lx, sms_ly, 'verbose', false);
 
 sms_ok = true;
 for sms_pre = {'bulger', 'centres', 'mobius'}
     [sms_ax, sms_ay] = smsLockin(smsCells{1});
-    [~, sms_ax, sms_ay] = cosSimExpTens(sms_ax, sms_ay, ...
+    [~, sms_ax, sms_ay] = simMaet(sms_ax, sms_ay, ...
         'method', sms_pre{1}, 'verbose', false);
-    sms_got = cosSimExpTens(sms_ax, sms_ay, 'verbose', false);
+    sms_got = simMaet(sms_ax, sms_ay, 'verbose', false);
     sms_ok = sms_ok && (abs(sms_got - sms_cold) <= 1e-13);
 end
 results{end+1, 1} = ['selfIpShare: call order does not change the ' ...
@@ -278,13 +278,13 @@ results{end, 2} = sms_ok;
 sms_ok = true;
 for sms_m = {'bulger', 'centres', 'mobius'}
     [sms_rx, sms_ry] = smsLockin(smsCells{1});
-    sms_ref = cosSimExpTens(sms_rx, sms_ry, 'method', sms_m{1}, ...
+    sms_ref = simMaet(sms_rx, sms_ry, 'method', sms_m{1}, ...
                             'verbose', false);
     for sms_other = {'bulger', 'centres', 'mobius'}
         [sms_ax, sms_ay] = smsLockin(smsCells{1});
-        [~, sms_ax, sms_ay] = cosSimExpTens(sms_ax, sms_ay, ...
+        [~, sms_ax, sms_ay] = simMaet(sms_ax, sms_ay, ...
             'method', sms_other{1}, 'verbose', false);
-        sms_got = cosSimExpTens(sms_ax, sms_ay, 'method', sms_m{1}, ...
+        sms_got = simMaet(sms_ax, sms_ay, 'method', sms_m{1}, ...
                                 'verbose', false);
         sms_ok = sms_ok && (sms_got == sms_ref);
     end

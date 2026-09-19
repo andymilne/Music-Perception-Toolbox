@@ -1,7 +1,7 @@
 """Tests for the single-multiset point-evaluator orbit primitives.
 
 Verifies ``eval_orbit_abs`` and ``eval_orbit_rel`` against:
-1. The centre-array path (``eval_exp_tens``) — precision baseline.
+1. The centre-array path (``eval_maet``) — precision baseline.
 2. Direct distinct-tuple enumeration — slowest but exact ground truth,
    used to confirm the abs orbit's modest precision loss in
    cancellation regimes is genuinely a property of the alternating-sum
@@ -28,7 +28,7 @@ from mpt._mobius import (
     eval_orbit_rel,
     get_set_partitions_with_mobius,
 )
-from mpt.tensor import build_exp_tens, eval_exp_tens
+from mpt.tensor import build_maet, eval_maet
 
 
 # Tolerance for orbit-vs-centres comparison on clean cells (ratio > 1e-10).
@@ -118,11 +118,11 @@ def test_eval_orbit_abs_matches_centres_on_clean_cells(r, K, is_per):
         period = 0.0
     w = rng.uniform(0.5, 1.5, K)
 
-    T = build_exp_tens(p, w, sigma, r, False, is_per, period, verbose=False)
-    # eval_exp_tens now has a method dispatcher (v3 wiring). Force
+    T = build_maet(p, w, sigma, r, False, is_per, period, verbose=False)
+    # eval_maet now has a method dispatcher (v3 wiring). Force
     # centres explicitly so the variable name matches what the call
     # returns.
-    v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
+    v_centres = eval_maet(T, x, method='centres', verbose=False)
     v_orbit, ratios = eval_orbit_abs(
         p, w, sigma, r, x,
         is_per=is_per, period=period,
@@ -241,8 +241,8 @@ def test_eval_orbit_rel_matches_centres(r, K, is_per):
         period = 0.0
     w = rng.uniform(0.5, 1.5, K)
 
-    T = build_exp_tens(p, w, sigma, r, True, is_per, period, verbose=False)
-    v_centres = eval_exp_tens(T, x_rel, method='centres', verbose=False)
+    T = build_maet(p, w, sigma, r, True, is_per, period, verbose=False)
+    v_centres = eval_maet(T, x_rel, method='centres', verbose=False)
     v_orbit = eval_orbit_rel(
         p, w, sigma, r, x_rel,
         is_per=is_per, period=period,
@@ -301,8 +301,8 @@ def test_eval_orbit_abs_handles_high_r_K_where_centres_struggles():
     w = rng.uniform(0.5, 1.5, K)
     x = rng.uniform(0, P, (r, 5))  # only 5 queries — keeps centres path doable
 
-    T = build_exp_tens(p, w, sigma, r, False, True, P, verbose=False)
-    v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
+    T = build_maet(p, w, sigma, r, False, True, P, verbose=False)
+    v_centres = eval_maet(T, x, method='centres', verbose=False)
     v_orbit, ratios = eval_orbit_abs(
         p, w, sigma, r, x, is_per=True, period=P,
         return_cancellation_ratio=True,

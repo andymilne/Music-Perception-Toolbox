@@ -1,7 +1,7 @@
 """Smaller-scope precision sweep — A=1, N=2, fewer seeds, but full mode coverage."""
 import numpy as np
 from mpt.tensor import (
-    build_exp_tens, _cos_sim_exp_tens_ma_orbit, _cos_sim_exp_tens_ma_pairwise,
+    build_maet, _sim_maet_ma_orbit, _sim_maet_ma_pairwise,
 )
 import time
 import sys
@@ -20,10 +20,10 @@ def precision_cell(seed, r, K, sigma=50.0, is_rel=False, is_per=False, period=0.
     is_rel_vec = [is_rel] * A
     is_per_vec = [is_per] * A
     period_vec = [period] * A
-    dx = build_exp_tens(p_x, w_x, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
-    dy = build_exp_tens(p_y, w_y, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
-    o_xy, o_xx, o_yy = _cos_sim_exp_tens_ma_orbit(dx, dy)
-    p_xy, p_xx, p_yy = _cos_sim_exp_tens_ma_pairwise(dx, dy, verbose=False)
+    dx = build_maet(p_x, w_x, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
+    dy = build_maet(p_y, w_y, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
+    o_xy, o_xx, o_yy = _sim_maet_ma_orbit(dx, dy)
+    p_xy, p_xx, p_yy = _sim_maet_ma_pairwise(dx, dy, verbose=False)
     cos_o = o_xy / np.sqrt(max(o_xx * o_yy, 1e-300))
     cos_p = p_xy / np.sqrt(max(p_xx * p_yy, 1e-300))
     return abs(cos_o - cos_p) / max(abs(cos_p), 1e-300)

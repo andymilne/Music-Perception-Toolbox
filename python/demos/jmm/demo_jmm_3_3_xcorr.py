@@ -11,7 +11,7 @@ Analysis 3.3: phase as lag in Reich's *Piano Phase*.
 The query is a single canonical cell (Piano 1's repeating pattern); the context
 is Piano 2's event stream. At each anchor (a Piano-1 cell boundary) the query is
 translated in time by a lag tau spanning one whole cell, and the one-sided
-matched-filter response against Piano 2 is read off (cos_sim_exp_tens with
+matched-filter response against Piano 2 is read off (sim_maet with
 normalize='oneSidedDenom', the Analysis-1.4 idiom). Collecting these rows gives
 a cross-correlogram R(anchor, tau); its bright ridge tracks the running phase
 offset between the two pianos, climbing the staircase 0 -> 12 pulses across the

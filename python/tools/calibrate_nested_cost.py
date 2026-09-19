@@ -53,7 +53,7 @@ Per cell, each route that carries the cell's measure is forced and timed on
 the three inner matrices the cosine needs (xy, xx, yy), with the densities'
 memos cold at the start of every repeat --- the quantity the per-attribute
 laws predict. The joint-tuple enumeration is timed on the same triple through
-:func:`~mpt._tensor.cosine._cos_sim_exp_tens_ma_pairwise`, so the two sides
+:func:`~mpt._tensor.cosine._sim_maet_ma_pairwise`, so the two sides
 are measured over the same work.
 
 A route whose analytic term exceeds its skip bound is not timed and is
@@ -92,11 +92,11 @@ import time
 import numpy as np
 
 import mpt
-from mpt import build_exp_tens
+from mpt import build_maet
 from mpt._tensor import cosine as _cos
 from mpt._tensor._nested_cost import nested_attr_terms
 from mpt._tensor.cosine import (
-    _cos_sim_exp_tens_ma_pairwise,
+    _sim_maet_ma_pairwise,
     _nested_attr_matrix,
     _nested_attr_plan,
 )
@@ -150,15 +150,15 @@ def _time_ms(setup, run):
 # --------------------------------------------------------------- densities
 
 
-def _nested_spec(r_levels, sym, chord, ngroup, is_rel):
+def _nested_spec(r_levels, exch, chord, ngroup, is_rel):
     tags = np.repeat(np.arange(ngroup), chord)
-    return dict(r=list(r_levels), sym=[bool(s) for s in sym], tags=tags,
+    return dict(r=list(r_levels), exch=[bool(s) for s in exch], tags=tags,
                 rel=([0] * (len(r_levels) - 1) + [1] if is_rel else None))
 
 
 def _build(cell, rng, jitter):
     """One density for ``cell``; ``jitter`` separates the X and Y sides."""
-    r_levels, sym = cell["r_levels"], cell["sym"]
+    r_levels, exch = cell["r_levels"], cell["exch"]
     chord, ngroup, N = cell["chord"], cell["ngroup"], cell["N"]
     is_rel, is_per = cell["rel"], cell["per"]
     K = chord * ngroup
@@ -168,7 +168,7 @@ def _build(cell, rng, jitter):
         v = np.mod(v, PERIOD)
         v = np.sort(v, axis=0)
     p = [v]
-    specs = [_nested_spec(r_levels, sym, chord, ngroup, is_rel)]
+    specs = [_nested_spec(r_levels, exch, chord, ngroup, is_rel)]
     sigma = [cell["sigma"]]
     per = [is_per]
     period = [PERIOD if is_per else 0.0]
@@ -177,12 +177,12 @@ def _build(cell, rng, jitter):
     if flat_r:
         flat_K = cell["flat_K"]
         p.append(rng.uniform(0.0, 5.0, (flat_K, N)) + jitter)
-        specs.append(dict(r=flat_r, rel=False, sym=True))
+        specs.append(dict(r=flat_r, rel=False, exch=True))
         sigma.append(0.5)
         per.append(False)
         period.append(0.0)
         wraps.append('full-image')
-    return build_exp_tens(p, None, specs=specs, sigma=sigma, is_per=per,
+    return build_maet(p, None, specs=specs, sigma=sigma, is_per=per,
                           period=period, wrap=wraps, verbose=False)
 
 
@@ -215,11 +215,11 @@ def _legal(r_levels, chord, ngroup):
     return chord >= r_levels[0] and ngroup >= r_levels[1]
 
 
-def _cell(section, r_levels, sym, chord, ngroup, N, rel, per, sop,
+def _cell(section, r_levels, exch, chord, ngroup, N, rel, per, sop,
           flat_r=0, flat_K=0, wrap='full-image'):
     sigma = sop * PERIOD if per else SIGMA_NONPER
     return dict(section=section, r_levels=list(r_levels),
-                sym=list(sym), chord=chord, ngroup=ngroup, N=N,
+                exch=list(exch), chord=chord, ngroup=ngroup, N=N,
                 rel=bool(rel), per=bool(per), sop=(sop if per else 0.0),
                 sigma=sigma, flat_r=flat_r, flat_K=flat_K, wrap=wrap)
 
@@ -259,9 +259,9 @@ def cells():
     for r_levels, _R in LEVEL_SHAPES:
         chord = max(2, r_levels[0]) + 1
         ngroup = max(2, r_levels[1])
-        for sym in SYM_PATTERNS[1:]:
+        for exch in SYM_PATTERNS[1:]:
             for rel, per in MODES:
-                out.append(_cell("D", r_levels, sym, chord, ngroup, 2,
+                out.append(_cell("D", r_levels, exch, chord, ngroup, 2,
                                  rel, per, 0.02))
     # E: multi-attribute cells.
     for r_levels, _R in ([1, 2], 2), ([2, 2], 4), ([2, 3], 6):
@@ -321,7 +321,7 @@ def run_cell(cell, seed):
 
         def run_b(args):
             a, b = args
-            _cos_sim_exp_tens_ma_pairwise(a, b, verbose=False)
+            _sim_maet_ma_pairwise(a, b, verbose=False)
 
         ms["bulger"] = _time_ms(setup_b, run_b)
     else:
@@ -330,7 +330,7 @@ def run_cell(cell, seed):
     row = ",".join(str(v) for v in (
         cell["section"],
         "|".join(str(v) for v in cell["r_levels"]),
-        "|".join(str(v) for v in cell["sym"]),
+        "|".join(str(v) for v in cell["exch"]),
         cell["chord"], cell["ngroup"], cell["chord"] * cell["ngroup"],
         cell["N"], int(cell["rel"]), int(cell["per"]),
         f"{cell['sigma']:g}", f"{PERIOD if cell['per'] else SPAN:g}",
@@ -347,7 +347,7 @@ def run_cell(cell, seed):
         f"{ms.get('contract', -1.0):.4f}", f"{ms['bulger']:.4f}",
     ))
     mode = f"{'rel' if cell['rel'] else 'abs'}-{'per' if cell['per'] else 'np'}"
-    human = (f"{cell['section']} r={cell['r_levels']} sym={cell['sym']} "
+    human = (f"{cell['section']} r={cell['r_levels']} exch={cell['exch']} "
              f"{cell['chord']}x{cell['ngroup']} N={cell['N']} {mode} "
              f"sigma={cell['sigma']:g} flat={cell['flat_r']} | "
              + " ".join(f"{k}={v:.3f}" for k, v in ms.items()))
@@ -355,7 +355,7 @@ def run_cell(cell, seed):
 
 
 CSV_HEADER = (
-    "section,r_levels,sym,chord,n_chords,K,N,rel,per,sigma,span,wrap,"
+    "section,r_levels,exch,chord,n_chords,K,N,rel,per,sigma,span,wrap,"
     "flat_r,flat_K,total_order,m_perm_x,m_comb_x,m_perm_y,restricted,"
     "work,n_tau,n_line,term_centres,term_taugrid,term_relnonper,"
     "term_contract,term_bulger,ms_centres,ms_taugrid,ms_relnonper,"

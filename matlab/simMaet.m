@@ -1,30 +1,31 @@
-function [s, densXOut, densYOut] = cosSimExpTens(varargin)
-%COSSIMEXPTENS Cosine similarity of two r-ad expectation tensor densities.
+function [s, densXOut, densYOut] = simMaet(varargin)
+%SIMMAET Cosine similarity of two r-ad expectation tensor densities.
 %
 %   Input forms, in the order to reach for them: a single multiset;
 %   a pre-MAET, the canonical entry for everything else; densities
-%   built by buildExpTens; then the raw positional multi-attribute,
+%   built by buildMaet; then the raw positional multi-attribute,
 %   batched, and list forms.
 %
-%   s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period):
-%   s = cosSimExpTens(..., 'verbose', false):
+%   s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period):
+%   s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period, isExch):
+%   s = simMaet(..., 'verbose', false):
 %   Cosine similarity from raw arguments (builds density structs
-%   internally via buildExpTens).
+%   internally via buildMaet).
 %
-%   s = cosSimExpTens(pm1, pm2):
-%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildExpTens
+%   s = simMaet(pm1, pm2):
+%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildMaet
 %   needs, so it stands wherever a density does: each side is built
 %   internally and a scalar returned. Either side may equally be a
 %   density, so the two forms mix freely.
 %
-%   s = cosSimExpTens(dens_x, dens_y):
-%   s = cosSimExpTens(dens_x, dens_y, 'verbose', false):
-%   Cosine similarity using precomputed density structs from buildExpTens.
+%   s = simMaet(dens_x, dens_y):
+%   s = simMaet(dens_x, dens_y, 'verbose', false):
+%   Cosine similarity using precomputed density structs from buildMaet.
 %   This avoids recomputing tuple indices and weight products on each call,
 %   and is the preferred calling convention when comparing a fixed reference
 %   against many other sets.
 %
-%   [s, dens_x, dens_y] = cosSimExpTens(dens_x, dens_y, ...):
+%   [s, dens_x, dens_y] = simMaet(dens_x, dens_y, ...):
 %   As above, additionally returning the two operand structs with their
 %   self inner products memoised (a 'selfIP' field). A density's self
 %   inner product <T, T> depends only on the density itself, so a
@@ -32,7 +33,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   the returned struct through the loop and pay the reference's
 %   O(N^2) self term once:
 %       for m = 1:M
-%           [s(m), densRef] = cosSimExpTens(densRef, densQry{m}, ...);
+%           [s(m), densRef] = simMaet(densRef, densQry{m}, ...);
 %       end
 %   The memo is keyed on everything the value depends on beyond the
 %   density's contents (inner-product route, resolved
@@ -48,16 +49,16 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   applied internally across the sweep, so no threading is needed
 %   there.
 %
-%   s = cosSimExpTens(pAttr1, wAttr1, pAttr2, wAttr2, sigma, r, ...
-%                     isRel, isPer, periods):
+%   s = simMaet(pAttr1, wAttr1, pAttr2, wAttr2, sigma, r, ...
+%                     isRel, isPer, periods[, isExch]):
 %   Raw multi-attribute mode. pAttr1 and pAttr2 are each a 1-by-A
 %   cell of K_a-by-N value matrices, and wAttr1 and wAttr2 the
 %   matching per-attribute weights (the same shapes one would pass
-%   to buildExpTens). Builds the two MaetDensity structs internally
+%   to buildMaet). Builds the two MaetDensity structs internally
 %   and returns a scalar.
 %
-%   sCell = cosSimExpTens(refPAttr, refWAttr, {pAttrA, pAttrB, ...}, ...
-%                          qryWAttr, sigma, r, isRel, isPer, periods):
+%   sCell = simMaet(refPAttr, refWAttr, {pAttrA, pAttrB, ...}, ...
+%                          qryWAttr, sigma, r, isRel, isPer, periods[, isExch]):
 %   Raw multi-attribute scalar-vs-list mode (sweep). Exactly one of
 %   the two pAttr arguments is a cell-of-cells (a 1-by-M cell whose
 %   entries are themselves 1-by-A pAttr cells, e.g. the matrix-form
@@ -67,13 +68,13 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   across every entry (a single wAttr value, not a cell of weights).
 %   Returns a 1-by-M cell of similarity scalars.
 %
-%   s = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period):
+%   s = simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period[, isExch]):
 %   Batched-raw mode. At least one of P1, P2 is an M-by-K
 %   matrix (both dimensions > 1); the function returns an M-by-1
 %   vector of similarities. Pass [] for W1 or W2 to use uniform
-%   weights. Equivalent to batchCosSimExpTens (which is now deprecated).
+%   weights.
 %
-%   sCell = cosSimExpTens({d_x_1, ..., d_x_n}, {d_y_1, ..., d_y_n}):
+%   sCell = simMaet({d_x_1, ..., d_x_n}, {d_y_1, ..., d_y_n}):
 %   List mode. Iterates over paired entries of two cell arrays of
 %   density structs, returning a 1-by-n cell array of similarity values.
 %   Each pair is dispatched to the appropriate scalar form based on its
@@ -97,6 +98,16 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   the explicit repmat(refPitches, M, 1) idiom for the common case
 %   "compare one reference multiset against many candidates".
 %
+%   Shape rule (differs from Python). Batched-raw mode is entered when
+%   an operand is a matrix with both dimensions greater than one. A
+%   vector is a vector whichever way it is oriented, so a K-by-1 column
+%   is broadcast as one multiset shared by every row rather than read
+%   as K rows of one element. Python dispatches on ndim, where a
+%   (K, 1) array is K single-element rows. A batch of one-element
+%   multisets is written the same way in both languages: pad to two
+%   columns with NaN, [p(:), nan(K, 1)], the padding being stripped per
+%   row before each density is built.
+%
 %   Multiset-argument shapes (each operand takes the same shape on both
 %   sides; subscript 1 / 2 selects which operand):
 %     p1, p2          — Vectors of length K_1, K_2 (may differ). single multiset raw
@@ -109,7 +120,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                       (multi-attribute; per-attribute centre rows).
 %   Lowercase p stands for "pitch or position"; uppercase P is the
 %   2-D batched lift; pAttr is the multi-attribute generalisation.
-%   The same convention is used in entropyExpTens and evalExpTens.
+%   The same convention is used in entropyMaet and evalMaet.
 %
 %   In batched-raw mode the following name-value options are accepted
 %   (all forwarded to the underlying paired-rows implementation):
@@ -134,13 +145,13 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   the inner product assumes periodic equivalence with period set by
 %   'period' if isPer == true, and assumes transpositional equivalence
 %   (relative rather than absolute pitches or positions) if isRel == true.
-%   See buildExpTens for further information about these parameters.
+%   See buildMaet for further information about these parameters.
 %
 %   Inputs (struct calling convention):
-%     dens_x — Precomputed density struct from buildExpTens.
-%     dens_y — Precomputed density struct from buildExpTens.
+%     dens_x — Precomputed density struct from buildMaet.
+%     dens_y — Precomputed density struct from buildMaet.
 %              Both structs must share the same r, sigma, isRel, isPer,
-%              and (if periodic) period.
+%              isExch, and (if periodic) period.
 %
 %   Inputs (single multiset raw calling convention):
 %     p1     — Pitch or position values for the first multiset (vector
@@ -157,6 +168,11 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %              quadratic form.
 %     isPer  — If true, wrap differences to periodic interval [-J/2, J/2).
 %     period — Period J for periodic wrapping.
+%     isExch — Optional (default: true). If true, the multiset is
+%              exchangeable (unordered): the density is invariant under
+%              permuting a tuple's coordinates. If false, it is ordered,
+%              and position in the tuple carries identity. Trailing
+%              positional in every raw form.
 %
 %   Inputs (BATCHED-RAW calling convention):
 %     P1, P2 — nRows-by-K matrices of pitch or position values (rows
@@ -166,17 +182,17 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %              is broadcast against the matrix's rows.
 %     W1, W2 — Weights paired with P1, P2 (same shape, or [] for
 %              uniform). Broadcast in lockstep with their P operand.
-%     sigma, r, isRel, isPer, period — As in the single multiset raw convention
-%              (shared across all rows).
+%     sigma, r, isRel, isPer, period, isExch — As in the single multiset raw
+%              convention (shared across all rows).
 %
 %   Inputs (MA raw calling convention):
 %     pAttr1, pAttr2  — 1-by-A cells of K_a-by-N matrices (per-attribute
 %                       value rows; the same shape one would pass to
-%                       buildExpTens). For the scalar-vs-list sweep
+%                       buildMaet). For the scalar-vs-list sweep
 %                       form, exactly one of these is a 1-by-M cell of
 %                       such cells; the other is a single pAttr cell.
 %     wAttr1, wAttr2  — Weights paired with pAttr1, pAttr2 (see
-%                       buildExpTens for the accepted shapes). Shared
+%                       buildMaet for the accepted shapes). Shared
 %                       across every list entry in the sweep form.
 %     sigmaVec        — 1-by-G per-group Gaussian widths.
 %     rVec            — 1-by-A per-attribute tuple sizes.
@@ -184,6 +200,8 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %     isPerVec        — 1-by-A per-attribute periodic flags.
 %     periodVec       — 1-by-A per-attribute period values (ignored where
 %                       isPerVec(a) == false).
+%     isExchVec       — Optional 1-by-A per-attribute exchangeability flags
+%                       (default: all true); see isExch above.
 %
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
@@ -217,7 +235,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                 attribute whose declared measure is the default
 %                 full-image one, that route is admissible only up to
 %                 the sigma/P threshold, above which 'centres' errors
-%                 (cosSimExpTens:centresUnavailable) naming the
+%                 (simMaet:centresUnavailable) naming the
 %                 wrap = 'single-image' opt-in.
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                 wide mptDefaults('truncationSigmas') setting for this
@@ -238,7 +256,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                 self-IP memo on the precision. The multi-attribute
 %                 log-kernel core has no float32 form, so the value is
 %                 not read on any other route. Point evaluation
-%                 (evalExpTens) honours it too.
+%                 (evalMaet) honours it too.
 %     'normalize' / 'normalise' — 'cosine' (default), 'oneSidedDenom',
 %                 or 'none'. Selects the denominator applied to the
 %                 inner product <X, Y>. 'cosine' gives the strict
@@ -256,7 +274,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                 of unnormalised Gaussian kernels over its full ordered
 %                 tuple set; see INTERNAL.IPCANONICALSCALE); no self
 %                 inner product is formed, and the value is what
-%                 entropyExpTens('method', 'renyi2') is computed from.
+%                 entropyMaet('method', 'renyi2') is computed from.
 %                 The batched all-r = 1 fast path declines it and the
 %                 per-pair route runs instead. Either spelling of the
 %                 keyword is accepted; matching on the value is
@@ -275,11 +293,9 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   permutation indices, vectorized inner product computation, simplified
 %   quadratic form, precomputed index/pitch/weight data shared across the
 %   three inner product calls, automatic chunking for large arrays, and
-%   optional precomputed density structs via buildExpTens.
+%   optional precomputed density structs via buildMaet.
 %
-%   See also buildExpTens, evalExpTens.
-%   See also batchCosSimExpTens (deprecated; folded into the batched-raw
-%   mode of cosSimExpTens above).
+%   See also buildMaet, evalMaet.
 
 % === Parse arguments ===
 
@@ -288,8 +304,7 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 % the struct and raw-args paths (Möbius dispatch) and is forwarded to
 % the per-pair inner calls of the batched-raw path; 'spectrum',
 % 'precision', and 'dedup' are
-% valid only for the batched-raw path and are forwarded to
-% batchCosSimExpTens. Each is captured (with its index range) and
+% valid only for the batched-raw path. Each is captured (with its index range) and
 % removed from varargin before the dispatch sees it, so the dispatch
 % logic only has to inspect positional arguments.
 
@@ -331,7 +346,7 @@ while i <= numel(varargin)
                 method = lower(char(varargin{i + 1}));
                 if ~ismember(method, ...
                         {'auto', 'bulger', 'centres', 'mobius', 'contract'})
-                    error('cosSimExpTens:badMethod', ...
+                    error('simMaet:badMethod', ...
                           ['''method'' must be ''auto'', ''bulger'', ' ...
                            '''centres'', ''mobius'', or ''contract''; ' ...
                            'got ''%s''.'], method);
@@ -363,7 +378,7 @@ while i <= numel(varargin)
                 elseif strcmpi(val, 'none')
                     normalize = 'none';
                 else
-                    error('cosSimExpTens:badNormalize', ...
+                    error('simMaet:badNormalize', ...
                           ['''normalize'' must be ''cosine'', ' ...
                            '''oneSidedDenom'', or ''none''; got ''%s''.'], val);
                 end
@@ -400,23 +415,23 @@ varargin = varargin(keepMask);
 
 nArgs = numel(varargin);
 
-% Optional shared [sym] geometry flag. The raw forms (single multiset and MA) carry
-% one shared geometry (sigma, r, isRel, isPer, period); isSym joins it
+% Optional shared [exch] geometry flag. The raw forms (single multiset and MA) carry
+% one shared geometry (sigma, r, isRel, isPer, period); isExch joins it
 % as an optional trailing positional. Pop it here and normalise nArgs
 % back to 9 so the raw-form dispatch below is unchanged; forward it to
-% every buildExpTens call via symArgs. (The two-density forms at
-% nArgs == 2 read isSym from the precomputed structs and never reach
+% every buildMaet call via exchArgs. (The two-density forms at
+% nArgs == 2 read isExch from the precomputed structs and never reach
 % this.)
-isSymRaw = [];
+isExchRaw = [];
 if nArgs == 10
-    isSymRaw = varargin{10};
+    isExchRaw = varargin{10};
     varargin(10) = [];
     nArgs = numel(varargin);
 end
-if isempty(isSymRaw)
-    symArgs = {};
+if isempty(isExchRaw)
+    exchArgs = {};
 else
-    symArgs = {isSymRaw};
+    exchArgs = {isExchRaw};
 end
 
 % Determine whether we will dispatch to batched-raw (the only mode
@@ -439,23 +454,23 @@ if nArgs == 9 && isnumeric(varargin{1}) && isnumeric(varargin{3})
 end
 if ~willBatch
     if spectrumGiven
-        error('cosSimExpTens:spectrumNotApplicable', ...
+        error('simMaet:spectrumNotApplicable', ...
             ['''spectrum'' is only valid in batched-raw mode (at least one ' ...
              'of P1, P2 must be a 2-D matrix with both dimensions > 1). For ' ...
              'scalar input, apply addSpectra to p and w yourself before calling.']);
     end
     if precisionGiven
-        error('cosSimExpTens:precisionNotApplicable', ...
+        error('simMaet:precisionNotApplicable', ...
             '''precision'' is only valid in batched-raw mode.');
     end
     if dedupGiven
-        error('cosSimExpTens:dedupNotApplicable', ...
+        error('simMaet:dedupNotApplicable', ...
             '''dedup'' is only valid in batched-raw mode.');
     end
 end
 
 % ==================================================================
-% Canonical dispatch order (mirrors entropyExpTens and evalExpTens):
+% Canonical dispatch order (mirrors entropyMaet and evalMaet):
 %   nArgs == 2:  precomputed-density forms or LIST.
 %     - both struct -> switch on tag pair:
 %         * (MaetDensity, MaetDensity), both single-multiset -> prune
@@ -485,12 +500,12 @@ end
 % ==================================================================
 
 USAGE_MSG = ['Usage:\n' ...
-    '  single multiset struct:    cosSimExpTens(dens_x, dens_y [, ''verbose'', tf])\n' ...
-    '  single multiset raw args:  cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
-    '  MA struct:    cosSimExpTens(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
-    '  MA raw args:  cosSimExpTens(pAttr1, wAttr1, pAttr2, wAttr2, sigmaVec, rVec, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
-    '  List mode:    cosSimExpTens({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
-    '  Batched raw:  cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period) -> vector of values\n' ...
+    '  single multiset struct:    simMaet(dens_x, dens_y [, ''verbose'', tf])\n' ...
+    '  single multiset raw args:  simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
+    '  MA struct:    simMaet(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
+    '  MA raw args:  simMaet(pAttr1, wAttr1, pAttr2, wAttr2, sigmaVec, rVec, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
+    '  List mode:    simMaet({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
+    '  Batched raw:  simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period) -> vector of values\n' ...
     '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).'];
 
 if nArgs == 2
@@ -499,7 +514,7 @@ if nArgs == 2
 
     if isstruct(a) && isstruct(b)
         if ~isfield(a, 'tag') || ~isfield(b, 'tag')
-            error('cosSimExpTens:untaggedStruct', ...
+            error('simMaet:untaggedStruct', ...
                 'Both density structs must carry a ''tag'' field.');
         end
         if strcmp(a.tag, 'MaetDensity') && strcmp(b.tag, 'MaetDensity')
@@ -512,8 +527,8 @@ if nArgs == 2
                 % Single-multiset corner (A = N = 1): prune element-level
                 % at the density level, then fall through to the shared
                 % multi-attribute inner product below.
-                maet_x = internal.prunedExpTens(a);
-                maet_y = internal.prunedExpTens(b);
+                maet_x = internal.prunedMaet(a);
+                maet_y = internal.prunedMaet(b);
             else
                 [s, cacheX, cacheY] = localCosSimMA(a, b, method, normalize, ...
                                   verbose, truncationSigmas, cacheX, cacheY, ...
@@ -525,7 +540,7 @@ if nArgs == 2
                 return;
             end
         else
-            error('cosSimExpTens:tagMismatch', ...
+            error('simMaet:tagMismatch', ...
                 ['Both density structs must carry the ''MaetDensity'' ' ...
                  'tag. Got %s and %s.'], a.tag, b.tag);
         end
@@ -536,7 +551,7 @@ if nArgs == 2
         % internally across the list, so the cache-carrying outputs are
         % not offered here.
         if nargout > 1
-            error('cosSimExpTens:selfIpOutputsUnavailable', ...
+            error('simMaet:selfIpOutputsUnavailable', ...
                 ['The cache-carrying outputs are available only in the ' ...
                  'density-struct scalar form; list-mode sweeps memoise ' ...
                  'internally and need no threading.']);
@@ -545,15 +560,15 @@ if nArgs == 2
                                    truncationSigmas, kernelPrecision);
         return;
     else
-        error('cosSimExpTens:badPairTypes', USAGE_MSG);
+        error('simMaet:badPairTypes', USAGE_MSG);
     end
 
 elseif nArgs == 9
     if nargout > 1
-        error('cosSimExpTens:selfIpOutputsUnavailable', ...
+        error('simMaet:selfIpOutputsUnavailable', ...
             ['The cache-carrying outputs are available only in the ' ...
              'density-struct scalar form (both operands structs from ' ...
-             'buildExpTens). The raw sweep form memoises internally ' ...
+             'buildMaet). The raw sweep form memoises internally ' ...
              'and needs no threading.']);
     end
     a = varargin{1};
@@ -564,7 +579,7 @@ elseif nArgs == 9
         %     from a list-of-MA (cell of cells) by the first inner
         %     element. ---
         if ~iscell(a) || ~iscell(c)
-            error('cosSimExpTens:cellPairNeedsCells', ...
+            error('simMaet:cellPairNeedsCells', ...
                 ['The multi-attribute form requires both p1 (1st) and ' ...
                  'p2 (3rd) to be cells (multi-attribute pAttr).']);
         end
@@ -580,16 +595,16 @@ elseif nArgs == 9
         isPerVec  = varargin{8};
         periodVec = varargin{9};
         if aIsListOfMA && bIsListOfMA
-            error('cosSimExpTens:listVsListNotSupported', ...
+            error('simMaet:listVsListNotSupported', ...
                   ['Raw multi-attribute list-vs-list is not supported; pass ' ...
                    'explicit density structs via the density list mode ' ...
-                   '(build each entry with buildExpTens first).']);
+                   '(build each entry with buildMaet first).']);
         end
         if ~aIsListOfMA && ~bIsListOfMA
-            dens_x_ma = buildExpTens(pAttr1, w1, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
-            dens_y_ma = buildExpTens(pAttr2, w2, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
+            dens_x_ma = buildMaet(pAttr1, w1, sigmaVec, rVec, ...
+                isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', verbose);
+            dens_y_ma = buildMaet(pAttr2, w2, sigmaVec, rVec, ...
+                isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', verbose);
             s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
                               verbose, truncationSigmas, [], [], ...
                               kernelPrecision);
@@ -607,14 +622,14 @@ elseif nArgs == 9
             listPAttr   = pAttr1;  listW   = w1;
             scalarFirst = false;
         end
-        dens_scalar = buildExpTens(scalarPAttr, scalarW, sigmaVec, rVec, ...
-            isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
+        dens_scalar = buildMaet(scalarPAttr, scalarW, sigmaVec, rVec, ...
+            isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', verbose);
         M = numel(listPAttr);
         s = cell(1, M);
         densList = cell(1, M);
         for m = 1:M
-            densList{m} = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', false);
+            densList{m} = buildMaet(listPAttr{m}, listW, sigmaVec, rVec, ...
+                isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', false);
         end
         % Batched all-r = 1 sweep (see localR1BroadcastFast); the
         % per-pair loop below is the fallback for every other shape.
@@ -647,7 +662,7 @@ elseif nArgs == 9
         return;
     end
     if ~isnumeric(a) || ~isnumeric(c)
-        error('cosSimExpTens:badPairTypes', USAGE_MSG);
+        error('simMaet:badPairTypes', USAGE_MSG);
     end
     if willBatch
         % --- BATCHED-RAW (with optional broadcast) ---
@@ -673,10 +688,10 @@ elseif nArgs == 9
                      'the multiset size, breaking r == K).']);
             end
             rIn = varargin{6}; isRelIn = varargin{7}; isPerIn = varargin{8};
-            if isempty(isSymRaw)
-                isSymIn = true;
+            if isempty(isExchRaw)
+                isExchIn = true;
             else
-                isSymIn = isSymRaw;
+                isExchIn = isExchRaw;
             end
             for opIdx = 1:2
                 if opIdx == 1
@@ -690,7 +705,7 @@ elseif nArgs == 9
                     kSide = size(opArr, 2);
                 end
                 internal.checkAnisoConstraints(rIn, kSide, isRelIn, ...
-                    isPerIn, isSymIn, false, opName);
+                    isPerIn, isExchIn, false, opName);
             end
             [~, Rw] = internal.validateKernelCov(sigmaBatched, round(rIn), ...
                                                  'sigma');
@@ -732,7 +747,7 @@ elseif nArgs == 9
             P2 = repmat(P2, M1, 1);
             if ~isempty(W2), W2 = repmat(W2, M1, 1); end
         elseif M1 ~= M2
-            error('cosSimExpTens:batchedRowMismatch', ...
+            error('simMaet:batchedRowMismatch', ...
                 ['Batched-raw P1 and P2 must either have matching row counts, ' ...
                  'or one of them must be a single-row reference (vector or 1xK ' ...
                  'matrix) to broadcast against the other. Got %d and %d rows.'], ...
@@ -741,7 +756,7 @@ elseif nArgs == 9
 
         s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
             sigmaBatched, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
-            isSymRaw, method, normalize, verbose, ...
+            isExchRaw, method, normalize, verbose, ...
             spectrumGiven, spectrumOpt, ...
             precisionGiven, precisionOpt, ...
             dedupGiven, dedupOpt, ...
@@ -761,13 +776,13 @@ elseif nArgs == 9
     isPer_arg  = varargin{8};
     J_arg      = varargin{9};
 
-    maet_x = buildExpTens(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, ...
-        J_arg, symArgs{:}, 'verbose', verbose);
-    maet_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, ...
-        J_arg, symArgs{:}, 'verbose', verbose);
+    maet_x = buildMaet(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, ...
+        J_arg, exchArgs{:}, 'verbose', verbose);
+    maet_y = buildMaet(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, ...
+        J_arg, exchArgs{:}, 'verbose', verbose);
 
 else
-    error('cosSimExpTens:wrongArgCount', USAGE_MSG);
+    error('simMaet:wrongArgCount', USAGE_MSG);
 end
 
 % --- Single-multiset corner (A = N = 1): both entry forms above leave
@@ -783,10 +798,10 @@ if ~structScalarInputs
     cacheY = localSelfIpEmpty();
 end
 if nargout > 1 && ~structScalarInputs
-    error('cosSimExpTens:selfIpOutputsUnavailable', ...
+    error('simMaet:selfIpOutputsUnavailable', ...
         ['The cache-carrying outputs are available only in the ' ...
          'density-struct scalar form (both operands structs from ' ...
-         'buildExpTens).']);
+         'buildMaet).']);
 end
 [s, cacheX, cacheY] = localCosSimMA(maet_x, maet_y, method, normalize, ...
                   verbose, truncationSigmas, cacheX, cacheY, kernelPrecision);
@@ -932,8 +947,8 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
              'without); inner products require a shared kernel per ' ...
              'attribute.']);
     end
-    dens_x = internal.prunedExpTens(dens_x);
-    dens_y = internal.prunedExpTens(dens_y);
+    dens_x = internal.prunedMaet(dens_x);
+    dens_y = internal.prunedMaet(dens_y);
 
     % An empty operand has no events to overlap, so the inner product -- and
     % hence the similarity -- is zero. An event-weighted density whose window caught
@@ -948,28 +963,28 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     end
 
     if dens_x.nAttrs ~= dens_y.nAttrs
-        error('cosSimExpTens:nAttrsMismatch', ...
+        error('simMaet:nAttrsMismatch', ...
             'Both MaetDensities must have the same nAttrs.');
     end
     if ~isequal(dens_x.r, dens_y.r)
-        error('cosSimExpTens:rMismatch', ...
+        error('simMaet:rMismatch', ...
             'Both MaetDensities must have the same r (per attribute).');
     end
     if ~isequal(dens_x.sigma, dens_y.sigma)
-        error('cosSimExpTens:sigmaMismatch', ...
+        error('simMaet:sigmaMismatch', ...
             'Both MaetDensities must have the same sigma (per attribute).');
     end
     if ~isequal(logical(dens_x.isRel), logical(dens_y.isRel))
-        error('cosSimExpTens:isRelMismatch', ...
+        error('simMaet:isRelMismatch', ...
             'Both MaetDensities must have the same isRel (per attribute).');
     end
     if ~isequal(logical(dens_x.isPer), logical(dens_y.isPer))
-        error('cosSimExpTens:isPerMismatch', ...
+        error('simMaet:isPerMismatch', ...
             'Both MaetDensities must have the same isPer (per attribute).');
     end
     perMask = logical(dens_x.isPer);
     if any(dens_x.period(perMask) ~= dens_y.period(perMask))
-        error('cosSimExpTens:periodMismatch', ...
+        error('simMaet:periodMismatch', ...
             'Both MaetDensities must have the same period for periodic attributes.');
     end
 
@@ -984,7 +999,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     % --- Method dispatch (mirrors Python _select_ma_inner_product_method) ---
     % The selector's inputs (value counts, sigma/P, grid node counts, the
     % declared wrap vector with its mismatch check, the memo flags read
-    % from the caches, and the [sym] flags) are built by
+    % from the caches, and the [exch] flags) are built by
     % INTERNAL.FLATSELECTORINPUTS, shared with explainDispatch so the
     % report cannot drift from the route this call takes.
     [selIn, orderedAny, nestedAny] = internal.flatSelectorInputs( ...
@@ -1026,10 +1041,10 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         selIn.anyPer, selIn.anyRelNonper, selIn.anyRelPer, ...
         selIn.sigmaOverPMax, method, verbose, selIn.relVec, selIn.nuVec, ...
         selIn.kVecY, selIn.wrapVec, selIn.truncationSigmas, ...
-        selIn.skipXX, selIn.skipYY, selIn.symVec, ...
+        selIn.skipXX, selIn.skipYY, selIn.exchVec, ...
         selIn.guardForcedBulger, selIn.perVec);
 
-    % Ordered (isSym = false) attributes are not symmetrised, so the
+    % Ordered (isExch = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent
     % them. Force the pairwise/centres path whenever any attribute is
     % ordered at r_a > 1 (r_a = 1 is vacuous). The centres path reads the
@@ -1048,7 +1063,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     % it is not enumeration-only. (nestedAny was resolved above, before
     % the selector, which needs it for its guard flag.)
     if strcmp(method, 'contract') && ~nestedAny
-        error('cosSimExpTens:contractUnavailable', ...
+        error('simMaet:contractUnavailable', ...
             ['method=''contract'' applies to a nested attribute only; ' ...
              'use ''auto'' or ''bulger'' for non-nested densities.']);
     end
@@ -1135,12 +1150,12 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         % Bulger enumeration, and saying 'bulger' here described the route
         % the contraction had displaced. The per-attribute routes are the
         % informative part, so they are the reason. Mirror of the Python
-        % _maybe_show_dispatch_msg("cos_sim_exp_tens", "contract",
+        % _maybe_show_dispatch_msg("sim_maet", "contract",
         % "nested: ...").
         chosenLabel = 'contract';
         chosenReason = ['nested: ' strjoin(contractRoutes, ',')];
     end
-    internal.maybeShowDispatchMsg('cosSimExpTens', chosenLabel, chosenReason);
+    internal.maybeShowDispatchMsg('simMaet', chosenLabel, chosenReason);
 
     ranOrbit = false;
     if ~isempty(contractTriple)
@@ -1161,15 +1176,15 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         % the two comparable; an independent re-implementation would
         % measure its own constants rather than the algorithms', and
         % would ignore settings the core honours.
-        dens_x = internal.ensureExpTensExpensive(dens_x);
-        dens_y = internal.ensureExpTensExpensive(dens_y);
+        dens_x = internal.ensureMaetExpensive(dens_x);
+        dens_y = internal.ensureMaetExpensive(dens_y);
         % Memoise the self terms under this route's own key, exactly as
         % the Bulger arm does. Without this the route recomputes <X,X>
         % and <Y,Y> on every call while the other routes reuse theirs,
         % so a repeated comparison would time three products against
         % one, and a forced 'centres' call would leave no memo for the
         % shared cost-estimation flag to see. Twin of the Python
-        % _cos_sim_exp_tens_ma_centres.
+        % _sim_maet_ma_centres.
         centresKey = localSelfIpKey('centres', tsKeyResolved, kpKeyExtra);
         [xxHit, xxVal] = localSelfIpGet(cacheX, centresKey);
         [yyHit, yyVal] = localSelfIpGet(cacheY, centresKey);
@@ -1212,7 +1227,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
                 ip_xy, ip_xx, ip_yy);
         end
         if impossible
-            warning('mpt:cosSimExpTens:impossibleValue', ...
+            warning('mpt:simMaet:impossibleValue', ...
                 ['The Mobius route returned a value that cannot be ' ...
                  'correct: %s. This is a defect, not a loss of ' ...
                  'accuracy, so it is not something truncationSigmas ' ...
@@ -1234,8 +1249,8 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
 
     if ~ranOrbit
         % Pairwise branch. Heavy fields needed.
-        dens_x = internal.ensureExpTensExpensive(dens_x);
-        dens_y = internal.ensureExpTensExpensive(dens_y);
+        dens_x = internal.ensureMaetExpensive(dens_x);
+        dens_y = internal.ensureMaetExpensive(dens_y);
 
         Ux_perm  = dens_x.U_perm;
         wx_perm  = dens_x.wJ;
@@ -1271,7 +1286,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
             totalPairs = totalPairs + double(nJy)*double(nKy);
         end
         maxR = max(rVec);
-        estimateCompTime(totalPairs, maxR, 'cosSimExpTens (MAET)', verbose);
+        estimateCompTime(totalPairs, maxR, 'simMaet (MAET)', verbose);
 
         ip_xy = ipCoreMA(Ux_perm, wx_perm, nJx, Vy_comb, wvy_comb, nKy);
         if xxHit
@@ -1307,7 +1322,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
             return;
         case 'cosine'
             if isempty(ip_xx)
-                error('cosSimExpTens:missingSelfIp', ...
+                error('simMaet:missingSelfIp', ...
                     ['normalize=''cosine'' requires <X,X>, but it was ' ...
                      'not computed. This is an internal routing defect.']);
             end
@@ -1783,7 +1798,7 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
 %     (cell, struct) — broadcast struct against the cell. Returns 1-by-n.
 %     (struct, cell) — broadcast struct against the cell. Returns 1-by-n.
 %
-%   Pairwise (cell, cell) mode dispatches recursively to cosSimExpTens;
+%   Pairwise (cell, cell) mode dispatches recursively to simMaet;
 %   no operand repeats there, so no self-IP memo applies. The two
 %   broadcast shapes instead call the scalar-pair dispatcher directly
 %   with a memo cache for the shared operand, so its self inner product
@@ -1807,8 +1822,8 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
 
     if aIsCell && bIsCell
         if numel(a) ~= numel(b)
-            error('cosSimExpTens:listLengthMismatch', ...
-                ['cosSimExpTens (list mode): the two cell arrays must have ' ...
+            error('simMaet:listLengthMismatch', ...
+                ['simMaet (list mode): the two cell arrays must have ' ...
                  'matching length, or one operand must be a single density ' ...
                  'struct to broadcast. Got %d and %d.'], numel(a), numel(b));
         end
@@ -1816,9 +1831,9 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
         sCell = cell(1, n);
         for i = 1:n
             if ~isstruct(a{i}) || ~isstruct(b{i})
-                error('cosSimExpTens:listNonStruct', ...
-                    ['cosSimExpTens (list mode): cell entries must be ' ...
-                     'density structs from buildExpTens; entry %d is not ' ...
+                error('simMaet:listNonStruct', ...
+                    ['simMaet (list mode): cell entries must be ' ...
+                     'density structs from buildMaet; entry %d is not ' ...
                      'a struct.'], i);
             end
         end
@@ -1851,13 +1866,13 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
             [~, firstIdx, mapIdx] = unique(pairKeys, 'stable');
             nUnique = numel(firstIdx);
             if verbose
-                fprintf(['cosSimExpTens: %d pairs, %d unique after ' ...
+                fprintf(['simMaet: %d pairs, %d unique after ' ...
                          'canonical-form dedup.\n'], n, nUnique);
             end
             uniqueVals = cell(1, nUnique);
             for u = 1:nUnique
                 i = firstIdx(u);
-                uniqueVals{u} = cosSimExpTens(a{i}, b{i}, ...
+                uniqueVals{u} = simMaet(a{i}, b{i}, ...
                                      'normalize', normalize, ...
                                      'method', method, ...
                                      'truncationSigmas', truncationSigmas, ...
@@ -1870,7 +1885,7 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
             return;
         end
         for i = 1:n
-            sCell{i} = cosSimExpTens(a{i}, b{i}, ...
+            sCell{i} = simMaet(a{i}, b{i}, ...
                                      'normalize', normalize, ...
                                      'method', method, ...
                                      'truncationSigmas', truncationSigmas, ...
@@ -1893,8 +1908,8 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
     end
 
     if ~isstruct(scalarArg)
-        error('cosSimExpTens:listBadBroadcast', ...
-            ['cosSimExpTens (list mode): when one operand is a cell of ' ...
+        error('simMaet:listBadBroadcast', ...
+            ['simMaet (list mode): when one operand is a cell of ' ...
              'density structs, the other must be a single density struct ' ...
              'to broadcast. Got a non-struct, non-cell of class %s.'], ...
             class(scalarArg));
@@ -1925,9 +1940,9 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
 
     for i = 1:n
         if ~isstruct(cellArg{i})
-            error('cosSimExpTens:listNonStruct', ...
-                ['cosSimExpTens (list mode): cell entries must be density ' ...
-                 'structs from buildExpTens; entry %d is not a struct.'], i);
+            error('simMaet:listNonStruct', ...
+                ['simMaet (list mode): cell entries must be density ' ...
+                 'structs from buildMaet; entry %d is not a struct.'], i);
         end
         if scalarLeft
             [sCell{i}, cacheScalar] = localScalarPairDispatch( ...
@@ -1949,7 +1964,7 @@ function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
     kernelPrecision)
 %LOCALSCALARPAIRDISPATCH  One density-struct pair with memo threading.
 %
-%   Replicates the scalar dispatch cosSimExpTens applies to a
+%   Replicates the scalar dispatch simMaet applies to a
 %   two-struct call (the single-multiset corner prunes both operands
 %   before the shared multi-attribute inner product; every other shape
 %   goes straight to it), with the caller's METHOD, TRUNCATIONSIGMAS and
@@ -1958,11 +1973,11 @@ function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
 %   list loop can thread it.
 
     if ~isfield(dx, 'tag') || ~isfield(dy, 'tag')
-        error('cosSimExpTens:untaggedStruct', ...
+        error('simMaet:untaggedStruct', ...
             'Both density structs must carry a ''tag'' field.');
     end
     if ~strcmp(dx.tag, 'MaetDensity') || ~strcmp(dy.tag, 'MaetDensity')
-        error('cosSimExpTens:tagMismatch', ...
+        error('simMaet:tagMismatch', ...
             ['Both density structs must carry the ''MaetDensity'' ' ...
              'tag. Got %s and %s.'], dx.tag, dy.tag);
     end
@@ -1970,8 +1985,8 @@ function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
     if nargin < 9; truncationSigmas = []; end
     if nargin < 10; kernelPrecision = []; end
     if internal.isSingleMultiset(dx) && internal.isSingleMultiset(dy)
-        dx = internal.prunedExpTens(dx);
-        dy = internal.prunedExpTens(dy);
+        dx = internal.prunedMaet(dx);
+        dy = internal.prunedMaet(dy);
     end
     [s, cacheX, cacheY] = localCosSimMA(dx, dy, method, normalize, ...
         verbose, truncationSigmas, cacheX, cacheY, kernelPrecision);
@@ -1991,7 +2006,7 @@ function key = localDensityPairKey(dx, dy)
 %   per side in a relative mode, joint co-transposition in an absolute
 %   one; no re-rounding, as the values come from built densities) with
 %   the density parameters (sigma, r, isRel, isPer, period) and the
-%   per-density declarations (wrap, isSym) of both sides baked in, so
+%   per-density declarations (wrap, isExch) of both sides baked in, so
 %   two pairs share a key only when the pair core would return the same
 %   number for both.
     px = dx.pAttr{1}(:, 1).'; wx = dx.w{1}(:, 1).';
@@ -2014,26 +2029,23 @@ function key = localDensityParamKey(d)
     if isfield(d, 'wrap') && ~isempty(d.wrap)
         wrapA = char(d.wrap{1});
     end
-    isSymA = true;
-    if isfield(d, 'isSym') && ~isempty(d.isSym)
-        isSymA = logical(d.isSym(1));
+    isExchA = true;
+    if isfield(d, 'isExch') && ~isempty(d.isExch)
+        isExchA = logical(d.isExch(1));
     end
     key = sprintf('%.17g|%d|%d|%d|%.17g|%s|%d', double(d.sigma(1)), ...
         double(d.r(1)), logical(d.isRel(1)), logical(d.isPer(1)), ...
-        double(d.period(1)), wrapA, isSymA);
+        double(d.period(1)), wrapA, isExchA);
 end
 
 
 function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, ...
-    isSym, method, normalize, verbose, ...
+    isExch, method, normalize, verbose, ...
     spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt, ...
     truncationSigmas, kernelPrecision)
 %LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
 %
 %   P1 and P2 are nRows-by-K_? matrices. Returns a length-nRows vector.
-%   The implementation lives here (it was previously hosted in the
-%   deprecated batchCosSimExpTens.m, which is now a thin shim that
-%   forwards to this code path via the public cosSimExpTens API).
 %
 %   Pipeline:
 %     1. Optional precision rounding.
@@ -2041,37 +2053,37 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
 %        that equivalent multisets map to the same key.
 %     3. Deduplicate individual A- and B-sets; deduplicate (A, B) pairs.
 %     4. Build one density struct per unique individual set.
-%     5. Call cosSimExpTens once per unique (A, B) pair, mapping results
+%     5. Call simMaet once per unique (A, B) pair, mapping results
 %        back to all matching rows.
 
     if nargin < 20, truncationSigmas = []; end
     if nargin < 21, kernelPrecision  = []; end
 
     if size(P1, 1) ~= size(P2, 1)
-        error('cosSimExpTens:batchedRowMismatch', ...
-            ['cosSimExpTens (batched mode): P1 and P2 must have the same ' ...
+        error('simMaet:batchedRowMismatch', ...
+            ['simMaet (batched mode): P1 and P2 must have the same ' ...
              'number of rows, got %d and %d.'], size(P1, 1), size(P2, 1));
     end
 
-    % Shared [sym] flag forwarded to every per-row density build.
-    if nargin < 10 || isempty(isSym)
-        symArgsB = {};
+    % Shared [exch] flag forwarded to every per-row density build.
+    if nargin < 10 || isempty(isExch)
+        exchArgsB = {};
     else
-        symArgsB = {isSym};
+        exchArgsB = {isExch};
     end
 
     % The batched path deduplicates rows by a multiset canonical key,
     % which collapses rows that share a multiset but differ in order.
-    % That is correct only for the symmetric reading: under isSym = false
+    % That is correct only for the symmetric reading: under isExch = false
     % the order is significant, so the dedup would silently merge
     % distinct ordered densities. Reject rather than return a wrong
     % answer (parity with the Python batched path). Order-aware batched
     % dedup is a tracked follow-up; use scalar or density-list forms for
     % ordered comparisons.
-    if ~isempty(symArgsB) && ~all(logical(isSym(:))) && r > 1
-        error('cosSimExpTens:batchedOrderedUnsupported', ...
-              ['cosSimExpTens batched (2-D) input does not yet support ' ...
-               'isSym = false (ordered) densities at r > 1: the batched ' ...
+    if ~isempty(exchArgsB) && ~all(logical(isExch(:))) && r > 1
+        error('simMaet:batchedOrderedUnsupported', ...
+              ['simMaet batched (2-D) input does not yet support ' ...
+               'isExch = false (ordered) densities at r > 1: the batched ' ...
                'dedup canonicalises each row''s multiset and would merge ' ...
                'order-distinct rows. Build densities individually ' ...
                '(scalar or density-list input) for ordered comparisons.']);
@@ -2099,7 +2111,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         % (the loop below operates on unique (A, B) pairs only). Honour
         % the request with a warning; the resulting numerical output is
         % identical either way.
-        warning('cosSimExpTens:dedupNoop', ...
+        warning('simMaet:dedupNoop', ...
             ['''dedup'', false has no effect: the batched-raw ' ...
              'implementation always deduplicates internally for ' ...
              'speed. Numerical results are unchanged.']);
@@ -2215,7 +2227,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     nUniquePairs = size(uniquePairs, 1);
 
     if verbose
-        fprintf(['cosSimExpTens: %d rows, %d valid, ' ...
+        fprintf(['simMaet: %d rows, %d valid, ' ...
                  '%d unique A-sets, %d unique B-sets, ' ...
                  '%d unique pairs.\n'], ...
             nRows, numel(validIdx), nUniqueA, nUniqueB, nUniquePairs);
@@ -2246,8 +2258,8 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         if useSpectra
             [pA_u, wA_u] = addSpectra(pA_u, wA_u, specArgs{:});
         end
-        densA{ua} = buildExpTens(pA_u, wA_u, sigma, r, isRel, isPer, period, ...
-                                 symArgsB{:}, 'verbose', false);
+        densA{ua} = buildMaet(pA_u, wA_u, sigma, r, isRel, isPer, period, ...
+                                 exchArgsB{:}, 'verbose', false);
     end
 
     densB = cell(nUniqueB, 1);
@@ -2256,19 +2268,19 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         if useSpectra
             [pB_u, wB_u] = addSpectra(pB_u, wB_u, specArgs{:});
         end
-        densB{ub} = buildExpTens(pB_u, wB_u, sigma, r, isRel, isPer, period, ...
-                                 symArgsB{:}, 'verbose', false);
+        densB{ub} = buildMaet(pB_u, wB_u, sigma, r, isRel, isPer, period, ...
+                                 exchArgsB{:}, 'verbose', false);
     end
 
     if verbose
-        fprintf('cosSimExpTens: built %d density structs (%d A + %d B).\n', ...
+        fprintf('simMaet: built %d density structs (%d A + %d B).\n', ...
             nUniqueA + nUniqueB, nUniqueA, nUniqueB);
     end
 
     % === Phase 3.5: Up-front time estimate ===
     % Calibrate empirically (warm-up + timed sample) and extrapolate
     % to the full unique-pair count, matching the pattern used by the
-    % other batched helpers (spectralEntropy, entropyExpTens,
+    % other batched helpers (spectralEntropy, entropyMaet,
     % templateHarmonicity, virtualPitches, tensorHarmonicity).
     % Threshold 10 s via internal.printBatchedEstimate; gated on
     % verbose for consistency with the rest of the toolbox.
@@ -2294,7 +2306,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         % inner call's first-time dispatch announce, etc.).
         dA_w = densA{uniquePairs(sampleIdx(1), 1)};
         dB_w = densB{uniquePairs(sampleIdx(1), 2)};
-        cosSimExpTens(dA_w, dB_w, 'method', method, ...
+        simMaet(dA_w, dB_w, 'method', method, ...
                       'normalize', normalize, 'verbose', false);
 
         % Timed calibration over the sample.
@@ -2302,13 +2314,13 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         for cs = 1:numel(sampleIdx)
             dA_s = densA{uniquePairs(sampleIdx(cs), 1)};
             dB_s = densB{uniquePairs(sampleIdx(cs), 2)};
-            cosSimExpTens(dA_s, dB_s, 'method', method, ...
+            simMaet(dA_s, dB_s, 'method', method, ...
                           'normalize', normalize, 'verbose', false);
         end
         tCalTotal = toc(tCalStart);
         tPerPair  = tCalTotal / numel(sampleIdx);
         estTotal  = tCalTotal + tPerPair * nUniquePairs;
-        internal.printBatchedEstimate('cosSimExpTens', nUniquePairs, estTotal);
+        internal.printBatchedEstimate('simMaet', nUniquePairs, estTotal);
         progStride = internal.progressStride(tPerPair);
         showProgress = estTotal >= 5;
     end
@@ -2326,7 +2338,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     for up = 1:nUniquePairs
         dA = densA{uniquePairs(up, 1)};
         dB = densB{uniquePairs(up, 2)};
-        uniqueS(up) = cosSimExpTens(dA, dB, pairKw{:});
+        uniqueS(up) = simMaet(dA, dB, pairKw{:});
 
         if verbose && showProgress ...
                 && (mod(up, progStride) == 0 || up == nUniquePairs)
@@ -2338,7 +2350,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     s(validIdx) = uniqueS(pairMap);
 
     if verbose
-        fprintf('cosSimExpTens: done.\n');
+        fprintf('simMaet: done.\n');
     end
 end
 
@@ -2360,7 +2372,7 @@ end
 % =========================================================================
 %  Self-IP memo helpers. A memo cache is a struct with parallel fields
 %  'keys' (1-by-n cellstr) and 'vals' (1-by-n double), keyed by
-%  localSelfIpKey. It is carried by value: within one cosSimExpTens
+%  localSelfIpKey. It is carried by value: within one simMaet
 %  call the sweep loops thread it across pairs, and the density-struct
 %  scalar form optionally returns it attached to the operand structs
 %  (a 'selfIP' field) so a caller's own loop can thread it too. The
@@ -2634,14 +2646,14 @@ function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
         end
     end
 
-    sharedP = internal.prunedExpTens(sharedDens);
+    sharedP = internal.prunedMaet(sharedDens);
     A = sharedP.nAttrs;
     if A < 1 || ~all(sharedP.r == 1)
         return;
     end
     entriesP = cell(1, n);
     for i = 1:n
-        entriesP{i} = internal.prunedExpTens(entryCell{i});
+        entriesP{i} = internal.prunedMaet(entryCell{i});
     end
 
     if isfield(sharedP, 'wrap') && ~isempty(sharedP.wrap)
@@ -2700,7 +2712,7 @@ function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
         return;
     end
 
-    sharedP = internal.ensureExpTensExpensive(sharedP);
+    sharedP = internal.ensureMaetExpensive(sharedP);
     nJ = sharedP.nJ;
     U_cell = sharedP.U_perm;
     wU = sharedP.wJ;
@@ -2722,7 +2734,7 @@ function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
     segLen = zeros(1, n);
     for i = 1:n
         if entriesP{i}.N ~= 0
-            entriesP{i} = internal.ensureExpTensExpensive(entriesP{i});
+            entriesP{i} = internal.ensureMaetExpensive(entriesP{i});
             segLen(i) = entriesP{i}.nK;
         end
     end

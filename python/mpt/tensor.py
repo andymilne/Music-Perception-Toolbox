@@ -12,11 +12,11 @@ and §1 ("Overview") for the public API surface.
 from __future__ import annotations
 
 # --- Public API (re-exported by mpt/__init__.py) ---
-from ._tensor.density import MaetDensity
-from ._tensor.build import build_exp_tens
-from ._tensor.eval import eval_exp_tens, eval_exp_tens_raw
-from ._tensor.cosine import (batch_cos_sim_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_raw)
-from ._tensor.sweep import sweep_cos_sim_exp_tens, sweep_eligibility
+from ._tensor.density import MaetDensity, maet_centres
+from ._tensor.build import build_maet
+from ._tensor.eval import eval_maet
+from ._tensor.cosine import sim_maet
+from ._tensor.sweep import sweep_sim_maet, sweep_eligibility
 from ._tensor.preprocessing import (
     TranslateAttributesNoOpWarning,
     TranslatedSweep,
@@ -73,7 +73,7 @@ from ._tensor.dispatch import (
 # Cosine-layer MA-method dispatchers and the Möbius per-attribute matrix
 # (imported by tests).
 from ._tensor.cosine import (
-    _cos_sim_exp_tens_ma_orbit,
-    _cos_sim_exp_tens_ma_pairwise,
+    _sim_maet_ma_orbit,
+    _sim_maet_ma_pairwise,
 )
 from ._tensor._mobius_inner import _ma_per_attr_inner_matrix

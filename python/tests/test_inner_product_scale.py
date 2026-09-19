@@ -1,6 +1,6 @@
 """The bare inner product on the canonical scale.
 
-``cos_sim_exp_tens(..., normalize='none')`` returns :math:`\\langle X, Y
+``sim_maet(..., normalize='none')`` returns :math:`\\langle X, Y
 \\rangle` on one scale whatever route ran, and the Rényi-2 entropy is
 computed from it. Both are pinned here against an explicit enumeration
 of every tuple pair on every shape the routes cover: flat symmetric,
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens, entropy_exp_tens
+from mpt import build_maet, sim_maet, entropy_maet
 
 P = 12.0
 T2 = np.repeat(np.arange(2), 3)
@@ -41,7 +41,7 @@ def reference_attr_matrix_and_mass(dens, a):
     ordered tuple set (every arrangement a symmetric level admits). This
     is the enumeration the Rényi-2 entropy carried for nested and
     ordered attributes until the inner-product machinery served it."""
-    from mpt._tensor.build import build_exp_tens
+    from mpt._tensor.build import build_maet
     from mpt._tensor.dispatch import (
         _compute_Q_inner_blocks, _compute_Q, _inner_r_vec,
         _quadratic_form_det, _gaussian_mass_const,
@@ -54,21 +54,21 @@ def reference_attr_matrix_and_mass(dens, a):
     period = float(dens.period[a])
     if spec is not None:
         # Nested attribute: rebuild from its resolved spec.
-        da = build_exp_tens(
+        da = build_maet(
             [dens.p_attr[a]], [dens.w[a]], specs=[spec],
             sigma=[sigma], is_per=[is_per], period=[period], verbose=False,
         )
     else:
         # Flat ordered attribute: rebuild from its flat parameters with
-        # is_sym=False, so the materialised tuples are the C(K, r_a)
+        # is_exch=False, so the materialised tuples are the C(K, r_a)
         # ordered sub-tuples (one kernel each, no orbit).
         r_a0 = int(dens.r[a])
         is_rel0 = bool(dens.is_rel[a])
-        sym0 = bool(np.atleast_1d(getattr(dens, "is_sym",
+        exch0 = bool(np.atleast_1d(getattr(dens, "is_exch",
                                           np.ones(dens.n_attrs, bool)))[a])
-        da = build_exp_tens(
+        da = build_maet(
             [dens.p_attr[a]], [dens.w[a]],
-            [sigma], [r_a0], [is_rel0], [is_per], [period], [sym0],
+            [sigma], [r_a0], [is_rel0], [is_per], [period], [exch0],
             verbose=False,
         )
     centres = da.centres[0]            # (d_a, n_j) reduced centres
@@ -146,20 +146,20 @@ def reference_self_ip_and_mass(dens):
     return float(P_xx.sum()), float(np.prod(Zs, axis=1).sum())
 
 
-def _flat(K, N, r, rel, per, sym=True, sigma=0.7, seed=0):
+def _flat(K, N, r, rel, per, exch=True, sigma=0.7, seed=0):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     w = rng.uniform(0.5, 1.5, size=(K, N))
-    return build_exp_tens([p], [w], specs=[{"r": r, "sym": sym, "rel": rel}],
+    return build_maet([p], [w], specs=[{"r": r, "exch": exch, "rel": rel}],
                           sigma=[sigma], is_per=[per], period=[P], verbose=False)
 
 
-def _nested(tags, r, sym, rel, per, K, N=3, sigma=0.7, seed=0):
+def _nested(tags, r, exch, rel, per, K, N=3, sigma=0.7, seed=0):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     w = rng.uniform(0.5, 1.5, size=(K, N))
-    spec = {"tags": tags, "r": r, "sym": sym, "rel": rel}
-    return build_exp_tens([p], [w], specs=[spec], sigma=[sigma], is_per=[per],
+    spec = {"tags": tags, "r": r, "exch": exch, "rel": rel}
+    return build_maet([p], [w], specs=[spec], sigma=[sigma], is_per=[per],
                           period=[P], verbose=False)
 
 
@@ -198,7 +198,7 @@ def _check_every_method(dens, methods):
     tol = _tol(dens)
     for m in methods:
         try:
-            val = cos_sim_exp_tens(dens, dens, normalize="none", method=m,
+            val = sim_maet(dens, dens, normalize="none", method=m,
                                    verbose=False)
         except ValueError as exc:
             # a forced route the shape does not admit; the message says so
@@ -207,15 +207,15 @@ def _check_every_method(dens, methods):
         assert val == pytest.approx(ref, rel=tol), (m, val, ref)
 
 
-@pytest.mark.parametrize("K,N,r,rel,per,sym", FLAT)
-def test_flat_routes_agree_on_the_bare_inner_product(K, N, r, rel, per, sym):
-    d = _flat(K, N, r, rel, per, sym)
+@pytest.mark.parametrize("K,N,r,rel,per,exch", FLAT)
+def test_flat_routes_agree_on_the_bare_inner_product(K, N, r, rel, per, exch):
+    d = _flat(K, N, r, rel, per, exch)
     _check_every_method(d, ("auto", "bulger", "mobius", "centres"))
 
 
-@pytest.mark.parametrize("tags,r,sym,rel,per,K", NESTED)
-def test_nested_routes_agree_on_the_bare_inner_product(tags, r, sym, rel, per, K):
-    d = _nested(tags, r, sym, rel, per, K)
+@pytest.mark.parametrize("tags,r,exch,rel,per,K", NESTED)
+def test_nested_routes_agree_on_the_bare_inner_product(tags, r, exch, rel, per, K):
+    d = _nested(tags, r, exch, rel, per, K)
     _check_every_method(d, ("auto", "bulger", "mobius", "centres", "contract"))
 
 
@@ -239,46 +239,46 @@ def test_mixed_density_and_cross_terms():
     p0 = np.sort(rng.uniform(0, P, size=(6, 3)), axis=0)
     p1 = np.sort(rng.uniform(0, P, size=(4, 3)), axis=0)
     p2 = np.sort(rng.uniform(0, P, size=(4, 3)), axis=0)
-    specs = [{"tags": T2, "r": [1, 2], "sym": [1, 1], "rel": [0, 0]},
-             {"r": 2, "sym": True, "rel": True},
-             {"r": 2, "sym": False, "rel": False}]
-    d = build_exp_tens([p0, p1, p2], None, specs=specs, sigma=[0.7, 0.5, 0.9],
+    specs = [{"tags": T2, "r": [1, 2], "exch": [1, 1], "rel": [0, 0]},
+             {"r": 2, "exch": True, "rel": True},
+             {"r": 2, "exch": False, "rel": False}]
+    d = build_maet([p0, p1, p2], None, specs=specs, sigma=[0.7, 0.5, 0.9],
                        is_per=[False, False, True], period=[P, P, P], verbose=False)
     _check_every_method(d, ("auto", "bulger", "mobius", "centres", "contract"))
     # a cross term between two different densities: the same scale, so the
     # cosine recomposes from three bare values
-    e = build_exp_tens([p0[:, ::-1] + 0.3, p1 + 0.1, p2 - 0.2], None, specs=specs,
+    e = build_maet([p0[:, ::-1] + 0.3, p1 + 0.1, p2 - 0.2], None, specs=specs,
                        sigma=[0.7, 0.5, 0.9], is_per=[False, False, True],
                        period=[P, P, P], verbose=False)
-    xy = cos_sim_exp_tens(d, e, normalize="none", verbose=False)
-    xx = cos_sim_exp_tens(d, d, normalize="none", verbose=False)
-    yy = cos_sim_exp_tens(e, e, normalize="none", verbose=False)
-    cos = cos_sim_exp_tens(d, e, verbose=False)
+    xy = sim_maet(d, e, normalize="none", verbose=False)
+    xx = sim_maet(d, d, normalize="none", verbose=False)
+    yy = sim_maet(e, e, normalize="none", verbose=False)
+    cos = sim_maet(d, e, verbose=False)
     assert xy / math.sqrt(xx * yy) == pytest.approx(cos, rel=1e-9)
 
 
 def test_none_forms_no_self_inner_product():
     d = _flat(6, 3, 2, False, False)
     e = _flat(6, 3, 2, False, False, seed=1)
-    cos_sim_exp_tens(d, e, normalize="none", verbose=False)
+    sim_maet(d, e, normalize="none", verbose=False)
     assert not d._self_ip_cache and not e._self_ip_cache
-    cos_sim_exp_tens(d, e, normalize="oneSidedDenom", verbose=False)
+    sim_maet(d, e, normalize="oneSidedDenom", verbose=False)
     assert not d._self_ip_cache and e._self_ip_cache
 
 
-@pytest.mark.parametrize("K,N,r,rel,per,sym", FLAT)
-def test_renyi2_flat_matches_the_enumeration(K, N, r, rel, per, sym):
-    d = _flat(K, N, r, rel, per, sym)
+@pytest.mark.parametrize("K,N,r,rel,per,exch", FLAT)
+def test_renyi2_flat_matches_the_enumeration(K, N, r, rel, per, exch):
+    d = _flat(K, N, r, rel, per, exch)
     ip, Z = reference_self_ip_and_mass(d)
-    h = entropy_exp_tens(d, method="renyi2", base=math.e, verbose=False)
+    h = entropy_maet(d, method="renyi2", base=math.e, verbose=False)
     assert h == pytest.approx(-math.log(ip / Z ** 2), abs=_tol(d) * 10)
 
 
-@pytest.mark.parametrize("tags,r,sym,rel,per,K", NESTED)
-def test_renyi2_nested_matches_the_enumeration(tags, r, sym, rel, per, K):
-    d = _nested(tags, r, sym, rel, per, K)
+@pytest.mark.parametrize("tags,r,exch,rel,per,K", NESTED)
+def test_renyi2_nested_matches_the_enumeration(tags, r, exch, rel, per, K):
+    d = _nested(tags, r, exch, rel, per, K)
     ip, Z = reference_self_ip_and_mass(d)
-    h = entropy_exp_tens(d, method="renyi2", base=math.e, verbose=False)
+    h = entropy_maet(d, method="renyi2", base=math.e, verbose=False)
     assert h == pytest.approx(-math.log(ip / Z ** 2), abs=_tol(d) * 10)
 
 
@@ -287,11 +287,11 @@ def test_renyi2_ragged_events():
     p = np.sort(rng.uniform(0.0, P, size=(6, 3)), axis=0)
     p[5, 0] = np.nan
     p[4:, 2] = np.nan
-    d = build_exp_tens([p], None, specs=[{"tags": T2, "r": [1, 2], "sym": [1, 1],
+    d = build_maet([p], None, specs=[{"tags": T2, "r": [1, 2], "exch": [1, 1],
                                           "rel": [0, 0]}],
                        sigma=[0.7], is_per=[False], period=[0.0], verbose=False)
     ip, Z = reference_self_ip_and_mass(d)
-    h = entropy_exp_tens(d, method="renyi2", base=math.e, verbose=False)
+    h = entropy_maet(d, method="renyi2", base=math.e, verbose=False)
     assert h == pytest.approx(-math.log(ip / Z ** 2), rel=1e-9)
 
 
@@ -300,5 +300,5 @@ def test_renyi2_takes_the_inner_product_route():
     # enumeration: the entropy now runs whatever the selector picks.
     from mpt._tensor import cosine as C
     d = _nested(np.repeat(np.arange(4), 3), [2, 3], [1, 1], [0, 0], False, 12)
-    entropy_exp_tens(d, method="renyi2", base=math.e, verbose=False)
+    entropy_maet(d, method="renyi2", base=math.e, verbose=False)
     assert C._LAST_NESTED_ROUTES == ["contract"]

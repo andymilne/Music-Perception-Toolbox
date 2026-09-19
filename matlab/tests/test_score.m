@@ -128,10 +128,10 @@ results{end, 2}   = throwsErrorWithId(@() preMaetFromScore(sc_path, 'attributes'
 
 pmSc = preMaetFromScore(sc_path, 'parts', 2);
 pmSc.specs{1}.r = 2;
-d = buildExpTens(pmSc, 'sigma', [1 0.2], 'isPer', [true false], ...
+d = buildMaet(pmSc, 'sigma', [1 0.2], 'isPer', [true false], ...
                  'period', [12 0], 'verbose', false);
 results{end+1, 1} = 'score: pre-MAET feeds the pipeline (pitch-class dyads of the chord track)';
-results{end, 2}   = abs(cosSimExpTens(d, d, 'verbose', false) - 1) < 1e-9;
+results{end, 2}   = abs(simMaet(d, d, 'verbose', false) - 1) < 1e-9;
 
 if standalone
     nPass = sum([results{:, 2}]);

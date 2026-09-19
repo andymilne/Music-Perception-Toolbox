@@ -1,7 +1,7 @@
-function n = nestedTupleCount(tags, rLevels, symLevels, weights)
+function n = nestedTupleCount(tags, rLevels, exchLevels, weights)
 %NESTEDTUPLECOUNT  Ordered tuple centres a nested attribute enumerates.
 %
-%   n = internal.nestedTupleCount(tags, rLevels, symLevels) is the number
+%   n = internal.nestedTupleCount(tags, rLevels, exchLevels) is the number
 %   of tuple centres the centres route materialises per event for a
 %   nested attribute with the given tag tree: at each symmetric level
 %   every ordered selection of r children (n! / (n - r)!), at each
@@ -21,13 +21,13 @@ function n = nestedTupleCount(tags, rLevels, symLevels, weights)
     end
     K = size(tags, 1);
     rLevels = double(rLevels(:)).';
-    symLevels = logical(symLevels(:)).';
+    exchLevels = logical(exchLevels(:)).';
     L = numel(rLevels);
-    n = localCount(L, (1:K).', tags, rLevels, symLevels, double(weights(:)).');
+    n = localCount(L, (1:K).', tags, rLevels, exchLevels, double(weights(:)).');
 end
 
 
-function c = localCount(level, idx, tags, rLevels, symLevels, weights)
+function c = localCount(level, idx, tags, rLevels, exchLevels, weights)
     r = rLevels(level);
     if level == 1
         m = numel(idx);
@@ -45,7 +45,7 @@ function c = localCount(level, idx, tags, rLevels, symLevels, weights)
         u = unique(keys);
         counts = zeros(1, numel(u));
         for i = 1:numel(u)
-            counts(i) = localCount(level - 1, idx(keys == u(i)), tags, rLevels, symLevels, weights);
+            counts(i) = localCount(level - 1, idx(keys == u(i)), tags, rLevels, exchLevels, weights);
         end
         if r > numel(counts)
             c = 0;
@@ -53,7 +53,7 @@ function c = localCount(level, idx, tags, rLevels, symLevels, weights)
         end
         sel = localEsp(counts, r);
     end
-    if symLevels(level)
+    if exchLevels(level)
         c = sel * factorial(r);
     else
         c = sel;

@@ -141,7 +141,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 %     [fB, wB] = audioPeaks('audio/piano_G7_3rd_inversion.wav');
 %     pA = transformAttributes(fA, [], {'hz', 'cents'});
 %     pB = transformAttributes(fB, [], {'hz', 'cents'});
-%     s = cosSimExpTens(pA, wA, pB, wB, 12, 2, true, true, 1200);
+%     s = simMaet(pA, wA, pB, wB, 12, 2, true, true, 1200);
 %
 %     % Spectral entropy (no addSpectra needed)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
@@ -152,7 +152,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
 %     r = roughness(f, w);
 %
-%   See also COSSIMEXPTENS, ADDSPECTRA,
+%   See also SIMMAET, ADDSPECTRA,
 %            SPECTRALENTROPY, TEMPLATEHARMONICITY, ROUGHNESS,
 %            CONVERTPITCH.
 

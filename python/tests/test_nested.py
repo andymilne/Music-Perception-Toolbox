@@ -2,14 +2,14 @@
 
 Covers the toolbox specification §6/§7.1/§8/§10 for the two-level nested
 attribute. The nested spec uses per-level vectors (innermost-outward):
-``{tags, r, sym, rel}``, where ``rel`` is the co-transposition-unit
+``{tags, r, exch, rel}``, where ``rel`` is the co-transposition-unit
 selector (a per-level vector or the depth-proof strings ``'innermost'`` /
 ``'outermost'``; a bare scalar/bool is rejected for a nested attribute).
 
 * Outer ``r = K`` reproduces the old separate-attribute binding (tensor
   join): a single nested attribute read at the whole-tuple level
   evaluates identically to the equivalent flat tensor-joined density.
-* The within-event/across-event partial symmetry with ``sym`` outer = 0:
+* The within-event/across-event partial symmetry with ``exch`` outer = 0:
   inner positions orbit within each source event, but the bound events keep
   sequence order (no cross-tag interleaving).
 * Pooled within-source reading (outer ``r < K``) sums per-event
@@ -28,37 +28,37 @@ import numpy as np
 import pytest
 from numpy.linalg import matrix_rank
 
-from mpt import build_exp_tens, eval_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, eval_maet, sim_maet
 
 
 def _ev(d, x):
     x = np.asarray(x, dtype=float).reshape(-1, 1)
-    return float(np.ravel(eval_exp_tens(d, x, verbose=False))[0])
+    return float(np.ravel(eval_maet(d, x, verbose=False))[0])
 
 
 def _nest(p, spec):
-    return build_exp_tens([np.asarray(p, dtype=float).reshape(-1, 1)], None,
+    return build_maet([np.asarray(p, dtype=float).reshape(-1, 1)], None,
                           [50.0], [1], [False], [False], [0.0],
                           nested=[spec], verbose=False)
 
 
 def test_outer_rK_reproduces_old_binding():
     """Outer r=K nested attribute == old separate-attribute tensor join."""
-    d_old = build_exp_tens(
+    d_old = build_maet(
         [np.array([[0.0]]), np.array([[7.0]])], None, [50.0, 50.0],
         [1, 1], [False, False], [False, False], [0.0, 0.0], verbose=False,
     )
     d_nest = _nest([0.0, 7.0],
-                   dict(tags=[0, 1], r=[1, 2], sym=[True, False]))
+                   dict(tags=[0, 1], r=[1, 2], exch=[True, False]))
     assert d_old.dim == d_nest.dim == 2
     for x in ([0.0, 7.0], [0.0, 0.0], [3.0, 7.0], [-5.0, 12.0]):
         assert _ev(d_old, x) == pytest.approx(_ev(d_nest, x), abs=1e-12)
 
 
 def test_inner_orbit_outer_order_preserved():
-    """sym inner=1, outer=0: inner orbits, no cross-tag interleaving."""
+    """exch inner=1, outer=0: inner orbits, no cross-tag interleaving."""
     d = _nest([0.0, 4.0, 7.0, 11.0],
-              dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False]))
+              dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False]))
     assert d.dim == 4
     centres = {tuple(c) for c in np.asarray(d.centres[0]).T.tolist()}
     expected = {(0, 4, 7, 11), (0, 4, 11, 7), (4, 0, 7, 11), (4, 0, 11, 7)}
@@ -70,7 +70,7 @@ def test_inner_orbit_outer_order_preserved():
 def test_pooled_outer_r_less_than_K():
     """Outer r<K pools within-source sub-tuples into one shared space."""
     d = _nest([0.0, 4.0, 7.0, 11.0],
-              dict(tags=[0, 0, 1, 1], r=[2, 1], sym=[False, False]))
+              dict(tags=[0, 0, 1, 1], r=[2, 1], exch=[False, False]))
     assert d.dim == 2
     centres = {tuple(c) for c in np.asarray(d.centres[0]).T.tolist()}
     assert centres == {(0, 4), (7, 11)}
@@ -78,27 +78,27 @@ def test_pooled_outer_r_less_than_K():
 
 def test_outer_rel_dim_and_transposition_invariance():
     """Outer/whole [rel] unit: dim 4->3 and exact global-transposition invariance."""
-    spec = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False], rel="outermost")
+    spec = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False], rel="outermost")
     d = _nest([0.0, 4.0, 7.0, 11.0], spec)
     d_shift = _nest([5.0, 9.0, 12.0, 16.0], dict(spec))
     assert d.dim == 3
     assert np.allclose(np.sort(np.asarray(d.centres[0]), axis=1),
                        np.sort(np.asarray(d_shift.centres[0]), axis=1))
-    assert float(cos_sim_exp_tens(d, d_shift, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+    assert float(sim_maet(d, d_shift, verbose=False)) == pytest.approx(1.0, abs=1e-9)
 
 
 def test_absolute_not_transposition_invariant():
     """Absolute nested density is not global-transposition invariant."""
-    spec = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False])  # rel absent
+    spec = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False])  # rel absent
     d = _nest([0.0, 4.0, 7.0, 11.0], spec)
     d_shift = _nest([5.0, 9.0, 12.0, 16.0], dict(spec))
     assert d.dim == 4
-    assert float(cos_sim_exp_tens(d, d_shift, verbose=False)) < 0.999
+    assert float(sim_maet(d, d_shift, verbose=False)) < 0.999
 
 
 def test_rel_outermost_vector_matches_string():
     """rel=[0,1] (outermost level set) equals rel='outermost'."""
-    base = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False])
+    base = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False])
     d_str = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel="outermost"))
     d_vec = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel=[0, 1]))
     assert d_str.dim == d_vec.dim == 3
@@ -108,12 +108,12 @@ def test_rel_outermost_vector_matches_string():
 
 def test_rel_subsumption_warns_on_multiple():
     """rel=[1,1] warns (finer subsumes coarser) and resolves to innermost."""
-    base = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False])
+    base = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False])
     d_inner = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel="innermost"))
     with pytest.warns(UserWarning):
         d_sub = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel=[1, 1]))
     assert d_sub.dim == d_inner.dim == 2
-    assert float(cos_sim_exp_tens(d_inner, d_sub, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+    assert float(sim_maet(d_inner, d_sub, verbose=False)) == pytest.approx(1.0, abs=1e-9)
 
 
 def test_inner_outer_rel_projection_dims():
@@ -135,7 +135,7 @@ def test_inner_outer_rel_projection_dims():
 def test_scalar_rel_rejected_for_nested():
     """A bare scalar/bool [rel] is rejected for a nested attribute."""
     with pytest.raises(ValueError):
-        _nest([0.0, 7.0], dict(tags=[0, 1], r=[1, 2], sym=[True, False], rel=True))
+        _nest([0.0, 7.0], dict(tags=[0, 1], r=[1, 2], exch=[True, False], rel=True))
 
 
 def test_inner_rel_dim_and_per_event_invariance():
@@ -143,26 +143,26 @@ def test_inner_rel_dim_and_per_event_invariance():
     translating each source event independently; an interval change at a
     resolving sigma does shift the density."""
     d = _nest([0.0, 4.0, 7.0, 11.0],
-              dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+              dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
                    rel="innermost"))
     assert d.dim == 2  # r_outer * (r_inner - 1) = 2 * 1
     # Shift each event independently: within-event intervals unchanged.
     d_shift = _nest([10.0, 14.0, 107.0, 111.0],
-                    dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+                    dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
                          rel="innermost"))
-    assert float(cos_sim_exp_tens(d, d_shift, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+    assert float(sim_maet(d, d_shift, verbose=False)) == pytest.approx(1.0, abs=1e-9)
     # Changing one event's interval changes the density (resolving sigma).
-    d_a = build_exp_tens([np.array([[0.0], [4.0], [7.0], [11.0]])], None,
+    d_a = build_maet([np.array([[0.0], [4.0], [7.0], [11.0]])], None,
                          [1.0], [1], [False], [False], [0.0],
                          nested=[dict(tags=[0, 0, 1, 1], r=[2, 2],
-                                      sym=[True, False], rel="innermost")],
+                                      exch=[True, False], rel="innermost")],
                          verbose=False)
-    d_b = build_exp_tens([np.array([[0.0], [5.0], [7.0], [11.0]])], None,
+    d_b = build_maet([np.array([[0.0], [5.0], [7.0], [11.0]])], None,
                          [1.0], [1], [False], [False], [0.0],
                          nested=[dict(tags=[0, 0, 1, 1], r=[2, 2],
-                                      sym=[True, False], rel="innermost")],
+                                      exch=[True, False], rel="innermost")],
                          verbose=False)
-    assert float(cos_sim_exp_tens(d_a, d_b, verbose=False)) < 0.95
+    assert float(sim_maet(d_a, d_b, verbose=False)) < 0.95
 
 
 def test_inner_equals_tensor_join_of_is_rel_dyads():
@@ -170,9 +170,9 @@ def test_inner_equals_tensor_join_of_is_rel_dyads():
     per-event is_rel dyad densities (§6.3: within-event intervals,
     tensor-joined). Checked through both eval and cosine."""
     d_in = _nest([0.0, 4.0, 7.0, 11.0],
-                 dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+                 dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
                       rel="innermost"))
-    d_ref = build_exp_tens(
+    d_ref = build_maet(
         [np.array([[0.0], [4.0]]), np.array([[7.0], [11.0]])], None,
         [50.0, 50.0], [2, 2], [True, True], [False, False], [0.0, 0.0],
         verbose=False,
@@ -185,7 +185,7 @@ def test_inner_equals_tensor_join_of_is_rel_dyads():
 def test_inner_and_outer_are_distinct_objects():
     """Inner (dim 2) and outer (dim 3) are different projections of the
     same nested attribute."""
-    base = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False])
+    base = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False])
     d_inner = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel="innermost"))
     d_outer = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel="outermost"))
     assert d_inner.dim == 2 and d_outer.dim == 3
@@ -193,9 +193,9 @@ def test_inner_and_outer_are_distinct_objects():
 
 def test_user_is_rel_on_nested_rejected():
     """Setting is_rel_vec on a nested attribute errors (use the spec's rel)."""
-    spec = dict(tags=[0, 1], r=[1, 2], sym=[True, False])
+    spec = dict(tags=[0, 1], r=[1, 2], exch=[True, False])
     with pytest.raises(ValueError):
-        build_exp_tens([np.array([[0.0], [7.0]])], None, [50.0], [1],
+        build_maet([np.array([[0.0], [7.0]])], None, [50.0], [1],
                        [True], [False], [0.0], nested=[spec], verbose=False)
 
 
@@ -203,15 +203,15 @@ def test_nested_precondition_insufficient_tags():
     """r_outer exceeding the available distinct source events errors."""
     with pytest.raises(ValueError):
         _nest([0.0, 4.0],
-              dict(tags=[0, 0], r=[1, 2], sym=[True, False]))
+              dict(tags=[0, 0], r=[1, 2], exch=[True, False]))
 
 
 def test_explicit_all_none_nested_equals_default():
     """nested=[None]*A is identical to nested=None (flat path untouched)."""
     pAttr = [np.array([[0.0, 4.0], [7.0, 11.0]])]
     args = (None, [50.0], [2], [False], [False], [0.0])
-    d_default = build_exp_tens(pAttr, *args, verbose=False)
-    d_none = build_exp_tens(pAttr, *args, nested=[None], verbose=False)
+    d_default = build_maet(pAttr, *args, verbose=False)
+    d_none = build_maet(pAttr, *args, nested=[None], verbose=False)
     assert d_default.dim == d_none.dim
     for x in ([0.0, 7.0], [4.0, 11.0], [2.0, 9.0]):
         assert _ev(d_default, x) == pytest.approx(_ev(d_none, x), abs=1e-14)
@@ -222,12 +222,12 @@ def test_outer_rebuild_roundtrip_no_false_guard():
     the derived is_rel=True; this must round-trip without tripping the
     user-is_rel guard. Regression for the rebuild path."""
     fresh = _nest([0.0, 4.0, 7.0, 11.0],
-                  dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+                  dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
                        rel="outermost"))
     reb_spec = dict(tags=np.array([0, 0, 1, 1]), r=np.array([2, 2]),
-                    sym=np.array([True, False]), rel="outermost",
+                    exch=np.array([True, False]), rel="outermost",
                     proj="outer", rel_unit=1)
-    d = build_exp_tens([np.array([[0.0], [4.0], [7.0], [11.0]])], None,
+    d = build_maet([np.array([[0.0], [4.0], [7.0], [11.0]])], None,
                        [50.0], [1], [True], [False], [0.0],
                        nested=[reb_spec], verbose=False)
     assert d.dim == fresh.dim == 3

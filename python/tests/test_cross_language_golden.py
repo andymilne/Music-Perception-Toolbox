@@ -6,7 +6,7 @@ inputs (no RNG). The companion MATLAB file
 values; running both pins down cross-language numerical agreement to
 1e-8 relative on the v3 surface (orbit cosine similarity single-multiset + MA
 Rényi-2 entropy single-multiset + MA, orbit-path
-:func:`tensor_harmonicity`, and orbit-path :func:`eval_exp_tens`).
+:func:`tensor_harmonicity`, and orbit-path :func:`eval_maet`).
 
 Inputs use ``method='mobius'`` on the cosine cases so the Möbius method's
 machinery is genuinely exercised rather than the dispatcher's
@@ -24,8 +24,8 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt.tensor import build_exp_tens, cos_sim_exp_tens, eval_exp_tens
-from mpt.entropy import entropy_exp_tens
+from mpt.tensor import build_maet, sim_maet, eval_maet
+from mpt.entropy import entropy_maet
 from mpt.harmony import tensor_harmonicity
 
 
@@ -44,7 +44,7 @@ def test_golden_sa_cossim_abs_r3():
     p1 = np.array([0.0, 400.0, 700.0])
     p2 = np.array([0.0, 300.0, 700.0])
     w = np.array([1.0, 1.0, 1.0])
-    s = cos_sim_exp_tens(
+    s = sim_maet(
         p1, w, p2, w, 80.0, 3, False, False, 0.0,
         method='mobius', verbose=False,
     )
@@ -61,7 +61,7 @@ def test_golden_sa_cossim_rel_r3_per():
     p1 = np.array([0.0, 400.0, 700.0])
     p2 = np.array([0.0, 300.0, 700.0])
     w = np.array([1.0, 1.0, 1.0])
-    s = cos_sim_exp_tens(
+    s = sim_maet(
         p1, w, p2, w, 80.0, 3, True, True, 1200.0,
         method='mobius', verbose=False,
     )
@@ -94,11 +94,11 @@ def test_golden_ma_cossim_ragged_k():
     P_y = P_x + 50.0
     W_y = W_x.copy()
 
-    dx = build_exp_tens([P_x], [W_x], [25.0], [3], 
+    dx = build_maet([P_x], [W_x], [25.0], [3], 
                         [False], [False], [0.0], verbose=False)
-    dy = build_exp_tens([P_y], [W_y], [25.0], [3], 
+    dy = build_maet([P_y], [W_y], [25.0], [3], 
                         [False], [False], [0.0], verbose=False)
-    s = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
+    s = sim_maet(dx, dy, method='mobius', verbose=False)
     GOLDEN = 0.12066345091832
     assert abs(s - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
 
@@ -111,7 +111,7 @@ def test_golden_sa_renyi2_abs_r2():
     """Rényi-2 entropy of a major-triad density, r=2 abs, sigma=20."""
     p = np.array([0.0, 400.0, 700.0])
     w = np.array([1.0, 1.0, 1.0])
-    H = entropy_exp_tens(
+    H = entropy_maet(
         p, w, 20.0, 2, False, False, 0.0,
         method='renyi2', base=2,
     )
@@ -134,7 +134,7 @@ def test_golden_ma_renyi2():
         [1100.0, 1300.0, 1500.0, 1700.0],
     ])  # (5, 4)
     time = np.array([[0.0, 0.5, 1.0, 1.5]])  # (1, 4)
-    H = entropy_exp_tens(
+    H = entropy_maet(
         [pitch, time], None,
         [12.0, 0.05], [3, 1], 
         [False, False], [True, False], [1200.0, 0.0],
@@ -145,7 +145,7 @@ def test_golden_ma_renyi2():
 
 
 # ----------------------------------------------------------------------
-# Case F: tensor_harmonicity (orbit-rel path; bypasses build_exp_tens)
+# Case F: tensor_harmonicity (orbit-rel path; bypasses build_maet)
 # ----------------------------------------------------------------------
 
 def test_golden_tensor_harmonicity_orbit():
@@ -157,16 +157,16 @@ def test_golden_tensor_harmonicity_orbit():
 
 
 # ----------------------------------------------------------------------
-# Case G: eval_exp_tens at a query point, orbit-rel
+# Case G: eval_maet at a query point, orbit-rel
 # ----------------------------------------------------------------------
 
-def test_golden_eval_exp_tens_rel():
+def test_golden_eval_maet_rel():
     """Evaluate a 4-partial harmonic-template tensor at a single query
     (sigma=80 to keep value above FP underflow)."""
     tp = np.array([0.0, 1200.0, 1902.0, 2400.0])
     tw = np.array([1.0, 0.5, 0.333, 0.25])
     X = np.array([[400.0], [700.0]])  # 2 x 1 (r=3 rel -> dim=2)
-    v = eval_exp_tens(tp, tw, 80.0, 3, True, False, 1200.0, X,
+    v = eval_maet(tp, tw, 80.0, 3, True, False, 1200.0, X,
                       verbose=False)
     GOLDEN = 2.07507623760499e-06
     assert abs(v[0] - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
@@ -181,11 +181,11 @@ def test_golden_eval_exp_tens_rel():
 # future drift between the per-axis Phi-difference contractions.
 
 def test_golden_sa_shannon_abs_r2_dim2():
-    T = build_exp_tens(
+    T = build_maet(
         np.array([100., 200., 300.]), None, 20.0, 2, False, False, 0.0,
         verbose=False,
     )
-    H = entropy_exp_tens(
+    H = entropy_maet(
         T, method='shannon',
         n_points_per_dim=40, x_min=50.0, x_max=350.0, verbose=False,
     )
@@ -194,11 +194,11 @@ def test_golden_sa_shannon_abs_r2_dim2():
 
 
 def test_golden_sa_normalized_abs_r2_dim2():
-    T = build_exp_tens(
+    T = build_maet(
         np.array([100., 200., 300.]), None, 20.0, 2, False, False, 0.0,
         verbose=False,
     )
-    H = entropy_exp_tens(
+    H = entropy_maet(
         T, method='normalized',
         n_points_per_dim=40, x_min=50.0, x_max=350.0, verbose=False,
     )
@@ -207,11 +207,11 @@ def test_golden_sa_normalized_abs_r2_dim2():
 
 
 def test_golden_sa_shannon_periodic_r1():
-    T = build_exp_tens(
+    T = build_maet(
         np.array([0., 3., 7.]), None, 0.7, 1, False, True, 12.0,
         verbose=False,
     )
-    H = entropy_exp_tens(
+    H = entropy_maet(
         T, method='shannon',
         n_points_per_dim=24, verbose=False,
     )
@@ -222,11 +222,11 @@ def test_golden_sa_shannon_periodic_r1():
 def test_golden_ma_shannon_abs_dim2():
     P2 = np.array([[100., 200., 300.], [200., 250., 100.]])
     W2 = np.array([1., 1., 1.])
-    dens = build_exp_tens(
+    dens = build_maet(
         [P2], [W2], [20.0], [2], [False], [False], [0.0],
         verbose=False,
     )
-    H = entropy_exp_tens(
+    H = entropy_maet(
         dens, method='shannon',
         n_points_per_dim=40, x_min=50.0, x_max=350.0, verbose=False,
     )
@@ -238,11 +238,11 @@ def test_golden_sa_differential_r1():
     """Adaptive differential entropy. Looser tolerance (1e-4) because
     the adaptive convergence stops at the truncation-sigma-anchored
     tolerance rather than machine precision."""
-    T = build_exp_tens(
+    T = build_maet(
         np.array([0., 400., 700.]), None, 20.0, 1, False, False, 0.0,
         verbose=False,
     )
-    h_hat = entropy_exp_tens(T, method='differential', verbose=False)
+    h_hat = entropy_maet(T, method='differential', verbose=False)
     GOLDEN = 7.953986161000217
     # Adaptive convergence tolerance is ~exp(-18) ~ 1.5e-8;
     # allow 1e-5 absolute as a comfortable bound.
@@ -259,11 +259,11 @@ def test_golden_ma_differential_dim2():
     p1 = np.array([[0., 80., 170.]])
     w0 = np.array([[1.0, 0.7, 0.5]])
     w1 = np.array([[1.0, 1.0, 1.0]])
-    T = build_exp_tens(
+    T = build_maet(
         [p0, p1], [w0, w1], [45.0, 35.0], [1, 1],
         [False, False], [False, False], [0.0, 0.0], verbose=False,
     )
-    h_hat = entropy_exp_tens(
+    h_hat = entropy_maet(
         T, method='differential', base=2.0,
         truncation_sigmas=3.0, verbose=False,
     )

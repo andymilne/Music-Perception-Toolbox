@@ -1,4 +1,4 @@
-"""Cost-model calibration for multi-attribute ``eval_exp_tens``.
+"""Cost-model calibration for multi-attribute ``eval_maet``.
 
 The MA eval selector :func:`mpt._tensor.dispatch._select_ma_eval` is a
 pure cost model with no probe: because the MAET density factorises
@@ -39,7 +39,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, eval_exp_tens, unpack_pre_maet
+from mpt import build_maet, eval_maet, unpack_pre_maet
 from mpt._tensor.dispatch import _select_ma_eval
 from math import comb as _math_comb
 
@@ -56,7 +56,7 @@ def _build(sig, r_vec, is_rel, is_per, period, K, N, seed=0):
     g = np.random.default_rng(seed)
     A = len(sig)
     pas = [g.uniform(0, 100, (K, N)) for _ in range(A)]
-    return build_exp_tens(pas, None, sig, r_vec, is_rel, is_per, period,
+    return build_maet(pas, None, sig, r_vec, is_rel, is_per, period,
                           verbose=False)
 
 
@@ -71,7 +71,7 @@ def _build_span(sig, r_vec, is_rel, is_per, period, K, span, seed=0):
     g = np.random.default_rng(seed)
     A = len(sig)
     pas = [np.sort(g.uniform(0, span, (K, 1)), axis=0) for _ in range(A)]
-    return build_exp_tens(pas, None, sig, r_vec, is_rel, is_per, period,
+    return build_maet(pas, None, sig, r_vec, is_rel, is_per, period,
                           verbose=False)
 
 
@@ -204,9 +204,9 @@ def test_ma_cost_model_never_badly_wrong(case):
         )
 
     # Cost-model centres pick: it must not be badly slower than Möbius.
-    t_centres = _bench(lambda: eval_exp_tens(
+    t_centres = _bench(lambda: eval_maet(
         dens, x, method="centres", verbose=False))
-    t_mobius = _bench(lambda: eval_exp_tens(
+    t_mobius = _bench(lambda: eval_maet(
         dens, x, method="mobius", verbose=False))
     slowdown = t_centres / max(t_mobius, 1e-9)
     assert slowdown <= _MAX_TOLERATED_CENTRES_SLOWDOWN, (
@@ -350,11 +350,11 @@ def test_joint_working_set_ordered_attr_counts_combinations():
     b_unord = _estimate_ma_joint_working_set_bytes(
         [11], [20], [False])
     b_ord = _estimate_ma_joint_working_set_bytes(
-        [11], [20], [False], sym_vec=[False])
+        [11], [20], [False], exch_vec=[False])
     assert b_unord > (1 << 40)
     assert b_ord == _math_comb(20, 11) * 11 * 2 * 8
     b_ord_full = _estimate_ma_joint_working_set_bytes(
-        [11], [11], [False], sym_vec=[False])
+        [11], [11], [False], exch_vec=[False])
     assert b_ord_full == 1 * 11 * 2 * 8
 
 
@@ -363,13 +363,13 @@ def test_ma_eval_ordered_r11_routes_centres_and_evaluates():
     centres path on the ordered hard rule -- before the feasibility
     bound is consulted -- and evaluates without tripping any
     infeasibility guard, its joint tuple set being one tuple."""
-    from mpt import bind_events, build_exp_tens, eval_exp_tens
+    from mpt import bind_events, build_maet, eval_maet
     x = np.arange(11, dtype=float)
     p_b, w_b, sp_b = unpack_pre_maet(bind_events([x[None, :]], None, 11))
-    dens = build_exp_tens(p_b, w_b, specs=sp_b, sigma=[0.3],
+    dens = build_maet(p_b, w_b, specs=sp_b, sigma=[0.3],
                           is_per=[False], period=[None], verbose=False)
     chosen, reason = _select_ma_eval(dens, 200, method="auto")
     assert chosen == "centres"
     assert "ordered" in reason
-    val = eval_exp_tens(dens, x[:, None], verbose=False)
+    val = eval_maet(dens, x[:, None], verbose=False)
     assert np.isfinite(val).all() and float(np.max(val)) > 0.0

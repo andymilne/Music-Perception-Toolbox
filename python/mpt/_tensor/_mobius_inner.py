@@ -1449,7 +1449,7 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
 _COMB_RESTRICTION_ENABLED = True
 
 
-def _nested_orbit_mult(r_levels, sym_levels):
+def _nested_orbit_mult(r_levels, exch_levels):
     """Order of the nested attribute's tuple-symmetry group.
 
     A nested tuple is a tree: ``r_levels[l]`` nodes of level ``l - 1``
@@ -1457,18 +1457,18 @@ def _nested_orbit_mult(r_levels, sym_levels):
     ``prod(r_levels[l + 1:])`` nodes at level ``l``. The build's
     enumeration (:func:`~mpt._tensor.build._nested_enum_indices`)
     symmetrises level ``l`` independently at each of those nodes when
-    ``sym_levels[l]`` is set, so the group acting on the leaf positions
+    ``exch_levels[l]`` is set, so the group acting on the leaf positions
     is the iterated wreath product
 
-        G = prod_{l : sym} (S_{r_levels[l]}) ^ (prod_{m > l} r_levels[m])
+        G = prod_{l : exch} (S_{r_levels[l]}) ^ (prod_{m > l} r_levels[m])
 
-    of order ``prod_{l : sym} r_levels[l]! ** prod(r_levels[l + 1:])``.
+    of order ``prod_{l : exch} r_levels[l]! ** prod(r_levels[l + 1:])``.
     Ordered levels contribute no factor. Returns ``|G|``.
     """
     r_levels = [int(x) for x in np.asarray(r_levels).ravel()]
-    sym_levels = [bool(x) for x in np.asarray(sym_levels).ravel()]
+    exch_levels = [bool(x) for x in np.asarray(exch_levels).ravel()]
     mult = 1
-    for l, s in enumerate(sym_levels):
+    for l, s in enumerate(exch_levels):
         if not s:
             continue
         nodes = 1
@@ -1562,7 +1562,7 @@ def _comb_side_restriction(da, spec, r_a, is_rel):
     evaluations in place of ``n_j * n_j``, a factor ``|G|``: 2 at flat
     r = 2, 24 at flat r = 4, and ``prod_l r_l!^{nodes_l}`` over the
     symmetric levels of a nested attribute (8 for ``r = [2, 2]``,
-    ``sym = [1, 1]``). The result is bit-comparable to the unrestricted
+    ``exch = [1, 1]``). The result is bit-comparable to the unrestricted
     sum up to floating-point summation order.
 
     The restriction is declined -- ``None``, leaving the caller on the
@@ -1571,7 +1571,7 @@ def _comb_side_restriction(da, spec, r_a, is_rel):
 
     * ``r_a < 2`` for a flat attribute, or ``|G| < 2`` for a nested one
       (every level ordered);
-    * an **ordered** flat attribute (``is_sym = False``): the build sets
+    * an **ordered** flat attribute (``is_exch = False``): the build sets
       the perm side equal to the comb side, so multiplying by ``r_a!``
       would be wrong;
     * any density whose materialised sides do not satisfy
@@ -1597,7 +1597,7 @@ def _comb_side_restriction(da, spec, r_a, is_rel):
             return None
         mult = math.factorial(r_a)
     else:
-        mult = _nested_orbit_mult(spec_a["r"], spec_a["sym"])
+        mult = _nested_orbit_mult(spec_a["r"], spec_a["exch"])
         if mult < 2:
             return None
     n_k = int(da.n_k)
@@ -1631,7 +1631,7 @@ def _closed_form_attr_centres(dens, a):
     described in :func:`_comb_side_restriction`, or ``None`` where the
     restriction does not apply.
     """
-    from .build import build_exp_tens as _bld
+    from .build import build_maet as _bld
     # The rebuild depends only on this density's own immutable contents,
     # and the nested cosine asks for it once per inner product in its
     # (xy, xx, yy) triple -- three times per density per call, plus once
@@ -1651,12 +1651,12 @@ def _closed_form_attr_centres(dens, a):
                   sigma=[sigma], is_per=[is_per], period=[period],
                   verbose=False)
     else:
-        is_sym_vec = np.asarray(
-            getattr(dens, "is_sym", np.ones(int(dens.n_attrs), dtype=bool))
+        is_exch_vec = np.asarray(
+            getattr(dens, "is_exch", np.ones(int(dens.n_attrs), dtype=bool))
         ).ravel()
         da = _bld([dens.p_attr[a]], [dens.w[a]], [sigma], [int(dens.r[a])],
                   [bool(dens.is_rel[a])], [is_per], [period],
-                  [bool(is_sym_vec[a])], verbose=False)
+                  [bool(is_exch_vec[a])], verbose=False)
     out = (da.centres[0], da.w_j, da.event_of_j, int(_inner_r_vec(da)[0]),
            is_per, period, int(da.r[0]), bool(da.is_rel[0]), sigma,
            int(da.n),
@@ -1737,7 +1737,7 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
         # The identity needs the *Y* perm side to be stable under the
         # same group, i.e. the two densities to carry the same tuple
         # symmetry. Guaranteed by every caller (a flat attribute's
-        # is_sym and a nested one's [r]/[sym] are checked equal before
+        # is_exch and a nested one's [r]/[exch] are checked equal before
         # the pair reaches here), and checked structurally: the Y side
         # must be the same orbit tiling of its own comb side.
         if (comb_y is None or int(comb_y[3]) != int(comb[3])

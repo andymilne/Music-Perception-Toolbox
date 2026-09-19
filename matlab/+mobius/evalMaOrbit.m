@@ -42,7 +42,7 @@ function [total, ratio] = evalMaOrbit(dens, x, opts)
 %
 %   Twin of python mpt._tensor._ma_eval_orbit.eval_ma_orbit.
 %
-%   See also MOBIUS.EVALORBITABS, MOBIUS.EVALORBITREL, EVALEXPTENS.
+%   See also MOBIUS.EVALORBITABS, MOBIUS.EVALORBITREL, EVALMAET.
 
     arguments
         dens (1,1) struct
@@ -137,7 +137,7 @@ function [total, ratio] = evalMaOrbit(dens, x, opts)
                         && ~any(isnan(spec.relUnit))
                     relU = spec.relUnit;
                 end
-                fa = mobius.evalNestedAttrOrbit(p, w, tg, spec.r, spec.sym, ...
+                fa = mobius.evalNestedAttrOrbit(p, w, tg, spec.r, spec.exch, ...
                         relU, sig, xa, 'is_per', per, 'period', P, ...
                         'wrap', wrapA, ...
                         'truncationSigmas', opts.truncationSigmas);

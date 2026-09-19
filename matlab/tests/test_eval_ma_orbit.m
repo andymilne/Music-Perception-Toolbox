@@ -2,7 +2,7 @@
 %
 %  Verifies the factored evaluator f(x) = sum_n prod_a [per-attribute single-multiset
 %  density](x_a) against two references:
-%    1. the existing joint-centres MA path (evalExpTens 'method','centres'),
+%    1. the existing joint-centres MA path (evalMaet 'method','centres'),
 %       for internal consistency across abs/rel/mixed/periodic and N>1;
 %    2. Python centres-path values (tests/ma_eval_parity.json), for
 %       cross-language parity.
@@ -46,10 +46,10 @@ for ci = 1:numel(cfgs)
         pas{a} = 100 * rand(K, N);
     end
     wpas = repmat({[]}, A, 1);
-    dens = buildExpTens(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
+    dens = buildMaet(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
     xq = 100 * rand(dens.dim, 8);
 
-    vCentres = evalExpTens(dens, xq, 'method', 'centres', 'verbose', false);
+    vCentres = evalMaet(dens, xq, 'method', 'centres', 'verbose', false);
     vFactored = mobius.evalMaOrbit(dens, xq);
 
     denom = max(max(abs(vCentres)), 1e-12);
@@ -78,7 +78,7 @@ if exist(jsonPath, 'file')
             pas{a} = reshape(pa, cc.K, cc.N);
         end
         wpas = repmat({[]}, A, 1);
-        dens = buildExpTens(pas, wpas, cc.sig(:)', cc.r(:)', ...
+        dens = buildMaet(pas, wpas, cc.sig(:)', cc.r(:)', ...
             logical(cc.rel(:)'), logical(cc.per(:)'), cc.P(:)', ...
             'verbose', false);
         xq = reshape(cc.x, dens.dim, []);
@@ -98,7 +98,7 @@ end
 
 rng(7, 'twister');
 pas = {100 * rand(6, 1); 100 * rand(6, 1)};
-dens = buildExpTens(pas, {[]; []}, [6 5], [2 2], [true true], ...
+dens = buildMaet(pas, {[]; []}, [6 5], [2 2], [true true], ...
     [false false], [0 0], 'verbose', false);
 xq = 100 * rand(dens.dim, 5);
 [~, rat] = mobius.evalMaOrbit(dens, xq, 'returnCancellationRatio', true);

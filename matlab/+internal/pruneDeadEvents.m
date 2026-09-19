@@ -11,11 +11,11 @@ function [pAttr, w, specs] = pruneDeadEvents(pAttr, w, specs)
 %   at weight zero (weightEvents writes its factor as such). Those events
 %   contribute nothing to any inner product or to the density an entropy
 %   integrates, so dropping them here -- at the windowing seam, before
-%   buildExpTens runs its eager feasibility scan and r-ad enumeration over
+%   buildMaet runs its eager feasibility scan and r-ad enumeration over
 %   every column -- is exact and saves the bulk of a sliding sweep's cost,
-%   without touching the build itself or the density-level prunedExpTens
+%   without touching the build itself or the density-level prunedMaet
 %   path. The liveness rule is the shared internal.weightIsLive (also used
-%   by internal.prunedExpTens): an event is live iff every weighted
+%   by internal.prunedMaet): an event is live iff every weighted
 %   attribute has a finite, nonzero value in its column. Returned unchanged
 %   when nothing is dead (the un-windowed common case pays only a mask
 %   scan); an all-dead window (one that caught nothing) prunes to zero

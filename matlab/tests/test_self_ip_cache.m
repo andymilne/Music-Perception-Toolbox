@@ -2,14 +2,14 @@
 %
 %  Tests for the self-inner-product memoisation, the 'oneSidedDenom'
 %  <X,X> skip, and the direct all-r = 1 inner-product route in
-%  cosSimExpTens. Covers:
+%  simMaet. Covers:
 %    - Sweep (scalar-vs-cell broadcast) returns exactly the values that
 %      fresh scalar calls return, under both normalisations (the memo
 %      is a pure optimisation; values are unchanged).
 %    - The same equality on the Möbius route (method = 'mobius'
 %      forced), exercising the orbit-side memo and choices key.
 %    - The cache-carrying outputs: a manual scalar loop threading
-%      [s, densRef] = cosSimExpTens(densRef, ...) matches the sweep,
+%      [s, densRef] = simMaet(densRef, ...) matches the sweep,
 %      and the returned struct carries a populated 'selfIP' field.
 %    - Cross-language goldens: r = 1 two-attribute similarities on
 %      formula-based inputs match the Python toolbox to 1e-12 relative,
@@ -65,23 +65,23 @@ golden.perAB.oneSidedDenom  = [8.376450969950919e-01, 6.650492737482304e-01, 1.2
 for mi = 1:3
     isPerM = modesPer{mi};
     prdM   = modesPrd{mi};
-    dX = buildExpTens({P, T}, [], [0.9 0.35], [1 1], [false false], ...
+    dX = buildMaet({P, T}, [], [0.9 0.35], [1 1], [false false], ...
         isPerM, prdM, 'verbose', false);
     dYs = cell(1, 3);
     for k = 0:2
-        dYs{k+1} = buildExpTens({qP + 0.6*k, qT + 0.9*k}, [], ...
+        dYs{k+1} = buildMaet({qP + 0.6*k, qT + 0.9*k}, [], ...
             [0.9 0.35], [1 1], [false false], isPerM, prdM, ...
             'verbose', false);
     end
     for nrmC = {'cosine', 'oneSidedDenom'}
         nrm = nrmC{1};
-        sweep = cell2mat(cosSimExpTens(dX, dYs, ...
+        sweep = cell2mat(simMaet(dX, dYs, ...
             'normalize', nrm, 'verbose', false));
         fresh = zeros(1, 3);
         for k = 1:3
-            dXf = buildExpTens({P, T}, [], [0.9 0.35], [1 1], ...
+            dXf = buildMaet({P, T}, [], [0.9 0.35], [1 1], ...
                 [false false], isPerM, prdM, 'verbose', false);
-            fresh(k) = cosSimExpTens(dXf, dYs{k}, ...
+            fresh(k) = simMaet(dXf, dYs{k}, ...
                 'normalize', nrm, 'verbose', false);
         end
         % The sweep routes through the batched kernel pass, whose final
@@ -102,18 +102,18 @@ end
 
 %% ---- Cache-carrying outputs: threaded loop matches sweep ----
 
-dX = buildExpTens({P, T}, [], [0.9 0.35], [1 1], [false false], ...
+dX = buildMaet({P, T}, [], [0.9 0.35], [1 1], [false false], ...
     [false false], [0 0], 'verbose', false);
 dYs = cell(1, 3);
 for k = 0:2
-    dYs{k+1} = buildExpTens({qP + 0.6*k, qT + 0.9*k}, [], [0.9 0.35], ...
+    dYs{k+1} = buildMaet({qP + 0.6*k, qT + 0.9*k}, [], [0.9 0.35], ...
         [1 1], [false false], [false false], [0 0], 'verbose', false);
 end
-sweep = cell2mat(cosSimExpTens(dX, dYs, 'verbose', false));
+sweep = cell2mat(simMaet(dX, dYs, 'verbose', false));
 dRef = dX;
 sLoop = zeros(1, 3);
 for k = 1:3
-    [sLoop(k), dRef] = cosSimExpTens(dRef, dYs{k}, 'verbose', false);
+    [sLoop(k), dRef] = simMaet(dRef, dYs{k}, 'verbose', false);
 end
 % Scalar calls contract per pair; the sweep contracts batched --- same
 % epsilon-level association difference as above.
@@ -132,16 +132,16 @@ yFlat = 100 * mod(13 * jVec.^2, 23) / 23 + 9 * jVec;
 % 3-by-5 column-major reshape to obtain NumPy's (5, 3) row-major array.
 X3 = reshape(xFlat, 3, 5).';
 Y3 = reshape(yFlat, 3, 5).';
-bld3 = @(v) buildExpTens({v}, [], 8.0, 3, false, false, 0, 'verbose', false);
+bld3 = @(v) buildMaet({v}, [], 8.0, 3, false, false, 0, 'verbose', false);
 
 goldMob = struct('cosine', 1.566062218777721e-01, ...
                  'oneSidedDenom', 1.497935199140709e-01);
 for nrmC = {'cosine', 'oneSidedDenom'}
     nrm = nrmC{1};
     dX3 = bld3(X3);
-    sMemo1 = cosSimExpTens(dX3, bld3(Y3), 'method', 'mobius', ...
+    sMemo1 = simMaet(dX3, bld3(Y3), 'method', 'mobius', ...
         'normalize', nrm, 'verbose', false);
-    sFresh = cosSimExpTens(bld3(X3), bld3(Y3), 'method', 'mobius', ...
+    sFresh = simMaet(bld3(X3), bld3(Y3), 'method', 'mobius', ...
         'normalize', nrm, 'verbose', false);
     results{end+1,1} = sprintf( ...
         'selfIP.mobius %s: repeated-operand call matches fresh (0 diff)', nrm);
@@ -163,29 +163,29 @@ end
 for mi = 1:3
     isPerM = modesPer{mi};
     prdM   = modesPrd{mi};
-    dS = buildExpTens({P, T}, [], [0.9 0.35], [1 1], [false false], ...
+    dS = buildMaet({P, T}, [], [0.9 0.35], [1 1], [false false], ...
         isPerM, prdM, 'verbose', false);
     dQ = cell(1, 3);
     for k = 0:2
-        dQ{k+1} = buildExpTens({qP + 0.6*k, qT + 0.9*k}, [], ...
+        dQ{k+1} = buildMaet({qP + 0.6*k, qT + 0.9*k}, [], ...
             [0.9 0.35], [1 1], [false false], isPerM, prdM, ...
             'verbose', false);
     end
     for nrmC = {'cosine', 'oneSidedDenom'}
         nrm = nrmC{1};
-        batXS = cell2mat(cosSimExpTens(dS, dQ, ...
+        batXS = cell2mat(simMaet(dS, dQ, ...
             'normalize', nrm, 'verbose', false));
-        batYS = cell2mat(cosSimExpTens(dQ, dS, ...
+        batYS = cell2mat(simMaet(dQ, dS, ...
             'normalize', nrm, 'verbose', false));
         refXS = zeros(1, 3); refYS = zeros(1, 3);
         for k = 1:3
-            dSa = buildExpTens({P, T}, [], [0.9 0.35], [1 1], ...
+            dSa = buildMaet({P, T}, [], [0.9 0.35], [1 1], ...
                 [false false], isPerM, prdM, 'verbose', false);
-            refXS(k) = cosSimExpTens(dSa, dQ{k}, ...
+            refXS(k) = simMaet(dSa, dQ{k}, ...
                 'normalize', nrm, 'verbose', false);
-            dSb = buildExpTens({P, T}, [], [0.9 0.35], [1 1], ...
+            dSb = buildMaet({P, T}, [], [0.9 0.35], [1 1], ...
                 [false false], isPerM, prdM, 'verbose', false);
-            refYS(k) = cosSimExpTens(dQ{k}, dSb, ...
+            refYS(k) = simMaet(dQ{k}, dSb, ...
                 'normalize', nrm, 'verbose', false);
         end
         results{end+1,1} = sprintf( ...
@@ -201,17 +201,17 @@ end
 
 %% ---- Batched path: structural mismatch in the list still raises ----
 
-badSigma = buildExpTens({qP, qT}, [], [0.5 0.35], [1 1], ...
+badSigma = buildMaet({qP, qT}, [], [0.5 0.35], [1 1], ...
     [false false], [false false], [0 0], 'verbose', false);
-dS = buildExpTens({P, T}, [], [0.9 0.35], [1 1], [false false], ...
+dS = buildMaet({P, T}, [], [0.9 0.35], [1 1], [false false], ...
     [false false], [0 0], 'verbose', false);
-dQ1 = buildExpTens({qP, qT}, [], [0.9 0.35], [1 1], [false false], ...
+dQ1 = buildMaet({qP, qT}, [], [0.9 0.35], [1 1], [false false], ...
     [false false], [0 0], 'verbose', false);
 okMismatch = false;
 try
-    cosSimExpTens(dS, {dQ1, badSigma}, 'verbose', false);
+    simMaet(dS, {dQ1, badSigma}, 'verbose', false);
 catch ME
-    okMismatch = strcmp(ME.identifier, 'cosSimExpTens:sigmaMismatch');
+    okMismatch = strcmp(ME.identifier, 'simMaet:sigmaMismatch');
 end
 results{end+1,1} = 'selfIP.batched list with sigma mismatch raises sigmaMismatch';
 results{end,2}   = okMismatch;
@@ -220,10 +220,10 @@ results{end,2}   = okMismatch;
 
 okListRefused = false;
 try
-    [~, ~] = cosSimExpTens(dX, dYs, 'verbose', false); %#ok<ASGLU>
+    [~, ~] = simMaet(dX, dYs, 'verbose', false); %#ok<ASGLU>
 catch ME
     okListRefused = strcmp(ME.identifier, ...
-        'cosSimExpTens:selfIpOutputsUnavailable');
+        'simMaet:selfIpOutputsUnavailable');
 end
 results{end+1,1} = 'selfIP.2nd output in list mode raises selfIpOutputsUnavailable';
 results{end,2}   = okListRefused;

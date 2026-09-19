@@ -11,31 +11,31 @@ This guide documents migration paths between major versions of the Music Percept
 
 *Versions 2.1 and 2.2 were internal milestones that were never released; their changes are consolidated here.*
 
-v3.0.0 is a major release relative to the last public line (2.0.x). At the v2.0 calling conventions it is largely additive — `buildExpTens`, `evalExpTens`, `cosSimExpTens`, `entropyExpTens`, and the circular, harmony, and structural families accept every v2.0 call unchanged — but a handful of defaults and one keyword have changed, so some v2.0 code needs attention. The breaking items, each detailed below, are:
+v3.0.0 is a major release relative to the last public line (2.0.x). At the v2.0 calling conventions it is largely additive — `buildMaet`, `evalMaet`, `simMaet`, `entropyMaet`, and the circular, harmony, and structural families accept every v2.0 call unchanged — but a handful of defaults and one keyword have changed, so some v2.0 code needs attention. The breaking items, each detailed below, are:
 
-- the `normalize` kwarg is removed from `entropyExpTens`, `spectralEntropy`, and `nTupleEntropy` in favour of a four-method `method` API, and `entropyExpTens`'s default `method='shannon'` now returns raw $H$ rather than $H / \log_b N$;
-- `entropyExpTens` requires an explicit `n_points_per_dim` for the discrete methods;
+- the `normalize` kwarg is removed from `entropyMaet`, `spectralEntropy`, and `nTupleEntropy` in favour of a four-method `method` API, and `entropyMaet`'s default `method='shannon'` now returns raw $H$ rather than $H / \log_b N$;
+- `entropyMaet` requires an explicit `n_points_per_dim` for the discrete methods;
 - `spectralEntropy`'s default method is `'differential'`, a different quantity from the v2.0 normalised Shannon entropy;
 - `nTupleEntropy` at `sigma > 0` reads `sigma` as positional uncertainty (`sigmaSpace = 'position'`) by default;
 - kernel truncation defaults to `truncation_sigmas = 6`, so default-configured output is a ~6-significant-figure approximation of the v2.0 untruncated value;
-- `evalExpTens` in periodic-relative mode uses the corrected pairwise-wrap quadratic form.
+- `evalMaet` in periodic-relative mode uses the corrected pairwise-wrap quadratic form.
 
 Everything else — multi-attribute expectation tensors, the pre-MAET preprocessing primitives, unified dispatch and batching, the Möbius method and its dispatcher, the kernel-evaluation controls, Rényi-2 and differential entropy, anisotropic kernels, and translation sweeps — is new surface that v2.0 code does not touch.
 
-### `entropyExpTens` / `entropy_exp_tens` four-method API and `n_points_per_dim` default (breaking)
+### `entropyMaet` / `entropy_maet` four-method API and `n_points_per_dim` default (breaking)
 
-The entropy API has been refactored into four distinct methods — `'shannon'` (raw discrete), `'normalized'` / `'normalised'` (the explicit name for $H / \log_b N$), `'differential'` (adaptive continuous $\hat h$), `'renyi2'` (analytical Rényi-2) — and the toolbox-wide default of `n_points_per_dim=1200` for `entropyExpTens` has been dropped. Two breaking elements:
+The entropy API has been refactored into four distinct methods — `'shannon'` (raw discrete), `'normalized'` / `'normalised'` (the explicit name for $H / \log_b N$), `'differential'` (adaptive continuous $\hat h$), `'renyi2'` (analytical Rényi-2) — and the toolbox-wide default of `n_points_per_dim=1200` for `entropyMaet` has been dropped. Two breaking elements:
 
 1. **`n_points_per_dim` is now required for the discrete methods** (`'shannon'`, `'normalized'`). A missing value at these methods raises `TypeError` with a message pointing to either supplying an explicit grid or switching to a grid-free method (`'differential'` or `'renyi2'`). The continuous methods ignore `n_points_per_dim` and need no migration.
 
    ```python
    # v2.0 — implicit grid via the 1200 default
-   H = entropy_exp_tens(dens)
+   H = entropy_maet(dens)
 
    # v3 — either pass the grid explicitly
-   H = entropy_exp_tens(dens, n_points_per_dim=1200)
+   H = entropy_maet(dens, n_points_per_dim=1200)
    # ... or switch to the grid-free continuous form
-   h = entropy_exp_tens(dens, method='differential')
+   h = entropy_maet(dens, method='differential')
    ```
 
 2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. To reproduce the v2.0 default behaviour (the Pielou-style ratio in $[0, 1]$ on the 1-cent grid of Milne et al. 2017 and Smit et al. 2019, agreeing with those values to about 1e-4 because v3 integrates cell masses where v2.0 summed point samples), pass `method='normalized'`; the grid spacing is the new `resolution` keyword (default 1 cent):
@@ -53,15 +53,15 @@ The entropy API has been refactored into four distinct methods — `'shannon'` (
 
    The semantic shift is intentional. Differential entropy $\hat h$ is grid-independent and compares densities of different cardinality or spread on the same scale, whereas the normalised Shannon ratio is grid-dependent (its denominator $\log_b N$ depends on the discretisation). Cross-density comparisons published in the toolbox's existing literature (Milne et al. 2017, Smit et al. 2019) used the normalised form and are reproduced by `method='normalized'`; new analyses should generally prefer `method='differential'`.
 
-### `normalize` kwarg removed from `entropyExpTens`, `spectralEntropy`, and `nTupleEntropy`
+### `normalize` kwarg removed from `entropyMaet`, `spectralEntropy`, and `nTupleEntropy`
 
 The v2.0 `normalize` boolean is **removed** from all three entropy entry points. Pick the appropriate `method` instead: `'shannon'` for raw $H = -\sum q \log_b q$, `'normalized'` for $H/\log_b(N) \in [0, 1]$ (the v2.0 default behaviour). The continuous methods `'differential'` and `'renyi2'` have no $[0, 1]$ reference. Passing `normalize` to any of the three entry points raises a migration-error exception identifying the calling function and naming the replacement methods.
 
 ```python
 # Python — v2.0
-H = entropy_exp_tens(T, normalize=False)         # raw
-H = entropy_exp_tens(T)                          # H/log_b(N) (default)
-H = entropy_exp_tens(T, method='renyi2',
+H = entropy_maet(T, normalize=False)         # raw
+H = entropy_maet(T)                          # H/log_b(N) (default)
+H = entropy_maet(T, method='renyi2',
                      normalize=False)            # renyi2 (required kwarg)
 H, _ = n_tuple_entropy(p, period, n=2,
                        normalize=False)          # raw
@@ -69,9 +69,9 @@ H_spec = spectral_entropy(p, sigma=12,
                           normalize=False)       # raw
 
 # Python — v3
-H = entropy_exp_tens(T, method='shannon')        # raw
-H = entropy_exp_tens(T, method='normalized')     # H/log_b(N)
-H = entropy_exp_tens(T, method='renyi2')         # renyi2 (no normalize needed)
+H = entropy_maet(T, method='shannon')        # raw
+H = entropy_maet(T, method='normalized')     # H/log_b(N)
+H = entropy_maet(T, method='renyi2')         # renyi2 (no normalize needed)
 H, _ = n_tuple_entropy(p, period, n=2,
                        method='shannon')         # raw
 H_spec = spectral_entropy(p, sigma=12,
@@ -80,23 +80,23 @@ H_spec = spectral_entropy(p, sigma=12,
 
 ```matlab
 % MATLAB — v2.0
-H = entropyExpTens(T, 'normalize', false);                       % raw
-H = entropyExpTens(T);                                           % H/log_b(N)
-H = entropyExpTens(T, 'method', 'renyi2', 'normalize', false);   % renyi2
+H = entropyMaet(T, 'normalize', false);                       % raw
+H = entropyMaet(T);                                           % H/log_b(N)
+H = entropyMaet(T, 'method', 'renyi2', 'normalize', false);   % renyi2
 [H, tuples] = nTupleEntropy(p, period, 2, 'normalize', false);   % raw
 H_spec = spectralEntropy(p, [], 12, 'normalize', false);         % raw
 
 % MATLAB — v3
-H = entropyExpTens(T, 'method', 'shannon');                      % raw
-H = entropyExpTens(T, 'method', 'normalized');                   % H/log_b(N)
-H = entropyExpTens(T, 'method', 'renyi2');                       % renyi2
+H = entropyMaet(T, 'method', 'shannon');                      % raw
+H = entropyMaet(T, 'method', 'normalized');                   % H/log_b(N)
+H = entropyMaet(T, 'method', 'renyi2');                       % renyi2
 [H, tuples] = nTupleEntropy(p, period, 2, 'method', 'shannon');  % raw
 H_spec = spectralEntropy(p, [], 12, 'method', 'shannon');        % raw
 ```
 
 The continuous methods (`'differential'`, `'renyi2'`) are rejected at `sigma=0` with an explicit error rather than silently producing $-\infty$.
 
-Note that the **default** of `entropy_exp_tens` / `entropyExpTens` is still `method='shannon'` but the semantics of `shannon` have changed: v2.0's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v3's `method='shannon'` returns raw $H$. To recover the v2.0 default value pass `method='normalized'` explicitly. The default of `n_tuple_entropy` already gives the v2.0 default value without changes (`'normalized'`); `spectral_entropy` defaults to `'differential'`, which gives the same ordering as the v2.0 normalised Shannon for consonance work, on a different scale (see above).
+Note that the **default** of `entropy_maet` / `entropyMaet` is still `method='shannon'` but the semantics of `shannon` have changed: v2.0's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v3's `method='shannon'` returns raw $H$. To recover the v2.0 default value pass `method='normalized'` explicitly. The default of `n_tuple_entropy` already gives the v2.0 default value without changes (`'normalized'`); `spectral_entropy` defaults to `'differential'`, which gives the same ordering as the v2.0 normalised Shannon for consonance work, on a different scale (see above).
 
 ### `nTupleEntropy` at `sigma > 0`: `sigmaSpace` and the exact position model
 
@@ -136,7 +136,7 @@ The routing-parity work that closed v3 changes a handful of numbers and rejects 
 
 - **`method='factored'` removed** (Python). The name is rejected with the usual bad-method error. Use `'auto'` (or one of the documented names): the route was an undocumented Python-only entry point that bypassed the selector, the measure rule, and the post-hoc guard, and it computed the same value the documented routes compute.
 
-- **`cancellation_threshold` (Python) / `'cancellationThreshold'` (MATLAB) removed** from `cos_sim_exp_tens` / `cosSimExpTens`. The keyword had been inert; passing it now raises `TypeError` (Python) or the argument-count usage error `cosSimExpTens:wrongArgCount` (MATLAB). Delete it from the call — nothing replaces it, `'auto'` is the whole of the routing, and accuracy is governed by `truncation_sigmas`.
+- **`cancellation_threshold` (Python) / `'cancellationThreshold'` (MATLAB) removed** from `sim_maet` / `simMaet`. The keyword had been inert; passing it now raises `TypeError` (Python) or the argument-count usage error `simMaet:wrongArgCount` (MATLAB). Delete it from the call — nothing replaces it, `'auto'` is the whole of the routing, and accuracy is governed by `truncation_sigmas`.
 
 - **Mixed `wrap` across the two operands is now an error.** Declaring `'full-image'` on an attribute of one density and `'single-image'` on the same attribute of the other raises `ValueError` (Python) / `mpt:wrapMismatch` (MATLAB); previously the first operand's declaration was taken silently. Build both densities with the same declaration.
 
@@ -163,7 +163,7 @@ Call sites that pass the result straight on are shorter than before, since the p
 ```matlab
 pm  = preMaet(pAttr, w);
 pm2 = differenceEvents(bindEvents(pm, [2 2]), [1 1]);
-dens = buildExpTens(pm2, 'sigma', [0.5 0.25], 'isPer', [true false], 'period', [12 0]);
+dens = buildMaet(pm2, 'sigma', [0.5 0.25], 'isPer', [true false], 'period', [12 0]);
 ```
 
 `windowedSimilarity` and `windowedEntropy` gain the pre-MAET form too, taking two pre-MAETs and one respectively in place of their operands and their five positional geometry vectors; their positional form is unchanged.
@@ -188,7 +188,7 @@ The seven scales and their formulas are unchanged, so converted values are bit-i
 
 ### Default kernel truncation (numerical change)
 
-The factory default of `truncation_sigmas` / `truncationSigmas` is `6`, not `Inf`. Every centres-path consumer (`evalExpTens`, `cosSimExpTens` on Bulger's method, `entropyExpTens`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) therefore returns a ~6-significant-figure approximation of the untruncated v2.0 value by default; the worst-case absolute error at the default is about $2 \times 10^{-8}$ and falls at low-density query points. A one-time warning (`mpt:truncationDefault` / `mpt.TruncationDefaultWarning`) says so on first use. To recover exact v2.0 numerics, set `truncation_sigmas` / `truncationSigmas` to `math.inf` / `Inf`, per call or globally:
+The factory default of `truncation_sigmas` / `truncationSigmas` is `6`, not `Inf`. Every centres-path consumer (`evalMaet`, `simMaet` on Bulger's method, `entropyMaet`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) therefore returns a ~6-significant-figure approximation of the untruncated v2.0 value by default; the worst-case absolute error at the default is about $2 \times 10^{-8}$ and falls at low-density query points. A one-time warning (`mpt:truncationDefault` / `mpt.TruncationDefaultWarning`) says so on first use. To recover exact v2.0 numerics, set `truncation_sigmas` / `truncationSigmas` to `math.inf` / `Inf`, per call or globally:
 
 ```matlab
 mptDefaults('truncationSigmas', Inf);
@@ -200,23 +200,23 @@ mpt.set_default(truncation_sigmas=math.inf)
 
 ### What's new at the surface
 
-- **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.0 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values on `cosSimExpTens`: `'bulger'` (v2.0 decomposition; IP-only), `'mobius'` (new in v3; IP, eval, total mass), `'centres'` (the unrestricted enumeration; the reference route), and `'contract'` (nested densities); on `evalExpTens`: `'centres'` and `'mobius'`. The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
+- **`method` keyword** on `simMaet`, `evalMaet`, `entropyMaet` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.0 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values on `simMaet`: `'bulger'` (v2.0 decomposition; IP-only), `'mobius'` (new in v3; IP, eval, total mass), `'centres'` (the unrestricted enumeration; the reference route), and `'contract'` (nested densities); on `evalMaet`: `'centres'` and `'mobius'`. The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
 
-- **`method='renyi2'`** on `entropyExpTens`. Closed-form Rényi-2 differential entropy via the Möbius method's inner product and total mass. The analytical route was conceptually available in v2.0 (the inputs were both already analytical) but is newly exposed as a user-facing option in v3 and made efficient at high $r$ / $K$ via the Möbius method. Continuous-form: returns $H_2 \in (-\infty, \log_b V]$, no $[0, 1]$ reference. The legacy `normalize` kwarg is removed across all entropy entry points (see above).
+- **`method='renyi2'`** on `entropyMaet`. Closed-form Rényi-2 differential entropy via the Möbius method's inner product and total mass. The analytical route was conceptually available in v2.0 (the inputs were both already analytical) but is newly exposed as a user-facing option in v3 and made efficient at high $r$ / $K$ via the Möbius method. Continuous-form: returns $H_2 \in (-\infty, \log_b V]$, no $[0, 1]$ reference. The legacy `normalize` kwarg is removed across all entropy entry points (see above).
 
 - **Shipped orbit tables for $r \in \{2, \ldots, 8\}$.** Both Python and MATLAB ship pre-built tables for $r = 2$ through $r = 8$. The user-build path remains available for $r > 8$, gated by a cost-preview warning that prints the Bell-number scaling and estimated build time before construction begins. Set `MPT_NO_BUILD_WARN=1` (environment variable) to suppress the preview message in automation contexts. The user-build cache lives at `~/.mpt/orbit_tables/` (overridable via `MPT_CACHE_DIR`) and persists across sessions. The hard cap on $r$ is 12; beyond that, the build cost is prohibitive even for one-off use.
 
-- **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `cosSimExpTens`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.0 code requires no changes; the new default produces chunk sizes that differ from v2.0's fixed budget, so values differ from v2.0 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
+- **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `simMaet`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.0 code requires no changes; the new default produces chunk sizes that differ from v2.0's fixed budget, so values differ from v2.0 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
 
-- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildExpTens`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a scale given as either `sd` (the window's standard deviation) or `width` (the full support of the rectangle at `shape = 1`; exactly one of the two must be supplied), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `dropInputAttr` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `dropInputAttr=true`) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §7.3 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
+- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildMaet`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a scale given as either `sd` (the window's standard deviation) or `width` (the full support of the rectangle at `shape = 1`; exactly one of the two must be supplied), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `dropInputAttr` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `dropInputAttr=true`) $\to$ `buildMaet` $\to$ `entropyMaet` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §7.3 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
 
 - **`differenceEvents` / `difference_events` and its `circular` flag.** `differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)` takes four positional arguments plus a `circular` Name-Value (MATLAB) / keyword-only (Python) flag, paralleling the flag on `bindEvents`. Differences are emitted as raw signed subtractions regardless of group periodicity; the kernel applies the mod-period wrap downstream. Default `circular = false` drops the leading events at each order. Set `circular = true` for cyclic event sequences (looped rhythms, ostinati) where the boundary difference is a genuine inter-event interval; the function then wraps at the sequence boundary and returns $N$ events at every order.
 
 ### What's new under the hood
 
-- **Lazy density-struct.** `buildExpTens` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. Consumers that read these fields directly should call `ensureExpTensExpensive(dens)` first; this is wired through the toolbox internally, so user-level code that goes through `cosSimExpTens` / `evalExpTens` / `entropyExpTens` is unaffected. If you have v2.0-era code that pokes at `dens.U_perm` directly, add an `ensureExpTensExpensive(dens)` call before the read.
+- **Lazy density-struct.** `buildMaet` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. Consumers that read these fields directly should call `ensureExpTensExpensive(dens)` first; this is wired through the toolbox internally, so user-level code that goes through `simMaet` / `evalMaet` / `entropyMaet` is unaffected. If you have v2.0-era code that pokes at `dens.U_perm` directly, add an `ensureExpTensExpensive(dens)` call before the read.
 
-- **`tensorHarmonicity` rewrite.** The function now bypasses `buildExpTens` entirely and routes through the Möbius relative-mode evaluator (`mobius.evalOrbitRel`) with per-template caching. Output is unchanged at the floating-point level. The previous "consider K_template > 3" warning is removed since the Möbius method handles arbitrary K-template without the centres-array memory footprint.
+- **`tensorHarmonicity` rewrite.** The function now bypasses `buildMaet` entirely and routes through the Möbius relative-mode evaluator (`mobius.evalOrbitRel`) with per-template caching. Output is unchanged at the floating-point level. The previous "consider K_template > 3" warning is removed since the Möbius method handles arbitrary K-template without the centres-array memory footprint.
 
 - **`tensorHarmonicity` batched mode rewritten to dedup-and-batch.** The previous per-row loop has been replaced with a two-pass implementation that groups rows by `(nP, dup)`, deduplicates canonical chord intervals within each group, and issues a single batched call to the Möbius relative-mode evaluator per group. Same FP path as scalar mode (batched values now match scalar values to machine precision by construction rather than only by result cache). Verbose mode prints a one-line groups summary only for batches with ≥ 100 valid rows, matching the `min_print_sec=10` "silent for fast" semantics used by the other batched functions.
 
@@ -226,13 +226,13 @@ mpt.set_default(truncation_sigmas=math.inf)
 
 - v2.0 default routing chose Bulger's method implicitly. v3 default routing chooses `method='auto'`, which selects Bulger's method for the regimes where it dominates and the Möbius method elsewhere. In regimes where both methods are valid (the IP case), they agree to floating-point precision. User-visible cosine / entropy / eval values match v2.0 at default settings to floating-point reduction order — the dispatcher does not change the answer, only the route — with the exceptions noted below and the default kernel truncation described above. The `kernelChunkBytes` factory default (`'auto'`) produces chunk sizes that depend on the machine's available memory rather than v2.0's fixed budget, which alters reduction order and so introduces relative differences below $\sim 10^{-13}$ at otherwise-identical inputs. For bit-identity across machines or sessions, set `kernelChunkBytes` (or `kernel_chunk_bytes`) to an explicit integer.
 
-- **`evalExpTens` periodic-relative numerical change.** The centres-path quadratic form $Q$ in `evalExpTens` for the `isRel = true, isPer = true` case is corrected to the pairwise-wrap form of Eq 6, matching `cosSimExpTens` (the same fix that was applied to `cosSimExpTens` in v2.0.1). At typical perceptual $\sigma/P \le 0.03$ the corrected and prior forms agree as $O((\sigma/P)^{\infty})$, so most existing rel+per callers will see numerical output indistinguishable from v2.0 at default settings; above the threshold the difference becomes measurable. Non-periodic eval, absolute eval, and all `cosSimExpTens` / `entropyExpTens` modes are unchanged. See `CHANGELOG.md` under *Fixed* for the technical detail.
+- **`evalMaet` periodic-relative numerical change.** The centres-path quadratic form $Q$ in `evalMaet` for the `isRel = true, isPer = true` case is corrected to the pairwise-wrap form of Eq 6, matching `simMaet` (the same fix that was applied to `simMaet` in v2.0.1). At typical perceptual $\sigma/P \le 0.03$ the corrected and prior forms agree as $O((\sigma/P)^{\infty})$, so most existing rel+per callers will see numerical output indistinguishable from v2.0 at default settings; above the threshold the difference becomes measurable. Non-periodic eval, absolute eval, and all `simMaet` / `entropyMaet` modes are unchanged. See `CHANGELOG.md` under *Fixed* for the technical detail.
 
-- A previously-rejected configuration was relaxed: `buildExpTens` with `r=1, isRel=true` now emits a warning (id `buildExpTens:isRelDegenerate`) instead of raising. The configuration is well-defined under v3's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
+- A previously-rejected configuration was relaxed: `buildMaet` with `r=1, isRel=true` now emits a warning (id `buildMaet:isRelDegenerate`) instead of raising. The configuration is well-defined under v3's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
 
 ### Demo migrations
 
-- Five demos (`demo_triadConsonance` / `demo_triad_consonance`, `demo_bindEvents` / `demo_bind_events`, plus the Python `demo_bind_events` helper functions) were migrated from the `buildExpTens` + downstream pattern to direct raw-array calls on `evalExpTens`, `entropyExpTens`, and `cosSimExpTens`. This reflects the v3 principle of treating `buildExpTens` as a less user-facing entity.
+- Five demos (`demo_triadConsonance` / `demo_triad_consonance`, `demo_bindEvents` / `demo_bind_events`, plus the Python `demo_bind_events` helper functions) were migrated from the `buildMaet` + downstream pattern to direct raw-array calls on `evalMaet`, `entropyMaet`, and `simMaet`. This reflects the v3 principle of treating `buildMaet` as a less user-facing entity.
 
 ### `sameness` and `coherence` gain optional `sigma`
 
@@ -306,7 +306,7 @@ Because $y(x)$ is linear in $F(0)$ and $F(0)$ is permutation-invariant under pos
 
 `centPhase` is preserved in expectation (the argument of $E[\widetilde{F}(0)]$ equals the argument of $F(0)$).
 
-### Unified dispatch on `evalExpTens`, `cosSimExpTens`, `entropyExpTens`
+### Unified dispatch on `evalMaet`, `simMaet`, `entropyMaet`
 
 In v3, the three core entry points are polymorphic. Each accepts:
 
@@ -319,47 +319,77 @@ All forms produce byte-identical results to v2.0 for the v2.0 calling convention
 
 ```matlab
 % v2.0 — still works in v3
-s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
+s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
 
 % v3 — list mode (single context against many candidates)
-densCtx = buildExpTens(pCtx, wCtx, sigma, r, isRel, isPer, period);
-densCands = arrayfun(@(i) buildExpTens(pCands{i}, wCands{i}, sigma, r, isRel, isPer, period), ...
+densCtx = buildMaet(pCtx, wCtx, sigma, r, isRel, isPer, period);
+densCands = arrayfun(@(i) buildMaet(pCands{i}, wCands{i}, sigma, r, isRel, isPer, period), ...
                      1:nCands, 'UniformOutput', false);
-sims = cosSimExpTens(densCtx, densCands);   % 1-by-nCands cell
+sims = simMaet(densCtx, densCands);   % 1-by-nCands cell
 
 % v3 — batched-raw mode (paired multisets row-by-row)
-sims = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period);   % length-nRows vector
+sims = simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period);   % length-nRows vector
 ```
 
 ```python
 # v2.0 — still works in v3
-s = mpt.cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)
+s = mpt.sim_maet(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)
 
 # v3 — list mode
-dens_ctx = mpt.build_exp_tens(p_ctx, w_ctx, sigma, r, is_rel, is_per, period)
-dens_cands = [mpt.build_exp_tens(p, w, sigma, r, is_rel, is_per, period) for p, w in cands]
-sims = mpt.cos_sim_exp_tens(dens_ctx, dens_cands)   # length-n_cands ndarray
+dens_ctx = mpt.build_maet(p_ctx, w_ctx, sigma, r, is_rel, is_per, period)
+dens_cands = [mpt.build_maet(p, w, sigma, r, is_rel, is_per, period) for p, w in cands]
+sims = mpt.sim_maet(dens_ctx, dens_cands)   # length-n_cands ndarray
 
 # v3 — batched-raw mode
-sims = mpt.cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
+sims = mpt.sim_maet(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
 ```
 
 The batched-raw mode also supports broadcasting: when one of `P1` / `P2` is an `M`-by-`K` matrix and the other is a length-`K` vector, the vector is broadcast across the matrix's rows. Eliminates the `repmat(refPitches, M, 1)` / `np.tile(ref_pitches, (M, 1))` idiom for the common "compare one reference against many candidates" use case.
 
 In Python list × list mode, an additional `mode='cartesian'` returns the full `m`-by-`n` cross-product as a 2-D ndarray; MATLAB list mode is currently pairwise-only (with scalar broadcast).
 
-### Deprecated entry points
+### The core entry points are renamed on the MAET (breaking)
 
-The following function names are deprecated in v3 and emit warnings on direct use. They continue to work, forwarding to the unified entry points:
+The five entry points are named for the object they act on, the multi-attribute expectation tensor:
 
-| Deprecated (v2.0)              | v3 replacement                                                         | Migration |
-|:-------------------------------|:-----------------------------------------------------------------------|:----------|
-| `batchCosSimExpTens` (MATLAB)  | `cosSimExpTens` batched-raw mode                                       | Move weights from name-value pairs to positional arguments after each pitch matrix; pass `[]` for uniform |
-| `batch_cos_sim_exp_tens` (Python) | `cos_sim_exp_tens` batched-raw mode                                 | Same as above; `weights_a` / `weights_b` keyword-only → positional `w1` / `w2` |
-| `cos_sim_exp_tens_raw` (Python) | `cos_sim_exp_tens`                                                    | Single-line edit: drop the `_raw` suffix |
-| `eval_exp_tens_raw` (Python)   | `eval_exp_tens`                                                        | Single-line edit: drop the `_raw` suffix |
+| v2.0 | v3 |
+|:---|:---|
+| `buildExpTens` / `build_exp_tens` | `buildMaet` / `build_maet` |
+| `evalExpTens` / `eval_exp_tens` | `evalMaet` / `eval_maet` |
+| `cosSimExpTens` / `cos_sim_exp_tens` | `simMaet` / `sim_maet` |
+| `sweepCosSimExpTens` / `sweep_cos_sim_exp_tens` | `sweepSimMaet` / `sweep_sim_maet` |
+| `entropyExpTens` / `entropy_exp_tens` | `entropyMaet` / `entropy_maet` |
 
-The deprecation warnings will be emitted for at least one minor release before removal.
+Signatures, arguments, and returned values are unchanged, so the migration is the name alone:
+
+```matlab
+dens = buildExpTens(p, w, sigma, r, isRel, isPer, period);   % v2.0
+s    = cosSimExpTens(densX, densY);
+
+dens = buildMaet(p, w, sigma, r, isRel, isPer, period);      % v3
+s    = simMaet(densX, densY);
+```
+
+```python
+dens = mpt.build_exp_tens(p, w, sigma, r, is_rel, is_per, period)   # v2.0
+s = mpt.cos_sim_exp_tens(dens_x, dens_y)
+
+dens = mpt.build_maet(p, w, sigma, r, is_rel, is_per, period)       # v3
+s = mpt.sim_maet(dens_x, dens_y)
+```
+
+There are no deprecation shims: the old names are gone, and a call to one raises an unrecognized-name error. One thing beyond the names moves with them — the error and warning identifiers, so a `try` / `catch` matching `cosSimExpTens:badMethod` needs `simMaet:badMethod`, and likewise for the other four. The density struct's `MaetDensity` tag is unchanged, as are the already-deprecated `batchCosSimExpTens` and the `_raw` entry points.
+
+### The v2.0 shims are removed (breaking)
+
+These names were deprecated during the 2.1 and 2.2 milestones, which never shipped, and are gone in v3. Each call they served is a mode of the unified entry point:
+
+| Removed (v2.0) | v3 replacement | Migration |
+|:---|:---|:---|
+| `batchCosSimExpTens` (MATLAB) | `simMaet` batched-raw mode | Move the weights from name-value pairs to the position after each pitch matrix: `simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period)`. |
+| `batch_cos_sim_exp_tens` (Python) | `sim_maet` batched-raw mode | Same, with `weights_a` / `weights_b` becoming positional. |
+| `cos_sim_exp_tens_raw` (Python) | `sim_maet` | Drop the `_raw` suffix; the signature is unchanged. |
+| `eval_exp_tens_raw` (Python) | `eval_maet` | Drop the `_raw` suffix; the signature is unchanged. |
 
 ### Batched-input dispatch on harmony, DFT, and structural families
 
@@ -374,7 +404,7 @@ NaN-padded rows are accepted for variable-cardinality inputs. Per-row dedup uses
 
 ### Verbose / time-estimate options on harmony and entropy wrappers
 
-`templateHarmonicity`, `tensorHarmonicity`, `virtualPitches`, `spectralEntropy`, and `entropyExpTens` (single-multiset batched) all gain a `verbose` name-value argument (MATLAB) / keyword argument (Python), default `true`, controlling whether the function prints an upfront time estimate. The estimate is suppressed by `verbose=false`. Numerical results are unchanged. Combined with `estimateCompTime`'s new `minPrintSec` parameter (default 10 s), short workloads (typical interactive use) are silent by default; long workloads earn a one-line estimate with a `Ctrl+C` cancellation reminder.
+`templateHarmonicity`, `tensorHarmonicity`, `virtualPitches`, `spectralEntropy`, and `entropyMaet` (single-multiset batched) all gain a `verbose` name-value argument (MATLAB) / keyword argument (Python), default `true`, controlling whether the function prints an upfront time estimate. The estimate is suppressed by `verbose=false`. Numerical results are unchanged. Combined with `estimateCompTime`'s new `minPrintSec` parameter (default 10 s), short workloads (typical interactive use) are silent by default; long workloads earn a one-line estimate with a `Ctrl+C` cancellation reminder.
 
 ---
 
@@ -428,27 +458,27 @@ v2 also eliminates the v1 dependency on the [Sparse Array Toolbox](https://githu
 
 ## Detailed migration examples
 
-### cosSimExpTens
+### simMaet
 
 **No changes required.** The original signature is still supported:
 
 ```matlab
 % v1 (still works in v2)
-s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
+s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
 ```
 
 The new preferred calling convention precomputes the density objects, which is faster when comparing a fixed reference against many sets:
 
 ```matlab
 % v2 (preferred for repeated comparisons)
-dens_ref = buildExpTens(p1, w1, sigma, r, isRel, isPer, period);
-dens_cmp = buildExpTens(p2, w2, sigma, r, isRel, isPer, period);
-s = cosSimExpTens(dens_ref, dens_cmp);
+dens_ref = buildMaet(p1, w1, sigma, r, isRel, isPer, period);
+dens_cmp = buildMaet(p2, w2, sigma, r, isRel, isPer, period);
+s = simMaet(dens_ref, dens_cmp);
 ```
 
 Both conventions support `'verbose', false` to suppress console output.
 
-### expectationTensor → buildExpTens + evalExpTens
+### expectationTensor → buildMaet + evalMaet
 
 In v1, `expectationTensor` built a discretized tensor on a grid and returned a multidimensional array. In v2, this is split into two functions:
 
@@ -459,17 +489,17 @@ T = expectationTensor(p, w, sigma, r, isRel, isPer, period, nPoints);
 
 ```matlab
 % v2 equivalent
-dens = buildExpTens(p, w, sigma, r, isRel, isPer, period);
+dens = buildMaet(p, w, sigma, r, isRel, isPer, period);
 x = linspace(0, period, nPoints + 1);
 x = x(1:end-1);  % exclude duplicate endpoint for periodic case
-vals = evalExpTens(dens, x);
+vals = evalMaet(dens, x);
 ```
 
 The v2 approach has three advantages: (1) the density object is built once and reused across multiple queries; (2) query points can be arbitrary (not restricted to a uniform grid); (3) the density evaluation uses memory-aware chunking to handle large problems.
 
-### cosSim / expTensorSim → cosSimExpTens
+### cosSim / expTensorSim → simMaet
 
-In v1, `cosSim` and `expTensorSim` computed cosine similarity from precomputed discretized tensors (built by `expectationTensor`). These grid-based functions have been removed in v2. Use `cosSimExpTens`, which has always computed similarity analytically (since v1) and has been substantially optimized in v2 — the original double loop over r-ad combinations has been replaced by fully vectorized operations over pre-calculated r-ads, with automatic memory-aware chunking.
+In v1, `cosSim` and `expTensorSim` computed cosine similarity from precomputed discretized tensors (built by `expectationTensor`). These grid-based functions have been removed in v2. Use `simMaet`, which has always computed similarity analytically (since v1) and has been substantially optimized in v2 — the original double loop over r-ad combinations has been replaced by fully vectorized operations over pre-calculated r-ads, with automatic memory-aware chunking.
 
 ```matlab
 % v1
@@ -480,7 +510,7 @@ s = cosSim(T_x, T_y);
 
 ```matlab
 % v2 equivalent
-s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
+s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
 ```
 
 ### spectralize → addSpectra
@@ -578,14 +608,14 @@ The v2 function also removes the dependency on the external `histcn` function.
 
 ### Batch processing (new in v2)
 
-If your v1 code looped over trials calling `cosSimExpTens` on each:
+If your v1 code looped over trials calling `simMaet` on each:
 
 ```matlab
 % v1 pattern
 for i = 1:nTrials
     [pA, wA] = spectralize(A(i,:), [], nHarm, rho);
     [pB, wB] = spectralize(B(i,:), [], nHarm, rho);
-    s(i) = cosSimExpTens(pA, wA, pB, wB, sigma, r, isRel, isPer, period);
+    s(i) = simMaet(pA, wA, pB, wB, sigma, r, isRel, isPer, period);
 end
 ```
 

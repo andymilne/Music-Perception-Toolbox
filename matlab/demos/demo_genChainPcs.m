@@ -25,14 +25,14 @@
 %  transposition-equivalent on the circle (the chain of ``-gen`` is
 %  the chain of ``gen`` shifted by ``-(n-1)*gen``), so for
 %  ``isRel = 1`` they yield identical PCS values. The demo simply
-%  evaluates the full range and lets ``cosSimExpTens``'s canonical-form
+%  evaluates the full range and lets ``simMaet``'s canonical-form
 %  dedup collapse this redundancy internally — no manual half-range
 %  shortcut is needed. The canonical key is exact in floating point, so
 %  the two chains' pitch classes, which differ in their last bits after
 %  the modular reduction, collapse only when 'precision' rounds them;
 %  9 decimal places is far below any perceptual scale.
 %
-%  Uses: cosSimExpTens
+%  Uses: simMaet
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -80,7 +80,7 @@ fprintf('Computing PCS of %d-tone generator-chains (gen = 0 to %.1f, step %.2f) 
     nTones, period - genStep, genStep, refName);
 % verbose=true prints which method was chosen and an estimated
 % completion time; useful here because the sweep is slow.
-s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
+s = simMaet(refPitches, refWeights, pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
     'precision', 9, 'verbose', true);
 fprintf('Done.\n');

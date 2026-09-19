@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 import mpt._tensor._mobius_inner as _mi
 
 P = 12.0
@@ -42,7 +42,7 @@ def _quiet_and_at_the_floor():
         _mi._COMB_RESTRICTION_ENABLED = True
 
 
-def _nested(inner_r, n_chords, sym, rel_outer, is_per, n_events, seed,
+def _nested(inner_r, n_chords, exch, rel_outer, is_per, n_events, seed,
             cards=None):
     """A nested single-attribute density; ``cards`` gives per-chord
     cardinalities when the chords are of unequal size."""
@@ -52,17 +52,17 @@ def _nested(inner_r, n_chords, sym, rel_outer, is_per, n_events, seed,
         [np.full(c, i) for i, c in enumerate(cards)]).reshape(-1, 1)
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.5, P - 0.5, size=(len(tags), n_events)), axis=0)
-    spec = {"tags": tags, "r": [inner_r, n_chords], "sym": list(sym),
+    spec = {"tags": tags, "r": [inner_r, n_chords], "exch": list(exch),
             "rel": [0, 1] if rel_outer else [0, 0]}
-    return build_exp_tens([p], None, specs=[spec], sigma=[1.0],
+    return build_maet([p], None, specs=[spec], sigma=[1.0],
                           is_per=[is_per], period=[P], verbose=False)
 
 
-def _flat(r_a, is_sym, is_rel, is_per, K, n_events, seed):
+def _flat(r_a, is_exch, is_rel, is_per, K, n_events, seed):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.5, P - 0.5, size=(K, n_events)), axis=0)
-    return build_exp_tens([p], [np.ones((K, n_events))], [1.0], [r_a],
-                          [is_rel], [is_per], [P], [is_sym], verbose=False)
+    return build_maet([p], [np.ones((K, n_events))], [1.0], [r_a],
+                          [is_rel], [is_per], [P], [is_exch], verbose=False)
 
 
 def _matrices(dx, dy, a=0):
@@ -87,35 +87,35 @@ def _max_rel(a, b):
 # ---------------------------------------------------------------------
 
 NESTED_CASES = [
-    (inner_r, n_chords, sym, rel_outer, is_per)
+    (inner_r, n_chords, exch, rel_outer, is_per)
     for inner_r in (1, 2)
     for n_chords in (2, 3)
-    for sym in ([True, True], [True, False], [False, True])
+    for exch in ([True, True], [True, False], [False, True])
     for rel_outer in (0, 1)
     for is_per in (True, False)
 ]
 
 
-@pytest.mark.parametrize("inner_r,n_chords,sym,rel_outer,is_per",
+@pytest.mark.parametrize("inner_r,n_chords,exch,rel_outer,is_per",
                          NESTED_CASES)
 def test_nested_multiplicity_is_the_wreath_product_order(
-        inner_r, n_chords, sym, rel_outer, is_per):
+        inner_r, n_chords, exch, rel_outer, is_per):
     """n_j / n_k equals prod over symmetric levels of r_l! ** (nodes at l).
 
     The identity the restriction rests on needs the perm side to be the
     free orbit tiling of the comb side; this pins the orbit size
     structurally rather than assuming it.
     """
-    d = _nested(inner_r, n_chords, sym, rel_outer, is_per, 2, 5)
+    d = _nested(inner_r, n_chords, exch, rel_outer, is_per, 2, 5)
     r_levels = [inner_r, n_chords]
     expected = 1
-    for lev, s in enumerate(sym):
+    for lev, s in enumerate(exch):
         if s:
             nodes = int(np.prod(r_levels[lev + 1:])) if lev + 1 < 2 else 1
             expected *= math.factorial(r_levels[lev]) ** nodes
     assert int(d.n_k) > 0
     assert int(d.n_j) == expected * int(d.n_k)
-    assert _mi._nested_orbit_mult(r_levels, sym) == expected
+    assert _mi._nested_orbit_mult(r_levels, exch) == expected
 
 
 def test_wreath_orbits_tile_the_perm_side():
@@ -123,10 +123,10 @@ def test_wreath_orbits_tile_the_perm_side():
     the comb columns -- checked on the index arrays themselves."""
     from mpt._tensor.build import _nested_enum_indices
 
-    r_levels, sym = [2, 2], [True, True]
+    r_levels, exch = [2, 2], [True, True]
     tags = np.repeat(np.arange(3), 3).reshape(-1, 1)      # 3 groups of 3
     valid = np.arange(9, dtype=np.intp)
-    perm, comb = _nested_enum_indices(valid, tags, r_levels, sym)
+    perm, comb = _nested_enum_indices(valid, tags, r_levels, exch)
 
     def elements():
         for block_order in itertools.permutations(range(2)):
@@ -155,25 +155,25 @@ def test_wreath_orbits_tile_the_perm_side():
 # Restricted == unrestricted, at inner-matrix level
 # ---------------------------------------------------------------------
 
-@pytest.mark.parametrize("inner_r,n_chords,sym,rel_outer,is_per",
+@pytest.mark.parametrize("inner_r,n_chords,exch,rel_outer,is_per",
                          NESTED_CASES)
 def test_nested_matrix_restricted_equals_unrestricted(
-        inner_r, n_chords, sym, rel_outer, is_per):
-    dx = _nested(inner_r, n_chords, sym, rel_outer, is_per, 2, 11)
-    dy = _nested(inner_r, n_chords, sym, rel_outer, is_per, 2, 22)
+        inner_r, n_chords, exch, rel_outer, is_per):
+    dx = _nested(inner_r, n_chords, exch, rel_outer, is_per, 2, 11)
+    dy = _nested(inner_r, n_chords, exch, rel_outer, is_per, 2, 22)
     m_r, m_u, mult = _matrices(dx, dy)
     assert m_r.shape == (2, 2)
     assert np.all(m_u > 0)
     assert _max_rel(m_r, m_u) < TOL
     # The restriction is taken exactly when there is an orbit to collapse:
     # some level both symmetric and of read-arity >= 2.
-    has_orbit = any(s and r >= 2 for s, r in zip(sym, [inner_r, n_chords]))
+    has_orbit = any(s and r >= 2 for s, r in zip(exch, [inner_r, n_chords]))
     assert (mult > 1) == has_orbit
 
 
 @pytest.mark.parametrize("cards", [[2, 3, 2], [3, 2]])
 def test_nested_unequal_chord_cardinalities(cards):
-    kw = dict(inner_r=2, n_chords=len(cards), sym=[True, True],
+    kw = dict(inner_r=2, n_chords=len(cards), exch=[True, True],
               rel_outer=1, is_per=True, n_events=2, cards=cards)
     m_r, m_u, mult = _matrices(_nested(seed=11, **kw), _nested(seed=22, **kw))
     assert mult == 8 if len(cards) == 2 else mult == 48
@@ -181,26 +181,26 @@ def test_nested_unequal_chord_cardinalities(cards):
 
 
 def test_nested_multi_event():
-    kw = dict(inner_r=2, n_chords=2, sym=[True, True], rel_outer=1,
+    kw = dict(inner_r=2, n_chords=2, exch=[True, True], rel_outer=1,
               is_per=True, n_events=3)
     m_r, m_u, mult = _matrices(_nested(seed=3, **kw), _nested(seed=4, **kw))
     assert m_r.shape == (3, 3) and mult == 8
     assert _max_rel(m_r, m_u) < TOL
 
 
-@pytest.mark.parametrize("r_a,is_sym,is_rel,is_per", [
+@pytest.mark.parametrize("r_a,is_exch,is_rel,is_per", [
     (2, True, True, True), (2, True, True, False), (2, True, False, True),
     (3, True, True, True), (3, True, False, False),
     (2, False, True, True), (3, False, True, False),   # ordered: declines
     (1, True, True, True),                             # r < 2: declines
 ])
-def test_flat_matrix_restricted_equals_unrestricted(r_a, is_sym, is_rel,
+def test_flat_matrix_restricted_equals_unrestricted(r_a, is_exch, is_rel,
                                                     is_per):
-    dx = _flat(r_a, is_sym, is_rel, is_per, 4, 2, 11)
-    dy = _flat(r_a, is_sym, is_rel, is_per, 4, 2, 22)
+    dx = _flat(r_a, is_exch, is_rel, is_per, 4, 2, 11)
+    dy = _flat(r_a, is_exch, is_rel, is_per, 4, 2, 22)
     m_r, m_u, mult = _matrices(dx, dy)
     assert _max_rel(m_r, m_u) < TOL
-    expected_mult = math.factorial(r_a) if (is_sym and r_a >= 2) else 1
+    expected_mult = math.factorial(r_a) if (is_exch and r_a >= 2) else 1
     assert mult == expected_mult
 
 
@@ -220,16 +220,16 @@ def test_ordered_and_degenerate_attributes_decline():
 # ---------------------------------------------------------------------
 
 @pytest.mark.parametrize("method", ["contract", "auto"])
-@pytest.mark.parametrize("inner_r,n_chords,sym,rel_outer,is_per",
+@pytest.mark.parametrize("inner_r,n_chords,exch,rel_outer,is_per",
                          NESTED_CASES)
-def test_cosine_unchanged_by_the_restriction(method, inner_r, n_chords, sym,
+def test_cosine_unchanged_by_the_restriction(method, inner_r, n_chords, exch,
                                              rel_outer, is_per):
     vals = {}
     for enabled in (True, False):
         _mi._COMB_RESTRICTION_ENABLED = enabled
-        dx = _nested(inner_r, n_chords, sym, rel_outer, is_per, 2, 11)
-        dy = _nested(inner_r, n_chords, sym, rel_outer, is_per, 2, 22)
-        vals[enabled] = float(cos_sim_exp_tens(dx, dy, method=method))
+        dx = _nested(inner_r, n_chords, exch, rel_outer, is_per, 2, 11)
+        dy = _nested(inner_r, n_chords, exch, rel_outer, is_per, 2, 22)
+        vals[enabled] = float(sim_maet(dx, dy, method=method))
     _mi._COMB_RESTRICTION_ENABLED = True
     assert 0.0 < vals[False] <= 1.0 + 1e-12
     assert abs(vals[True] - vals[False]) <= TOL * abs(vals[False])
@@ -237,7 +237,7 @@ def test_cosine_unchanged_by_the_restriction(method, inner_r, n_chords, sym,
 
 def test_switch_and_dropped_bundle_agree():
     """The two ways of getting the unrestricted matrix agree exactly."""
-    kw = dict(inner_r=2, n_chords=3, sym=[True, True], rel_outer=1,
+    kw = dict(inner_r=2, n_chords=3, exch=[True, True], rel_outer=1,
               is_per=True, n_events=2)
     dx, dy = _nested(seed=11, **kw), _nested(seed=22, **kw)
     _, m_drop, _ = _matrices(dx, dy)

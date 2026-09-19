@@ -2,7 +2,7 @@
 
 The shipped ``method='centres'`` route reuses ``_ip_core_ma`` so that its
 constants match Bulger's and the two are comparable; see
-``_cos_sim_exp_tens_ma_centres``. This module is the *other* thing a
+``_sim_maet_ma_centres``. This module is the *other* thing a
 reference can be: an implementation sharing no code with the core, so
 that agreement with it would catch a bug the three shipped routes could
 otherwise share. It is deliberately not importable from ``mpt`` and is

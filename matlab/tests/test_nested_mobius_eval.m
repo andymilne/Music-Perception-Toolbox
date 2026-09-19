@@ -1,6 +1,6 @@
 %% test_nested_mobius_eval.m — per-level Möbius point evaluation of nested densities
 %
-%  evalExpTens('method', 'mobius') on a nested density runs the per-level
+%  evalMaet('method', 'mobius') on a nested density runs the per-level
 %  Möbius evaluator (mobius.evalNestedAttrOrbit), which must agree with
 %  the tuple-centres route on every nested shape: any depth, symmetric or
 %  ordered levels, absolute or any co-transposition unit, periodic or not,
@@ -34,19 +34,19 @@ nme_shapes = { nme_T2, [1 2], [0 0], 6; ...
                nme_T3, [2 2], [1 0], 9; ...    % inner unit
                nme_T3, [2 2], [0 1], 9; ...    % outer unit
                nme_T3, [2 3], [0 0], 9 };
-nme_syms = { [true true], [true false], [false true] };
+nme_exchs = { [true true], [true false], [false true] };
 for nme_i = 1:size(nme_shapes, 1)
     for nme_per = [false true]
-        for nme_j = 1:numel(nme_syms)
+        for nme_j = 1:numel(nme_exchs)
             nme_tags = nme_shapes{nme_i, 1}; nme_r = nme_shapes{nme_i, 2};
             nme_rel = nme_shapes{nme_i, 3}; nme_K = nme_shapes{nme_i, 4};
-            nme_sym = nme_syms{nme_j};
-            d = nmeDensity(nme_tags, nme_r, nme_sym, nme_rel, nme_per, nme_K, 1, 0.7, 'full-image', nme_P);
+            nme_exch = nme_exchs{nme_j};
+            d = nmeDensity(nme_tags, nme_r, nme_exch, nme_rel, nme_per, nme_K, 1, 0.7, 'full-image', nme_P);
             X = nmeQueries(d, 1);
             if nme_per && any(nme_rel), nme_tol = 1e-7; else, nme_tol = 1e-10; end
             results{end+1, 1} = sprintf( ...
-                'nested mobius eval: r=[%s] sym=[%s] rel=[%s] per=%d matches centres', ...
-                num2str(nme_r), num2str(nme_sym), num2str(nme_rel), nme_per); %#ok<*SAGROW>
+                'nested mobius eval: r=[%s] exch=[%s] rel=[%s] per=%d matches centres', ...
+                num2str(nme_r), num2str(nme_exch), num2str(nme_rel), nme_per); %#ok<*SAGROW>
             results{end, 2} = nmeRoutesAgree(d, X, nme_tol);
         end
     end
@@ -57,16 +57,16 @@ nme_rels = { [0 0 0], [0 0 1], [0 1 0], [1 0 0] };
 nme_cfg = { [true true true], false; [true false true], true; [false true false], false };
 for nme_i = 1:numel(nme_rels)
     for nme_j = 1:size(nme_cfg, 1)
-        nme_rel = nme_rels{nme_i}; nme_sym = nme_cfg{nme_j, 1}; nme_per = nme_cfg{nme_j, 2};
-        d = nmeDensity(nme_T3L, [2 2 2], nme_sym, nme_rel, nme_per, 8, 2, 0.6, 'full-image', nme_P);
+        nme_rel = nme_rels{nme_i}; nme_exch = nme_cfg{nme_j, 1}; nme_per = nme_cfg{nme_j, 2};
+        d = nmeDensity(nme_T3L, [2 2 2], nme_exch, nme_rel, nme_per, 8, 2, 0.6, 'full-image', nme_P);
         if d.dim == 0
             continue;
         end
         X = nmeQueries(d, 2);
         if nme_per && any(nme_rel), nme_tol = 1e-7; else, nme_tol = 1e-10; end
         results{end+1, 1} = sprintf( ...
-            'nested mobius eval: three levels rel=[%s] sym=[%s] per=%d matches centres', ...
-            num2str(nme_rel), num2str(nme_sym), nme_per);
+            'nested mobius eval: three levels rel=[%s] exch=[%s] per=%d matches centres', ...
+            num2str(nme_rel), num2str(nme_exch), nme_per);
         results{end, 2} = nmeRoutesAgree(d, X, nme_tol);
     end
 end
@@ -81,8 +81,8 @@ rng(4, 'twister');
 p = sort(nme_P * rand(6, 3), 1);
 p(6, 1) = NaN;
 p(5:6, 3) = NaN;
-spec = struct('tags', nme_T2, 'r', [1 2], 'sym', [true true], 'rel', [0 0]);
-d = buildExpTens({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'isPer', false, ...
+spec = struct('tags', nme_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 0]);
+d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'isPer', false, ...
                  'period', 0, 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: ragged events with NaN padding';
 results{end, 2} = nmeRoutesAgree(d, nmeQueries(d, 4), 1e-10);
@@ -92,10 +92,10 @@ rng(5, 'twister');
 p0 = sort(nme_P * rand(6, 3), 1);
 p1 = sort(nme_P * rand(3, 3), 1);
 p2 = 10 * rand(1, 3);
-specs = { struct('tags', nme_T2, 'r', [1 2], 'sym', [true true], 'rel', [0 1]), ...
-          struct('r', 2, 'sym', true, 'rel', false), ...
-          struct('r', 1, 'sym', true, 'rel', false) };
-d = buildExpTens({p0, p1, p2}, {[], [], []}, 'specs', specs, ...
+specs = { struct('tags', nme_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 1]), ...
+          struct('r', 2, 'exch', true, 'rel', false), ...
+          struct('r', 1, 'exch', true, 'rel', false) };
+d = buildMaet({p0, p1, p2}, {[], [], []}, 'specs', specs, ...
                  'sigma', [0.5 0.8 1.0], 'isPer', [true false false], ...
                  'period', [nme_P 0 0], 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: nested tensored with flat attributes';
@@ -111,8 +111,8 @@ results{end, 2} = nmeRoutesAgree(d, X(:, 1), 1e-10);
 d = nmeDensity(nme_T2, [1 2], [true true], [0 0], false, 6, 6, 0.7, 'full-image', nme_P);
 X = nmeQueries(d, 6);
 [nme_chosen, ~] = internal.selectMaEval(d, size(X, 2), []);
-va = evalExpTens(d, X, 'truncationSigmas', 40, 'verbose', false);
-vr = evalExpTens(d, X, 'method', nme_chosen, 'truncationSigmas', 40, 'verbose', false);
+va = evalMaet(d, X, 'truncationSigmas', 40, 'verbose', false);
+vr = evalMaet(d, X, 'method', nme_chosen, 'truncationSigmas', 40, 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: auto runs the route the cost row names';
 results{end, 2} = any(strcmp(nme_chosen, {'centres', 'mobius'})) ...
                   && max(abs(va(:) - vr(:))) <= 1e-12 * max(1, max(abs(vr(:))));
@@ -121,8 +121,8 @@ d = nmeDensity(repelem(0:3, 3), [2 3], [true true], [0 0], false, 12, 16, 0.7, '
 [nme_c, nme_m] = internal.nestedEvalCostsMs(d, 20);
 [nme_chosen, ~] = internal.selectMaEval(d, 20, []);
 X = nmeQueries(d, 16);
-va = evalExpTens(d, X, 'truncationSigmas', 40, 'verbose', false);
-vc = evalExpTens(d, X, 'method', 'centres', 'truncationSigmas', 40, 'verbose', false);
+va = evalMaet(d, X, 'truncationSigmas', 40, 'verbose', false);
+vc = evalMaet(d, X, 'method', 'centres', 'truncationSigmas', 40, 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: 5184 centres per event route to the per-level evaluator';
 results{end, 2} = nme_m < nme_c && strcmp(nme_chosen, 'mobius') ...
                   && max(abs(va(:) - vc(:))) <= 1e-9 * max(abs(vc(:)));
@@ -143,18 +143,18 @@ results{end, 2} = internal.nestedTupleCount(nme_T2, [1 2], [true true]) == 18 ..
     && internal.nestedTupleCount(nme_T3L, [2 2 2], [true true true]) == 128 ...
     && internal.nestedTupleCount([0 0 0 1 1], [2 2], [true true]) == 24;
 d = nmeDensity(nme_T3, [2 3], [true true], [0 0], false, 9, 18, 0.7, 'full-image', nme_P);
-dm = internal.ensureExpTensExpensive(d);
+dm = internal.ensureMaetExpensive(d);
 results{end+1, 1} = 'nested mobius eval: nestedTupleCount agrees with nJ';
 results{end, 2} = dm.nJ == internal.nestedTupleCount(nme_T3, [2 3], [true true]) * size(d.pAttr{1}, 2);
 
 % --- ordered flat attribute still refuses mobius ---
 rng(7, 'twister');
 p = sort(nme_P * rand(4, 2), 1);
-d = buildExpTens({p}, {[]}, 'specs', {struct('r', 2, 'sym', false, 'rel', false)}, ...
+d = buildMaet({p}, {[]}, 'specs', {struct('r', 2, 'exch', false, 'rel', false)}, ...
                  'sigma', 0.5, 'isPer', false, 'period', 0, 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: ordered flat attribute still refuses mobius';
-results{end, 2} = throwsErrorWithId(@() evalExpTens(d, zeros(d.dim, 2), 'method', 'mobius', 'verbose', false), ...
-                                    'mpt:evalExpTens:orderedMobius');
+results{end, 2} = throwsErrorWithId(@() evalMaet(d, zeros(d.dim, 2), 'method', 'mobius', 'verbose', false), ...
+                                    'mpt:evalMaet:orderedMobius');
 
 % --- reference values shared with the Python test ---
 p = [1.0; 2.5; 4.0; 7.0; 8.2; 11.0];
@@ -177,12 +177,12 @@ results{end, 2} = all(abs(v1(:).' - ref1) <= 1e-9 * abs(ref1) + 1e-16) ...
 rng(8, 'twister');
 tags = repelem(0:3, 3);
 p = sort(nme_P * rand(12, 4), 1);
-spec = struct('tags', tags, 'r', [3 3], 'sym', [true true], 'rel', [0 0]);
-d = buildExpTens({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'isPer', false, ...
+spec = struct('tags', tags, 'r', [3 3], 'exch', [true true], 'rel', [0 0]);
+d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'isPer', false, ...
                  'period', 0, 'verbose', false);
 X = nme_P * rand(d.dim, 50);
-tic; vc = evalExpTens(d, X, 'method', 'centres', 'verbose', false); tc = toc;
-tic; vm = evalExpTens(d, X, 'method', 'mobius', 'verbose', false); tm = toc;
+tic; vc = evalMaet(d, X, 'method', 'centres', 'verbose', false); tc = toc;
+tic; vm = evalMaet(d, X, 'method', 'mobius', 'verbose', false); tm = toc;
 results{end+1, 1} = 'nested mobius eval: per-level route is cheaper than centres at r=(3,3)';
 results{end, 2} = max(abs(vm(:) - vc(:))) <= 1e-7 * max(abs(vc(:))) && tm < tc;
 
@@ -205,11 +205,11 @@ if standalone
 end
 
 
-function d = nmeDensity(tags, r, sym, rel, per, K, seed, sigma, wrap, P)
+function d = nmeDensity(tags, r, exch, rel, per, K, seed, sigma, wrap, P)
     rng(seed, 'twister');
     p = sort(P * rand(K, 2), 1);
-    spec = struct('tags', tags, 'r', r, 'sym', sym, 'rel', rel);
-    d = buildExpTens({p}, {[]}, 'specs', {spec}, 'sigma', sigma, 'isPer', per, ...
+    spec = struct('tags', tags, 'r', r, 'exch', exch, 'rel', rel);
+    d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', sigma, 'isPer', per, ...
                      'period', P, 'wrap', {wrap}, 'verbose', false);
 end
 
@@ -223,7 +223,7 @@ function X = nmeQueries(d, seed)
     % are at their noise floor and the relative comparison is meaningless.
     X = -2 + 16 * rand(d.dim, 6);
     if d.dim > 0
-        dm = internal.ensureExpTensExpensive(d);
+        dm = internal.ensureMaetExpensive(d);
         c = vertcat(dm.Centres{:});
         X(:, 1:3) = c(:, randi(size(c, 2), 1, 3)) + 0.3 * randn(d.dim, 3);
     end
@@ -236,8 +236,8 @@ function ok = nmeRoutesAgree(d, X, tol)
     % thousand tuples the dropped mass reaches 1e-9 of the maximum, which
     % is truncation, not disagreement (diag: 5.6e-14 at 40 sigma against
     % 1.8e-9 at the floor on the r = [2 3] row).
-    vc = evalExpTens(d, X, 'method', 'centres', 'truncationSigmas', 40, 'verbose', false);
-    vm = evalExpTens(d, X, 'method', 'mobius', 'truncationSigmas', 40, 'verbose', false);
+    vc = evalMaet(d, X, 'method', 'centres', 'truncationSigmas', 40, 'verbose', false);
+    vm = evalMaet(d, X, 'method', 'mobius', 'truncationSigmas', 40, 'verbose', false);
     scale = max(max(abs(vc(:))), 1e-300);
     err = max(abs(vm(:) - vc(:))) / scale;
     ok = err <= tol;

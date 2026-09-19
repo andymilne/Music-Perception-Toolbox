@@ -1,4 +1,4 @@
-function guardForcedBulgerFeasible(kVec, rVec, Nx, Ny, reason, kVecY, symVec)
+function guardForcedBulgerFeasible(kVec, rVec, Nx, Ny, reason, kVecY, exchVec)
 %GUARDFORCEDBULGERFEASIBLE  Raise if a forced Bulger inner product is infeasible.
 %
 %   INTERNAL.GUARDFORCEDBULGERFEASIBLE(KVEC, RVEC, NX, NY, REASON,
@@ -12,7 +12,7 @@ function guardForcedBulgerFeasible(kVec, rVec, Nx, Ny, reason, kVecY, symVec)
 %   enumerated tuple count: K_a! / (K_a - r_a)! on an unordered
 %   attribute (every ordering of every combination) and C(K_a, r_a) on
 %   an ordered one (the perm side is the comb side; see the enumeration
-%   in buildExpTens). The tuple-pair kernel is nJ_x * nJ_y float64
+%   in buildMaet). The tuple-pair kernel is nJ_x * nJ_y float64
 %   entries. When Bulger is forced there is no cheaper all-image
 %   substitute to fall back to, so rather than let the product exhaust
 %   memory and crash, this raises a clear error naming the shape.
@@ -32,12 +32,12 @@ function guardForcedBulgerFeasible(kVec, rVec, Nx, Ny, reason, kVecY, symVec)
     if nargin < 6 || isempty(kVecY)
         kVecY = kVec;
     end
-    if nargin < 7 || isempty(symVec)
-        symVec = true(1, A);
+    if nargin < 7 || isempty(exchVec)
+        exchVec = true(1, A);
     end
     budget = internal.dispatchMemBudget();
-    njx = localNjSide(Nx, kVec, rVec, symVec);
-    njy = localNjSide(Ny, kVecY, rVec, symVec);
+    njx = localNjSide(Nx, kVec, rVec, exchVec);
+    njy = localNjSide(Ny, kVecY, rVec, exchVec);
     pairBytes = njx * njy * 8;   % nJ_x * nJ_y float64 entries
     if pairBytes > budget
         error('mpt:dispatch:singleImageInfeasible', ...
@@ -49,7 +49,7 @@ function guardForcedBulgerFeasible(kVec, rVec, Nx, Ny, reason, kVecY, symVec)
     end
 end
 
-function nJ = localNjSide(N, kSide, rVec, symVec)
+function nJ = localNjSide(N, kSide, rVec, exchVec)
 %LOCALNJSIDE  One side's joint working set N * prod_a nj_a, saturating
 %   past hopelessness. nj_a is K!/(K-r)! unordered, C(K, r) ordered.
     nJ = double(N);
@@ -64,7 +64,7 @@ function nJ = localNjSide(N, kSide, rVec, symVec)
         for k = (K_a - r_a + 1):K_a
             fac = fac * k;
         end
-        if ~symVec(a)
+        if ~exchVec(a)
             fac = fac / factorial(r_a);
         end
         nJ = nJ * fac;

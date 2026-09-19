@@ -8,7 +8,7 @@ function tf = weightIsLive(w)
 %   truncation support) both fail the test.
 %
 %   This is the single definition of a "live" weight, shared by the
-%   event-level prune (internal.prunedExpTens) and the pre-build seam prune
+%   event-level prune (internal.prunedMaet) and the pre-build seam prune
 %   (internal.pruneDeadEvents). It is the MATLAB counterpart of the Python
 %   density helper `_weight_is_live`.
 

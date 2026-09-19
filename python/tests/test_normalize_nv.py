@@ -1,4 +1,4 @@
-"""Tests for the ``normalize`` NV exposed on ``cos_sim_exp_tens``.
+"""Tests for the ``normalize`` NV exposed on ``sim_maet``.
 
 Covers:
   * Default-mode behaviour matches the legacy formula on each function.
@@ -22,12 +22,12 @@ def _silence_hints():
 
 
 # ---------------------------------------------------------------------
-# cos_sim_exp_tens
+# sim_maet
 # ---------------------------------------------------------------------
 
 
 def _make_sa_density(p, w=None, sigma=100.0, r=1, period=1200.0):
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         np.asarray(p, dtype=float),
         None if w is None else np.asarray(w, dtype=float),
         sigma, r, False, True, period,
@@ -39,17 +39,17 @@ class TestCosSimNormalize:
 
     def test_default_is_cosine_at_r1(self):
         d = _make_sa_density([0., 200., 400., 700.])
-        s_default = mpt.cos_sim_exp_tens(d, d, verbose=False)
-        s_explicit = mpt.cos_sim_exp_tens(d, d, normalize='cosine',
+        s_default = mpt.sim_maet(d, d, verbose=False)
+        s_explicit = mpt.sim_maet(d, d, normalize='cosine',
                                           verbose=False)
         assert s_default == pytest.approx(1.0)
         assert s_explicit == pytest.approx(s_default)
 
     def test_self_match_one_in_both_modes(self):
         d = _make_sa_density([0., 200., 400., 700.])
-        s_cosine = mpt.cos_sim_exp_tens(d, d, normalize='cosine',
+        s_cosine = mpt.sim_maet(d, d, normalize='cosine',
                                         verbose=False)
-        s_one = mpt.cos_sim_exp_tens(d, d, normalize='oneSidedDenom',
+        s_one = mpt.sim_maet(d, d, normalize='oneSidedDenom',
                                      verbose=False)
         assert s_cosine == pytest.approx(1.0)
         assert s_one == pytest.approx(1.0)
@@ -60,28 +60,28 @@ class TestCosSimNormalize:
         d_unit = _make_sa_density([0., 200., 400., 700.])
         d_big = _make_sa_density([0., 200., 400., 700.],
                                   w=[3., 3., 3., 3.])
-        s_cos = mpt.cos_sim_exp_tens(d_big, d_unit, normalize='cosine',
+        s_cos = mpt.sim_maet(d_big, d_unit, normalize='cosine',
                                      verbose=False)
-        s_one = mpt.cos_sim_exp_tens(d_big, d_unit, normalize='oneSidedDenom',
+        s_one = mpt.sim_maet(d_big, d_unit, normalize='oneSidedDenom',
                                      verbose=False)
         assert s_cos == pytest.approx(1.0)
         assert s_one == pytest.approx(3.0)
 
     def test_british_alias(self):
         d = _make_sa_density([0., 200., 400., 700.])
-        s_us = mpt.cos_sim_exp_tens(d, d, normalize='oneSidedDenom',
+        s_us = mpt.sim_maet(d, d, normalize='oneSidedDenom',
                                     verbose=False)
-        s_gb = mpt.cos_sim_exp_tens(d, d, normalise='oneSidedDenom',
+        s_gb = mpt.sim_maet(d, d, normalise='oneSidedDenom',
                                     verbose=False)
         assert s_us == pytest.approx(s_gb)
 
     def test_case_insensitive_value(self):
         d = _make_sa_density([0., 200., 400., 700.])
-        s_low = mpt.cos_sim_exp_tens(d, d, normalize='onesideddenom',
+        s_low = mpt.sim_maet(d, d, normalize='onesideddenom',
                                      verbose=False)
-        s_mix = mpt.cos_sim_exp_tens(d, d, normalize='OneSidedDenom',
+        s_mix = mpt.sim_maet(d, d, normalize='OneSidedDenom',
                                      verbose=False)
-        s_can = mpt.cos_sim_exp_tens(d, d, normalize='oneSidedDenom',
+        s_can = mpt.sim_maet(d, d, normalize='oneSidedDenom',
                                      verbose=False)
         assert s_low == pytest.approx(s_can)
         assert s_mix == pytest.approx(s_can)
@@ -89,10 +89,10 @@ class TestCosSimNormalize:
     def test_mutual_exclusion_normalize_normalise(self):
         d = _make_sa_density([0., 200., 400., 700.])
         with pytest.raises(TypeError, match="not both"):
-            mpt.cos_sim_exp_tens(d, d, normalize='cosine',
+            mpt.sim_maet(d, d, normalize='cosine',
                                  normalise='cosine', verbose=False)
 
     def test_bad_value_raises(self):
         d = _make_sa_density([0., 200., 400., 700.])
         with pytest.raises(ValueError, match="normalize"):
-            mpt.cos_sim_exp_tens(d, d, normalize='bogus', verbose=False)
+            mpt.sim_maet(d, d, normalize='bogus', verbose=False)

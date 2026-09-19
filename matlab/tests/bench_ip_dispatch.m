@@ -86,7 +86,7 @@ for ri = 1:numel(rList)
             tBul = NaN;
         else
             tStart = tic;   % warmup doubles as the cap check
-            cosSimExpTens(refPitches, [], edoPitches, [], ...
+            simMaet(refPitches, [], edoPitches, [], ...
                 sigma, r, isRel, isPer, period, 'method', 'bulger');
             tWarm = toc(tStart);
             if tWarm > TIME_CAP
@@ -96,7 +96,7 @@ for ri = 1:numel(rList)
                 tB = zeros(1, nReps);
                 for k = 1:nReps
                     tStart = tic;
-                    cosSimExpTens(refPitches, [], edoPitches, [], ...
+                    simMaet(refPitches, [], edoPitches, [], ...
                         sigma, r, isRel, isPer, period, 'method', 'bulger');
                     tB(k) = toc(tStart);
                 end
@@ -110,7 +110,7 @@ for ri = 1:numel(rList)
         else
             try
                 tStart = tic;
-                cosSimExpTens(refPitches, [], edoPitches, [], ...
+                simMaet(refPitches, [], edoPitches, [], ...
                     sigma, r, isRel, isPer, period, 'method', 'mobius');
                 tWarm = toc(tStart);
                 if tWarm > TIME_CAP
@@ -120,7 +120,7 @@ for ri = 1:numel(rList)
                     tM = zeros(1, nReps);
                     for k = 1:nReps
                         tStart = tic;
-                        cosSimExpTens(refPitches, [], edoPitches, [], ...
+                        simMaet(refPitches, [], edoPitches, [], ...
                             sigma, r, isRel, isPer, period, ...
                             'method', 'mobius');
                         tM(k) = toc(tStart);
@@ -136,10 +136,10 @@ for ri = 1:numel(rList)
         end
 
         % --- auto (single rep after warmup) ---
-        cosSimExpTens(refPitches, [], edoPitches, [], ...
+        simMaet(refPitches, [], edoPitches, [], ...
             sigma, r, isRel, isPer, period);
         tStart = tic;
-        cosSimExpTens(refPitches, [], edoPitches, [], ...
+        simMaet(refPitches, [], edoPitches, [], ...
             sigma, r, isRel, isPer, period);
         tAuto = toc(tStart);
 
@@ -199,7 +199,7 @@ for ri = 1:numel(symR)
             tBul = NaN;
         else
             tStart = tic;
-            cosSimExpTens(pA, [], pB, [], ...
+            simMaet(pA, [], pB, [], ...
                 sigma, r, isRel, isPer, period, 'method', 'bulger');
             tWarm = toc(tStart);
             if tWarm > TIME_CAP
@@ -209,7 +209,7 @@ for ri = 1:numel(symR)
                 tB = zeros(1, nReps);
                 for k = 1:nReps
                     tStart = tic;
-                    cosSimExpTens(pA, [], pB, [], ...
+                    simMaet(pA, [], pB, [], ...
                         sigma, r, isRel, isPer, period, ...
                         'method', 'bulger');
                     tB(k) = toc(tStart);
@@ -223,7 +223,7 @@ for ri = 1:numel(symR)
         else
             try
                 tStart = tic;
-                cosSimExpTens(pA, [], pB, [], ...
+                simMaet(pA, [], pB, [], ...
                     sigma, r, isRel, isPer, period, 'method', 'mobius');
                 tWarm = toc(tStart);
                 if tWarm > TIME_CAP
@@ -233,7 +233,7 @@ for ri = 1:numel(symR)
                     tM = zeros(1, nReps);
                     for k = 1:nReps
                         tStart = tic;
-                        cosSimExpTens(pA, [], pB, [], ...
+                        simMaet(pA, [], pB, [], ...
                             sigma, r, isRel, isPer, period, ...
                             'method', 'mobius');
                         tM(k) = toc(tStart);
@@ -248,9 +248,9 @@ for ri = 1:numel(symR)
             end
         end
 
-        cosSimExpTens(pA, [], pB, [], sigma, r, isRel, isPer, period);
+        simMaet(pA, [], pB, [], sigma, r, isRel, isPer, period);
         tStart = tic;
-        cosSimExpTens(pA, [], pB, [], sigma, r, isRel, isPer, period);
+        simMaet(pA, [], pB, [], sigma, r, isRel, isPer, period);
         tAuto = toc(tStart);
 
         P_K = ff(K, r);

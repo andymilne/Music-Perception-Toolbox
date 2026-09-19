@@ -17,7 +17,7 @@ Tests cover:
 - ``K_eff < r`` returns 0.
 - Ragged events at every K_eff, including K_eff = r: the batched matrix
   matches a per-pair direct-enum reference.
-- Mixed K_eff via cos_sim_exp_tens: Möbius and Bulger agree.
+- Mixed K_eff via sim_maet: Möbius and Bulger agree.
 - r=1 ragged: still matches pairwise (regression check on the
   unchanged path).
 """
@@ -28,8 +28,8 @@ from mpt._defaults import accuracy_floor_context
 import pytest
 
 from mpt.tensor import (
-    build_exp_tens,
-    cos_sim_exp_tens,
+    build_maet,
+    sim_maet,
     _ma_per_attr_inner_matrix,
 )
 from tests.references.mobius_ip_reference import (
@@ -168,7 +168,7 @@ def test_k_equal_r_matches_direct_enum():
 
 
 def test_mixed_k_eff_cossim_orbit_matches_pairwise():
-    """Mixed K_eff: cos_sim_exp_tens with method='mobius' agrees
+    """Mixed K_eff: sim_maet with method='mobius' agrees
     with method='bulger' on a deliberately mixed case (K_eff = 3,
     6, 4 across three events; r = 3).
     """
@@ -182,12 +182,12 @@ def test_mixed_k_eff_cossim_orbit_matches_pairwise():
     sigma = 30.0
     r = 3
 
-    dx = build_exp_tens([P], [W], [sigma], [r], 
+    dx = build_maet([P], [W], [sigma], [r], 
                         [False], [False], [0.0], verbose=False)
-    dy = build_exp_tens([P], [W], [sigma], [r], 
+    dy = build_maet([P], [W], [sigma], [r], 
                         [False], [False], [0.0], verbose=False)
-    s_orbit = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
-    s_pw = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
+    s_orbit = sim_maet(dx, dy, method='mobius', verbose=False)
+    s_pw = sim_maet(dx, dy, method='bulger', verbose=False)
     assert abs(s_orbit - s_pw) < 1e-8
 
 
@@ -199,12 +199,12 @@ def test_r1_ragged_orbit_matches_pairwise():
     W = np.where(np.isnan(P), np.nan, 1.0)
     sigma = 30.0
 
-    dx = build_exp_tens([P], [W], [sigma], [1], 
+    dx = build_maet([P], [W], [sigma], [1], 
                         [False], [False], [0.0], verbose=False)
-    dy = build_exp_tens([P], [W], [sigma], [1], 
+    dy = build_maet([P], [W], [sigma], [1], 
                         [False], [False], [0.0], verbose=False)
-    s_orbit = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
-    s_pw = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
+    s_orbit = sim_maet(dx, dy, method='mobius', verbose=False)
+    s_pw = sim_maet(dx, dy, method='bulger', verbose=False)
     assert abs(s_orbit - s_pw) < 1e-10
 
 
@@ -233,10 +233,10 @@ class TestRaggedDispatch:
             Wx[:K_eff, n] = 1.0
 
         sigma = 30.0
-        dens = build_exp_tens([Px], [Wx], [sigma], [r], 
+        dens = build_maet([Px], [Wx], [sigma], [r], 
                               [False], [False], [0.0], verbose=False)
-        s_orbit = cos_sim_exp_tens(dens, dens, method='mobius',
+        s_orbit = sim_maet(dens, dens, method='mobius',
                                     verbose=False)
-        s_pw = cos_sim_exp_tens(dens, dens, method='bulger',
+        s_pw = sim_maet(dens, dens, method='bulger',
                                  verbose=False)
         assert abs(s_orbit - s_pw) < 1e-12

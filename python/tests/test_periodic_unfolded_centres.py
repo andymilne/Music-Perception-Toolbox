@@ -16,7 +16,7 @@ import warnings
 
 import numpy as np
 
-from mpt import entropy_exp_tens, add_spectra
+from mpt import entropy_maet, add_spectra
 
 PERIOD = 1200.0  # one octave in cents
 
@@ -32,9 +32,9 @@ def test_differential_periodic_unfolded_matches_folded():
     # pre-folds the centres into [0, period).
     p, w = _spectral_partials([64, 59, 56, 40])  # E major; partials past 3P
     assert p.max() > 3 * PERIOD  # the regime that triggered the bug
-    unfolded = entropy_exp_tens(p, w, 10.0, 1, False, True, PERIOD,
+    unfolded = entropy_maet(p, w, 10.0, 1, False, True, PERIOD,
                                 method="differential", base=np.e, verbose=False)
-    folded = entropy_exp_tens(p % PERIOD, w, 10.0, 1, False, True, PERIOD,
+    folded = entropy_maet(p % PERIOD, w, 10.0, 1, False, True, PERIOD,
                               method="differential", base=np.e, verbose=False)
     assert np.isclose(unfolded, folded, atol=1e-9)
     # A sane positive differential entropy, not the degenerate constant.
@@ -46,9 +46,9 @@ def test_differential_periodic_varies_with_harmony():
     # distinct harmonies must give distinct periodic differential entropy.
     pe, we = _spectral_partials([64, 59, 56, 40])  # E major
     pb, wb = _spectral_partials([71, 66, 62, 47])  # B minor
-    he = entropy_exp_tens(pe, we, 10.0, 1, False, True, PERIOD,
+    he = entropy_maet(pe, we, 10.0, 1, False, True, PERIOD,
                           method="differential", base=np.e, verbose=False)
-    hb = entropy_exp_tens(pb, wb, 10.0, 1, False, True, PERIOD,
+    hb = entropy_maet(pb, wb, 10.0, 1, False, True, PERIOD,
                           method="differential", base=np.e, verbose=False)
     assert not np.isclose(he, hb, atol=1e-3)
 
@@ -58,7 +58,7 @@ def test_differential_periodic_follows_the_wrap():
     # must track the density the wrap declares: the wrapped normal under
     # the default 'full-image', the minimum-image density of Eq. (1)
     # under 'single-image'.
-    from mpt import build_exp_tens
+    from mpt import build_maet
     c = np.array([0.0, 400.0, 700.0, 1100.0])
     w = np.ones(4)
 
@@ -76,15 +76,15 @@ def test_differential_periodic_follows_the_wrap():
         return -(f * np.log(f + 1e-300)).sum() * (PERIOD / G)
 
     s = 300.0  # sigma/period = 0.25, where the two forms visibly differ
-    htb_full = entropy_exp_tens(c, w, s, 1, False, True, PERIOD,
+    htb_full = entropy_maet(c, w, s, 1, False, True, PERIOD,
                                 method="differential", base=np.e,
                                 verbose=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        d_single = build_exp_tens([c.reshape(-1, 1)], [w.reshape(-1, 1)],
+        d_single = build_maet([c.reshape(-1, 1)], [w.reshape(-1, 1)],
                                   [s], [1], [False], [True], [PERIOD],
                                   wrap=['single-image'], verbose=False)
-    htb_single = entropy_exp_tens(d_single, method="differential",
+    htb_single = entropy_maet(d_single, method="differential",
                                   base=np.e, verbose=False)
     h_min, h_wrap = fine("min", s), fine("wrap", s)
     assert abs(h_min - h_wrap) > 1e-4          # the two forms really differ here

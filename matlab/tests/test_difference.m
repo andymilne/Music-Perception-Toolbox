@@ -3,7 +3,7 @@
 %  differenceEvents applies the k-th finite difference along the event axis,
 %  row by row. It is well-defined exactly when the positions have
 %  stable identity ---
-%  an ordered attribute ([sym]=0) or a singleton (K=1) --- so a symmetric
+%  an ordered attribute ([exch]=0) or a singleton (K=1) --- so a symmetric
 %  multiset (K>1) errors, and the rule extends per level for a nested
 %  attribute. The spec passes through unchanged (values change, structure
 %  does not); NaN propagates (absent value). With order = L the differenced-
@@ -30,12 +30,12 @@ results{end,2}   = iscell(sd) && numel(sd) == 1 && ~isfield(sd{1}, 'tags') ...
 
 % Specs synthesised when none supplied (flatSpecs defaults).
 [~, ~, sd] = unpackPreMaet(differenceEvents({[0 2 5]}, [], 1));
-results{end+1,1} = 'diff: synthesised flat spec has r=1 rel=false sym=true';
+results{end+1,1} = 'diff: synthesised flat spec has r=1 rel=false exch=true';
 results{end,2}   = isequal(sd{1}.r, 1) && isequal(logical(sd{1}.rel), false) ...
-                   && isequal(logical(sd{1}.sym), true);
+                   && isequal(logical(sd{1}.exch), true);
 
 % Spec passes through unchanged.
-sIn = flatSpecs({zeros(1, 4)}, 'r', 2, 'rel', true, 'sym', false);
+sIn = flatSpecs({zeros(1, 4)}, 'r', 2, 'rel', true, 'exch', false);
 [~, ~, sOut] = unpackPreMaet(differenceEvents({[0 2 5 9]}, [], 1, 'specs', sIn));
 results{end+1,1} = 'diff: spec passes through unchanged';
 results{end,2}   = isequal(sOut, sIn);
@@ -66,29 +66,29 @@ results{end,2}   = isequal(wd{1}, [2 6 12]);
 
 % K>1 ordered attribute differences row by row (the lifted K=1 rule).
 M = [0 2 5; 10 13 17];
-[pd, ~, ~] = unpackPreMaet(differenceEvents({M}, [], 1, 'specs', flatSpecs({M}, 'sym', false)));
+[pd, ~, ~] = unpackPreMaet(differenceEvents({M}, [], 1, 'specs', flatSpecs({M}, 'exch', false)));
 results{end+1,1} = 'diff: ordered K>1 differences row by row';
 results{end,2}   = isequal(pd{1}, [2 3; 3 4]);
 
 % Symmetric K>1 rejected.
 results{end+1,1} = 'diff: symmetric K>1 rejected';
 results{end,2}   = throwsError(@() differenceEvents({M}, [], 1, ...
-                       'specs', flatSpecs({M}, 'sym', true)));
+                       'specs', flatSpecs({M}, 'exch', true)));
 
 % Symmetric K>1 with order 0 never triggers the guard (identity).
-[pd, ~, ~] = unpackPreMaet(differenceEvents({M}, [], 0, 'specs', flatSpecs({M}, 'sym', true)));
+[pd, ~, ~] = unpackPreMaet(differenceEvents({M}, [], 0, 'specs', flatSpecs({M}, 'exch', true)));
 results{end+1,1} = 'diff: symmetric K>1 order 0 ok (identity)';
 results{end,2}   = isequal(pd{1}, M);
 
-% Singleton (K=1) is always differenceable regardless of sym.
+% Singleton (K=1) is always differenceable regardless of exch.
 [pd, ~, ~] = unpackPreMaet(differenceEvents({[0 2 5]}, [], 1, ...
-                 'specs', flatSpecs({[0 2 5]}, 'sym', true)));
-results{end+1,1} = 'diff: K=1 differences regardless of sym';
+                 'specs', flatSpecs({[0 2 5]}, 'exch', true)));
+results{end+1,1} = 'diff: K=1 differences regardless of exch';
 results{end,2}   = isequal(pd{1}, [2 3]);
 
 % NaN propagates as an absent value.
 Mn = [0 2 5; 10 NaN 17];
-[pd, ~, ~] = unpackPreMaet(differenceEvents({Mn}, [], 1, 'specs', flatSpecs({Mn}, 'sym', false)));
+[pd, ~, ~] = unpackPreMaet(differenceEvents({Mn}, [], 1, 'specs', flatSpecs({Mn}, 'exch', false)));
 out = pd{1};
 results{end+1,1} = 'diff: NaN propagates as absent value';
 results{end,2}   = isequal(out(1, :), [2 3]) && all(isnan(out(2, :)));
@@ -104,8 +104,8 @@ results{end,2}   = isequal(size(pnd{1}), [2 3]) ...
                    && isequal(snd{1}.tags(:).', [0 1]) ...
                    && isequal(snd{1}.r, specs{1}.r);
 
-% A bag outer level (symOuter = true) cannot be differenced.
-[pb2, wb2, specs2] = unpackPreMaet(bindEvents({raw}, [], 2, 'symOuter', true));
+% A bag outer level (exchOuter = true) cannot be differenced.
+[pb2, wb2, specs2] = unpackPreMaet(bindEvents({raw}, [], 2, 'exchOuter', true));
 results{end+1,1} = 'diff: nested symmetric-outer rejected';
 results{end,2}   = throwsError(@() differenceEvents(pb2, wb2, 1, 'specs', specs2));
 
@@ -122,17 +122,17 @@ results{end+1,1} = 'diff: B o D == D o B (values + specs)';
 results{end,2}   = isequal(pDB{1}, pBD{1}) ...
                    && isequal(sDB{1}.tags, sBD{1}.tags) ...
                    && isequal(sDB{1}.r, sBD{1}.r) ...
-                   && isequal(sDB{1}.sym, sBD{1}.sym) ...
+                   && isequal(sDB{1}.exch, sBD{1}.exch) ...
                    && isequal(sDB{1}.rel, sBD{1}.rel);
 
 % The two routes build eval-identical densities.
-dDB = buildExpTens(pDB, wDB, 'specs', sDB, 'sigma', 30, ...
+dDB = buildMaet(pDB, wDB, 'specs', sDB, 'sigma', 30, ...
                    'isPer', false, 'period', 0, 'verbose', false);
-dBD = buildExpTens(pBD, wBD, 'specs', sBD, 'sigma', 30, ...
+dBD = buildMaet(pBD, wBD, 'specs', sBD, 'sigma', 30, ...
                    'isPer', false, 'period', 0, 'verbose', false);
 Qd  = (reshape(1:(dDB.dim * 4), dDB.dim, 4) - 6) / 2;
-vDB = evalExpTens(dDB, Qd, 'verbose', false);
-vBD = evalExpTens(dBD, Qd, 'verbose', false);
+vDB = evalMaet(dDB, Qd, 'verbose', false);
+vBD = evalMaet(dBD, Qd, 'verbose', false);
 results{end+1,1} = 'diff: B o D == D o B (density eval-identical)';
 results{end,2}   = (dDB.dim == dBD.dim) && max(abs(vDB(:) - vBD(:))) < 1e-12;
 

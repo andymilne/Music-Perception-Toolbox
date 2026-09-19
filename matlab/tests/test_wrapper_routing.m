@@ -10,7 +10,7 @@ function tests = test_wrapper_routing
 %     (c) respect the global mptDefaults setting for these kwargs.
 %
 %   Stage 2c is the work that rerouted tensorHarmonicity through
-%   evalExpTens (removing a wrapper-level algorithm-choice violation)
+%   evalMaet (removing a wrapper-level algorithm-choice violation)
 %   and threaded truncationSigmas / kernelPrecision through all four
 %   wrappers so that the v3 helper-accelerated centres path is reached
 %   from any user-facing entry point.

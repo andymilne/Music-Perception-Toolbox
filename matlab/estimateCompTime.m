@@ -16,8 +16,8 @@ function estSec = estimateCompTime(nPairs, dim, label, verbose, minPrintSec)
 %
 %   Inputs:
 %     nPairs       — Total number of (tuple, query) pair evaluations
-%                    (scalar). For evalExpTens: nJ * nQ. For
-%                    cosSimExpTens: sum of nJ*nK across the three inner
+%                    (scalar). For evalMaet: nJ * nQ. For
+%                    simMaet: sum of nJ*nK across the three inner
 %                    products.
 %     dim          — Dimensionality of the difference vectors (positive
 %                    integer)
@@ -40,8 +40,8 @@ function estSec = estimateCompTime(nPairs, dim, label, verbose, minPrintSec)
 %   Output:
 %     estSec  — Estimated time in seconds
 %
-%   This function is used internally by evalExpTens, cosSimExpTens, and
-%   plotExpTens_demo.
+%   This function is used internally by evalMaet, simMaet, and
+%   plotMaet_demo.
 
 if nargin < 4
     verbose = true;
@@ -76,7 +76,7 @@ end
 % Calibrate for this dimensionality if not already cached
 if isnan(rateCache(cacheIdx))
     % Run a small representative workload that exactly mirrors the
-    % dominant operations in evalExpTens / cosSimExpTens:
+    % dominant operations in evalMaet / simMaet:
     %   1. Implicit-expansion subtraction  (dim x nCal x nCal)
     %   2. Element-wise squaring + sum     (quadratic form)
     %   3. exp                             (Gaussian kernel)

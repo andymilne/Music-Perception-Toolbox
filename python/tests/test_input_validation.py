@@ -23,11 +23,11 @@ class TestValidation:
 
     def test_r_too_large(self):
         with pytest.raises(ValueError, match="must not exceed"):
-            mpt.build_exp_tens([0, 4], None, 10, 3, False, True, 12, verbose=False)
+            mpt.build_maet([0, 4], None, 10, 3, False, True, 12, verbose=False)
 
     def test_is_rel_r_1(self):
         with pytest.raises(ValueError, match="at least 2"):
-            mpt.build_exp_tens([0, 4, 7], None, 10, 1, True, True, 12, verbose=False)
+            mpt.build_maet([0, 4, 7], None, 10, 1, True, True, 12, verbose=False)
 
     def test_coherence_duplicates(self):
         with pytest.raises(ValueError, match="duplicate"):

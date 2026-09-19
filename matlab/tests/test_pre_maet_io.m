@@ -20,14 +20,14 @@ else
 end
 
 pIO = {[60 62 64], [0 1 2]};
-mkSpecs = @() {struct('name','pitch','r',1,'rel',false,'sym',true, ...
+mkSpecs = @() {struct('name','pitch','r',1,'rel',false,'exch',true, ...
                       'sigma',0.5,'isPer',true,'period',12), ...
-               struct('name','time','r',1,'rel',false,'sym',true, ...
+               struct('name','time','r',1,'rel',false,'exch',true, ...
                       'sigma',0.25,'isPer',false,'period',0)};
 
 % ---- Resolution ----
 
-d = buildExpTens(pIO, [], 'specs', mkSpecs(), 'verbose', false);
+d = buildMaet(pIO, [], 'specs', mkSpecs(), 'verbose', false);
 results{end+1,1} = 'preMaetIo: specs alone suffice'; %#ok<SAGROW>
 results{end,2}   = abs(d.sigma(1) - 0.5) < 1e-12 && ...
                    abs(d.sigma(2) - 0.25) < 1e-12 && ...
@@ -35,42 +35,42 @@ results{end,2}   = abs(d.sigma(1) - 0.5) < 1e-12 && ...
 
 % A sweep supplies sigma per call while the specs hold a baseline, so the
 % two disagreeing is the ordinary idiom, not an error.
-d = buildExpTens(pIO, [], 'specs', mkSpecs(), 'sigma', [9 9], 'verbose', false);
+d = buildMaet(pIO, [], 'specs', mkSpecs(), 'sigma', [9 9], 'verbose', false);
 results{end+1,1} = 'preMaetIo: keyword overrides silently'; %#ok<SAGROW>
 results{end,2}   = all(abs(d.sigma - 9) < 1e-12);
 
 sp = mkSpecs(); sp{2} = rmfield(sp{2}, 'sigma');
 threw = false; msg = '';
-try; buildExpTens(pIO, [], 'specs', sp, 'verbose', false); catch e; threw = true; msg = e.message; end
+try; buildMaet(pIO, [], 'specs', sp, 'verbose', false); catch e; threw = true; msg = e.message; end
 results{end+1,1} = 'preMaetIo: missing refused by name'; %#ok<SAGROW>
 results{end,2}   = threw && ~isempty(strfind(msg, 'No sigma for attribute ''time''')); %#ok<STREMP>
 
 sp = mkSpecs(); sp{1}.sigma = NaN;
 threw = false; msg = '';
-try; buildExpTens(pIO, [], 'specs', sp, 'verbose', false); catch e; threw = true; msg = e.message; end
+try; buildMaet(pIO, [], 'specs', sp, 'verbose', false); catch e; threw = true; msg = e.message; end
 results{end+1,1} = 'preMaetIo: NA refused and says why'; %#ok<SAGROW>
 results{end,2}   = threw && ~isempty(strfind(msg, 'sigma for attribute ''pitch'' is NA')); %#ok<STREMP>
 
-d = buildExpTens(pIO, [], 'specs', sp, 'sigma', [0.5 0.25], 'verbose', false);
+d = buildMaet(pIO, [], 'specs', sp, 'sigma', [0.5 0.25], 'verbose', false);
 results{end+1,1} = 'preMaetIo: NA recoverable at the call'; %#ok<SAGROW>
 results{end,2}   = abs(d.sigma(1) - 0.5) < 1e-12;
 
 % Only sigma and isPer are compulsory: a period is inert on a
 % non-periodic attribute.
 sp = mkSpecs(); sp{2} = rmfield(sp{2}, 'period');
-d = buildExpTens(pIO, [], 'specs', sp, 'verbose', false);
+d = buildMaet(pIO, [], 'specs', sp, 'verbose', false);
 results{end+1,1} = 'preMaetIo: period defaults to zero'; %#ok<SAGROW>
 results{end,2}   = d.period(2) == 0;
 
 % A spec written for either language reads in both.
 sp = mkSpecs(); sp{1} = rmfield(sp{1}, 'isPer'); sp{1}.is_per = true;
-d = buildExpTens(pIO, [], 'specs', sp, 'verbose', false);
+d = buildMaet(pIO, [], 'specs', sp, 'verbose', false);
 results{end+1,1} = 'preMaetIo: snake_case alias is read'; %#ok<SAGROW>
 results{end,2}   = d.isPer(1) == 1;
 
 % ---- Operator rules ----
 
-spD = {struct('name','p','r',1,'rel',false,'sym',true, ...
+spD = {struct('name','p','r',1,'rel',false,'exch',true, ...
               'sigma',10,'isPer',false,'period',0)};
 [~,~,s1] = unpackPreMaet(differenceEvents({[1 2 3 4]}, [], 1, 'specs', spD));
 [~,~,s2] = unpackPreMaet(differenceEvents({[1 2 3 4]}, [], 2, 'specs', spD));
@@ -81,7 +81,7 @@ results{end,2}   = abs(s1{1}.sigma - 10*sqrt(2)) < 1e-9 && ...
 % A covariance is in squared units, so it takes C(2k, k) where a width
 % takes its root.
 C = diag([0.04 0.09 0.16]);
-spC = {struct('name','t','r',1,'rel',false,'sym',true, ...
+spC = {struct('name','t','r',1,'rel',false,'exch',true, ...
               'sigma',C,'isPer',false,'period',0)};
 [~,~,sC] = unpackPreMaet(differenceEvents({[1 2 3 4]}, [], 1, 'specs', spC));
 results{end+1,1} = 'preMaetIo: difference scales a covariance by C(2k,k)'; %#ok<SAGROW>
@@ -119,14 +119,14 @@ results{end,2}   = naOk;
 
 % ---- CSV round trip ----
 
-FLAT = ['name,sigma,r,rel,per,P,sym,n = 1,n = 2,n = 3' sprintf('\n') ...
+FLAT = ['name,sigma,r,rel,per,P,exch,n = 1,n = 2,n = 3' sprintf('\n') ...
     'pitch,0.5,2,0,1,12,1,"{60, 64, 67}","{62, 65, 69}","{60, 64, 67}"' sprintf('\n') ...
     'onset,0.25,1,0,0,,1,0,1,2' sprintf('\n')];
-NESTED = ['name,sigma,r,rel,per,P,sym,n = 1,n = 2' sprintf('\n') ...
+NESTED = ['name,sigma,r,rel,per,P,exch,n = 1,n = 2' sprintf('\n') ...
     'pitch,0.15,"(1, 3)","(0, 1)",1,12,"(1, 0)","({60, 64, 67}, {62, 67, 71}, {60, 64, 67})","({62, 65, 69}, {55, 59, 62}, {60, 64, 67})"' sprintf('\n') ...
     'metre,0.1,1,0,0,,1,1^(1),0.5^(0.5)' sprintf('\n')];
-COV = ['name,sigma,r,rel,per,P,sym,n = 1,n = 2' sprintf('\n') ...
-    'trigram,"cov(sd_position=0.2, sd_interval=0.3, sd_shift=0.5)",3,0,0,,0,"(60, 62, 64)","(62, 64, 65)"' sprintf('\n')];
+COV = ['name,sigma,r,rel,per,P,exch,n = 1,n = 2' sprintf('\n') ...
+    'trigram,"cov(differenced=1, sd_value=0.2, sd_interval=0.3, sd_shift=0.5)",3,0,0,,0,"(60, 62, 64)","(62, 64, 65)"' sprintf('\n')];
 
 srcs = {FLAT, NESTED, COV};
 labels = {'flat', 'nested', 'covariance'};
@@ -136,7 +136,7 @@ for i = 1:3
     results{end,2}   = strcmp(writePreMaet([], p, w, sp2), srcs{i});
 end
 
-RAGGED = ['name,sigma,r,rel,per,P,sym,a,b,c' sprintf('\n') ...
+RAGGED = ['name,sigma,r,rel,per,P,exch,a,b,c' sprintf('\n') ...
     'pitch,0.5,1,0,0,,1,"{60, 64, 67}","{62, 65}","{60, 64, 67, 71}"' sprintf('\n')];
 [pr, wr, spr] = unpackPreMaet(readPreMaet(RAGGED));
 results{end+1,1} = 'preMaetIo: ragged events pad and unpad'; %#ok<SAGROW>
@@ -153,19 +153,36 @@ results{end,2}   = isfield(spn{1}, 'tags') && ...
                    isequal(spn{1}.tags(:)', [0 0 0 1 1 1 2 2 2]);
 
 [pf, wf, spf] = unpackPreMaet(readPreMaet(FLAT));
-df = buildExpTens(pf, wf, 'specs', spf, 'verbose', false);
+df = buildMaet(pf, wf, 'specs', spf, 'verbose', false);
 results{end+1,1} = 'preMaetIo: builds from the file, nothing supplied'; %#ok<SAGROW>
 results{end,2}   = df.dim == 3 && ...
-                   abs(cosSimExpTens(df, df, 'verbose', false) - 1) < 1e-12;
+                   abs(simMaet(df, df, 'verbose', false) - 1) < 1e-12;
 
 % A file may be written by hand in a spreadsheet or by the Python twin;
 % the parameter is the same either way.
-camel = strrep(strrep(strrep(COV, 'sd_position', 'sdPosition'), ...
+camel = strrep(strrep(strrep(COV, 'sd_value', 'sdValue'), ...
     'sd_interval', 'sdInterval'), 'sd_shift', 'sdShift');
 [~, ~, spa] = unpackPreMaet(readPreMaet(COV));
 [~, ~, spb] = unpackPreMaet(readPreMaet(camel));
 results{end+1,1} = 'preMaetIo: either covariance spelling is read'; %#ok<SAGROW>
 results{end,2}   = max(max(abs(spa{1}.sigma - spb{1}.sigma))) < 1e-12;
+
+% An undifferenced covariance round-trips under its own flag.
+COV0 = strrep(COV, 'differenced=1', 'differenced=0');
+[p0, w0, sp0] = unpackPreMaet(readPreMaet(COV0));
+expect0 = kernelCov(3, 'differenced', false, 'sdValue', 0.2, ...
+    'sdInterval', 0.3, 'sdShift', 0.5);
+results{end+1,1} = 'preMaetIo: undifferenced covariance read'; %#ok<SAGROW>
+results{end,2}   = max(max(abs(sp0{1}.sigma - expect0))) < 1e-12;
+txt0 = writePreMaet([], p0, w0, sp0);
+results{end+1,1} = 'preMaetIo: undifferenced covariance written with its flag'; %#ok<SAGROW>
+results{end,2}   = contains(txt0, 'cov(differenced=0, sd_value=0.2');
+
+% A cov(...) cell without the flag is refused.
+threw = false;
+try; readPreMaet(strrep(COV, 'differenced=1, ', '')); catch; threw = true; end
+results{end+1,1} = 'preMaetIo: covariance cell without differenced flag refused'; %#ok<SAGROW>
+results{end,2}   = threw;
 
 Cbad = [1 0.9 0.1; 0.9 1 0.2; 0.1 0.2 1];
 [pc, wc, spc] = unpackPreMaet(readPreMaet(COV));
@@ -175,7 +192,7 @@ try; writePreMaet([], pc, wc, spc); catch; threw = true; end
 results{end+1,1} = 'preMaetIo: covariance outside the family refused'; %#ok<SAGROW>
 results{end,2}   = threw;
 
-NA_SRC = ['name,sigma,r,rel,per,P,sym,n = 1' sprintf('\n') ...
+NA_SRC = ['name,sigma,r,rel,per,P,exch,n = 1' sprintf('\n') ...
     'pitch,NA,1,0,0,,1,60' sprintf('\n')];
 [pn, wn, spNa] = unpackPreMaet(readPreMaet(NA_SRC));
 results{end+1,1} = 'preMaetIo: NA survives the round trip'; %#ok<SAGROW>
@@ -188,7 +205,7 @@ results{end+1,1} = 'preMaetIo: bad header is named'; %#ok<SAGROW>
 results{end,2}   = threw;
 
 % A file records the pre-MAET; it does not display it.
-spWide = {struct('name','x','r',1,'rel',false,'sym',true, ...
+spWide = {struct('name','x','r',1,'rel',false,'exch',true, ...
                  'sigma',1,'isPer',false,'period',0)};
 wide = writePreMaet([], {0:19}, [], spWide, 'maxEvents', 3);
 results{end+1,1} = 'preMaetIo: csv elides nothing'; %#ok<SAGROW>

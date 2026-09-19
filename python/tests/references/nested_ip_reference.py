@@ -93,7 +93,7 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     """Closed-form inner-partial reduction of the relative-non-periodic inner
     product for spectrally-augmented ordered cells.
 
-    When each side is an ordered cell (outer ``[sym] = 0`` with tuple size equal
+    When each side is an ordered cell (outer ``[exch] = 0`` with tuple size equal
     to the cell length) whose tones carry a shared partial template, the inner
     partial index sums analytically into the template cross-correlation
     ``g(delta) = sum_{p,q} wX_p wY_q exp(-(delta + offX_p - offY_q)^2 / 4 sigma^2)``,
@@ -103,8 +103,8 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     exact to floating-point summation order. Returns ``None`` when the structure
     is not of this form (then the caller uses the generic contraction).
     """
-    if recipe_x.sym or recipe_y.sym:
-        return None                    # need ordered cells (outer [sym] = 0)
+    if recipe_x.exch or recipe_y.exch:
+        return None                    # need ordered cells (outer [exch] = 0)
     if (int(recipe_x.r) != len(recipe_x.children)
             or int(recipe_y.r) != len(recipe_y.children)):
         return None                    # need the whole cell as one ordered tuple

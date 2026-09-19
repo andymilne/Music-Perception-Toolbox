@@ -39,8 +39,8 @@ Each axis varied independently from the base:
 - `K` in {4, 8, 16, 50, 100}
 - `nQ` (eval only) in {1, 10, 100}
 
-Each unique configuration is measured for `eval_exp_tens` and
-`cos_sim_exp_tens`. Duplicates (e.g. the base row appears in every
+Each unique configuration is measured for `eval_maet` and
+`sim_maet`. Duplicates (e.g. the base row appears in every
 sweep) are dropped in the runner.
 
 ## CSV output

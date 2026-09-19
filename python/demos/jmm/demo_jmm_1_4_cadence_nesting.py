@@ -14,9 +14,9 @@ harmony is read at every candidate resolution moment.
 
 How it is computed. Query and context alike are single events whose
 pitch attribute is a nested multiset two levels deep: the inner level is
-each chord's pitch multiset ([sym] = 1, at inner tuple size r = 1, 2, or
+each chord's pitch multiset ([exch] = 1, at inner tuple size r = 1, 2, or
 3, the parameter this analysis varies), the outer level the chords in
-order ([sym] = 0, r = the progression length). The comparison is taken
+order ([exch] = 0, r = the progression length). The comparison is taken
 relative at the outer level alone ([rel] = (0, 1)), removing one common
 transposition of the whole progression while leaving each chord's own
 pitch classes absolute, and periodic at the octave (sigma = 0.15
@@ -27,7 +27,7 @@ the fraction of the eighth each note sounds, merged and normalized by
 the 1.5 a beat carries — and the aligned span of L consecutive beats,
 the resolution on the last, is bound into one nested super-event
 (``bind_events``) and compared with the query under the one-sided
-similarity (``cos_sim_exp_tens(..., normalize='oneSidedDenom')``), so a
+similarity (``sim_maet(..., normalize='oneSidedDenom')``), so a
 peak of 1 is one isolated exact match. An optional inversion flag — a
 second, simplex-coded attribute at +/-0.5 with sigma_flag = 0.1 — marks
 whether a chosen chord is a root-position triad (the dyad skeleton's
@@ -46,8 +46,8 @@ where a two-pitch chord has no inner triple.
 
 The encodings live in bwv_window.py: the windowed chorale events, the
 nested context and query builders, and the pitch-derived flags.
-Toolbox: ``bind_events``, ``flat_specs``, ``build_exp_tens``,
-``cos_sim_exp_tens``. Runtime: a minute or two (eight queries, three
+Toolbox: ``bind_events``, ``flat_specs``, ``build_maet``,
+``sim_maet``. Runtime: a minute or two (eight queries, three
 inner tuple sizes, some sixty resolution moments each, every comparison a
 nested inner product).
 """
@@ -63,7 +63,7 @@ try:
 except ImportError:
     plt = None
 
-from bwv_window import (cos_sim_exp_tens, show_pre_maet, win_events,
+from bwv_window import (sim_maet, show_pre_maet, win_events,
                         aggregate, build_pair,
                         bound_density, query, son_at, is_root_position,
                         is_six_four, b2bar, T0, T1, ROOT_YES, ROOT_NO)
@@ -150,7 +150,7 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
                           title=f'  query: {name} (r_inner = {r_inner})')
             print()
         ctx = ctx_flag if spec['flagged'] else ctx_plain
-        vals = np.atleast_1d(cos_sim_exp_tens(ctx, qd, normalize=normalize,
+        vals = np.atleast_1d(sim_maet(ctx, qd, normalize=normalize,
                                               verbose=False))
         prof = np.zeros(len(MUS))
         prof[np.asarray(idxs, int)] = vals
@@ -183,7 +183,7 @@ def dyad_sweep(r_inner: int, use_flag: bool):
         idxs.append(k)
     # One batched call: density list vs single query, one-sided
     # (query-normalized) similarity.
-    vals = np.atleast_1d(cos_sim_exp_tens(wins, qd, normalize=NORMALIZE,
+    vals = np.atleast_1d(sim_maet(wins, qd, normalize=NORMALIZE,
                                           verbose=False))
     for k, v in zip(idxs, vals):
         so[k] = float(v)

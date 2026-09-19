@@ -36,7 +36,7 @@ def _dense_joint_raw(dens, x):
 def _build(A, K, N, *, r=2, rel=True, per=False, period=0.0, seed0=0):
     p = [np.sort(np.random.default_rng(seed0 + s).uniform(0, 3600, (K, N)),
                  axis=0) for s in range(A)]
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         p, None, [15.0] * A, [r] * A, [rel] * A, [per] * A, [period] * A,
         verbose=False)
 
@@ -64,8 +64,8 @@ def _max_rel_err(dens, x):
 
 
 def _max_rel_err_vs_mobius(dens, x):
-    vc = mpt.eval_exp_tens(dens, x, method="centres", verbose=False)
-    vm = mpt.eval_exp_tens(dens, x, method="mobius", verbose=False)
+    vc = mpt.eval_maet(dens, x, method="centres", verbose=False)
+    vm = mpt.eval_maet(dens, x, method="mobius", verbose=False)
     mask = vm > 1e-3 * vm.max()
     return float(np.abs((vc[mask] - vm[mask]) / vm[mask]).max())
 
@@ -98,7 +98,7 @@ class TestFactoredEqualsDenseJoint:
         pb0, _, s0 = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(0, 1, (1, 12))], None, 3))
         pb1, _, s1 = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(0, 1, (1, 12))], None, 3))
         n = pb0[0].shape[1]
-        d = mpt.build_exp_tens(
+        d = mpt.build_maet(
             [pb0[0], pb1[0]], [np.ones((3, n))] * 2, specs=[s0[0], s1[0]],
             sigma=[0.3, 0.3], is_per=[False] * 2, period=[0.0] * 2,
             verbose=False)
@@ -109,11 +109,11 @@ class TestFactoredEqualsDenseJoint:
         cA = np.sort(rng.uniform(0, 20, (2, 8)), axis=0)
         cB = np.sort(rng.uniform(0, 20, (2, 8)), axis=0)
         pbA, _, sA = mpt.unpack_pre_maet(mpt.bind_events(
-            [cA], None, 2, specs=mpt.flat_specs([cA], r=2, rel=True, sym=True)))
+            [cA], None, 2, specs=mpt.flat_specs([cA], r=2, rel=True, exch=True)))
         pbB, _, sB = mpt.unpack_pre_maet(mpt.bind_events(
-            [cB], None, 2, specs=mpt.flat_specs([cB], r=2, rel=True, sym=True)))
+            [cB], None, 2, specs=mpt.flat_specs([cB], r=2, rel=True, exch=True)))
         nn, nsl = pbA[0].shape[1], pbA[0].shape[0]
-        d = mpt.build_exp_tens(
+        d = mpt.build_maet(
             [pbA[0], pbB[0]], [np.ones((nsl, nn))] * 2, specs=[sA[0], sB[0]],
             sigma=[0.5, 0.5], is_per=[False] * 2, period=[0.0] * 2,
             verbose=False)
@@ -131,7 +131,7 @@ class TestFactoredEqualsDenseJoint:
                 drop = rng.choice(K, rng.integers(0, 3), replace=False)
                 pa[drop, n] = np.nan
             p.append(pa)
-        d = mpt.build_exp_tens(
+        d = mpt.build_maet(
             p, None, [15.0] * A, [2] * A, [True] * A, [False] * A,
             [0.0] * A, verbose=False)
         assert _max_rel_err_vs_mobius(d, _query_near_mass(d, 60, 7.5, 9)) < 1e-4
@@ -145,8 +145,8 @@ class TestFactoredFallback:
         x = _query_near_mass(d, 20, 20.0, 1)
         assert _ma_eval_factored(d, x) is None
         # The eval still succeeds (via the joint path) and matches Möbius.
-        vc = mpt.eval_exp_tens(d, x, method="centres", verbose=False)
-        vm = mpt.eval_exp_tens(d, x, method="mobius", verbose=False)
+        vc = mpt.eval_maet(d, x, method="centres", verbose=False)
+        vm = mpt.eval_maet(d, x, method="mobius", verbose=False)
         mask = vm > 1e-3 * vm.max()
         assert np.abs((vc[mask] - vm[mask]) / vm[mask]).max() < 1e-4
 
@@ -178,11 +178,11 @@ def test_dim0_fully_relative_r1_density_evaluates_constant():
     P = [np.sort(3600 * rng.random((8, 1)), axis=0) for _ in range(2)]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        d = mpt.build_exp_tens(P, None, [15.0, 15.0], [1, 1], [True, True],
+        d = mpt.build_maet(P, None, [15.0, 15.0], [1, 1], [True, True],
                            [False, False], [0.0, 0.0], verbose=False)
     x = np.zeros((0, 5))
-    v_c = np.asarray(mpt.eval_exp_tens(d, x, method="centres", verbose=False))
-    v_m = np.asarray(mpt.eval_exp_tens(d, x, method="mobius", verbose=False))
+    v_c = np.asarray(mpt.eval_maet(d, x, method="centres", verbose=False))
+    v_m = np.asarray(mpt.eval_maet(d, x, method="mobius", verbose=False))
     assert v_c.size == 5 and v_m.size == 5
     assert np.allclose(v_c, 64.0, atol=1e-9)   # 8 x 8 unit-weight tuples
     assert np.allclose(v_m, v_c, atol=1e-9)

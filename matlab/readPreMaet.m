@@ -12,12 +12,12 @@ function pm = readPreMaet(source, varargin)
 %   value. writePreMaet is the inverse, so a pre-MAET survives a round
 %   trip through a spreadsheet unchanged.
 %
-%   The header is fixed: name, sigma, r, rel, per, P, sym followed by one
-%   column per event, whose own headings are free text. r, rel and sym
+%   The header is fixed: name, sigma, r, rel, per, P, exch followed by one
+%   column per event, whose own headings are free text. r, rel and exch
 %   take a parenthesised tuple on a nested attribute, innermost level
 %   first, as the article writes them. An empty parameter cell is absent
-%   and NA is NA. A kernel covariance is written as the three scalars
-%   that generate it, cov(sdPosition=..., sdInterval=..., sdShift=...);
+%   and NA is NA. A kernel covariance is written as the flag and three scalars
+%   that generate it, cov(differenced=..., sdValue=..., sdInterval=..., sdShift=...);
 %   the row's own r gives the order.
 %
 %   Name-value arguments:
@@ -25,11 +25,11 @@ function pm = readPreMaet(source, varargin)
 %                  tab-separated export.
 %
 %   Returns the pre-MAET: its wAttr is [] where no cell
-%   carried a weight, and each spec holds r, rel, sym, name and, where the file
+%   carried a weight, and each spec holds r, rel, exch, name and, where the file
 %   gives them, sigma, isPer and period. A nested attribute also carries
 %   its tags, reconstructed from the bracket structure of its cells.
 %
-%   See also WRITEPREMAET, SHOWPREMAET, BUILDEXPTENS.
+%   See also WRITEPREMAET, SHOWPREMAET, BUILDMAET.
 
 nv = struct('delimiter', ',');
 if mod(numel(varargin), 2) ~= 0
@@ -43,12 +43,12 @@ rows = localRows(source, nv.delimiter);
 if isempty(rows)
     error('readPreMaet:empty', 'The pre-MAET file is empty.');
 end
-PARAMS = {'name', 'sigma', 'r', 'rel', 'per', 'p', 'sym'};
+PARAMS = {'name', 'sigma', 'r', 'rel', 'per', 'p', 'exch'};
 header = rows{1};
 for k = 1:numel(PARAMS)
     if numel(header) < k || ~strcmpi(strtrim(header{k}), PARAMS{k})
         error('readPreMaet:header', ...
-            ['The header must begin name, sigma, r, rel, per, P, sym ' ...
+            ['The header must begin name, sigma, r, rel, per, P, exch ' ...
              'followed by one column per event.']);
     end
 end
@@ -76,10 +76,10 @@ for a = 1:A
     row = body{a};
     row(end+1:nPar + N) = {''};
     name = strtrim(row{1});
-    nodes = cell(1, N); symSeen = [];
+    nodes = cell(1, N); exchSeen = [];
     for n = 1:N
-        [nodes{n}, sym] = internal.preMaetParseCell(row{nPar + n});
-        if isempty(symSeen) && ~isempty(sym); symSeen = sym; end
+        [nodes{n}, exch] = internal.preMaetParseCell(row{nPar + n});
+        if isempty(exchSeen) && ~isempty(exch); exchSeen = exch; end
     end
     depth = 0;
     for n = 1:N
@@ -90,18 +90,18 @@ for a = 1:A
     if ~isempty(name); spec.name = name; end
     spec.r = localLevels(internal.preMaetParam(row{3}), depth, 1);
     spec.rel = localLevels(internal.preMaetParam(row{4}), depth, 0);
-    symCol = internal.preMaetParam(row{7});
-    if isempty(symCol) && ~isempty(symSeen)
-        symCol = double(symSeen);
+    exchCol = internal.preMaetParam(row{7});
+    if isempty(exchCol) && ~isempty(exchSeen)
+        exchCol = double(exchSeen);
     end
-    spec.sym = localLevels(symCol, depth, 1);
+    spec.exch = localLevels(exchCol, depth, 1);
     if depth > 0; spec.tags = tags; end
 
     cov = internal.preMaetParseCov(row{2});
     if ~isempty(cov)
         rOuter = spec.r(end);
-        spec.sigma = intervalKernelCov(rOuter, ...
-            'sdPosition', cov(1), 'sdInterval', cov(2), 'sdShift', cov(3));
+        spec.sigma = kernelCov(rOuter, 'differenced', logical(cov(1)), ...
+            'sdValue', cov(2), 'sdInterval', cov(3), 'sdShift', cov(4));
     else
         sig = internal.preMaetParam(row{2});
         if ~isempty(sig); spec.sigma = sig; end

@@ -111,9 +111,9 @@ results{end,2}   = numel(rl) == 16;
 % -- circApm: rLag is symmetric about lag 0
 % (real-valued circular autocorrelation: r_lag(k) == r_lag(P - k))
 % MATLAB 1-indexed: r_lag(k+1) == r_lag(P-k+1) for k = 1, ..., P/2 - 1.
-sym_diff = max(arrayfun(@(k) abs(rl(k+1) - rl(17-k)), 1:7));
+exch_diff = max(arrayfun(@(k) abs(rl(k+1) - rl(17-k)), 1:7));
 results{end+1,1} = 'circApm: rLag symmetric about lag 0';
-results{end,2}   = sym_diff < 1e-10;
+results{end,2}   = exch_diff < 1e-10;
 
 y = markovS([0, 3, 6, 10, 12], [], 16);
 results{end+1,1} = 'markovS: output length';

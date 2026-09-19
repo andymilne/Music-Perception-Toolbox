@@ -1,6 +1,6 @@
 %% demo_translateSweep.m 
 % Pre-tensor sliding-comparison sweep with translateAttributes and the 
-% raw-MA list mode of cosSimExpTens.
+% raw-MA list mode of simMaet.
 %
 % Scenario: a 3-note motif (C E G) hidden inside a 7-note melody
 % (D E F C E G A, one note per second). The motif appears exactly at
@@ -13,12 +13,12 @@
 % periodicity.
 %
 % The workflow is two function calls: one to translateAttributes, one to
-% cosSimExpTens (raw-MA scalar-vs-list form, with the translated p_attr
+% simMaet (raw-MA scalar-vs-list form, with the translated p_attr
 % list as one operand and the reference pAttr as the other). The build
 % step is internalised: the reference is built once, each translated
 % query once. The sweep is specified as a 1-by-A offsets cell, one row
 % of M candidate shifts per attribute; Section 3 builds it. Section 7
-% shows the same sweep as a single call to sweepCosSimExpTens, which
+% shows the same sweep as a single call to sweepSimMaet, which
 % never builds the M translated queries at all.
 %
 % Compare windowedSimilarity (see demo_helixBlend and
@@ -29,8 +29,8 @@
 % similarity (bounded in [0, 1] for non-negative weights) and does not
 % require choosing a window family.
 %
-% See also TRANSLATEATTRIBUTES, COSSIMEXPTENS, SWEEPCOSSIMEXPTENS,
-% BUILDEXPTENS, WINDOWEDSIMILARITY.
+% See also TRANSLATEATTRIBUTES, SIMMAET, SWEEPSIMMAET,
+% BUILDMAET, WINDOWEDSIMILARITY.
 
 clear; clc;
 
@@ -110,7 +110,7 @@ offsetsCell   = {Pmesh(:).', Tmesh(:).'};
 [pmSwept, sweep] = translateAttributes(qryPAttr, [], offsetsCell);
 qryPAttrSwept = pmSwept.pAttr;
 % The fourth output records the per-attribute offsets (A x M) for
-% sweepCosSimExpTens; see Section 7.
+% sweepSimMaet; see Section 7.
 
 fprintf('  qryPAttrSwept: %s, length %d\n', class(qryPAttrSwept), ...
         numel(qryPAttrSwept));
@@ -122,9 +122,9 @@ fprintf('\n');
 %  4. Raw-MA scalar-vs-list cosine similarity: one call
 %  ===================================================================
 
-fprintf('=== 4. cosSimExpTens (raw-MA list mode) ===\n');
+fprintf('=== 4. simMaet (raw-MA list mode) ===\n');
 
-sCells = cosSimExpTens(refPAttr, [], qryPAttrSwept, [], ...
+sCells = simMaet(refPAttr, [], qryPAttrSwept, [], ...
                         sigma, r, isRel, isPer, periods, ...
                         'verbose', false);
 S      = cell2mat(sCells);             % 1-by-M
@@ -182,7 +182,7 @@ fprintf('\n');
 fprintf('=== 6. Equivalent explicit build loop ===\n');
 fprintf('  This is what the raw-MA list mode does internally; here it\n');
 fprintf('  is spelled out so the relationship between translateAttributes,\n');
-fprintf('  buildExpTens, and cosSimExpTens is transparent.\n\n');
+fprintf('  buildMaet, and simMaet is transparent.\n\n');
 
 showPreMaet(refPAttr, [], [], 'names', {'pitch', 'time'}, ...
     'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods);
@@ -190,13 +190,13 @@ showPreMaet(qryPAttrSwept{1}, [], [], 'names', {'pitch', 'time'}, ...
     'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods);
 fprintf('\n');
 
-densRef = buildExpTens(refPAttr, [], sigma, r, ...
+densRef = buildMaet(refPAttr, [], sigma, r, ...
                        isRel, isPer, periods, 'verbose', false);
 S_manual = zeros(1, M);
 for m = 1:M
-    densQ = buildExpTens(qryPAttrSwept{m}, [], sigma, r, ...
+    densQ = buildMaet(qryPAttrSwept{m}, [], sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
-    S_manual(m) = cosSimExpTens(densRef, densQ, 'verbose', false);
+    S_manual(m) = simMaet(densRef, densQ, 'verbose', false);
 end
 S_manual = reshape(S_manual, size(Pmesh));
 
@@ -206,10 +206,10 @@ fprintf('  max |S_raw - S_manual| = %.2e (floating-point parity)\n', ...
 assert(discrepancy < 1e-12, 'Raw-MA list mode disagrees with manual build loop.');
 
 %% ===================================================================
-%  7. The same sweep without building M queries: sweepCosSimExpTens
+%  7. The same sweep without building M queries: sweepSimMaet
 %  ===================================================================
 
-fprintf('\n=== 7. sweepCosSimExpTens (one call, no translated copies) ===\n');
+fprintf('\n=== 7. sweepSimMaet (one call, no translated copies) ===\n');
 fprintf('  A uniform translation of the query enters the inner product only\n');
 fprintf('  through the offset, so the whole sweep is one pass over the tuple\n');
 fprintf('  pairs and then one evaluation per offset. The pitch attribute is\n');
@@ -217,11 +217,11 @@ fprintf('  periodic, which the mixture route refuses; under ''method'', ''auto''
 fprintf('  the orbit route carries the sweep instead (the wrapped kernel\n');
 fprintf('  absorbs the periodicity), so the call is the same either way.\n');
 
-densQry = buildExpTens(qryPAttr, [], sigma, r, ...
+densQry = buildMaet(qryPAttr, [], sigma, r, ...
                        isRel, isPer, periods, 'verbose', false);
-S_sweep = sweepCosSimExpTens(densRef, densQry, sweep.offsets, 'verbose', false);
+S_sweep = sweepSimMaet(densRef, densQry, sweep.offsets, 'verbose', false);
 discrepancySweep = max(abs(S(:).' - S_sweep(:).'));
 fprintf('  max |S_raw - S_sweep| = %.2e\n', discrepancySweep);
-assert(discrepancySweep < 1e-8, 'sweepCosSimExpTens disagrees with the per-offset route.');
+assert(discrepancySweep < 1e-8, 'sweepSimMaet disagrees with the per-offset route.');
 
 fprintf('\n=== Demo complete ===\n');

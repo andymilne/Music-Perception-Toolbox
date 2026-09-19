@@ -1,8 +1,8 @@
 """Tests for the pre-MAET ``windowed_similarity`` and ``windowed_entropy``.
 
 Each new-function result is checked against the equivalent inline pipeline
-(``weight_events`` / ``translate_attributes`` / ``build_exp_tens`` /
-``entropy_exp_tens`` / ``cos_sim_exp_tens``) it replaces, so the functions
+(``weight_events`` / ``translate_attributes`` / ``build_maet`` /
+``entropy_maet`` / ``sim_maet``) it replaces, so the functions
 are pinned to the hand-written composition rather than to remembered
 numbers. Both argument surfaces are exercised: the single-axis form
 (``window_attr`` / ``centres`` / ``drop_window_attr``, plus the decoupled
@@ -16,7 +16,7 @@ from mpt import (
     windowed_similarity, windowed_entropy,
     weight_events, translate_attributes, bind_events,
     unpack_pre_maet,
-    build_exp_tens, entropy_exp_tens, cos_sim_exp_tens,
+    build_maet, entropy_maet, sim_maet,
 )
 
 SD = 1.0
@@ -51,8 +51,8 @@ def test_entropy_drop_window_axis(triple, method, shape):
     for i, c in enumerate(centres):
         pw, ww, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), shape,
                                   is_per=False, period=0.0, drop_input_attr=True, **kw))
-        dens = build_exp_tens(pw, ww, [SIG_P], [1], [False], [False], [0.0], verbose=False)
-        ref[i] = entropy_exp_tens(dens, method=method, verbose=False)
+        dens = build_maet(pw, ww, [SIG_P], [1], [False], [False], [0.0], verbose=False)
+        ref[i] = entropy_maet(dens, method=method, verbose=False)
     got = windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                            [False, False], [0.0, 0.0], centres,
                            context_window=(shape, W_WIDTH), method=method,
@@ -66,9 +66,9 @@ def test_entropy_retain_axis(triple):
     for i, c in enumerate(centres):
         pw, ww, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), 1.0,
                                   is_per=False, period=0.0, width=W_WIDTH, drop_input_attr=False))
-        dens = build_exp_tens(pw, ww, [SIG_P, SIG_T], [1, 1], [False, False],
+        dens = build_maet(pw, ww, [SIG_P, SIG_T], [1, 1], [False, False],
                               [False, False], [0.0, 0.0], verbose=False)
-        ref[i] = entropy_exp_tens(dens, method="renyi2", verbose=False)
+        ref[i] = entropy_maet(dens, method="renyi2", verbose=False)
     got = windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                            [False, False], [0.0, 0.0], centres,
                            context_window=(1.0, W_WIDTH), method="renyi2",
@@ -122,7 +122,7 @@ def test_similarity_locked(triple, query, normalize):
         pc, wc, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), 1.0,
                                   width=q_ext, is_per=False, period=0.0, drop_input_attr=False))
         pq, wq, _ = unpack_pre_maet(translate_attributes(query, None, [None, np.array([[c - mu_q]])]))
-        ref[i] = cos_sim_exp_tens(pc, wc, pq, wq, [SIG_P, SIG_T], [1, 1],
+        ref[i] = sim_maet(pc, wc, pq, wq, [SIG_P, SIG_T], [1, 1],
                                   [False, False], [False, False], [0.0, 0.0],
                                   normalize=normalize, verbose=False)
     got = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
@@ -147,7 +147,7 @@ def test_similarity_decoupled_correlogram(triple, query):
         pc = [pitch[:, keep], onset[:, keep]]
         for it, t in enumerate(tau):
             pq, wq, _ = unpack_pre_maet(translate_attributes(query, None, [None, np.array([[(a - t) - mu_q]])]))
-            ref[ia, it] = cos_sim_exp_tens(pc, None, pq, wq, [SIG_P, SIG_T], [1, 1],
+            ref[ia, it] = sim_maet(pc, None, pq, wq, [SIG_P, SIG_T], [1, 1],
                                            [False, False], [False, False], [0.0, 0.0],
                                            normalize="oneSidedDenom", verbose=False)
     qc2d = anchors[:, None] - tau[None, :]

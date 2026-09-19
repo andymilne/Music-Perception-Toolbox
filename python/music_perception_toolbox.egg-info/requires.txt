@@ -1,0 +1,10 @@
+numpy>=1.24
+scipy>=1.10
+
+[audio]
+soundfile>=0.12
+
+[dev]
+pytest>=7
+pytest-cov
+soundfile>=0.12

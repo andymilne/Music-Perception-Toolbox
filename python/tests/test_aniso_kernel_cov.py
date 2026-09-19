@@ -1,8 +1,8 @@
 """Tests for matrix-valued (anisotropic) kernel covariances.
 
-Covers ``interval_kernel_cov`` (the constructor), the whitening
-implementation in ``build_exp_tens`` / ``eval_exp_tens`` /
-``cos_sim_exp_tens`` / ``entropy_exp_tens``, the raw sliding-comparison
+Covers ``kernel_cov`` (the constructor), the whitening
+implementation in ``build_maet`` / ``eval_maet`` /
+``sim_maet`` / ``entropy_maet``, the raw sliding-comparison
 path (``windowed_similarity``), the mode-constraint error paths, and
 the analytical cross-checks agreed for the release:
 
@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import interval_kernel_cov
+from mpt import kernel_cov
 
 
 RNG = np.random.default_rng(20260709)
@@ -59,14 +59,14 @@ def _direct_cosine(cx, wx, cy, wy, Sigma):
     return num / np.sqrt(ip(cx, wx, cx, wx) * ip(cy, wy, cy, wy))
 
 
-class TestIntervalKernelCov:
+class TestKernelCov:
     """The constructor's algebraic structure and error paths."""
 
     def test_structure(self):
         r = 4
         sp, si, ss = 0.3, 0.7, 1.9
-        Sigma = interval_kernel_cov(r, sd_position=sp, sd_interval=si,
-                                    sd_shift=ss)
+        Sigma = kernel_cov(r, sd_value=sp, sd_interval=si,
+                           sd_shift=ss, differenced=True)
         ddt = 2.0 * np.eye(r) - np.eye(r, k=1) - np.eye(r, k=-1)
         expected = sp**2 * ddt + si**2 * np.eye(r) + ss**2 * np.ones((r, r))
         np.testing.assert_allclose(Sigma, expected, rtol=0, atol=0)
@@ -78,7 +78,7 @@ class TestIntervalKernelCov:
         D = np.zeros((r, r + 1))
         for i in range(r):
             D[i, i], D[i, i + 1] = -1.0, 1.0
-        Sigma = interval_kernel_cov(r, sd_position=1.0)
+        Sigma = kernel_cov(r, sd_value=1.0, differenced=True)
         np.testing.assert_allclose(Sigma, D @ D.T, atol=1e-15)
 
     def test_monte_carlo_position_noise(self):
@@ -88,26 +88,81 @@ class TestIntervalKernelCov:
         intervals = np.diff(onsets, axis=1)
         emp = np.cov(intervals.T)
         np.testing.assert_allclose(
-            emp, interval_kernel_cov(r, sd_position=sd), atol=0.02)
+            emp, kernel_cov(r, sd_value=sd, differenced=True), atol=0.02)
 
     def test_errors(self):
         with pytest.raises(ValueError, match="positive integer"):
-            interval_kernel_cov(0, sd_interval=1.0)
+            kernel_cov(0, sd_interval=1.0, differenced=True)
         with pytest.raises(ValueError, match="non-negative"):
-            interval_kernel_cov(3, sd_interval=-1.0)
+            kernel_cov(3, sd_interval=-1.0, differenced=True)
         with pytest.raises(ValueError, match="is_rel=True"):
-            interval_kernel_cov(3, sd_shift=np.inf)
+            kernel_cov(3, sd_shift=np.inf, differenced=True)
         with pytest.raises(ValueError, match="singular"):
-            interval_kernel_cov(3, sd_shift=1.0)  # rank one alone
+            kernel_cov(3, sd_shift=1.0, differenced=True)  # rank one alone
+
+    def test_differenced_flag_is_mandatory(self):
+        with pytest.raises(TypeError):
+            kernel_cov(3, sd_interval=1.0)
+        with pytest.raises(TypeError, match="differenced"):
+            kernel_cov(3, sd_interval=1.0, differenced="yes")
+
+    def test_undifferenced_structure(self):
+        """Positions: sd_value^2 I + sd_interval^2 P S S^T P
+        + sd_shift^2 J, the walk centred on the tuple's mean."""
+        r = 4
+        sp, si, ss = 0.3, 0.7, 1.9
+        Sigma = kernel_cov(r, sd_value=sp, sd_interval=si, sd_shift=ss,
+                           differenced=False)
+        S = np.tril(np.ones((r, r - 1)), k=-1)
+        P = np.eye(r) - np.ones((r, r)) / r
+        expected = (sp**2 * np.eye(r) + si**2 * P @ S @ S.T @ P
+                    + ss**2 * np.ones((r, r)))
+        np.testing.assert_allclose(Sigma, expected, atol=1e-15)
+        # The walk term is centred: it annihilates the all-ones vector.
+        walk = kernel_cov(r, sd_interval=1.0, sd_shift=1.0,
+                          differenced=False) - np.ones((r, r))
+        np.testing.assert_allclose(walk @ np.ones(r), 0.0, atol=1e-14)
+
+    def test_differenced_is_undifferenced_pushed_through_D(self):
+        """D Sigma_pos D^T = sd_value^2 D D^T + sd_interval^2 I:
+        the two cases are one model, the ridge falling away under D."""
+        r = 5
+        D = np.zeros((r - 1, r))
+        for i in range(r - 1):
+            D[i, i], D[i, i + 1] = -1.0, 1.0
+        Sp = kernel_cov(r, sd_value=0.4, sd_interval=0.9, sd_shift=3.0,
+                        differenced=False)
+        Sd = kernel_cov(r - 1, sd_value=0.4, sd_interval=0.9,
+                        differenced=True)
+        np.testing.assert_allclose(D @ Sp @ D.T, Sd, atol=1e-12)
+
+    def test_monte_carlo_undifferenced_interval_noise(self):
+        """Centred cumulative sums of iid interval noise have covariance
+        sd^2 P S S^T P."""
+        r, sd, n = 4, 0.8, 400_000
+        eps = RNG.standard_normal((n, r - 1)) * sd
+        pos = np.concatenate([np.zeros((n, 1)), np.cumsum(eps, axis=1)], axis=1)
+        pos -= pos.mean(axis=1, keepdims=True)
+        emp = np.cov(pos.T)
+        np.testing.assert_allclose(
+            emp, kernel_cov(r, sd_interval=sd, sd_shift=1.0, differenced=False)
+            - np.ones((r, r)), atol=0.02)
+
+    def test_undifferenced_singular_cases(self):
+        with pytest.raises(ValueError, match="singular"):
+            kernel_cov(3, sd_interval=1.0, differenced=False)  # no tolerance along 1
+        # sd_value alone, and sd_shift with sd_interval, are fine.
+        kernel_cov(3, sd_value=1.0, differenced=False)
+        kernel_cov(3, sd_interval=1.0, sd_shift=0.1, differenced=False)
 
     def test_r1_rejected(self):
         """r = 1 is rejected for cross-language parity: a 1x1
         covariance is indistinguishable from a scalar sigma in
         MATLAB."""
         with pytest.raises(ValueError, match="indistinguishable"):
-            interval_kernel_cov(1, sd_shift=2.0)
+            kernel_cov(1, sd_shift=2.0, differenced=True)
         with pytest.raises(ValueError, match="indistinguishable"):
-            mpt.build_exp_tens(np.array([1.0]), np.ones(1),
+            mpt.build_maet(np.array([1.0]), np.ones(1),
                                np.array([[4.0]]), 1, False, False, 0.0,
                                False, verbose=False)
 
@@ -121,10 +176,10 @@ class TestScalarReduction:
     SIG = 1.3
 
     def _dens_pair(self):
-        d_mat = mpt.build_exp_tens(
+        d_mat = mpt.build_maet(
             self.P, self.W, self.SIG**2 * np.eye(3), 3,
             False, False, 0.0, False, verbose=False)
-        d_sca = mpt.build_exp_tens(
+        d_sca = mpt.build_maet(
             self.P, self.W, self.SIG, 3,
             False, False, 0.0, False, verbose=False)
         return d_mat, d_sca
@@ -134,16 +189,16 @@ class TestScalarReduction:
         X = RNG.standard_normal((3, 40)) * 3.0
         for nrm in ("none", "gaussian", "pdf"):
             np.testing.assert_allclose(
-                mpt.eval_exp_tens(d_mat, X, nrm, verbose=False),
-                mpt.eval_exp_tens(d_sca, X, nrm, verbose=False),
+                mpt.eval_maet(d_mat, X, nrm, verbose=False),
+                mpt.eval_maet(d_sca, X, nrm, verbose=False),
                 rtol=1e-12)
 
     def test_cosine(self):
         Q = np.array([0.2, 3.4, -2.9])
-        v_mat = mpt.cos_sim_exp_tens(
+        v_mat = mpt.sim_maet(
             self.P, self.W, Q, self.W, self.SIG**2 * np.eye(3), 3,
             False, False, 0.0, False, verbose=False)
-        v_sca = mpt.cos_sim_exp_tens(
+        v_sca = mpt.sim_maet(
             self.P, self.W, Q, self.W, self.SIG, 3,
             False, False, 0.0, False, verbose=False)
         np.testing.assert_allclose(v_mat, v_sca, rtol=1e-12)
@@ -155,10 +210,10 @@ class TestScalarReduction:
         # comparison uses the same grid, so it is accuracy-independent).
         for method in ("renyi2", "differential"):
             np.testing.assert_allclose(
-                mpt.entropy_exp_tens(
+                mpt.entropy_maet(
                     d_mat, method=method,
                     truncation_sigmas=4.0, verbose=False),
-                mpt.entropy_exp_tens(
+                mpt.entropy_maet(
                     d_sca, method=method,
                     truncation_sigmas=4.0, verbose=False),
                 rtol=1e-9)
@@ -172,11 +227,11 @@ class TestWhitenedVsDirect:
         Sigma = _random_spd(r, scale=0.5)
         p = np.array([1.0, -0.5, 2.0])
         w = np.array([1.0, 0.7, 0.9])
-        dens = mpt.build_exp_tens(p, w, Sigma, r, False, False, 0.0,
+        dens = mpt.build_maet(p, w, Sigma, r, False, False, 0.0,
                                   False, verbose=False)
         X = RNG.standard_normal((r, 60))
-        got = mpt.eval_exp_tens(dens, X, "none", verbose=False)
-        # Ordered [sym]=0 at r == K: one tuple, weight the product.
+        got = mpt.eval_maet(dens, X, "none", verbose=False)
+        # Ordered [exch]=0 at r == K: one tuple, weight the product.
         want = _direct_density([p], [np.prod(w)], Sigma, X)
         np.testing.assert_allclose(got, want, rtol=1e-12)
 
@@ -185,10 +240,10 @@ class TestWhitenedVsDirect:
         Sigma = _random_spd(r, scale=0.3)
         p = np.array([0.5, 1.5])
         w = np.array([1.0, 1.0])
-        dens = mpt.build_exp_tens(p, w, Sigma, r, False, False, 0.0,
+        dens = mpt.build_maet(p, w, Sigma, r, False, False, 0.0,
                                   False, verbose=False)
         X = RNG.standard_normal((r, 50))
-        got = mpt.eval_exp_tens(dens, X, "gaussian", verbose=False)
+        got = mpt.eval_maet(dens, X, "gaussian", verbose=False)
         const = (2 * np.pi) ** (-r / 2) * np.linalg.det(Sigma) ** (-0.5)
         want = const * _direct_density([p], [1.0], Sigma, X)
         np.testing.assert_allclose(got, want, rtol=1e-12)
@@ -198,20 +253,20 @@ class TestWhitenedVsDirect:
         r = 2
         Sigma = np.array([[0.09, 0.05], [0.05, 0.16]])
         p = np.array([0.3, -0.2])
-        dens = mpt.build_exp_tens(p, np.ones(2), Sigma, r, False, False,
+        dens = mpt.build_maet(p, np.ones(2), Sigma, r, False, False,
                                   0.0, False, verbose=False)
         g = np.linspace(-3.0, 3.0, 301)
         GX, GY = np.meshgrid(g, g, indexing="ij")
         X = np.vstack([GX.ravel(), GY.ravel()])
-        vals = mpt.eval_exp_tens(dens, X, "pdf", verbose=False)
+        vals = mpt.eval_maet(dens, X, "pdf", verbose=False)
         integral = np.sum(vals) * (g[1] - g[0]) ** 2
         assert abs(integral - 1.0) < 1e-6
 
     def test_cosine_multi_event(self):
         """Several events (each one ordered tuple), raw-input path."""
         r = 3
-        Sigma = interval_kernel_cov(r, sd_position=0.4, sd_interval=0.2,
-                                    sd_shift=0.6)
+        Sigma = kernel_cov(r, sd_value=0.4, sd_interval=0.2,
+                           sd_shift=0.6, differenced=True)
         # MA form: one attribute, r x N value matrices (N events).
         cx = [np.array([0.0, 1.0, 0.5]), np.array([0.2, 1.1, 0.4]),
               np.array([-1.0, 0.0, 2.0])]
@@ -220,7 +275,7 @@ class TestWhitenedVsDirect:
         PY = np.column_stack(cy)
         wx = np.ones((r, len(cx)))
         wy = np.ones((r, len(cy)))
-        got = mpt.cos_sim_exp_tens(
+        got = mpt.sim_maet(
             [PX], [wx], [PY], [wy], [Sigma], [r],
             [False], [False], [0.0], [False], verbose=False)
         want = _direct_cosine(cx, [1.0] * len(cx), cy, [1.0] * len(cy),
@@ -236,12 +291,12 @@ class TestWhitenedVsDirect:
         P1 = np.array([[0.0, 1.0], [2.0, 2.5]])          # r x N
         P2 = np.array([[0.0, 4.0]])                       # 1 x N
         W = np.ones((1, 2))
-        dens = mpt.build_exp_tens(
+        dens = mpt.build_maet(
             [P1, P2], [np.ones((r, 2)), W], [Sigma, sig_t], [r, 1],
             [False, False], [False, False], [0.0, 0.0], [False, True],
             verbose=False)
         X = RNG.standard_normal((r + 1, 40))
-        got = mpt.eval_exp_tens(dens, X, "none", verbose=False)
+        got = mpt.eval_maet(dens, X, "none", verbose=False)
         want = np.zeros(X.shape[1])
         for n in range(2):
             f1 = _direct_density([P1[:, n]], [1.0], Sigma, X[:r])
@@ -264,13 +319,13 @@ class TestShiftRidgeLimits:
     W = np.ones(3)
 
     def _cos_aniso(self, a, b, sd_shift):
-        Sigma = interval_kernel_cov(3, sd_interval=0.1, sd_shift=sd_shift)
-        return float(mpt.cos_sim_exp_tens(
+        Sigma = kernel_cov(3, sd_interval=0.1, sd_shift=sd_shift, differenced=True)
+        return float(mpt.sim_maet(
             a, self.W, b, self.W, Sigma, 3, False, False, 0.0, False,
             verbose=False))
 
     def _cos_rel(self, a, b):
-        return float(mpt.cos_sim_exp_tens(
+        return float(mpt.sim_maet(
             a, self.W, b, self.W, 0.1, 3, True, False, 0.0, False,
             verbose=False))
 
@@ -309,9 +364,9 @@ class TestEntropyClosedForms:
         r = 3
         Sigma = _random_spd(r, scale=0.2)
         p = np.array([0.0, 1.0, -1.0])
-        dens = mpt.build_exp_tens(p, np.ones(r), Sigma, r, False, False,
+        dens = mpt.build_maet(p, np.ones(r), Sigma, r, False, False,
                                   0.0, False, verbose=False)
-        got = mpt.entropy_exp_tens(dens, method="renyi2", base=np.e,
+        got = mpt.entropy_maet(dens, method="renyi2", base=np.e,
                                    verbose=False)
         # H2 of N(mu, Sigma): (d/2) log(4 pi) + (1/2) log det Sigma.
         want = 0.5 * r * np.log(4 * np.pi) + 0.5 * np.linalg.slogdet(Sigma)[1]
@@ -321,12 +376,12 @@ class TestEntropyClosedForms:
         r = 2
         Sigma = np.array([[0.04, -0.01], [-0.01, 0.09]])
         p = np.array([0.0, 0.5])
-        dens = mpt.build_exp_tens(p, np.ones(r), Sigma, r, False, False,
+        dens = mpt.build_maet(p, np.ones(r), Sigma, r, False, False,
                                   0.0, False, verbose=False)
         # This entropy is near zero, so the rtol=1e-4 closed-form check is
         # unusually sensitive and needs the tighter accuracy (still a
         # feasible ~13M-point grid in 2-D).
-        got = mpt.entropy_exp_tens(dens, method="differential", base=np.e,
+        got = mpt.entropy_maet(dens, method="differential", base=np.e,
                                    truncation_sigmas=6.0, verbose=False)
         want = 0.5 * r * np.log(2 * np.pi * np.e) \
             + 0.5 * np.linalg.slogdet(Sigma)[1]
@@ -339,7 +394,7 @@ class TestWindowedSimilarity:
 
     def test_sweep_peaks_at_match(self):
         r = 2
-        Sigma = interval_kernel_cov(r, sd_interval=0.05, sd_shift=5.0)
+        Sigma = kernel_cov(r, sd_interval=0.05, sd_shift=5.0, differenced=True)
         # Context: five events, each an ordered log-IOI pair plus an
         # onset. Event 3 matches the query's shape at a different
         # "tempo" (common shift of the log-IOI pair).
@@ -358,7 +413,7 @@ class TestWindowedSimilarity:
         prof = mpt.windowed_similarity(
             p_context, w_context, p_query, w_query,
             [Sigma, 0.25], [r, 1], [False, False], [False, False],
-            [0.0, 0.0], is_sym=[False, True],
+            [0.0, 0.0], is_exch=[False, True],
             centres=onsets.ravel(), window_attr=1, drop_window_attr=True,
             context_window=("rect", 0.5),
             normalize="oneSidedDenom", verbose=False)
@@ -383,13 +438,13 @@ class TestConstraints:
     W = np.ones(3)
 
     def _build(self, sigma, r=3, is_rel=False, is_per=False, period=0.0,
-               is_sym=False):
-        return mpt.build_exp_tens(self.P, self.W, sigma, r, is_rel,
-                                  is_per, period, is_sym, verbose=False)
+               is_exch=False):
+        return mpt.build_maet(self.P, self.W, sigma, r, is_rel,
+                                  is_per, period, is_exch, verbose=False)
 
-    def test_rejects_sym(self):
+    def test_rejects_exch(self):
         with pytest.raises(ValueError, match="ordered multiset"):
-            self._build(np.eye(3), is_sym=True)
+            self._build(np.eye(3), is_exch=True)
 
     def test_rejects_rel(self):
         with pytest.raises(ValueError, match="is_rel=False"):
@@ -428,12 +483,12 @@ class TestConstraints:
     def test_rejects_nan_values(self):
         p = np.array([0.0, np.nan, 2.0])
         with pytest.raises(ValueError, match="NaN"):
-            mpt.build_exp_tens(p, self.W, np.eye(3), 3, False, False,
+            mpt.build_maet(p, self.W, np.eye(3), 3, False, False,
                                0.0, False, verbose=False)
 
     def test_rejects_spectrum(self):
         with pytest.raises(TypeError, match="spectrum"):
-            mpt.eval_exp_tens(
+            mpt.eval_maet(
                 self.P, self.W, np.eye(3), 3, False, False, 0.0, False,
                 np.zeros((3, 1)), spectrum=[12, 0.67], verbose=False)
 
@@ -441,13 +496,13 @@ class TestConstraints:
         d1 = self._build(np.eye(3))
         d2 = self._build(2.0 * np.eye(3))
         with pytest.raises(ValueError, match="kernel covariance"):
-            mpt.cos_sim_exp_tens(d1, d2, verbose=False)
+            mpt.sim_maet(d1, d2, verbose=False)
 
     def test_rejects_cov_vs_scalar_in_cosine(self):
         d1 = self._build(np.eye(3))
         d2 = self._build(1.0)
         with pytest.raises((ValueError, TypeError)):
-            mpt.cos_sim_exp_tens(d1, d2, verbose=False)
+            mpt.sim_maet(d1, d2, verbose=False)
 
 
 class TestOrderedTupleEqualsBoundSingletons:
@@ -461,11 +516,11 @@ class TestOrderedTupleEqualsBoundSingletons:
         PX = np.array([[0.0, 1.0], [2.0, 3.0]])     # r x N (2 events)
         PY = np.array([[0.1, 0.8], [2.2, 2.9]])
         Wr = np.ones((2, 2))
-        v_aniso = mpt.cos_sim_exp_tens(
+        v_aniso = mpt.sim_maet(
             [PX], [Wr], [PY], [Wr], [np.diag([s1**2, s2**2])], [2],
             [False], [False], [0.0], [False], verbose=False)
         # The same data as two singleton attributes.
-        v_two = mpt.cos_sim_exp_tens(
+        v_two = mpt.sim_maet(
             [PX[:1], PX[1:]], [np.ones((1, 2)), np.ones((1, 2))],
             [PY[:1], PY[1:]], [np.ones((1, 2)), np.ones((1, 2))],
             [s1, s2], [1, 1], [False, False], [False, False],
@@ -478,23 +533,23 @@ class TestDegenerateNestedFlattening:
     attribute -- bind_events over flat single-value events -- is
     flattened to the equivalent flat ordered tuple (v3+). The
     bound and manually stacked flat triples must agree exactly;
-    non-degenerate nesting is rejected, and outer-level sym/rel on a
+    non-degenerate nesting is rejected, and outer-level exch/rel on a
     degenerate spec are rejected by the canonical constraint messages.
     """
 
-    SIG = interval_kernel_cov(3, sd_position=0.07, sd_shift=0.2)
+    SIG = kernel_cov(3, sd_value=0.07, sd_shift=0.2, differenced=True)
 
     def _triples(self, seed=7, n=12):
         rng = np.random.default_rng(seed)
         x = rng.normal(size=(1, n))
         pb, _, specs = mpt.unpack_pre_maet(mpt.bind_events([x], None, 3))
         P = pb[0]
-        flat = {"r": 3, "sym": False, "rel": False}
+        flat = {"r": 3, "exch": False, "rel": False}
         return P, specs[0], flat, rng
 
     def _build(self, P, spec, sigma):
         N = P.shape[1]
-        return mpt.build_exp_tens(
+        return mpt.build_maet(
             [P], [np.ones((3, N))], specs=[spec], sigma=[sigma],
             is_per=[False], period=[0.0], verbose=False)
 
@@ -504,15 +559,15 @@ class TestDegenerateNestedFlattening:
         d_f = self._build(P, flat, self.SIG)
         pts = rng.normal(size=(3, 6))
         np.testing.assert_allclose(
-            np.asarray(mpt.eval_exp_tens(d_n, pts), dtype=float),
-            np.asarray(mpt.eval_exp_tens(d_f, pts), dtype=float),
+            np.asarray(mpt.eval_maet(d_n, pts), dtype=float),
+            np.asarray(mpt.eval_maet(d_f, pts), dtype=float),
             rtol=1e-12)
 
     def test_bound_equals_flat_cosine_matrix_sigma(self):
         P, nested, flat, _ = self._triples()
         d_n = self._build(P, nested, self.SIG)
         d_f = self._build(P, flat, self.SIG)
-        v = mpt.cos_sim_exp_tens(d_n, d_f, verbose=False)
+        v = mpt.sim_maet(d_n, d_f, verbose=False)
         np.testing.assert_allclose(float(v), 1.0, rtol=1e-12)
 
     def test_bound_equals_flat_scalar_sigma_baseline(self):
@@ -521,14 +576,14 @@ class TestDegenerateNestedFlattening:
         d_f = self._build(P, flat, 0.3)
         pts = rng.normal(size=(3, 6))
         np.testing.assert_allclose(
-            np.asarray(mpt.eval_exp_tens(d_n, pts), dtype=float),
-            np.asarray(mpt.eval_exp_tens(d_f, pts), dtype=float),
+            np.asarray(mpt.eval_maet(d_n, pts), dtype=float),
+            np.asarray(mpt.eval_maet(d_f, pts), dtype=float),
             rtol=1e-12)
 
-    def test_windowed_bound_specs_equals_flat_is_sym(self):
+    def test_windowed_bound_specs_equals_flat_is_exch(self):
         # The demo pipeline: difference -> log -> bind, swept with
         # windowed_similarity via specs=, against the manually stacked
-        # flat surface via is_sym=.
+        # flat surface via is_exch=.
         onsets = np.array([0.0, 0.5, 0.75, 1.0, 2.0, 2.5, 2.75, 3.0,
                            4.0, 4.4, 4.6, 4.8])
         p_d, w_d, sp_d = mpt.unpack_pre_maet(mpt.difference_events([onsets[None, :]],
@@ -544,7 +599,7 @@ class TestDegenerateNestedFlattening:
         w_ctx = [np.ones((3, n_tri)), np.ones((1, n_tri))]
         p_q = [q[:, None], np.array([[0.0]])]
         w_q = [np.ones((3, 1)), np.ones((1, 1))]
-        tsp = {"r": 1, "sym": True, "rel": False}
+        tsp = {"r": 1, "exch": True, "rel": False}
         kw = dict(centres=tri_times, window_attr=1,
                   drop_window_attr=True, context_window=("rect", 0.1),
                   normalize="oneSidedDenom", verbose=False)
@@ -555,7 +610,7 @@ class TestDegenerateNestedFlattening:
         b = mpt.windowed_similarity(
             [tri_manual, tri_times[None, :]], w_ctx, p_q, w_q,
             [self.SIG, 0.25], [3, 1], [False, False], [False, False],
-            [0.0, 0.0], is_sym=[False, True], **kw)
+            [0.0, 0.0], is_exch=[False, True], **kw)
         np.testing.assert_allclose(np.asarray(a), np.asarray(b),
                                    rtol=1e-12, atol=1e-15)
 
@@ -565,10 +620,10 @@ class TestDegenerateNestedFlattening:
         P, _, flat, _ = self._triples(seed=5)
         N = P.shape[1]
         d_s = self._build(P, flat, self.SIG)
-        d_p = mpt.build_exp_tens(
+        d_p = mpt.build_maet(
             [P], [np.ones((3, N))], [self.SIG], [3], [False], [False],
             [0.0], [False], verbose=False)
-        v = mpt.cos_sim_exp_tens(d_s, d_p, verbose=False)
+        v = mpt.sim_maet(d_s, d_p, verbose=False)
         np.testing.assert_allclose(float(v), 1.0, rtol=1e-12)
 
     def test_non_degenerate_nested_rejected(self):
@@ -576,15 +631,15 @@ class TestDegenerateNestedFlattening:
         x2 = rng.normal(size=(2, 12))            # K = 2 constituents
         pb2, _, sp2 = mpt.unpack_pre_maet(mpt.bind_events([x2], None, 3))
         with pytest.raises(ValueError, match="not[ ]?degenerate"):
-            mpt.build_exp_tens(
+            mpt.build_maet(
                 [pb2[0]], None, specs=[sp2[0]],
                 sigma=[np.eye(6) * 0.01], is_per=[False],
                 period=[0.0], verbose=False)
 
-    def test_outer_sym_rejected_canonically(self):
+    def test_outer_exch_rejected_canonically(self):
         rng = np.random.default_rng(3)
         pb, _, sp = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
-                                    sym_outer=True))
+                                    exch_outer=True))
         with pytest.raises(ValueError, match="ordered multiset"):
             self._build(pb[0], sp[0], np.eye(3) * 0.01)
 

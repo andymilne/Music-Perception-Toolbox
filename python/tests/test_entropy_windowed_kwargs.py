@@ -1,4 +1,4 @@
-"""v3 — entropy_exp_tens kwarg threading.
+"""v3 — entropy_maet kwarg threading.
 
 Verifies that ``truncation_sigmas`` and ``kernel_precision`` kwargs are
 accepted by the public signatures and produce the expected behaviour:
@@ -13,21 +13,21 @@ import mpt
 
 
 # -----------------------------------------------------------------------
-# entropy_exp_tens
+# entropy_maet
 # -----------------------------------------------------------------------
 
 
-class TestEntropyExpTensKwargs:
+class TestEntropyMaetKwargs:
 
     def test_signature_exposes_kwargs(self):
-        sig = inspect.signature(mpt.entropy_exp_tens)
+        sig = inspect.signature(mpt.entropy_maet)
         assert "truncation_sigmas" in sig.parameters
         assert "kernel_precision" in sig.parameters
 
     def test_truncation_explicit_matches_global(self):
         """Explicit truncation_sigmas kwarg matches the value obtained
         by setting it globally via set_default."""
-        dens = mpt.build_exp_tens(
+        dens = mpt.build_maet(
             np.array([0.0, 400.0, 700.0]), np.ones(3),
             12.0, 2, True, False, 0.0,
         )
@@ -38,13 +38,13 @@ class TestEntropyExpTensKwargs:
         )
 
         mpt.reset_defaults()
-        h_explicit = mpt.entropy_exp_tens(
+        h_explicit = mpt.entropy_maet(
             dens, truncation_sigmas=6.0, **common,
         )
 
         mpt.set_default(truncation_sigmas=6.0)
         try:
-            h_global = mpt.entropy_exp_tens(dens, **common)
+            h_global = mpt.entropy_maet(dens, **common)
         finally:
             mpt.reset_defaults()
 
@@ -55,7 +55,7 @@ class TestEntropyExpTensKwargs:
         """kernel_precision='single' produces a slightly different
         result from 'double' (single-precision arithmetic), and the
         explicit kwarg matches the global default."""
-        dens = mpt.build_exp_tens(
+        dens = mpt.build_maet(
             np.array([0.0, 400.0, 700.0]), np.ones(3),
             12.0, 2, True, False, 0.0,
         )
@@ -66,8 +66,8 @@ class TestEntropyExpTensKwargs:
         )
 
         mpt.reset_defaults()
-        h_double = mpt.entropy_exp_tens(dens, **common)
-        h_single = mpt.entropy_exp_tens(
+        h_double = mpt.entropy_maet(dens, **common)
+        h_single = mpt.entropy_maet(
             dens, kernel_precision="single", **common,
         )
         # Single precision differs from double, but only at the
@@ -77,18 +77,18 @@ class TestEntropyExpTensKwargs:
     def test_kwargs_via_global_defaults_pickup(self):
         """If user calls without explicit kwargs but with a global
         default in effect, the entropy reflects it."""
-        dens = mpt.build_exp_tens(
+        dens = mpt.build_maet(
             np.array([0.0, 400.0, 700.0]), np.ones(3),
             12.0, 2, True, False, 0.0,
         )
         mpt.reset_defaults()
-        h_default = mpt.entropy_exp_tens(
+        h_default = mpt.entropy_maet(
             dens, base=2.0, n_points_per_dim=200,
             x_min=-1200.0, x_max=1200.0,
         )
         mpt.set_default(truncation_sigmas=6.0)
         try:
-            h_trunc = mpt.entropy_exp_tens(
+            h_trunc = mpt.entropy_maet(
                 dens, base=2.0, n_points_per_dim=200,
                 x_min=-1200.0, x_max=1200.0,
             )

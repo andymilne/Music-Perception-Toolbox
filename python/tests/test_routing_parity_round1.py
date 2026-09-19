@@ -19,7 +19,7 @@ number for the same input:
 * A-9 / B-13 -- ``kernel_precision`` is honoured on the Möbius and centres
   evaluation routes, and forwarded on the entropy list form;
 * B-5 -- the factored MA evaluation route passes the attribute's wrap;
-* A-17 -- ``eval_exp_tens`` validates ``normalize``; the sweep orbit route
+* A-17 -- ``eval_maet`` validates ``normalize``; the sweep orbit route
   receives a resolved width.
 """
 import warnings
@@ -28,8 +28,8 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import (build_exp_tens, cos_sim_exp_tens, entropy_exp_tens,
-                 eval_exp_tens, sweep_cos_sim_exp_tens)
+from mpt import (build_maet, sim_maet, entropy_maet,
+                 eval_maet, sweep_sim_maet)
 from mpt._tensor import eval as _ev
 from mpt._tensor.cosine import (_nested_admissible_routes,
                                 _nested_enumeration_admissible)
@@ -58,9 +58,9 @@ def _nested(values, sigma, *, is_rel=True, is_per=True, wrap='full-image',
     """One nested attribute: two levels of r = 2, symmetric, chord tags."""
     v = np.asarray(values, float).reshape(-1, 1)
     tags = np.repeat(np.arange(v.shape[0] // chord), chord)
-    spec = dict(r=[2, 2], sym=[True, True], tags=tags,
+    spec = dict(r=[2, 2], exch=[True, True], tags=tags,
                 rel=([0, 1] if is_rel else None))
-    return build_exp_tens([v], None, specs=[spec], sigma=[sigma],
+    return build_maet([v], None, specs=[spec], sigma=[sigma],
                           is_per=[is_per], period=[P if is_per else 0.0],
                           wrap=[wrap], verbose=False)
 
@@ -69,7 +69,7 @@ def _flat(seed, sigma, r=2, *, is_rel=False, is_per=True, wrap='full-image',
           K=5, N=2):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
-    return build_exp_tens([p], None, [sigma], [r], [is_rel], [is_per],
+    return build_maet([p], None, [sigma], [r], [is_rel], [is_per],
                           [P if is_per else 0.0], wrap=[wrap], verbose=False)
 
 
@@ -88,9 +88,9 @@ def test_nested_measure_rule_reads_the_per_call_width():
     # Through the public entry point: a forced centres route is refused
     # at the tighter width and honoured at the looser one.
     with pytest.raises(ValueError, match="cannot be honoured"):
-        cos_sim_exp_tens(dx, dy, method="centres", truncation_sigmas=6.0,
+        sim_maet(dx, dy, method="centres", truncation_sigmas=6.0,
                          verbose=False)
-    v = cos_sim_exp_tens(dx, dy, method="centres", truncation_sigmas=4.0,
+    v = sim_maet(dx, dy, method="centres", truncation_sigmas=4.0,
                          verbose=False)
     assert np.isfinite(v)
 
@@ -102,10 +102,10 @@ def test_nested_contraction_truncates_at_the_per_call_width(is_per):
     sigma = 1.0 if is_per else 0.4
     dx = _nested(_VX, sigma, is_rel=False, is_per=is_per)
     dy = _nested(_VY, sigma, is_rel=False, is_per=is_per)
-    ref = cos_sim_exp_tens(dx, dy, method="contract", verbose=False)
+    ref = sim_maet(dx, dy, method="contract", verbose=False)
     dx._self_ip_cache.clear()
     dy._self_ip_cache.clear()
-    coarse = cos_sim_exp_tens(dx, dy, method="contract",
+    coarse = sim_maet(dx, dy, method="contract",
                               truncation_sigmas=2.0, verbose=False)
     assert abs(coarse - ref) > 1e-6
     keys = list(dx._self_ip_cache)
@@ -119,16 +119,16 @@ def test_nested_ma_contraction_truncates_at_the_per_call_width():
     def _d(values):
         v = np.asarray(values, float).reshape(-1, 1)
         tags = np.repeat(np.arange(3), 3)
-        spec = dict(r=[2, 2], sym=[True, True], tags=tags, rel=None)
-        return build_exp_tens([v, ex], None,
-                              specs=[spec, dict(r=1, rel=False, sym=True)],
+        spec = dict(r=[2, 2], exch=[True, True], tags=tags, rel=None)
+        return build_maet([v, ex], None,
+                              specs=[spec, dict(r=1, rel=False, exch=True)],
                               sigma=[0.4, 1.0], is_per=[False, False],
                               period=[0.0, 0.0], verbose=False)
     dx, dy = _d(_VX), _d(_VY)
-    ref = cos_sim_exp_tens(dx, dy, method="contract", verbose=False)
+    ref = sim_maet(dx, dy, method="contract", verbose=False)
     dx._self_ip_cache.clear()
     dy._self_ip_cache.clear()
-    coarse = cos_sim_exp_tens(dx, dy, method="contract",
+    coarse = sim_maet(dx, dy, method="contract",
                               truncation_sigmas=2.0, verbose=False)
     assert abs(coarse - ref) > 1e-6
     keys = list(dx._self_ip_cache)
@@ -141,12 +141,12 @@ def test_nested_ma_contraction_truncates_at_the_per_call_width():
 def test_nested_route_skips_xx_under_one_sided_denominator():
     dx = _nested(_VX, 0.4, is_rel=False, is_per=False)
     dy = _nested(_VY, 0.4, is_rel=False, is_per=False)
-    v = cos_sim_exp_tens(dx, dy, method="contract",
+    v = sim_maet(dx, dy, method="contract",
                          normalize="oneSidedDenom", verbose=False)
     assert np.isfinite(v)
     assert not dx._self_ip_cache          # <X,X> neither formed nor memoised
     assert dy._self_ip_cache              # <Y,Y> is the denominator
-    b = cos_sim_exp_tens(dx, dy, method="bulger",
+    b = sim_maet(dx, dy, method="bulger",
                          normalize="oneSidedDenom", verbose=False)
     assert v == pytest.approx(b, rel=1e-6)
 
@@ -158,14 +158,14 @@ def test_wrap_mismatch_raises_on_the_flat_path():
     x = _flat(1, 0.2 * P, wrap='full-image')
     y = _flat(2, 0.2 * P, wrap='single-image')
     with pytest.raises(ValueError, match="wrap mismatch"):
-        cos_sim_exp_tens(x, y, verbose=False)
+        sim_maet(x, y, verbose=False)
 
 
 def test_wrap_mismatch_raises_on_the_nested_path():
     dx = _nested(_VX, 0.2 * P, wrap='full-image')
     dy = _nested(_VY, 0.2 * P, wrap='single-image')
     with pytest.raises(ValueError, match="wrap mismatch"):
-        cos_sim_exp_tens(dx, dy, method="contract", verbose=False)
+        sim_maet(dx, dy, method="contract", verbose=False)
 
 
 # ---------------------------------------------------------------------- B-9
@@ -215,17 +215,17 @@ def test_non_finite_mobius_output_falls_back_to_centres(monkeypatch, A):
     """Every shape reaches the guard through the one MA evaluator."""
     rng = np.random.default_rng(11)
     p = [np.sort(rng.uniform(0.0, P, size=(6, 1)), axis=0) for _ in range(A)]
-    d = build_exp_tens(p, None, [0.8] * A, [2] * A, [False] * A,
+    d = build_maet(p, None, [0.8] * A, [2] * A, [False] * A,
                        [False] * A, [0.0] * A, verbose=False)
     xq = rng.uniform(0.0, P, size=(2 * A, 7))
-    ref = eval_exp_tens(d, xq, method="centres", verbose=False)
+    ref = eval_maet(d, xq, method="centres", verbose=False)
     import mpt._tensor.dispatch as _disp
     monkeypatch.setattr(_disp, "_select_ma_eval",
                         lambda *a, **k: ("mobius", "forced by test"))
     import mpt._tensor._ma_eval_orbit as _orb
     monkeypatch.setattr(_orb, "eval_ma_orbit", _nan_orbit)
     with pytest.warns(RuntimeWarning, match="non-finite"):
-        got = eval_exp_tens(d, xq, method="mobius", verbose=False)
+        got = eval_maet(d, xq, method="mobius", verbose=False)
     assert np.all(np.isfinite(got))
     assert got == pytest.approx(ref, rel=1e-12, abs=1e-15)
 
@@ -237,8 +237,8 @@ def test_non_finite_mobius_output_falls_back_to_centres(monkeypatch, A):
 def test_eval_single_precision_is_honoured_on_both_routes(method):
     d = _flat(5, 0.6, r=2, is_per=False, K=8, N=3)
     xq = np.random.default_rng(3).uniform(0.0, P, size=(2, 64))
-    double = eval_exp_tens(d, xq, method=method, verbose=False)
-    single = eval_exp_tens(d, xq, method=method, kernel_precision="single",
+    double = eval_maet(d, xq, method=method, verbose=False)
+    single = eval_maet(d, xq, method=method, kernel_precision="single",
                            verbose=False)
     assert single == pytest.approx(double, rel=1e-4)
     assert np.max(np.abs(single - double)) > 0.0
@@ -250,11 +250,11 @@ def test_entropy_list_form_forwards_the_width():
     d = _flat(4, 0.5, r=2, is_rel=True, is_per=False, K=5, N=2)
     kw = dict(method="shannon", n_points_per_dim=64, x_min=-6.0, x_max=6.0,
               verbose=False)
-    scalar = entropy_exp_tens(d, truncation_sigmas=1.5, **kw)
-    listed = entropy_exp_tens([d], truncation_sigmas=1.5, **kw)
+    scalar = entropy_maet(d, truncation_sigmas=1.5, **kw)
+    listed = entropy_maet([d], truncation_sigmas=1.5, **kw)
     assert listed.shape == (1,)
     assert listed[0] == pytest.approx(scalar, rel=1e-12)
-    assert abs(scalar - entropy_exp_tens(d, **kw)) > 1e-6
+    assert abs(scalar - entropy_maet(d, **kw)) > 1e-6
 
 
 # ---------------------------------------------------------------------- B-5
@@ -263,7 +263,7 @@ def test_entropy_list_form_forwards_the_width():
 def _two_abs_per(wrap, seed):
     rng = np.random.default_rng(seed)
     p = [np.sort(rng.uniform(0.0, P, size=(4, 2)), axis=0) for _ in range(2)]
-    return build_exp_tens(p, None, [0.2 * P] * 2, [2, 2], [False, False],
+    return build_maet(p, None, [0.2 * P] * 2, [2, 2], [False, False],
                           [True, True], [P, P], wrap=[wrap, wrap],
                           verbose=False)
 
@@ -273,10 +273,10 @@ def test_factored_eval_route_honours_the_wrap(monkeypatch):
     outs = {}
     for wrap in ("full-image", "single-image"):
         d = _two_abs_per(wrap, 21)
-        fac = eval_exp_tens(d, xq, method="centres", verbose=False)
+        fac = eval_maet(d, xq, method="centres", verbose=False)
         monkeypatch.setattr(_ev, "_ma_eval_factored",
                             lambda *a, **k: None)
-        joint = eval_exp_tens(d, xq, method="centres", verbose=False)
+        joint = eval_maet(d, xq, method="centres", verbose=False)
         monkeypatch.undo()
         assert fac == pytest.approx(joint, rel=1e-10)
         outs[wrap] = fac
@@ -289,7 +289,7 @@ def test_factored_eval_route_honours_the_wrap(monkeypatch):
 def test_eval_rejects_an_unknown_normalize():
     d = _flat(1, 0.5, is_per=False)
     with pytest.raises(ValueError, match="normalize must be one of"):
-        eval_exp_tens(d, np.zeros((2, 3)), "gaussianish", verbose=False)
+        eval_maet(d, np.zeros((2, 3)), "gaussianish", verbose=False)
 
 
 def test_sweep_orbit_route_resolves_an_explicit_inf():
@@ -297,13 +297,13 @@ def test_sweep_orbit_route_resolves_an_explicit_inf():
     p_x = [rng.normal(0.0, 3.0, size=(4, 5))]
     p_y = [rng.normal(0.0, 3.0, size=(4, 3))]
     args = ([0.9], [2], [0], [0], [None], [1])
-    dx = build_exp_tens(p_x, None, *args, verbose=False)
-    dy = build_exp_tens(p_y, None, *args, verbose=False)
+    dx = build_maet(p_x, None, *args, verbose=False)
+    dy = build_maet(p_y, None, *args, verbose=False)
     off = np.array([[-2.0, 0.0, 1.5]])
     from mpt._defaults import accuracy_floor_sigmas
-    a = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+    a = sweep_sim_maet(dx, dy, off, method="orbit",
                                truncation_sigmas=np.inf, verbose=False)
-    b = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+    b = sweep_sim_maet(dx, dy, off, method="orbit",
                                truncation_sigmas=accuracy_floor_sigmas(),
                                verbose=False)
     assert np.array_equal(a, b)

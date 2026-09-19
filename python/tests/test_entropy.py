@@ -1,4 +1,4 @@
-"""Tests for entropy_exp_tens — single-multiset Shannon and basic.
+"""Tests for entropy_maet — single-multiset Shannon and basic.
 
 Mirror of MATLAB tests/test_entropy.m.
 """
@@ -31,9 +31,9 @@ class TestEntropy:
         # Smoothing should increase entropy (spread mass)
         assert H_smooth > H_raw
 
-    def test_entropy_exp_tens_uniform(self):
+    def test_entropy_maet_uniform(self):
         # Chromatic scale with wide sigma → nearly uniform → H ≈ 1
-        H = mpt.entropy_exp_tens(
+        H = mpt.entropy_maet(
             np.arange(12), np.ones(12), 100, 1, False, True, 12,
             n_points_per_dim=1200,
         )

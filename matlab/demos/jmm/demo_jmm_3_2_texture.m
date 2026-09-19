@@ -56,7 +56,7 @@
 % reachable, rather than from the script itself: in a script neither
 % mfilename nor dbstack reports the file, and the current folder need not
 % be the script's own. Adding it puts the +jmm helper package in scope.
-mptRoot = which('buildExpTens');
+mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
         ['The toolbox is not on the path. Add the matlab folder of the ' ...
@@ -141,7 +141,7 @@ for k = 1:numel(SIGMAS_T)
     plot(ax, centres, H{k}, 'Color', [0.122 0.306 0.722], 'LineWidth', 1.7);
     ylim(ax, yl);
     xlim(ax, [tLo, tHi]);
-    ylabel(ax, sprintf('%s\nRenyi-2', labels{k}), 'FontSize', 15);
+    ylabel(ax, sprintf('%s\nRenyi-2 (bits)', labels{k}), 'FontSize', 15);
     grid(ax, 'on');
     set(ax, 'FontSize', 13, 'Box', 'off');
     if k == numel(SIGMAS_T)

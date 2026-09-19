@@ -1,6 +1,6 @@
 function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         selectMaEval(dens, nQ, truncationSigmas)
-%SELECTMAEVAL  Cost-model path selection for multi-attribute evalExpTens.
+%SELECTMAEVAL  Cost-model path selection for multi-attribute evalMaet.
 %
 %   [CHOSEN, ROUTINGREASON] = INTERNAL.SELECTMAEVAL(DENS, NQ) chooses
 %   between the joint-centres path (which materialises the joint tuple
@@ -12,10 +12,10 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 %   (Milne 2026, Eq. maet-density), both paths' costs are closed-form from
 %   the shape (r_a, K_a, N), the geometry, and NQ, and the crossover is
 %   sharp, so a pure cost model suffices. User overrides are honoured by
-%   the caller before this is reached (evalExpTens passes 'auto' here).
+%   the caller before this is reached (evalMaet passes 'auto' here).
 %
 %   Hard rules (in order):
-%     - ordered ([sym]=0) attribute -> centres (no orbit to collapse)
+%     - ordered ([exch]=0) attribute -> centres (no orbit to collapse)
 %     - nested attributes           -> their own cost row (INTERNAL.NESTEDEVALCOSTSMS)
 %     - all r <= 1                  -> centres (Möbius degenerate)
 %     - feasibility bound on any attribute forces the
@@ -102,16 +102,16 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     sigmaG  = double(dens.sigma(:).');
     periodG = double(dens.period(:).');
 
-    % ---- Hard rule: ordered ([sym] = 0) attributes at r > 1 -> centres.
+    % ---- Hard rule: ordered ([exch] = 0) attributes at r > 1 -> centres.
     % The Möbius decomposition sums over set partitions of the tuple
     % indices, which counts every ordering of each block and so realises
     % the symmetrised tuple set; on an ordered attribute that is a
     % different density, not a faster route to the same one. r = 1 is
-    % exempt ([sym] vacuous at a single value). Twin of the Python
+    % exempt ([exch] vacuous at a single value). Twin of the Python
     % _has_ordered_attr rule in _tensor/dispatch.py. ----
     if internal.hasOrderedAttr(dens)
         chosen = 'centres';
-        routingReason = 'ordered ([sym]=0) attribute (no orbit to collapse)';
+        routingReason = 'ordered ([exch]=0) attribute (no orbit to collapse)';
         return;
     end
 
@@ -167,10 +167,10 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         % Centres is the only route; guard against OOM (no cheaper
         % all-image fallback here).
         jointWs = internal.estimateMaJointWorkingSetBytes( ...
-            rVec, kVec, isRel, logical(dens.isSym(:).'));
+            rVec, kVec, isRel, logical(dens.isExch(:).'));
         if jointWs > internal.dispatchMemBudget()
             error('mpt:dispatch:singleImageInfeasible', ...
-                ['evalExpTens requires the single-image centres route ' ...
+                ['evalMaet requires the single-image centres route ' ...
                  '(%s, so the Möbius method is not available), but its ' ...
                  'joint tuple set would need ~%.1f GB. Reduce the tuple ' ...
                  'order r or the collection size K.'], ...
@@ -239,13 +239,13 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         % The near-tie safety factor insures against the centres path's
         % memory blow-up, so it applies only where that blow-up is
         % possible: a joint working set above the soft budget.
-        if isfield(dens, 'isSym') && ~isempty(dens.isSym)
-            symArg = logical(dens.isSym(:).');
+        if isfield(dens, 'isExch') && ~isempty(dens.isExch)
+            exchArg = logical(dens.isExch(:).');
         else
-            symArg = [];
+            exchArg = [];
         end
         jointWsSafety = internal.estimateMaJointWorkingSetBytes( ...
-            rVec, kVec, isRel, symArg);
+            rVec, kVec, isRel, exchArg);
         if jointWsSafety > CENTRES_WORKING_SET_SOFT_BUDGET
             safety = MA_MOBIUS_SAFETY;
         else

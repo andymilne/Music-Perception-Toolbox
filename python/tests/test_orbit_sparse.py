@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 import mpt._tensor.cosine as C
 import mpt._tensor._mobius_inner as _mobius_inner
 
@@ -47,18 +47,18 @@ def test_sparse_orbit_matches_dense_orbit(_restore_threshold):
     K = 480
     px = [_clustered(K, rng), _clustered(K, rng)]
     py = [_clustered(K, rng), _clustered(K, rng)]
-    dx = build_exp_tens(px, None, [50., 50.], [2, 2], [False, False],
+    dx = build_maet(px, None, [50., 50.], [2, 2], [False, False],
                         [False, False], [0, 0], verbose=False)
-    dy = build_exp_tens(py, None, [50., 50.], [2, 2], [False, False],
+    dy = build_maet(py, None, [50., 50.], [2, 2], [False, False],
                         [False, False], [0, 0], verbose=False)
 
     calls = _patch_counter()
     _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 200_000
-    v_sparse = cos_sim_exp_tens(dx, dy, method="mobius", verbose=False)
+    v_sparse = sim_maet(dx, dy, method="mobius", verbose=False)
     assert calls["n"] > 0                      # gate fired
 
     _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 10 ** 12      # disable -> dense orbit
-    v_dense = cos_sim_exp_tens(dx, dy, method="mobius", verbose=False)
+    v_dense = sim_maet(dx, dy, method="mobius", verbose=False)
     assert abs(v_sparse - v_dense) / abs(v_dense) < 1e-12
 
 
@@ -67,13 +67,13 @@ def test_sparse_orbit_dormant_for_small_kernels(_restore_threshold):
     rng = np.random.default_rng(5)
     px = [np.sort(rng.uniform(0, 100, 8)).reshape(-1, 1)]
     py = [np.sort(rng.uniform(0, 100, 8)).reshape(-1, 1)]
-    dx = build_exp_tens(px, None, [40.], [3], [False], [False], [0],
+    dx = build_maet(px, None, [40.], [3], [False], [False], [0],
                         verbose=False)
-    dy = build_exp_tens(py, None, [40.], [3], [False], [False], [0],
+    dy = build_maet(py, None, [40.], [3], [False], [False], [0],
                         verbose=False)
     calls = _patch_counter()
     _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 200_000
-    cos_sim_exp_tens(dx, dy, method="mobius", verbose=False)
+    sim_maet(dx, dy, method="mobius", verbose=False)
     assert calls["n"] == 0                     # small kernel stays dense
 
 
@@ -178,9 +178,9 @@ def test_rel_per_sparse_matches_bulger():
             p1 = np.sort(rng.uniform(0, P, K))
             p2 = np.sort(rng.uniform(0, P, K))
             w = np.ones(K)
-            cm = mpt.cos_sim_exp_tens(p1, w, p2, w, sigma, r, True, True, P,
+            cm = mpt.sim_maet(p1, w, p2, w, sigma, r, True, True, P,
                                       method='mobius', verbose=False)
-            cb = mpt.cos_sim_exp_tens(p1, w, p2, w, sigma, r, True, True, P,
+            cb = mpt.sim_maet(p1, w, p2, w, sigma, r, True, True, P,
                                       method='bulger', verbose=False)
             assert abs(cm - cb) < 1e-9
     finally:

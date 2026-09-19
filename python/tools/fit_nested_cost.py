@@ -148,7 +148,7 @@ def read_rows(paths):
                                  f"got {len(f)} in {ln!r}")
             row = dict(zip(header, f))
             for k, v in list(row.items()):
-                if k in ("section", "r_levels", "sym", "wrap"):
+                if k in ("section", "r_levels", "exch", "wrap"):
                     continue
                 row[k] = float(v)
             row["src"] = path
@@ -504,7 +504,7 @@ def n_params(pooling, rows, min_cells, floor_cells=3):
 
 def label(row):
     mode = f"{'rel' if row['rel'] else 'abs'}-{'per' if row['per'] else 'np'}"
-    return (f"{row['section']} r=[{row['r_levels']}] sym=[{row['sym']}] "
+    return (f"{row['section']} r=[{row['r_levels']}] exch=[{row['exch']}] "
             f"{int(row['chord'])}x{int(row['n_chords'])} N={int(row['N'])} "
             f"{mode} sigma={row['sigma']:g} R={int(row['total_order'])}")
 

@@ -1,7 +1,7 @@
 %% test_tensor_harmonicity_orbit.m — v3 tensorHarmonicity rewrite
 %
 %  Tests for the v3 rewrite of tensorHarmonicity, which bypasses
-%  buildExpTens entirely and routes through mobius.evalOrbitRel.
+%  buildMaet entirely and routes through mobius.evalOrbitRel.
 %  Covers:
 %    - Numerical equivalence to a hand-rolled call to mobius.evalOrbitRel
 %      (the rewrite must not introduce extra factors).
@@ -132,8 +132,8 @@ results{end+1,1} = 'tensorHarmonicity v3: pdf = gaussian / sum(tmpl_w) (1e-10 re
 results{end,2}   = abs(h_pdf - h_gauss / sumW) < 1e-10 * abs(h_pdf);
 
 %% ---- Verbose flag emits the dispatch announce ----
-% Stage 2c+: the wrapper does not announce itself; the inner evalExpTens
-% emits the standard dispatch message ("evalExpTens: chose 'mobius' path.")
+% Stage 2c+: the wrapper does not announce itself; the inner evalMaet
+% emits the standard dispatch message ("evalMaet: chose 'mobius' path.")
 % via internal.maybeShowDispatchMsg, which is gated by mptDefaults.showHints
 % and resets once per top-level user call via internal.dispatchScope. We
 % test the announce here by looking for any 'chose' substring (which both

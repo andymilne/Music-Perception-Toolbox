@@ -29,7 +29,7 @@ function pm = preMaet(pAttr, wAttr, specs)
 %   Output
 %       pm - struct with fields pAttr, wAttr, and specs.
 %
-%   See also UNPACKPREMAET, SHOWPREMAET, FLATSPECS, BUILDEXPTENS.
+%   See also UNPACKPREMAET, SHOWPREMAET, FLATSPECS, BUILDMAET.
 
 if nargin < 2
     wAttr = [];

@@ -6,7 +6,7 @@ function printBatchedEstimate(label, nRows, estTotal, verbose, minPrintSec)
 %   printBatchedEstimate(label, nRows, estTotal, verbose, minPrintSec):
 %
 %   Used by the batched dispatch helpers in templateHarmonicity,
-%   virtualPitches, spectralEntropy, entropyExpTens, tensorHarmonicity,
+%   virtualPitches, spectralEntropy, entropyMaet, tensorHarmonicity,
 %   and similar functions, which compute their estimates empirically
 %   (warm-up plus a sample of K rows) rather than via estimateCompTime.
 %   The threshold and formatting match the scalar-mode print path

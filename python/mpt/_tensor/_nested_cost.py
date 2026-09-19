@@ -71,7 +71,7 @@ attribute (:func:`~mpt._tensor._nested_contraction.tuple_counts`):
     :func:`~mpt._tensor.dispatch._predict_pairwise_kernel_size` but with each
     nested attribute contributing its own ``m_perm`` / ``m_comb`` in place of
     ``r!*C(K, r)`` / ``C(K, r)``: this is what
-    :func:`~mpt._tensor.cosine._cos_sim_exp_tens_ma_pairwise` enumerates, one
+    :func:`~mpt._tensor.cosine._sim_maet_ma_pairwise` enumerates, one
     perm-side and one comb-side tuple count per attribute, multiplied across
     attributes and by the event counts.
 
@@ -240,16 +240,16 @@ def _attr_tuple_counts(dens, a):
     spec = None if nested is None else nested[a]
     if spec is not None:
         mp, mc = tuple_counts(np.asarray(spec["r"]).ravel(),
-                              np.asarray(spec["sym"]).ravel(),
+                              np.asarray(spec["exch"]).ravel(),
                               np.asarray(spec["tags"]))
         return float(mp), float(mc)
     r_a = int(dens.r[a])
     K = int(np.asarray(dens.p_attr[a]).shape[0])
-    is_sym = bool(np.asarray(
-        getattr(dens, "is_sym", np.ones(int(dens.n_attrs), dtype=bool))
+    is_exch = bool(np.asarray(
+        getattr(dens, "is_exch", np.ones(int(dens.n_attrs), dtype=bool))
     ).ravel()[a])
     c = _comb(K, r_a)
-    return (c * (_fact(r_a) if (is_sym and r_a > 1) else 1.0), c)
+    return (c * (_fact(r_a) if (is_exch and r_a > 1) else 1.0), c)
 
 
 def _centres_restricted(dens, a, m_perm, m_comb):
@@ -268,13 +268,13 @@ def _centres_restricted(dens, a, m_perm, m_comb):
     spec = None if nested is None else nested[a]
     if spec is not None:
         mult = float(_nested_orbit_mult(np.asarray(spec["r"]).ravel(),
-                                        np.asarray(spec["sym"]).ravel()))
+                                        np.asarray(spec["exch"]).ravel()))
     else:
         r_a = int(dens.r[a])
-        is_sym = bool(np.asarray(
-            getattr(dens, "is_sym", np.ones(int(dens.n_attrs), dtype=bool))
+        is_exch = bool(np.asarray(
+            getattr(dens, "is_exch", np.ones(int(dens.n_attrs), dtype=bool))
         ).ravel()[a])
-        mult = _fact(r_a) if (is_sym and r_a > 1) else 1.0
+        mult = _fact(r_a) if (is_exch and r_a > 1) else 1.0
     ok = (mult >= 2.0 and m_comb > 0.0
           and abs(m_perm - mult * m_comb) < 0.5)
     return ok, mult
@@ -331,7 +331,7 @@ def nested_attr_terms(dens_x, dens_y, a, *, skip_xx=False, skip_yy=False,
         if spec is not None:
             works[side] = float(recipe_work(build_recipe(
                 np.asarray(spec["r"]).ravel(),
-                np.asarray(spec["sym"]).ravel(),
+                np.asarray(spec["exch"]).ravel(),
                 np.asarray(spec["tags"]), is_rel, is_per)))
         else:
             works[side] = mp[side] * mc[side]
@@ -544,13 +544,13 @@ def select_nested_method(dens_x, dens_y, *, admissible_by_attr,
     """
     A = int(dens_x.n_attrs)
     nested_a = set(admissible_by_attr)
-    is_sym_x = np.asarray(
-        getattr(dens_x, "is_sym", np.ones(A, dtype=bool))).ravel()
+    is_exch_x = np.asarray(
+        getattr(dens_x, "is_exch", np.ones(A, dtype=bool))).ravel()
     flat_a, ordered_a = [], []
     for a in range(A):
         if a in nested_a:
             continue
-        if (not bool(is_sym_x[a])) and int(dens_x.r[a]) > 1:
+        if (not bool(is_exch_x[a])) and int(dens_x.r[a]) > 1:
             ordered_a.append(a)
         else:
             flat_a.append(a)

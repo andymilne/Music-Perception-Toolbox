@@ -13,7 +13,7 @@
 % context is Piano 2's event stream. At each anchor (a Piano-1 cell
 % boundary) the query is translated in time by a lag tau spanning one
 % whole cell, and the one-sided matched-filter response against Piano 2
-% is read off (cosSimExpTens with 'normalize', 'oneSidedDenom', the
+% is read off (simMaet with 'normalize', 'oneSidedDenom', the
 % Analysis-1.4 idiom). Collecting these rows gives a cross-correlogram
 % R(anchor, tau); its bright ridge tracks the running phase offset
 % between the two pianos, climbing the staircase 0 -> 12 pulses across
@@ -36,7 +36,7 @@
 % reachable, rather than from the script itself: in a script neither
 % mfilename nor dbstack reports the file, and the current folder need not
 % be the script's own. Adding it puts the +jmm helper package in scope.
-mptRoot = which('buildExpTens');
+mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
         ['The toolbox is not on the path. Add the matlab folder of the ' ...

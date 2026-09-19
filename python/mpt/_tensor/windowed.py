@@ -35,9 +35,9 @@ from .preprocessing import (
     weight_events, translate_attributes,
     _evaluate_shape, _multiply_weights, _normalise_weights_to_list,
 )
-from .build import build_exp_tens
+from .build import build_maet
 from .premaet import is_pre_maet, unpack_pre_maet
-from .cosine import (cos_sim_exp_tens)
+from .cosine import (sim_maet)
 from .density import _weight_is_live
 
 _SQRT12 = 2.0 * np.sqrt(3.0)
@@ -108,7 +108,7 @@ def _prune_dead_events(p_attr, w, specs):
     at weight zero (``weight_events`` writes its factor as such). Those
     events contribute nothing to any inner product or to the density an
     entropy integrates, so dropping them here -- at the single windowing
-    seam, before ``build_exp_tens`` runs its eager feasibility scan and
+    seam, before ``build_maet`` runs its eager feasibility scan and
     r-ad enumeration over every column -- is exact and saves the bulk of
     a sliding sweep's cost, without touching the core build contract or
     the density-level ``pruned()`` path. The liveness rule is the shared
@@ -261,11 +261,11 @@ def _sub(seq, keep):
     return seq
 
 
-def _check_is_sym_vs_specs(is_sym, specs):
-    if is_sym is not None and specs is not None:
+def _check_is_exch_vs_specs(is_exch, specs):
+    if is_exch is not None and specs is not None:
         raise ValueError(
-            "`is_sym` applies to the flat per-attribute surface; nested "
-            "geometry carries its per-level sym inside `specs`. Pass one "
+            "`is_exch` applies to the flat per-attribute surface; nested "
+            "geometry carries its per-level exch inside `specs`. Pass one "
             "or the other.")
 
 
@@ -320,8 +320,8 @@ def _single_window(context_window, p_query, axis):
 def windowed_similarity(p_context, w_context=None, p_query=None,
                         w_query=None, sigma=None, r=None,
                         is_rel=None, is_per=None, period=None,
-                        centres=None, *, is_sym=None, rel=None,
-                        sym=None,
+                        centres=None, *, is_exch=None, rel=None,
+                        exch=None,
                         start=None, stop=None, step=None,
                         query_centres=None, context_window=("rect", None),
                         query_window=None, window_attr=-1, drop_window_attr=None,
@@ -340,13 +340,13 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
     - ``windowed_similarity(pm_context, pm_query, centres, ...)``. The
       shared geometry is read from their specs, and any of the six
       per-attribute parameters --- ``sigma``, ``is_per``, ``period``,
-      ``r``, ``rel``, ``sym`` --- may be given alongside to override it,
-      as at :func:`build_exp_tens`. An override may name every attribute
+      ``r``, ``rel``, ``exch`` --- may be given alongside to override it,
+      as at :func:`build_maet`. An override may name every attribute
       or be selective, a length-A list whose ``None`` entries keep what
       the spec carries: ``sigma=[None, s, None]`` sweeps the second
       attribute's width and leaves the rest to the pre-MAET. The two
       pre-MAETs describe one comparison, so they must agree on ``r``,
-      ``rel``, ``sym`` and the nesting; ``sigma``, ``is_per`` and
+      ``rel``, ``exch`` and the nesting; ``sigma``, ``is_per`` and
       ``period`` may differ and are taken from the context.
 
     **Raw positional input**:
@@ -375,19 +375,19 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
     ``target_attr`` is the attribute whose weights absorb the window factors
     (default: the first compared attribute; it may coincide with a swept
     axis). ``specs`` carries nested geometry from :func:`bind_events`.
-    ``is_sym`` is the per-attribute symmetry vector of the flat surface
+    ``is_exch`` is the per-attribute exchangeability vector of the flat surface
     (``None`` keeps the unordered default); required, in particular, for
     ordered attributes carrying a matrix-valued kernel covariance. It is
     mutually exclusive with ``specs``, whose nesting carries its own
-    per-level sym.
+    per-level exch.
     """
     if is_pre_maet(p_context):
-        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_sym,
+        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
          specs, centres) = _windowed_pre_maet_args(
             [p_context, w_context], p_query if p_query is not None
             else centres,
             {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
-             "rel": rel if rel is not None else is_rel, "sym": sym},
+             "rel": rel if rel is not None else is_rel, "exch": exch},
             "windowed_similarity")
         p_context, p_query = p_attrs
         w_context, w_query = w_attrs
@@ -400,7 +400,7 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
                 "the multi-axis `sweep` form locks the query to the sweep.")
         return _ws_multi(
             p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-            period, is_sym, sweep, drop,
+            period, is_exch, sweep, drop,
             context_window if isinstance(context_window, dict)
             else None, locate, normalize, target_attr, specs)
     if drop_window_attr is None:
@@ -408,16 +408,16 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
             "`drop_window_attr` is required (True places only, False compares).")
     return _ws_single(
         p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per, period,
-        is_sym, centres, start, stop, step, query_centres, context_window,
+        is_exch, centres, start, stop, step, query_centres, context_window,
         query_window, window_attr, drop_window_attr, locate, target_attr,
         normalize, specs)
 
 
 def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-              period, is_sym, sweep, drop, context_window, locate, normalize,
+              period, is_exch, sweep, drop, context_window, locate, normalize,
               target_attr, specs):
     p_context, p_query = list(p_context), list(p_query)
-    _check_is_sym_vs_specs(is_sym, specs)
+    _check_is_exch_vs_specs(is_exch, specs)
     keys, drop_axes, target, win, grids = _prep_sweep(
         p_context, p_query, sweep, drop, context_window, target_attr)
     nested = specs is not None
@@ -442,29 +442,29 @@ def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
         pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
         sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                               _sub(is_per, keep), _sub(period, keep))
-        sy = None if is_sym is None else _sub(is_sym, keep)
+        sy = None if is_exch is None else _sub(is_exch, keep)
         if nested:
-            dc = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
+            dc = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
                                 verbose=False)
-            dq = build_exp_tens(pq, wq, sigma=sg, is_per=pr, period=pd, specs=sq,
+            dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd, specs=sq,
                                 verbose=False)
-            out[idx] = float(cos_sim_exp_tens(
+            out[idx] = float(sim_maet(
                 dc, dq, normalize=normalize,
                 verbose=False))
         else:
-            sym_args = () if sy is None else (sy,)
-            out[idx] = float(cos_sim_exp_tens(
-                pc, wc, pq, wq, sg, rr, rl, pr, pd, *sym_args,
+            exch_args = () if sy is None else (sy,)
+            out[idx] = float(sim_maet(
+                pc, wc, pq, wq, sg, rr, rl, pr, pd, *exch_args,
                 normalize=normalize, verbose=False))
     return out
 
 
 def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-               period, is_sym, centres, start, stop, step, query_centres,
+               period, is_exch, centres, start, stop, step, query_centres,
                context_window, query_window, window_attr, drop_window_attr,
                locate, target_attr, normalize, specs):
     p_context, p_query = list(p_context), list(p_query)
-    _check_is_sym_vs_specs(is_sym, specs)
+    _check_is_exch_vs_specs(is_exch, specs)
     n = len(p_context)
     axis = _abs_idx(window_attr, n)
     nested = specs is not None
@@ -505,8 +505,8 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
     rel_axis = _axis_is_rel(specs, is_rel, axis)
     sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                           _sub(is_per, keep), _sub(period, keep))
-    sy = None if is_sym is None else _sub(is_sym, keep)
-    sym_args = () if sy is None else (sy,)
+    sy = None if is_exch is None else _sub(is_exch, keep)
+    exch_args = () if sy is None else (sy,)
     out = np.empty((A, q_rows.shape[1]), dtype=float)
     # The query window attaches to the query, not to the sweep: it is centred
     # on the query's own location along the window axis and applied before the
@@ -527,7 +527,7 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
             p_context, w_context, specs, {axis: float(ctx_centres[a])}, win,
             locate, target)
         pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
-        dc = (build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
+        dc = (build_maet(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
                              verbose=False) if nested else None)
         for t in range(q_rows.shape[1]):
             if drop_window_attr or rel_axis:
@@ -541,22 +541,22 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                                                          specs=specs))
             pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
             if nested:
-                dq = build_exp_tens(pq, wq, sigma=sg, is_per=pr, period=pd,
+                dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd,
                                     specs=sq, verbose=False)
-                out[a, t] = float(cos_sim_exp_tens(
+                out[a, t] = float(sim_maet(
                     dc, dq, normalize=normalize,
                     verbose=False))
             else:
-                out[a, t] = float(cos_sim_exp_tens(
-                    pc, wc, pq, wq, sg, rr, rl, pr, pd, *sym_args,
+                out[a, t] = float(sim_maet(
+                    pc, wc, pq, wq, sg, rr, rl, pr, pd, *exch_args,
                     normalize=normalize, verbose=False))
     return out.reshape(out_shape)
 
 
 def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
                      is_rel=None, is_per=None, period=None,
-                     centres=None, *, is_sym=None, rel=None,
-                     sym=None,
+                     centres=None, *, is_exch=None, rel=None,
+                     exch=None,
                      start=None, stop=None, step=None,
                      context_window=("rect", None), window_attr=-1,
                      drop_window_attr=None, sweep=None, drop=None,
@@ -573,8 +573,8 @@ def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
 
     - ``windowed_entropy(pm, centres, ...)``. The geometry is read from
       its specs, and any of the six per-attribute parameters ---
-      ``sigma``, ``is_per``, ``period``, ``r``, ``rel``, ``sym`` --- may
-      be given alongside to override it, as at :func:`build_exp_tens`.
+      ``sigma``, ``is_per``, ``period``, ``r``, ``rel``, ``exch`` --- may
+      be given alongside to override it, as at :func:`build_maet`.
       An override may name every attribute or be selective, a length-A
       list whose ``None`` entries keep what the spec carries:
       ``sigma=[None, s, None]`` sweeps the second attribute's width and
@@ -594,11 +594,11 @@ def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
     axis out of the density and is not yet implemented.
     """
     if is_pre_maet(p_context):
-        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_sym,
+        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
          specs, centres) = _windowed_pre_maet_args(
             [p_context], w_context if w_context is not None else centres,
             {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
-             "rel": rel if rel is not None else is_rel, "sym": sym},
+             "rel": rel if rel is not None else is_rel, "exch": exch},
             "windowed_entropy")
         p_context, = p_attrs
         w_context, = w_attrs
@@ -610,7 +610,7 @@ def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
         if drop is None:
             raise ValueError("multi-axis `sweep` requires a parallel `drop`.")
         return _we_multi(
-            p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
+            p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
             sweep, drop,
             context_window if isinstance(context_window, dict) else None, locate,
             method, base, target_attr, specs)
@@ -619,21 +619,21 @@ def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
             "`drop_window_attr` is required (True drops the window axis, False "
             "retains it).")
     return _we_single(
-        p_context, w_context, sigma, r, is_rel, is_per, period, is_sym, centres,
+        p_context, w_context, sigma, r, is_rel, is_per, period, is_exch, centres,
         start, stop, step, context_window, window_attr, drop_window_attr, locate,
         method, base, target_attr, specs)
 
 
-def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
+def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
               sweep, drop, context_window, locate, method, base, target_attr,
               specs):
     p_context = list(p_context)
-    _check_is_sym_vs_specs(is_sym, specs)
+    _check_is_exch_vs_specs(is_exch, specs)
     keys, drop_axes, target, win, grids = _prep_sweep(
         p_context, p_context, sweep, drop, context_window, target_attr,
         require_window=True)
     nested = specs is not None
-    from ..entropy import entropy_exp_tens
+    from ..entropy import entropy_maet
     out = np.empty(tuple(g.size for g in grids), dtype=float)
     for idx in np.ndindex(*out.shape):
         centres = {keys[j]: float(grids[j][idx[j]]) for j in range(len(keys))}
@@ -642,24 +642,24 @@ def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
         pc, wc, sc, keep = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
         sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                               _sub(is_per, keep), _sub(period, keep))
-        sy = None if is_sym is None else _sub(is_sym, keep)
+        sy = None if is_exch is None else _sub(is_exch, keep)
         if nested:
-            dens = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd,
+            dens = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd,
                                   specs=sc, verbose=False)
         else:
-            sym_args = () if sy is None else (sy,)
-            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, *sym_args,
+            exch_args = () if sy is None else (sy,)
+            dens = build_maet(pc, wc, sg, rr, rl, pr, pd, *exch_args,
                                   verbose=False)
-        out[idx] = float(entropy_exp_tens(dens, method=method, base=base,
+        out[idx] = float(entropy_maet(dens, method=method, base=base,
                                           verbose=False))
     return out
 
 
-def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
+def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
                centres, start, stop, step, context_window, window_attr,
                drop_window_attr, locate, method, base, target_attr, specs):
     p_context = list(p_context)
-    _check_is_sym_vs_specs(is_sym, specs)
+    _check_is_exch_vs_specs(is_exch, specs)
     n = len(p_context)
     axis = _abs_idx(window_attr, n)
     nested = specs is not None
@@ -681,23 +681,23 @@ def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
         raise ValueError(f"target_attr={target} is the dropped axis.")
     ctx_centres = _resolve_centres(p_context, axis, centres, start, stop, step,
                                    default_step=width)
-    from ..entropy import entropy_exp_tens
+    from ..entropy import entropy_maet
     sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                           _sub(is_per, keep), _sub(period, keep))
-    sy = None if is_sym is None else _sub(is_sym, keep)
-    sym_args = () if sy is None else (sy,)
+    sy = None if is_exch is None else _sub(is_exch, keep)
+    exch_args = () if sy is None else (sy,)
     out = np.empty(ctx_centres.size, dtype=float)
     for i, c in enumerate(ctx_centres):
         pc_w, wc_w, sc_w = _apply_windows(
             p_context, w_context, specs, {axis: float(c)}, win, locate, target)
         pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
         if nested:
-            dens = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd,
+            dens = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd,
                                   specs=sc, verbose=False)
         else:
-            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, *sym_args,
+            dens = build_maet(pc, wc, sg, rr, rl, pr, pd, *exch_args,
                                   verbose=False)
-        out[i] = float(entropy_exp_tens(dens, method=method, base=base,
+        out[i] = float(entropy_maet(dens, method=method, base=base,
                                         verbose=False))
     return out
 
@@ -713,7 +713,7 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
 
     The two pre-MAETs of ``windowed_similarity`` describe one comparison,
     so they must agree on the structural geometry: same attribute count,
-    and the same ``r``, ``rel``, ``sym``, and nesting on every attribute.
+    and the same ``r``, ``rel``, ``exch``, and nesting on every attribute.
     The context supplies the specs; a disagreement is an error rather
     than a silent choice between them.
 
@@ -725,14 +725,14 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
         The argument sitting in the ``centres`` slot of the call.
     kw : dict
         The six overrides, keyed ``sigma``, ``is_per``, ``period``,
-        ``r``, ``rel``, ``sym``; ``None`` where not given.
+        ``r``, ``rel``, ``exch``; ``None`` where not given.
     func : str
         The caller's name, for error messages.
 
     Returns
     -------
     tuple
-        ``(p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_sym,
+        ``(p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
         specs, centres)``, with ``specs`` ``None`` unless the geometry is
         nested.
     """
@@ -750,7 +750,7 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
         _check_specs_agree(specs, pm.get("specs"), A, func)
 
     specs = _override_specs(specs, kw.get("r"), kw.get("rel"),
-                            kw.get("sym"), A)
+                            kw.get("exch"), A)
     _, _, _, _, names, spec_kernel = _normalise_specs(specs, A)
     sigma = _resolve_kernel_param(kw.get("sigma"), spec_kernel["sigma"],
                                   "sigma", names, A)
@@ -758,13 +758,13 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
                                    "is_per", names, A)
     period = _resolve_kernel_param(kw.get("period"), spec_kernel["period"],
                                    "period", names, A, default=0.0)
-    r_vec, is_rel_vec, is_sym_vec, nested_list, _, _ = \
+    r_vec, is_rel_vec, is_exch_vec, nested_list, _, _ = \
         _normalise_specs(specs, A)
 
     nested = any(n is not None for n in nested_list)
     return ([pm["p_attr"] for pm in pms], [pm.get("w_attr") for pm in pms],
             sigma, r_vec, is_rel_vec, is_per, period,
-            None if nested else is_sym_vec,
+            None if nested else is_exch_vec,
             specs if nested else None, centres)
 
 
@@ -775,7 +775,7 @@ def _check_specs_agree(specs_a, specs_b, A, func):
             f"{func}: the two pre-MAETs must have the same attribute count "
             "and both carry specs — they describe one comparison.")
     for a in range(A):
-        for f in ("r", "rel", "sym", "tags"):
+        for f in ("r", "rel", "exch", "tags"):
             va = list(np.ravel(specs_a[a].get(f, [])))
             vb = list(np.ravel(specs_b[a].get(f, [])))
             if va != vb:

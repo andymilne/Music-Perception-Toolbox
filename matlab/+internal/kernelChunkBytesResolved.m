@@ -11,8 +11,8 @@ function varargout = kernelChunkBytesResolved(command)
 %   the resolved 'auto' value for the lifetime of the returned
 %   onCleanup. While pinned, internal.kernelChunkBytesResolved() returns
 %   the same cached value rather than re-querying the OS. Top-level
-%   entry points (cosSimExpTens, evalExpTens) use this so that
-%   recursive inner calls — e.g. batched-raw cosSimExpTens making
+%   entry points (simMaet, evalMaet) use this so that
+%   recursive inner calls — e.g. batched-raw simMaet making
 %   thousands of unique-pair calls — share one resolution. Nested
 %   pinForCall returns a no-op cleanup; only the outermost pin is
 %   responsible for clearing.
@@ -88,7 +88,7 @@ function varargout = kernelChunkBytesResolved(command)
             end
             % Use TTL cache if valid; otherwise resolve fresh and update
             % TTL. This is what makes sibling calls (e.g. a
-            % templateHarmonicity loop calling evalExpTens repeatedly)
+            % templateHarmonicity loop calling evalMaet repeatedly)
             % share one OS query rather than spawning vm_stat per call.
             if ~isempty(ttlCache) && isequal(ttlRaw, raw) ...
                     && toc(ttlTimer) <= 10.0

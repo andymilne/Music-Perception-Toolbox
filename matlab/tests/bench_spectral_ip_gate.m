@@ -56,7 +56,7 @@ fprintf('\n=== bench_spectral_ip_gate ===\n');
 fprintf('Measuring the spectral branch against the translation grid.\n');
 fprintf('Send the CSV block below back for fitting.\n\n');
 
-% The routing announcements ("cos_sim_exp_tens: chose ... path") are
+% The routing announcements ("sim_maet: chose ... path") are
 % gated by mptDefaults('showHints'), not by the per-call verbose flag,
 % so this is the switch that keeps them out of the CSV. Restored via
 % onCleanup so an early exit or Ctrl+C cannot leave the session muted,

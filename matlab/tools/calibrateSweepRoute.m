@@ -2,11 +2,11 @@ function calibrateSweepRoute(outFile)
 %CALIBRATESWEEPROUTE  Measure the mixture-vs-orbit crossover on this machine.
 %
 %   CALIBRATESWEEPROUTE() times both sweep routes over a grid of tuple
-%   sizes and prints the two constants sweepCosSimExpTens should use on
+%   sizes and prints the two constants sweepSimMaet should use on
 %   this machine. CALIBRATESWEEPROUTE(OUTFILE) also writes the raw
 %   per-cell timings to OUTFILE as CSV.
 %
-%   Why this exists. sweepCosSimExpTens picks between two decompositions
+%   Why this exists. sweepSimMaet picks between two decompositions
 %   whose costs are counted in different units --- tuple pairs for the
 %   mixture, orbit contractions over the value kernel for the orbit
 %   route. Converting between those units needs one constant, and the
@@ -34,7 +34,7 @@ function calibrateSweepRoute(outFile)
 %   the orbit route's fixed overhead dominates.
 %
 %   Edit the two constants at the top of localChooseRoute in
-%   sweepCosSimExpTens.m with the printed values.
+%   sweepSimMaet.m with the printed values.
 %
 %   Runtime is a few minutes; the largest cells dominate.
 %
@@ -79,9 +79,9 @@ function calibrateSweepRoute(outFile)
         pY = {sort(rand(K, Ny) * 20, 1)};
         off = linspace(0, 60, M);
 
-        dX = buildExpTens(pX, [], 0.9, r, false, false, NaN, true, ...
+        dX = buildMaet(pX, [], 0.9, r, false, false, NaN, true, ...
                           'verbose', false);
-        dY = buildExpTens(pY, [], 0.9, r, false, false, NaN, true, ...
+        dY = buildMaet(pY, [], 0.9, r, false, false, NaN, true, ...
                           'verbose', false);
 
         % nPairs and the chooser's work estimate, computed the same way
@@ -96,9 +96,9 @@ function calibrateSweepRoute(outFile)
         end
         ratio = orbitTotal / nPairs;
 
-        tMix = localTime(@() sweepCosSimExpTens(dX, dY, off, ...
+        tMix = localTime(@() sweepSimMaet(dX, dY, off, ...
             'method', 'mixture', 'verbose', false), reps);
-        tOrb = localTime(@() sweepCosSimExpTens(dX, dY, off, ...
+        tOrb = localTime(@() sweepSimMaet(dX, dY, off, ...
             'method', 'orbit', 'verbose', false), reps);
 
         if tOrb < tMix

@@ -2,11 +2,11 @@
 %
 %  bindEvents nests sliding windows of consecutive events into a single
 %  nested attribute per input attribute (toolbox spec §6.1/§6.5): the bound
-%  events form an ordered outer level (symOuter = 0 by default), each
+%  events form an ordered outer level (exchOuter = 0 by default), each
 %  event's own multiset is the inner level. The inner level's geometry
-%  (r/rel/sym) is read from the incoming triple's specs (flatSpecs defaults
+%  (r/rel/exch) is read from the incoming triple's specs (flatSpecs defaults
 %  when specs is []). It returns {pAttrBound, wBound, specs} ready for
-%  buildExpTens(..., 'specs', specs). L = 1 is a flat passthrough. Outer
+%  buildMaet(..., 'specs', specs). L = 1 is a flat passthrough. Outer
 %  r = L with rel = [relIn, 0] reproduces the old separate-attribute tensor
 %  join (§6.5).
 
@@ -30,9 +30,9 @@ results{end,2}   = iscell(sp) && numel(sp) == 1 && isfield(sp{1}, 'tags');
 % --- L = 1 passes the incoming flat spec through (no tags) ---
 p1 = {[0 4 7 11 2]};
 [pb1, ~, sp1] = unpackPreMaet(bindEvents(p1, [], 1, 'specs', flatSpecs(p1, 'r', 3, ...
-                                                         'rel', true, 'sym', true)));
+                                                         'rel', true, 'exch', true)));
 okFlat = ~isfield(sp1{1}, 'tags') && sp1{1}.r == 3 && sp1{1}.rel == true ...
-         && sp1{1}.sym == true && isequal(pb1{1}, p1{1});
+         && sp1{1}.exch == true && isequal(pb1{1}, p1{1});
 results{end+1,1} = 'bind: L=1 flat passthrough';
 results{end,2}   = okFlat;
 
@@ -40,9 +40,9 @@ results{end,2}   = okFlat;
 % --- Inner geometry read from incoming spec (inner inherits; outer r=L) ---
 pN = {[0 4 7; 10 12 14]};   % K=2, N=3
 [pbN, ~, spN] = unpackPreMaet(bindEvents(pN, [], 2, 'specs', flatSpecs(pN, 'r', 2, ...
-                                                         'rel', true, 'sym', true)));
+                                                         'rel', true, 'exch', true)));
 s = spN{1};
-okNest = isequal(s.r, [2 2]) && isequal(s.sym, [true false]) ...
+okNest = isequal(s.r, [2 2]) && isequal(s.exch, [true false]) ...
          && isequal(logical(s.rel), [true false]) ...
          && isequal(s.tags, [0 0 1 1]) && isequal(size(pbN{1}), [4 2]);
 results{end+1,1} = 'bind: inner geometry read from specs';
@@ -54,7 +54,7 @@ pR = {[0 4 7 11]};
 [~, ~, sSyn] = unpackPreMaet(bindEvents(pR, [], 2));
 results{end+1,1} = 'bind: synthesised specs default inner geometry';
 results{end,2}   = isequal(sSyn{1}.r, [1 2]) ...
-                   && isequal(sSyn{1}.sym, [true false]) ...
+                   && isequal(sSyn{1}.exch, [true false]) ...
                    && isequal(logical(sSyn{1}.rel), [false false]);
 
 
@@ -72,30 +72,30 @@ results{end+1,1} = 'bind: relOuter gives [0 1]';
 results{end,2}   = isequal(logical(sRO{1}.rel), [false true]);
 
 
-% --- symOuter adjustable ---
+% --- exchOuter adjustable ---
 [~, ~, sS0] = unpackPreMaet(bindEvents(pR, [], 2));
-[~, ~, sS1] = unpackPreMaet(bindEvents(pR, [], 2, 'symOuter', true));
-results{end+1,1} = 'bind: symOuter adjustable';
-results{end,2}   = isequal(sS0{1}.sym, [true false]) ...
-                   && isequal(sS1{1}.sym, [true true]);
+[~, ~, sS1] = unpackPreMaet(bindEvents(pR, [], 2, 'exchOuter', true));
+results{end+1,1} = 'bind: exchOuter adjustable';
+results{end,2}   = isequal(sS0{1}.exch, [true false]) ...
+                   && isequal(sS1{1}.exch, [true true]);
 
 
 % --- Reproduces old tensor join (eval parity, §6.5) ---
 diffs = [2 -1 3 0 -2 1 4];
 n = 3;
 [pb, wb, specs] = unpackPreMaet(bindEvents({diffs}, [], n, 'circular', true));
-dNew = buildExpTens(pb, wb, 'specs', specs, 'sigma', 10, 'isPer', true, ...
+dNew = buildMaet(pb, wb, 'specs', specs, 'sigma', 10, 'isPer', true, ...
                     'period', 12, 'verbose', false);
 pOld = cell(1, n);
 for ell = 0:(n - 1)
     idx = mod((0:6) + ell, 7) + 1;
     pOld{ell + 1} = diffs(idx);
 end
-dOld = buildExpTens(pOld, [], 10 * ones(1, n), ones(1, n), false(1, n), ...
+dOld = buildMaet(pOld, [], 10 * ones(1, n), ones(1, n), false(1, n), ...
                     true(1, n), 12 * ones(1, n), 'verbose', false);
 Q = [1 2 -3; 0 -1 2; 3 1 -2];   % n x 3 queries
-vNew = evalExpTens(dNew, Q, 'verbose', false);
-vOld = evalExpTens(dOld, Q, 'verbose', false);
+vNew = evalMaet(dNew, Q, 'verbose', false);
+vOld = evalMaet(dOld, Q, 'verbose', false);
 results{end+1,1} = 'bind: reproduces old tensor join (eval parity)';
 results{end,2}   = (dNew.dim == dOld.dim) && (dNew.dim == n) ...
                    && max(abs(vNew(:) - vOld(:))) < 1e-12;

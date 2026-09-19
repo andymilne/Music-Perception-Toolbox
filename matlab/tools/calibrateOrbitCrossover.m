@@ -304,7 +304,7 @@ end
 
 % ----------------------------------------------------------------------
 function [xt, yt] = tupleIndicesLocal(n, r)
-    % Mirror of internal.nestedContract/tupleIndices at sym = true, which is
+    % Mirror of internal.nestedContract/tupleIndices at exch = true, which is
     % the only case an orbit-vs-enumeration comparison arises in. X side
     % takes permutations of r-combinations, Y side the combinations.
     if r > n

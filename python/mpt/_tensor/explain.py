@@ -169,7 +169,7 @@ def explain_dispatch(dens, other=None, *, n_q=None, method="auto",
                    if chosen == "mobius"
                    else "wrapped-difference approximation")
     return Explanation(
-        call="eval_exp_tens", shape=f"{_shape_of(dens)}; n_q={n_q}",
+        call="eval_maet", shape=f"{_shape_of(dens)}; n_q={n_q}",
         truncation_sigmas=ts, floor=truncation_floor(truncation_sigmas),
         routes=routes, sigma_over_p=sop, sigma_over_p_limit=limit,
         limit_set_by=limit_set_by, measure=measure, decided_by=reason,
@@ -278,7 +278,7 @@ def _explain_cosine_nested(dens_x, dens_y, ts, sop, limit, limit_set_by,
     else:
         decided = "measure rule, then the nested cost model"
     return Explanation(
-        call="cos_sim_exp_tens",
+        call="sim_maet",
         shape=_shape_of(dens_x) + " (nested)",
         truncation_sigmas=ts, floor=truncation_floor(ts),
         routes=routes, sigma_over_p=sop, sigma_over_p_limit=limit,
@@ -292,7 +292,7 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
     """Route report for a cosine, built from the call's own inputs.
 
     The densities are pruned and the empty-operand rule applied first,
-    as :func:`~mpt._tensor.cosine._cos_sim_exp_tens_ma` does; the flat
+    as :func:`~mpt._tensor.cosine._sim_maet_ma` does; the flat
     selector then receives exactly the inputs the call gives it ---
     the wrap vector, the per-attribute grid node counts, and the memo
     flags read from the densities' caches (:func:`_flat_selector_inputs`)
@@ -317,7 +317,7 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
         # No events to overlap: the call returns 0.0 before any selector
         # runs, so there is no route to report.
         return Explanation(
-            call="cos_sim_exp_tens", shape=shape,
+            call="sim_maet", shape=shape,
             truncation_sigmas=ts, floor=truncation_floor(ts),
             routes=[Route("bulger", "not selected", None, False),
                     Route("mobius", "not selected", None, False)],
@@ -335,11 +335,11 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
         user_method=method, return_costs=True, **sel_kw)
     priced = not (math.isnan(pw_ms) or math.isnan(orbit_ms))
     if ordered_any:
-        # An ordered ([sym]=0) attribute has no orbit, so the call takes
+        # An ordered ([exch]=0) attribute has no orbit, so the call takes
         # Bulger's method whatever the selector said (and whatever the
         # user asked for).
         chosen = "bulger"
-        decided = "ordered ([sym]=0) attribute (no orbit to collapse)"
+        decided = "ordered ([exch]=0) attribute (no orbit to collapse)"
     elif method != "auto":
         decided = "user method"
     elif priced:
@@ -359,7 +359,7 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
                    if chosen == "mobius"
                    else "wrapped-difference approximation")
     return Explanation(
-        call="cos_sim_exp_tens", shape=shape,
+        call="sim_maet", shape=shape,
         truncation_sigmas=ts, floor=truncation_floor(ts),
         routes=routes, sigma_over_p=sop, sigma_over_p_limit=limit,
         limit_set_by=limit_set_by, measure=measure,

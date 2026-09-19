@@ -53,7 +53,7 @@
 % reachable, rather than from the script itself: in a script neither
 % mfilename nor dbstack reports the file, and the current folder need not
 % be the script's own. Adding it puts the +jmm helper package in scope.
-mptRoot = which('buildExpTens');
+mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
         ['The toolbox is not on the path. Add the matlab folder of the ' ...
@@ -99,12 +99,12 @@ showPreMaet({pd{1}, pd{2}}, [], [], 'names', {'dp', 'dt'}, ...
     'maxEvents', 4, 'decimals', 3);
 
 % --- (a) static (dp, dt) density over the whole voice (at the JND width) ---
-static = buildExpTens({pd{1}, pd{2}}, [], [SIGMA_DP, SIGMA_JND], [1 1], ...
+static = buildMaet({pd{1}, pd{2}}, [], [SIGMA_DP, SIGMA_JND], [1 1], ...
                       [false false], [false false], [0 0], 'verbose', false);
 dpGrid = linspace(min(dp) - 2, max(dp) + 2, 200);
 dtGrid = linspace(min(dt) - 0.04, max(dt) + 0.04, 120);
 [DP, DT] = meshgrid(dpGrid, dtGrid);
-Z = evalExpTens(static, [DP(:).'; DT(:).'], 'verbose', false);
+Z = evalMaet(static, [DP(:).'; DT(:).'], 'verbose', false);
 Z = reshape(Z, size(DP));
 fprintf('static density evaluated\n');
 
@@ -135,7 +135,7 @@ H_fine = sweep(SIGMA_FINE);
 tags = {'6 ms (JND)', '0.1 ms'}; Hs = {H_jnd, H_fine};
 for k = 1:2
     h = Hs{k}(~isnan(Hs{k}));
-    fprintf('sigma_t = %10s: entropy %.3f..%.3f nats (range %.4f)\n', ...
+    fprintf('sigma_t = %10s: entropy %.3f..%.3f bits (range %.4f)\n', ...
             tags{k}, min(h), max(h), max(h) - min(h));
 end
 
@@ -167,7 +167,7 @@ hFine = plot(axH, centres, H_fine, 'Color', C_FINE, 'LineWidth', 1.6);
 ylim(axH, [lo - pad, hi + pad]);
 xlim(axH, [centres(1), centres(end)]);
 xlabel(axH, 'window-centre offset (s); accelerandi marked orange, phase grey', 'FontSize', 15);
-ylabel(axH, 'Renyi-2 entropy (nats)', 'FontSize', 15);
+ylabel(axH, 'Renyi-2 entropy (bits)', 'FontSize', 15);
 title(axH, 'Windowed (\Deltap, \Deltat) entropy at two kernel widths', 'FontSize', 16);
 legend([hJnd, hFine], {'\sigma_t = 6 ms (IOI JND): flat', ...
                        '\sigma_t = 0.1 ms: resolves tempo modulation'}, ...

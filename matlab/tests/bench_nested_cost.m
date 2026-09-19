@@ -53,7 +53,7 @@ function bench_nested_cost(varargin)
 %  (INTERNAL.NESTEDCONTRACT's opts.forceRoute) and timed on the three
 %  inner matrices the cosine needs (xy, xx, yy) with cold densities. The
 %  joint-tuple enumeration is timed on the same pair through
-%  COSSIMEXPTENS(..., 'method', 'bulger'), so the two sides are measured
+%  SIMMAET(..., 'method', 'bulger'), so the two sides are measured
 %  over the same work. The route arms run on a density carrying the nested
 %  attribute ALONE, mirroring Python's per-attribute _nested_attr_matrix
 %  timing; the enumeration arm runs on the full density (section E adds a
@@ -210,7 +210,7 @@ end
 % ======================================================================
 function out = localCells()
     levelShapes = {[1 2], [2 2], [1 3], [2 3], [3 2]};
-    symPatterns = {[1 1], [0 1], [1 0]};
+    exchPatterns = {[1 1], [0 1], [1 0]};
     modes = [false false; false true; true false; true true];  % (rel, per)
 
     out = localCell('A', [1 1], [1 1], 2, 2, 2, false, false, 0.02, 0, 0);
@@ -258,9 +258,9 @@ function out = localCells()
         rL = levelShapes{s};
         chord = max(2, rL(1)) + 1;
         ngroup = max(2, rL(2));
-        for q = 2:numel(symPatterns)
+        for q = 2:numel(exchPatterns)
             for m = 1:size(modes, 1)
-                out(end + 1) = localCell('D', rL, symPatterns{q}, chord, ...
+                out(end + 1) = localCell('D', rL, exchPatterns{q}, chord, ...
                     ngroup, 2, modes(m, 1), modes(m, 2), 0.02, 0, 0); %#ok<AGROW>
             end
         end
@@ -280,7 +280,7 @@ function out = localCells()
 end
 
 
-function c = localCell(section, rLevels, sym, chord, ngroup, N, rel, per, ...
+function c = localCell(section, rLevels, exch, chord, ngroup, N, rel, per, ...
                        sop, flatR, flatK)
     if per
         sigma = sop * localPeriod();
@@ -289,7 +289,7 @@ function c = localCell(section, rLevels, sym, chord, ngroup, N, rel, per, ...
         sop = 0.0;
     end
     c = struct('section', section, 'rLevels', double(rLevels(:)).', ...
-               'sym', double(sym(:)).', 'chord', double(chord), ...
+               'exch', double(exch(:)).', 'chord', double(chord), ...
                'ngroup', double(ngroup), 'N', double(N), ...
                'rel', logical(rel), 'per', logical(per), ...
                'sop', double(sop), 'sigma', double(sigma), ...
@@ -355,7 +355,7 @@ end
 
 function spec = localNestedSpec(c)
     spec = struct('tags', repelem(0:(c.ngroup - 1), c.chord), ...
-                  'r', c.rLevels, 'sym', logical(c.sym));
+                  'r', c.rLevels, 'exch', logical(c.exch));
     if c.rel
         L = numel(c.rLevels);
         spec.rel = [zeros(1, L - 1), 1];
@@ -369,7 +369,7 @@ function d = localBuildNested(c, v)
     else
         period = 0.0;
     end
-    d = buildExpTens({v}, {[]}, 'specs', {localNestedSpec(c)}, ...
+    d = buildMaet({v}, {[]}, 'specs', {localNestedSpec(c)}, ...
                      'sigma', c.sigma, 'isPer', c.per, ...
                      'period', period, 'verbose', false);
 end
@@ -381,8 +381,8 @@ function d = localBuildFull(c, v, f)
     else
         period = 0.0;
     end
-    sp1 = struct('r', c.flatR, 'rel', false, 'sym', true);
-    d = buildExpTens({v, f}, {[], []}, ...
+    sp1 = struct('r', c.flatR, 'rel', false, 'exch', true);
+    d = buildMaet({v, f}, {[], []}, ...
                      'specs', {localNestedSpec(c), sp1}, ...
                      'sigma', [c.sigma 0.5], 'isPer', [c.per false], ...
                      'period', [period 0.0], 'verbose', false);
@@ -436,7 +436,7 @@ end
 
 
 function localRunBulger(pr)
-    cosSimExpTens(pr.dxF, pr.dyF, 'method', 'bulger', 'verbose', false);
+    simMaet(pr.dxF, pr.dyF, 'method', 'bulger', 'verbose', false);
 end
 
 
@@ -526,7 +526,7 @@ end
 %  CSV
 % ======================================================================
 function h = localHeader()
-    h = ['section,r_levels,sym,chord,n_chords,K,N,rel,per,sigma,span,wrap,' ...
+    h = ['section,r_levels,exch,chord,n_chords,K,N,rel,per,sigma,span,wrap,' ...
          'flat_r,flat_K,total_order,m_perm_x,m_comb_x,m_perm_y,restricted,' ...
          'work,n_tau,n_line,term_centres,term_taugrid,term_relnonper,' ...
          'term_contract,term_bulger,ms_centres,ms_taugrid,ms_relnonper,' ...
@@ -543,7 +543,7 @@ function k = localCellKey(c)
         span = localSpan();
     end
     k = sprintf('%s,%s,%s,%d,%d,%d,%d,%d,%d,%g,%g,%s,%d,%d', ...
-        c.section, localJoin(c.rLevels), localJoin(c.sym), c.chord, ...
+        c.section, localJoin(c.rLevels), localJoin(c.exch), c.chord, ...
         c.ngroup, c.chord * c.ngroup, c.N, double(c.rel), double(c.per), ...
         c.sigma, span, c.wrap, c.flatR, c.flatK);
 end
@@ -619,8 +619,8 @@ function s = localHuman(c)
     else
         perS = 'np';
     end
-    s = sprintf('%s r=[%s] sym=[%s] %dx%d N=%d %s-%s sigma=%g flat=%d |', ...
-        c.section, localJoin(c.rLevels), localJoin(c.sym), c.chord, ...
+    s = sprintf('%s r=[%s] exch=[%s] %dx%d N=%d %s-%s sigma=%g flat=%d |', ...
+        c.section, localJoin(c.rLevels), localJoin(c.exch), c.chord, ...
         c.ngroup, c.N, relS, perS, c.sigma, c.flatR);
 end
 

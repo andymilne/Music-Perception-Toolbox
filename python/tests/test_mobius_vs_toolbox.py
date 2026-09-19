@@ -1,7 +1,7 @@
 """Integration tests: Möbius–orbit cosine similarity vs existing toolbox.
 
 These are the regression tests that v3's drop-in replacement must pass.
-The orbit-path cosine values must match the v2.0 ``cos_sim_exp_tens`` to
+The orbit-path cosine values must match the v2.0 ``sim_maet`` to
 floating-point precision in all four mode combinations and across a range
 of r and n.
 """
@@ -20,7 +20,7 @@ from mpt._mobius import (
     inner_product_orbit_grid,
     total_mass_abs,
 )
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 
 def wrap(d, P):
@@ -79,7 +79,7 @@ def cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, is_per, P, N_u=600):
 
 
 # ----------------------------------------------------------------------
-# Match toolbox cos_sim_exp_tens across all four modes
+# Match toolbox sim_maet across all four modes
 # ----------------------------------------------------------------------
 
 
@@ -102,9 +102,9 @@ def test_cos_sim_orbit_matches_toolbox(r, n, is_per, is_rel):
     w_A = rng.uniform(0.5, 1.5, n)
     w_B = rng.uniform(0.5, 1.5, n)
 
-    T_A = build_exp_tens(p_A, w_A, sigma, r, is_rel, is_per, P, verbose=False)
-    T_B = build_exp_tens(p_B, w_B, sigma, r, is_rel, is_per, P, verbose=False)
-    cos_toolbox = float(cos_sim_exp_tens(T_A, T_B))
+    T_A = build_maet(p_A, w_A, sigma, r, is_rel, is_per, P, verbose=False)
+    T_B = build_maet(p_B, w_B, sigma, r, is_rel, is_per, P, verbose=False)
+    cos_toolbox = float(sim_maet(T_A, T_B))
 
     if is_rel:
         cos_orbit = cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, is_per, P, N_u=2000 if is_per else 800)
@@ -141,9 +141,9 @@ def test_cos_sim_orbit_at_r4(r):
     w_A = rng.uniform(0.5, 1.5, n)
     w_B = rng.uniform(0.5, 1.5, n)
 
-    T_A = build_exp_tens(p_A, w_A, sigma, r, False, False, P, verbose=False)
-    T_B = build_exp_tens(p_B, w_B, sigma, r, False, False, P, verbose=False)
-    cos_toolbox = float(cos_sim_exp_tens(T_A, T_B))
+    T_A = build_maet(p_A, w_A, sigma, r, False, False, P, verbose=False)
+    T_B = build_maet(p_B, w_B, sigma, r, False, False, P, verbose=False)
+    cos_toolbox = float(sim_maet(T_A, T_B))
 
     cos_orbit = cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, False, P)
     abs_err = abs(cos_toolbox - cos_orbit)
@@ -200,9 +200,9 @@ def test_regression_diatonic_triad_pair():
     r = 2
     cos = cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, False, 1200)
     # The frozen value is computed on the toolbox v2.0 (Bulger) path.
-    T_A = build_exp_tens(p_A, w_A, sigma, r, False, False, 1200, verbose=False)
-    T_B = build_exp_tens(p_B, w_B, sigma, r, False, False, 1200, verbose=False)
-    cos_toolbox = float(cos_sim_exp_tens(T_A, T_B))
+    T_A = build_maet(p_A, w_A, sigma, r, False, False, 1200, verbose=False)
+    T_B = build_maet(p_B, w_B, sigma, r, False, False, 1200, verbose=False)
+    cos_toolbox = float(sim_maet(T_A, T_B))
     assert abs(cos - cos_toolbox) < 1e-12
 
 

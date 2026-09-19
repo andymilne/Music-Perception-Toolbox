@@ -19,7 +19,7 @@ number for the same input:
 * A-15 -- the single-attribute helper route agrees with the log-kernel
   core within the truncation floor (MATLAB now takes the same leaf);
 * A-16 -- the sweep self-IP memo, the nested centres bundle cache, and
-  the density-list dedup (whose key now carries the wrap and [sym]);
+  the density-list dedup (whose key now carries the wrap and [exch]);
 * B-6 -- Shannon / normalized cell masses on an absolute-periodic axis
   follow the declared wrap and the resolved truncation width.
 """
@@ -30,8 +30,8 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import (build_exp_tens, cos_sim_exp_tens, entropy_exp_tens,
-                 sweep_cos_sim_exp_tens)
+from mpt import (build_maet, sim_maet, entropy_maet,
+                 sweep_sim_maet)
 from mpt._defaults import resolve_truncation_sigmas, truncation_floor
 from mpt._tensor import cosine as _cos
 from mpt._tensor.cosine import _ip_full_ma, _ip_via_helper
@@ -53,18 +53,18 @@ P = 12.0
 
 
 def _flat(seed, sigma, r=2, *, is_rel=False, is_per=False,
-          wrap='full-image', K=5, N=2, is_sym=True):
+          wrap='full-image', K=5, N=2, is_exch=True):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
-    return build_exp_tens([p], None, [sigma], [r], [is_rel], [is_per],
-                          [P if is_per else 0.0], [is_sym], wrap=[wrap],
+    return build_maet([p], None, [sigma], [r], [is_rel], [is_per],
+                          [P if is_per else 0.0], [is_exch], wrap=[wrap],
                           verbose=False)
 
 
 def _chord(values, sigma, r=2, *, is_rel=False, is_per=False,
            wrap='full-image'):
     v = np.asarray(values, float).reshape(-1, 1)
-    return build_exp_tens([v], None, [sigma], [r], [is_rel], [is_per],
+    return build_maet([v], None, [sigma], [r], [is_rel], [is_per],
                           [P if is_per else 0.0], wrap=[wrap],
                           verbose=False)
 
@@ -73,8 +73,8 @@ def _nested(values, sigma, *, chord=3):
     """One relative nested attribute (two levels of r = 2, symmetric)."""
     v = np.asarray(values, float).reshape(-1, 1)
     tags = np.repeat(np.arange(v.shape[0] // chord), chord)
-    spec = dict(r=[2, 2], sym=[True, True], tags=tags, rel=[0, 1])
-    return build_exp_tens([v], None, specs=[spec], sigma=[sigma],
+    spec = dict(r=[2, 2], exch=[True, True], tags=tags, rel=[0, 1])
+    return build_maet([v], None, specs=[spec], sigma=[sigma],
                           is_per=[False], period=[0.0], verbose=False)
 
 
@@ -82,12 +82,12 @@ def _nested(values, sigma, *, chord=3):
 
 def test_renyi2_relative_r1_is_zero_at_the_single_multiset_corner():
     d = _chord([0.0, 4.0, 7.0], 1.0, r=1, is_rel=True)
-    assert entropy_exp_tens(d, method='renyi2', verbose=False) == 0.0
+    assert entropy_maet(d, method='renyi2', verbose=False) == 0.0
 
 
 def test_renyi2_relative_r1_is_zero_for_many_events():
     d = _flat(3, 1.0, r=1, is_rel=True, K=4, N=3)
-    assert entropy_exp_tens(d, method='renyi2', verbose=False) == 0.0
+    assert entropy_maet(d, method='renyi2', verbose=False) == 0.0
 
 
 def test_renyi2_relative_r1_attribute_contributes_no_entropy():
@@ -97,13 +97,13 @@ def test_renyi2_relative_r1_attribute_contributes_no_entropy():
     rng = np.random.default_rng(5)
     p_abs = np.sort(rng.uniform(0.0, P, size=(5, 2)), axis=0)
     p_rel = np.sort(rng.uniform(0.0, P, size=(4, 2)), axis=0)
-    d_abs = build_exp_tens([p_abs], None, [0.7], [2], [False], [False],
+    d_abs = build_maet([p_abs], None, [0.7], [2], [False], [False],
                            [0.0], verbose=False)
-    d_both = build_exp_tens([p_abs, p_rel], None, [0.7, 1.0], [2, 1],
+    d_both = build_maet([p_abs, p_rel], None, [0.7, 1.0], [2, 1],
                             [False, True], [False, False], [0.0, 0.0],
                             verbose=False)
-    h_abs = entropy_exp_tens(d_abs, method='renyi2', verbose=False)
-    h_both = entropy_exp_tens(d_both, method='renyi2', verbose=False)
+    h_abs = entropy_maet(d_abs, method='renyi2', verbose=False)
+    h_both = entropy_maet(d_both, method='renyi2', verbose=False)
     assert np.isfinite(h_abs)
     assert abs(h_both - h_abs) <= 1e-12 * max(abs(h_abs), 1.0)
 
@@ -119,11 +119,11 @@ def test_batched_raw_kernel_cov_whitens_then_refuses_ordered_r2():
     P1 = np.array([[0.0, 4.0], [0.0, 7.0]])
     P2 = np.array([[0.0, 3.0], [0.0, 5.0]])
     with pytest.raises(NotImplementedError, match="ordered"):
-        cos_sim_exp_tens(P1, None, P2, None, S, 2, False, False, 0.0,
+        sim_maet(P1, None, P2, None, S, 2, False, False, 0.0,
                          False, verbose=False)
     # A malformed covariance is caught by the whitening step itself.
     with pytest.raises(ValueError, match="symmetric"):
-        cos_sim_exp_tens(P1, None, P2, None,
+        sim_maet(P1, None, P2, None,
                          np.array([[1.0, 0.5], [0.0, 1.0]]),
                          2, False, False, 0.0, False, verbose=False)
 
@@ -160,11 +160,11 @@ def test_selector_working_set_guard_routes_to_mobius():
 def test_method_factored_is_gone():
     dx, dy = _flat(1, 0.6), _flat(2, 0.6)
     with pytest.raises(ValueError) as exc:
-        cos_sim_exp_tens(dx, dy, method='factored', verbose=False)
+        sim_maet(dx, dy, method='factored', verbose=False)
     msg = str(exc.value)
     assert "'auto', 'bulger', 'centres', 'mobius', 'contract'" in msg
     assert 'factored' not in msg.split(';')[0]
-    for name in ('_cos_sim_exp_tens_ma_factored', '_ma_factored_ip_supported',
+    for name in ('_sim_maet_ma_factored', '_ma_factored_ip_supported',
                  '_ma_ip_factored', '_ma_ip_factor_dense',
                  '_ma_ip_per_event_factors', '_nested_factor_cullable',
                  '_ma_ip_factor_nested_culled'):
@@ -193,19 +193,19 @@ def test_raw_ma_list_form_takes_r1_fast_path(monkeypatch):
 
     monkeypatch.setattr(_cos, '_r1_broadcast_fast', spy)
     args = (ref, None, lst, None, [0.5], [1], [False], [False], [0.0])
-    fast = cos_sim_exp_tens(*args, verbose=False)
+    fast = sim_maet(*args, verbose=False)
     assert calls == [True]
     # Reversed operand order takes the same path.
     calls.clear()
-    fast_rev = cos_sim_exp_tens(lst, None, ref, None, [0.5], [1], [False],
+    fast_rev = sim_maet(lst, None, ref, None, [0.5], [1], [False],
                                 [False], [0.0], verbose=False)
     assert calls == [True]
     # A forced 'mobius' names the per-pair route and never asks.
     calls.clear()
-    forced = cos_sim_exp_tens(*args, method='mobius', verbose=False)
+    forced = sim_maet(*args, method='mobius', verbose=False)
     assert calls == []
     monkeypatch.setattr(_cos, '_r1_broadcast_fast', lambda *a, **k: None)
-    slow = cos_sim_exp_tens(*args, verbose=False)
+    slow = sim_maet(*args, verbose=False)
     assert fast.shape == (4,)
     assert np.allclose(fast, slow, rtol=0, atol=1e-12)
     assert np.allclose(fast_rev, slow, rtol=0, atol=1e-12)
@@ -258,27 +258,27 @@ def test_helper_route_agrees_with_log_kernel_core_at_the_cosine(
     py = np.sort(rng.uniform(0.0, P, (5, 2)), axis=0)
     period = P if is_per else 0.0
     one = 3.0 * np.ones((1, 2))
-    dx1 = build_exp_tens([px], None, [sigma], [r], [is_rel], [is_per],
+    dx1 = build_maet([px], None, [sigma], [r], [is_rel], [is_per],
                          [period], wrap=[wrap], verbose=False)
-    dy1 = build_exp_tens([py], None, [sigma], [r], [is_rel], [is_per],
+    dy1 = build_maet([py], None, [sigma], [r], [is_rel], [is_per],
                          [period], wrap=[wrap], verbose=False)
-    dx2 = build_exp_tens([px, one], None, [sigma, 1.0], [r, 1],
+    dx2 = build_maet([px, one], None, [sigma, 1.0], [r, 1],
                          [is_rel, False], [is_per, False], [period, 0.0],
                          wrap=[wrap, 'full-image'], verbose=False)
-    dy2 = build_exp_tens([py, one], None, [sigma, 1.0], [r, 1],
+    dy2 = build_maet([py, one], None, [sigma, 1.0], [r, 1],
                          [is_rel, False], [is_per, False], [period, 0.0],
                          wrap=[wrap, 'full-image'], verbose=False)
-    s1 = cos_sim_exp_tens(dx1, dy1, method='bulger', truncation_sigmas=ts,
+    s1 = sim_maet(dx1, dy1, method='bulger', truncation_sigmas=ts,
                           verbose=False)
-    s2 = cos_sim_exp_tens(dx2, dy2, method='bulger', truncation_sigmas=ts,
+    s2 = sim_maet(dx2, dy2, method='bulger', truncation_sigmas=ts,
                           verbose=False)
     assert abs(s1 - s2) <= 10 * max(truncation_floor(ts), 1e-12) * abs(s2)
 
 
 def test_single_attribute_cosine_honours_kernel_precision():
     dx, dy = _flat(31, 0.6, 2, K=8), _flat(32, 0.6, 2, K=8)
-    dbl = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
-    sgl = cos_sim_exp_tens(dx, dy, method='bulger',
+    dbl = sim_maet(dx, dy, method='bulger', verbose=False)
+    sgl = sim_maet(dx, dy, method='bulger',
                            kernel_precision='single', verbose=False)
     assert 0 < abs(sgl - dbl) <= 1e-4 * abs(dbl)
 
@@ -287,11 +287,11 @@ def test_single_attribute_cosine_honours_kernel_precision():
 
 def test_sweep_self_ip_memo_key():
     rng = np.random.default_rng(41)
-    sx = build_exp_tens([rng.normal(size=(4, 5)) * 3], None, [0.9], [2],
+    sx = build_maet([rng.normal(size=(4, 5)) * 3], None, [0.9], [2],
                         [False], [False], [0.0], verbose=False)
-    sy = build_exp_tens([rng.normal(size=(4, 3)) * 3], None, [0.9], [2],
+    sy = build_maet([rng.normal(size=(4, 3)) * 3], None, [0.9], [2],
                         [False], [False], [0.0], verbose=False)
-    sweep_cos_sim_exp_tens(sx, sy, np.array([-2.0, 0.0, 1.5]),
+    sweep_sim_maet(sx, sy, np.array([-2.0, 0.0, 1.5]),
                            method='mixture', verbose=False)
     keys = [k for k in sy.pruned()._self_ip_cache if k[0] == 'sweep']
     assert len(keys) == 1
@@ -316,10 +316,10 @@ def test_density_list_dedup_key_carries_the_wrap():
     yf = _chord([0.0, 3.0, 7.0], sig, is_per=True, wrap='full-image')
     xs = _chord([0.0, 4.0, 7.0], sig, is_per=True, wrap='single-image')
     ys = _chord([0.0, 3.0, 7.0], sig, is_per=True, wrap='single-image')
-    s_full = cos_sim_exp_tens(xf, yf, verbose=False)
-    s_single = cos_sim_exp_tens(xs, ys, verbose=False)
+    s_full = sim_maet(xf, yf, verbose=False)
+    s_single = sim_maet(xs, ys, verbose=False)
     assert abs(s_full - s_single) > 1e-6
-    out = cos_sim_exp_tens([xf, xs], [yf, ys], mode='pairwise',
+    out = sim_maet([xf, xs], [yf, ys], mode='pairwise',
                            verbose=False)
     assert abs(out[0] - s_full) <= 1e-12
     assert abs(out[1] - s_single) <= 1e-12
@@ -346,23 +346,23 @@ def test_full_image_cell_masses_sum_to_total_and_differ_from_single_image():
 def test_shannon_entropy_follows_the_wrap_and_the_width():
     big, small = 0.3 * P, 0.02 * P
     kw = dict(method='shannon', n_points_per_dim=64, verbose=False)
-    h_full = entropy_exp_tens(_chord([0.0, 4.0, 7.0], big, r=1, is_per=True,
+    h_full = entropy_maet(_chord([0.0, 4.0, 7.0], big, r=1, is_per=True,
                                      wrap='full-image'), **kw)
-    h_single = entropy_exp_tens(_chord([0.0, 4.0, 7.0], big, r=1,
+    h_single = entropy_maet(_chord([0.0, 4.0, 7.0], big, r=1,
                                        is_per=True, wrap='single-image'),
                                 **kw)
     assert abs(h_full - h_single) > 1e-6
     # Below the overlap regime the two readings coincide.
-    h_full_s = entropy_exp_tens(_chord([0.0, 4.0, 7.0], small, r=1,
+    h_full_s = entropy_maet(_chord([0.0, 4.0, 7.0], small, r=1,
                                        is_per=True, wrap='full-image'), **kw)
-    h_single_s = entropy_exp_tens(_chord([0.0, 4.0, 7.0], small, r=1,
+    h_single_s = entropy_maet(_chord([0.0, 4.0, 7.0], small, r=1,
                                          is_per=True, wrap='single-image'),
                                   **kw)
     assert abs(h_full_s - h_single_s) <= 1e-9
     # The per-call width governs the image count: a width so narrow
     # that no image is admitted (L = 0) reads a single Gaussian.
     d = _chord([0.0, 4.0, 7.0], big, r=1, is_per=True, wrap='full-image')
-    h_narrow = entropy_exp_tens(d, truncation_sigmas=1.0, **kw)
-    h_floor = entropy_exp_tens(d, truncation_sigmas=math.inf, **kw)
+    h_narrow = entropy_maet(d, truncation_sigmas=1.0, **kw)
+    h_floor = entropy_maet(d, truncation_sigmas=math.inf, **kw)
     assert abs(h_narrow - h_floor) > 1e-6
     assert abs(h_full - h_floor) <= 1e-9   # default width already at L >= 1

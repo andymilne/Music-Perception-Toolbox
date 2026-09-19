@@ -37,8 +37,8 @@ else
 end
 
 rp3_P = 12.0;
-rp3_absWarn = warning('off', 'buildExpTens:absPerSingleImage');
-rp3_relWarn = warning('off', 'buildExpTens:isRelDegenerate');
+rp3_absWarn = warning('off', 'buildMaet:absPerSingleImage');
+rp3_relWarn = warning('off', 'buildMaet:isRelDegenerate');
 rp3_warnCleanup = onCleanup(@() cellfun(@warning, ...
     {rp3_absWarn, rp3_relWarn})); %#ok<NASGU>
 
@@ -54,7 +54,7 @@ for rp3_i = 1:2
     x = rp3Flat(1, 0.5 * rp3_P, 3, true, true, rp3_wrap, rp3_P, 4);
     y = rp3Flat(2, 0.5 * rp3_P, 3, true, true, rp3_wrap, rp3_P, 5);
     rep = explainDispatch(x, y);
-    [~, ~, yOut] = cosSimExpTens(x, y, 'verbose', false);
+    [~, ~, yOut] = simMaet(x, y, 'verbose', false);
     results{end+1, 1} = sprintf( ...
         'parity round3: explain follows the %s wrap rule above the threshold', ...
         rp3_wrap); %#ok<*SAGROW>
@@ -68,19 +68,19 @@ for rp3_i = 1:2
 end
 
 % --- explainDispatch applies the ordered-attribute rule ---
-% An ordered ([sym]=0) attribute at r > 1 has no orbit: the call takes
+% An ordered ([exch]=0) attribute at r > 1 has no orbit: the call takes
 % Bulger's method whatever method asked for, and so does the report.
 rp3_methods = {'auto', 'mobius', 'centres'};
 for rp3_i = 1:3
     rp3_m = rp3_methods{rp3_i};
     rng(3, 'twister');
-    x = buildExpTens({sort(rp3_P * rand(5, 2), 1)}, {[]}, 1.0, 2, ...
+    x = buildMaet({sort(rp3_P * rand(5, 2), 1)}, {[]}, 1.0, 2, ...
                      false, false, 0, false, 'verbose', false);
     rng(4, 'twister');
-    y = buildExpTens({sort(rp3_P * rand(6, 2), 1)}, {[]}, 1.0, 2, ...
+    y = buildMaet({sort(rp3_P * rand(6, 2), 1)}, {[]}, 1.0, 2, ...
                      false, false, 0, false, 'verbose', false);
     rep = explainDispatch(x, y, 'method', rp3_m);
-    [~, ~, yOut] = cosSimExpTens(x, y, 'method', rp3_m, 'verbose', false);
+    [~, ~, yOut] = simMaet(x, y, 'method', rp3_m, 'verbose', false);
     results{end+1, 1} = sprintf( ...
         'parity round3: explain applies the ordered rule under method=%s', rp3_m);
     results{end, 2} = strcmp(rep.chosen, 'bulger') ...
@@ -94,7 +94,7 @@ end
 x = rp3Flat(5, 1.0, 3, true, false, 'full-image', rp3_P, 6, 3);
 y = rp3Flat(6, 1.0, 3, true, false, 'full-image', rp3_P, 6, 3);
 repCold = explainDispatch(x, y);
-[~, xOut, yOut] = cosSimExpTens(x, y, 'method', 'bulger', 'verbose', false);
+[~, xOut, yOut] = simMaet(x, y, 'method', 'bulger', 'verbose', false);
 repWarm = explainDispatch(xOut, yOut);
 results{end+1, 1} = 'parity round3: explain prices the memoised self products as free';
 results{end, 2} = repWarm.routeMs(1) < repCold.routeMs(1);
@@ -102,23 +102,23 @@ results{end, 2} = repWarm.routeMs(1) < repCold.routeMs(1);
 % --- explainDispatch applies the empty-operand rule ---
 rng(7, 'twister');
 pZ = sort(rp3_P * rand(5, 2), 1);
-z = buildExpTens({pZ}, {zeros(5, 2)}, 1.0, 2, false, false, 0, ...
+z = buildMaet({pZ}, {zeros(5, 2)}, 1.0, 2, false, false, 0, ...
                  'verbose', false);
 y = rp3Flat(8, 1.0, 2, false, false, 'full-image', rp3_P);
 rep = explainDispatch(z, y);
 results{end+1, 1} = 'parity round3: explain applies the empty-operand rule';
 results{end, 2} = isempty(rep.chosen) ...
     && contains(rep.decidedBy, 'empty operand') ...
-    && cosSimExpTens(z, y, 'verbose', false) == 0;
+    && simMaet(z, y, 'verbose', false) == 0;
 
 % --- the selector inputs are shared with the call ---
 x = rp3Flat(9, 0.5 * rp3_P, 3, true, true, 'single-image', rp3_P, 4);
 y = rp3Flat(10, 0.5 * rp3_P, 3, true, true, 'single-image', rp3_P, 5);
 [selIn, orderedAny, nestedAny] = internal.flatSelectorInputs( ...
-    internal.prunedExpTens(x), internal.prunedExpTens(y), 'cosine', []);
-[~, xOut, yOut] = cosSimExpTens(x, y, 'verbose', false);
+    internal.prunedMaet(x), internal.prunedMaet(y), 'cosine', []);
+[~, xOut, yOut] = simMaet(x, y, 'verbose', false);
 selIn2 = internal.flatSelectorInputs( ...
-    internal.prunedExpTens(xOut), internal.prunedExpTens(yOut), 'cosine', []);
+    internal.prunedMaet(xOut), internal.prunedMaet(yOut), 'cosine', []);
 results{end+1, 1} = 'parity round3: flatSelectorInputs carries the wrap, per, node and memo inputs';
 results{end, 2} = isequal(selIn.wrapVec, {'single-image'}) ...
     && isequal(selIn.perVec, true) && selIn.nuVec(1) > 1 ...
@@ -161,7 +161,7 @@ results{end, 2} = all(abs(I(:) - Iref(:)) <= 1e-12 * max(abs(Iref(:))));
 
 % --- B-16: the closed form refuses an inner [rel] unit ---
 x = rp3Flat(14, 1.0, 2, true, false, 'full-image', rp3_P, 4, 1);
-cx = mobius.closedFormAttrCentres(internal.prunedExpTens(x), 1);
+cx = mobius.closedFormAttrCentres(internal.prunedMaet(x), 1);
 Mok = mobius.closedFormAttrMatrixFrom(cx, cx, 'full-image');
 cxBad = cx; cxBad.innerBlockSize = 2;
 results{end+1, 1} = 'parity round3: closed form serves a flat bundle';
@@ -198,8 +198,8 @@ x = rp3Flat(21, 1.0, 2, false, false, 'full-image', rp3_P, 4, 1);
 y = rp3Flat(22, 1.0, 2, false, false, 'full-image', rp3_P, 4, 1);
 results{end+1, 1} = 'parity round3: cancellationThreshold keyword is rejected';
 results{end, 2} = throwsErrorWithId( ...
-    @() cosSimExpTens(x, y, 'cancellationThreshold', 1e-12, 'verbose', false), ...
-    'cosSimExpTens:wrongArgCount');
+    @() simMaet(x, y, 'cancellationThreshold', 1e-12, 'verbose', false), ...
+    'simMaet:wrongArgCount');
 
 clear x y z rep repCold repWarm xOut yOut selIn selIn2 orderedAny nestedAny ...
       dSmall dLarge mSmall mLarge Px Wx Py Wy I Iref ii jj cx cxBad Mok pZ
@@ -233,7 +233,7 @@ function d = rp3Flat(seed, sigma, r, isRel, isPer, wrap, P, K, N)
     else
         period = 0;
     end
-    d = buildExpTens({p}, {[]}, sigma, r, isRel, isPer, period, ...
+    d = buildMaet({p}, {[]}, sigma, r, isRel, isPer, period, ...
                      'wrap', {wrap}, 'verbose', false);
 end
 

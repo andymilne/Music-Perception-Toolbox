@@ -12,16 +12,16 @@ import pytest
 
 import mpt
 import mpt._tensor._nested_contraction as nc
-from mpt import bind_events, build_exp_tens, cos_sim_exp_tens, unpack_pre_maet
+from mpt import bind_events, build_maet, sim_maet, unpack_pre_maet
 
 
-def _density(seed, sizes, r_outer=None, sym_outer=True):
+def _density(seed, sizes, r_outer=None, exch_outer=True):
     r = np.random.default_rng(seed)
     onset = np.concatenate([[k] * s for k, s in enumerate(sizes)])
     onset = onset.reshape(1, -1).astype(float)
     pitch = r.uniform(55, 79, size=onset.shape[1]).reshape(1, -1)
     pb, wb, sp = unpack_pre_maet(bind_events([pitch, onset], None, None, group_by=1,
-                             r_outer=r_outer, sym_outer=sym_outer))
+                             r_outer=r_outer, exch_outer=exch_outer))
     return pb, wb, sp
 
 
@@ -45,24 +45,24 @@ def test_r_outer_defaults_to_min_group_size():
 
 def test_self_similarity_is_one():
     pb, wb, sp = _density(1, [3, 2, 1, 4])      # r_outer = min = 1
-    d = build_exp_tens(pb, wb, sigma=[40.0, 0.01], is_per=[False, False],
+    d = build_maet(pb, wb, sigma=[40.0, 0.01], is_per=[False, False],
                        period=[0.0, 0.0], specs=sp, verbose=False)
-    assert abs(cos_sim_exp_tens(d, d, method="auto", verbose=False) - 1.0) < 1e-12
+    assert abs(sim_maet(d, d, method="auto", verbose=False) - 1.0) < 1e-12
 
 
 def test_ragged_orbit_matches_enumeration():
     """The orbit reduction and enumeration agree on a ragged outer level."""
     def build(seed):
-        pb, wb, sp = _density(seed, [4, 3, 5], r_outer=3, sym_outer=True)
-        return build_exp_tens(pb, wb, sigma=[30.0, 0.02], is_per=[False, False],
+        pb, wb, sp = _density(seed, [4, 3, 5], r_outer=3, exch_outer=True)
+        return build_maet(pb, wb, sigma=[30.0, 0.02], is_per=[False, False],
                               period=[0.0, 0.0], specs=sp, verbose=False)
     X, Y = build(10), build(20)
     orig = nc._orbit_eligible
     try:
         nc._orbit_eligible = lambda *a, **k: True       # force orbit
-        v_orbit = cos_sim_exp_tens(X, Y, method="contract", verbose=False)
+        v_orbit = sim_maet(X, Y, method="contract", verbose=False)
         nc._orbit_eligible = lambda *a, **k: False      # force enumeration
-        v_enum = cos_sim_exp_tens(X, Y, method="contract", verbose=False)
+        v_enum = sim_maet(X, Y, method="contract", verbose=False)
     finally:
         nc._orbit_eligible = orig
     assert abs(v_orbit - v_enum) < 1e-9
@@ -71,10 +71,10 @@ def test_ragged_orbit_matches_enumeration():
 def test_high_arity_ragged_runs_via_orbit():
     """At an outer tuple size where enumeration is infeasible, auto still completes
     (the orbit path carries the ragged density)."""
-    pb, wb, sp = _density(3, [7, 6, 8], r_outer=6, sym_outer=True)
-    d = build_exp_tens(pb, wb, sigma=[30.0, 0.01], is_per=[False, False],
+    pb, wb, sp = _density(3, [7, 6, 8], r_outer=6, exch_outer=True)
+    d = build_maet(pb, wb, sigma=[30.0, 0.01], is_per=[False, False],
                        period=[0.0, 0.0], specs=sp, verbose=False)
-    assert abs(cos_sim_exp_tens(d, d, method="auto", verbose=False) - 1.0) < 1e-9
+    assert abs(sim_maet(d, d, method="auto", verbose=False) - 1.0) < 1e-9
 
 
 def test_consecutive_runs_not_global():
@@ -101,5 +101,5 @@ def test_r_outer_exceeding_smallest_group_errors():
     """A group smaller than r_outer admits no r_outer-tuple -> build errors."""
     pb, wb, sp = _density(5, [4, 3, 5], r_outer=4)   # size-3 group < 4
     with pytest.raises(Exception):
-        build_exp_tens(pb, wb, sigma=[30.0, 0.02], is_per=[False, False],
+        build_maet(pb, wb, sigma=[30.0, 0.02], is_per=[False, False],
                        period=[0.0, 0.0], specs=sp, verbose=False)

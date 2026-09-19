@@ -2,10 +2,10 @@
 
 bind_events nests sliding windows of consecutive events into a single nested
 attribute per input attribute (toolbox spec §6.1/§6.5): the bound events form
-an ordered outer level (sym_outer = 0 by default), each event's own multiset
-is the inner level. The inner level's geometry (r/rel/sym) is read from the
+an ordered outer level (exch_outer = 0 by default), each event's own multiset
+is the inner level. The inner level's geometry (r/rel/exch) is read from the
 incoming triple's specs (flat_specs defaults when specs=None). It returns
-(p_attr_bound, w_bound, specs) ready for build_exp_tens(..., specs=...). L = 1
+(p_attr_bound, w_bound, specs) ready for build_maet(..., specs=...). L = 1
 is a flat passthrough. Outer r = L with rel = [rel_in, 0] reproduces the old
 separate-attribute tensor join (§6.5).
 """
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, eval_exp_tens, flat_specs, unpack_pre_maet
+from mpt import build_maet, eval_maet, flat_specs, unpack_pre_maet
 from mpt._tensor.preprocessing import bind_events
 
 
@@ -22,7 +22,7 @@ def _ev(d, x):
     x = np.asarray(x, dtype=float)
     if x.ndim == 1:
         x = x.reshape(-1, 1)
-    return np.ravel(eval_exp_tens(d, x, verbose=False))
+    return np.ravel(eval_maet(d, x, verbose=False))
 
 
 def test_returns_three_tuple_with_specs():
@@ -36,32 +36,32 @@ def test_order_1_is_flat_passthrough():
     """L = 1 passes the incoming flat spec through (no tags)."""
     p = [np.array([[0.0, 4.0, 7.0, 11.0, 2.0]])]
     pb, _, specs = unpack_pre_maet(bind_events(p, None, 1,
-                               specs=flat_specs(p, r=3, rel=True, sym=True)))
+                               specs=flat_specs(p, r=3, rel=True, exch=True)))
     assert "tags" not in specs[0]
-    assert specs[0] == {"r": 3, "rel": True, "sym": True}
+    assert specs[0] == {"r": 3, "rel": True, "exch": True}
     np.testing.assert_allclose(pb[0], p[0])  # circular=False, max_order=1 -> N'=N
 
 
 def test_inner_geometry_read_from_specs():
-    """Inner level inherits r/rel/sym from the incoming spec; outer r=L,
-    sym=0, rel=0."""
+    """Inner level inherits r/rel/exch from the incoming spec; outer r=L,
+    exch=0, rel=0."""
     p = [np.array([[0.0, 4.0, 7.0], [10.0, 12.0, 14.0]])]    # K=2, N=3
     pb, _, specs = unpack_pre_maet(bind_events(p, None, 2,
-                               specs=flat_specs(p, r=2, rel=True, sym=True)))
+                               specs=flat_specs(p, r=2, rel=True, exch=True)))
     s = specs[0]
     assert s["r"] == [2, 2]            # inner = incoming r=2, outer = L=2
-    assert s["sym"] == [True, False]   # inner inherits, outer ordered
+    assert s["exch"] == [True, False]   # inner inherits, outer ordered
     assert s["rel"] == [1, 0]          # inner inherits rel=True, outer off
     assert list(s["tags"]) == [0, 0, 1, 1]
     assert pb[0].shape == (4, 2)       # (L*K, N') = (2*2, 3-2+1)
 
 
 def test_synthesised_specs_default_inner_geometry():
-    """specs=None synthesises flat defaults: inner r=1, rel=0, sym=1."""
+    """specs=None synthesises flat defaults: inner r=1, rel=0, exch=1."""
     p = [np.array([[0.0, 4.0, 7.0, 11.0]])]
     _, _, specs = unpack_pre_maet(bind_events(p, None, 2))
     s = specs[0]
-    assert s["r"] == [1, 2] and s["sym"] == [True, False] and s["rel"] == [0, 0]
+    assert s["r"] == [1, 2] and s["exch"] == [True, False] and s["rel"] == [0, 0]
 
 
 def test_rel_default_inherits_inner_off_outer():
@@ -80,12 +80,12 @@ def test_rel_outer_gives_global_transposition_quotient():
     assert specs[0]["rel"] == [0, 1]
 
 
-def test_sym_outer_adjustable():
+def test_exch_outer_adjustable():
     p = [np.array([[0.0, 4.0, 7.0, 11.0]])]
     _, _, s0 = unpack_pre_maet(bind_events(p, None, 2))
-    _, _, s1 = unpack_pre_maet(bind_events(p, None, 2, sym_outer=True))
-    assert s0[0]["sym"] == [True, False]
-    assert s1[0]["sym"] == [True, True]
+    _, _, s1 = unpack_pre_maet(bind_events(p, None, 2, exch_outer=True))
+    assert s0[0]["exch"] == [True, False]
+    assert s1[0]["exch"] == [True, True]
 
 
 def test_reproduces_old_tensor_join():
@@ -98,11 +98,11 @@ def test_reproduces_old_tensor_join():
     diffs = np.array([[2.0, -1.0, 3.0, 0.0, -2.0, 1.0, 4.0]])
     n = 3
     pb, wb, specs = unpack_pre_maet(bind_events([diffs], None, n, circular=True))
-    d_new = build_exp_tens(pb, wb, specs=specs, sigma=[10.0], is_per=[True],
+    d_new = build_maet(pb, wb, specs=specs, sigma=[10.0], is_per=[True],
                            period=[12.0], verbose=False)
     idx = lambda ell: (np.arange(7) + ell) % 7
     p_old = [diffs[:, idx(ell)] for ell in range(n)]
-    d_old = build_exp_tens(p_old, None, [10.0] * n, [1] * n, [False] * n,
+    d_old = build_maet(p_old, None, [10.0] * n, [1] * n, [False] * n,
                            [True] * n, [12.0] * n, verbose=False)
     assert d_new.dim == d_old.dim == n
     rng = np.random.default_rng(0)
@@ -156,13 +156,13 @@ def test_scalar_weight_passes_through():
 
 def test_deep_nesting_supported():
     """bind_events deepens an already-nested attribute: feeding back the
-    specs returned by a prior bind appends a new outermost level, so r/sym/
+    specs returned by a prior bind appends a new outermost level, so r/exch/
     rel each extend by one entry (verified to three levels)."""
     p = [np.array([[0.0, 4.0, 7.0, 11.0, 2.0, 9.0]])]
-    pb, wb, s1 = unpack_pre_maet(bind_events(p, None, 2, sym_outer=True))           # two-level
-    pb2, wb2, s2 = unpack_pre_maet(bind_events(pb, wb, 3, sym_outer=False, specs=s1))  # three-level
+    pb, wb, s1 = unpack_pre_maet(bind_events(p, None, 2, exch_outer=True))           # two-level
+    pb2, wb2, s2 = unpack_pre_maet(bind_events(pb, wb, 3, exch_outer=False, specs=s1))  # three-level
     assert s2[0]["r"] == [1, 2, 3]
-    assert s2[0]["sym"] == [True, True, False]
+    assert s2[0]["exch"] == [True, True, False]
     assert s2[0]["rel"] == [0, 0, 0]
     assert np.asarray(s2[0]["tags"]).ndim == 2
 
@@ -172,8 +172,8 @@ def test_deep_nesting_without_specs_silently_flattens():
     re-synthesises flat specs and discards the existing nesting (shallower
     result), rather than deepening."""
     p = [np.array([[0.0, 4.0, 7.0, 11.0, 2.0, 9.0]])]
-    pb, wb, _ = unpack_pre_maet(bind_events(p, None, 2, sym_outer=True))
-    _, _, s_flat = unpack_pre_maet(bind_events(pb, wb, 3, sym_outer=False))   # no specs threaded
+    pb, wb, _ = unpack_pre_maet(bind_events(p, None, 2, exch_outer=True))
+    _, _, s_flat = unpack_pre_maet(bind_events(pb, wb, 3, exch_outer=False))   # no specs threaded
     assert s_flat[0]["r"] == [1, 3]                          # beat level lost
 
 
@@ -202,7 +202,7 @@ def test_invalid_orders_error():
 def test_specs_wrong_length_errors():
     p = [np.array([[0.0, 4.0, 7.0, 11.0]]), np.array([[1.0, 2.0, 3.0, 4.0]])]
     with pytest.raises(ValueError):
-        bind_events(p, None, 2, specs=[{"r": 1, "rel": False, "sym": True}])
+        bind_events(p, None, 2, specs=[{"r": 1, "rel": False, "exch": True}])
 
 
 def test_n_tuple_entropy_still_works():
@@ -277,8 +277,8 @@ def test_step_two_stage_metrical_grouping():
     three-level metrical structure with no manual subsample."""
     e = [np.array([[0.0, 2.0, 7.0, 7.0, 0.0, 0.0]])]
     w = [np.array([[1.0, 0.5, 1.0, 0.5, 1.0, 0.5]])]
-    pb, wb, s = unpack_pre_maet(bind_events(e, w, 2, step=2, sym_outer=True))
+    pb, wb, s = unpack_pre_maet(bind_events(e, w, 2, step=2, exch_outer=True))
     assert np.asarray(pb[0]).shape == (2, 3)          # 3 clean beats
-    pb, wb, s = unpack_pre_maet(bind_events(pb, wb, 3, sym_outer=False, specs=s))
+    pb, wb, s = unpack_pre_maet(bind_events(pb, wb, 3, exch_outer=False, specs=s))
     assert s[0]["r"] == [1, 2, 3]
-    assert s[0]["sym"] == [True, True, False]
+    assert s[0]["exch"] == [True, True, False]

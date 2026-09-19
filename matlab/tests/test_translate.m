@@ -166,13 +166,13 @@ results{end,2}   = throwsError(@() translateAttributes({[0 4], [1 2]}, [], ...
 chord = [0; 4; 7];                             % K=3 chord, N=1
 grid  = [-200 -100 0 100 200];                 % row, M=5
 [sweep, ~, specs] = unpackPreMaet(translateAttributes({chord}, [], {grid}));
-ref = buildExpTens({chord}, [], 'specs', specs, 'sigma', 30, ...
+ref = buildMaet({chord}, [], 'specs', specs, 'sigma', 30, ...
                    'isPer', false, 'period', 0, 'verbose', false);
 sims = zeros(1, numel(sweep));
 for m = 1:numel(sweep)
-    d = buildExpTens(sweep{m}, [], 'specs', specs, 'sigma', 30, ...
+    d = buildMaet(sweep{m}, [], 'specs', specs, 'sigma', 30, ...
                      'isPer', false, 'period', 0, 'verbose', false);
-    sims(m) = cosSimExpTens(ref, d, 'verbose', false);
+    sims(m) = simMaet(ref, d, 'verbose', false);
 end
 [~, peakIdx] = max(sims);
 results{end+1,1} = 'translate: sweep feeds cosine self-match peak';

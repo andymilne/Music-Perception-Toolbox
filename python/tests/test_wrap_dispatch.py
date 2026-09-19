@@ -94,20 +94,20 @@ def test_cosine_invariant_under_dispatch(sigma_over_P):
     p2 = np.array([[50.0, 250.0, 500.0, 900.0]]).T
     w = np.ones(4).reshape(-1, 1)
     sigma = sigma_over_P * PERIOD
-    d1 = mpt.build_exp_tens(
+    d1 = mpt.build_maet(
         [p1], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
-    d2 = mpt.build_exp_tens(
+    d2 = mpt.build_maet(
         [p2], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
 
     # Force image-sum
     orig = wk._prefer_fourier
     wk._prefer_fourier = lambda *a, **kw: False
-    c_img = mpt.cos_sim_exp_tens(d1, d2, verbose=False)
+    c_img = mpt.sim_maet(d1, d2, verbose=False)
     # Force Fourier
     wk._prefer_fourier = lambda *a, **kw: True
-    c_fou = mpt.cos_sim_exp_tens(d1, d2, verbose=False)
+    c_fou = mpt.sim_maet(d1, d2, verbose=False)
     wk._prefer_fourier = orig
 
     # Same cosine either way, within accuracy floor

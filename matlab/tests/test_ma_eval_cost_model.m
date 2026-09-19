@@ -48,7 +48,7 @@ for gi = 1:numel(grid)
     A = numel(sig);
     pas = cell(A, 1);
     for a = 1:A, pas{a} = 100 * rand(K, 1); end
-    dens = buildExpTens(pas, repmat({[]}, A, 1), sig, rv, rel, per, P, ...
+    dens = buildMaet(pas, repmat({[]}, A, 1), sig, rv, rel, per, P, ...
         'verbose', false);
     xq = 100 * rand(dens.dim, 200);
     [chosen, reason] = internal.selectMaEval(dens, 200);
@@ -58,8 +58,8 @@ for gi = 1:numel(grid)
     elseif ~startsWith(reason, 'cost model')
         ok = true;   % correctness-forced centres; speed contract N/A
     else
-        tCen = localTime(@() evalExpTens(dens, xq, 'method', 'centres', 'verbose', false));
-        tMob = localTime(@() evalExpTens(dens, xq, 'method', 'mobius', 'verbose', false));
+        tCen = localTime(@() evalMaet(dens, xq, 'method', 'centres', 'verbose', false));
+        tMob = localTime(@() evalMaet(dens, xq, 'method', 'mobius', 'verbose', false));
         ok = (tCen / max(tMob, 1e-9)) <= MAX_TOLERATED_CENTRES_SLOWDOWN;
     end
     results{end+1, 1} = sprintf('cost model never badly wrong: %s', label); %#ok<*AGROW>
@@ -67,7 +67,7 @@ for gi = 1:numel(grid)
 end
 
 %% ---- Above sigma/P, all-image Möbius is the preferred default ----
-dens = buildExpTens({100*rand(6,1); 100*rand(6,1)}, {[]; []}, [40 40], ...
+dens = buildMaet({100*rand(6,1); 100*rand(6,1)}, {[]; []}, [40 40], ...
     [3 3], [true true], [true true], [1200 1200], 'verbose', false);
 [chosen, ~] = internal.selectMaEval(dens, 200);
 results{end+1, 1} = 'cost model: rel-per above threshold prefers Möbius';
@@ -76,10 +76,10 @@ results{end, 2} = strcmp(chosen, 'mobius');
 % and single-image remains available via override
 [chosenC, reasonC] = deal('', '');
 if true
-    % method override path lives in evalExpTens, not the selector; the
+    % method override path lives in evalMaet, not the selector; the
     % selector is only asked for 'auto'. Confirm the selector's default
     % here is Möbius (above), and that a large shape stays Möbius (safe).
-    densBig = buildExpTens({100*rand(40,1); 100*rand(40,1)}, {[]; []}, ...
+    densBig = buildMaet({100*rand(40,1); 100*rand(40,1)}, {[]; []}, ...
         [40 40], [3 3], [true true], [true true], [1200 1200], 'verbose', false);
     [chosenC, reasonC] = internal.selectMaEval(densBig, 200); %#ok<ASGLU>
 end
@@ -92,7 +92,7 @@ results{end, 2} = strcmp(chosenC, 'mobius');
 % a genuine multi-attribute density so the MA eval selector is exercised
 % (the single-attribute vector path routes through the single multiset dispatch, not
 % selectMaEval).
-densInf = buildExpTens({100*rand(20,1); 100*rand(20,1)}, {[]; []}, ...
+densInf = buildMaet({100*rand(20,1); 100*rand(20,1)}, {[]; []}, ...
     [6 6], [11 11], [false false], [false false], [0 0], 'verbose', false);
 ok = false;
 try
@@ -109,7 +109,7 @@ results{end, 2} = ok;
 % and returns the positive-definiteness ceiling in place of the accuracy
 % threshold --- a different route, chosen silently. The guard turns that
 % into an error, so this pins the loud failure rather than the routing.
-densStale = buildExpTens(100*rand(12,1), [], 15, 2, false, false, 0, ...
+densStale = buildMaet(100*rand(12,1), [], 15, 2, false, false, 0, ...
     'verbose', false);
 ok = false;
 try

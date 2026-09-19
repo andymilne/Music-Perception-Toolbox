@@ -13,7 +13,7 @@ function v = singleMultisetView(dens)
 %   The view is a plain struct (MATLAB value semantics), materialised
 %   from whatever fields are present: cheap fields always, plus the
 %   per-tuple "expensive" fields when the density has been through
-%   internal.ensureExpTensExpensive. Callers that need the expensive
+%   internal.ensureMaetExpensive. Callers that need the expensive
 %   fields ensure them on DENS first, exactly as on the general MA path.
 %
 %   Twin of Python mpt._tensor.density._SingleMultisetView /
@@ -38,10 +38,10 @@ function v = singleMultisetView(dens)
     v.isRel  = dens.isRel(1);
     v.isPer  = dens.isPer(1);
     v.period = dens.period(1);
-    if isfield(dens, 'isSym') && ~isempty(dens.isSym)
-        v.isSym = dens.isSym(1);
+    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
+        v.isExch = dens.isExch(1);
     else
-        v.isSym = true;
+        v.isExch = true;
     end
     if isfield(dens, 'dimPerAttr') && ~isempty(dens.dimPerAttr)
         v.dim = dens.dimPerAttr(1);
@@ -72,7 +72,7 @@ function v = singleMultisetView(dens)
     end
 
     % --- per-tuple "expensive" arrays, present only after
-    %     ensureExpTensExpensive. At A = 1 the joint centres/perm/comb
+    %     ensureMaetExpensive. At A = 1 the joint centres/perm/comb
     %     arrays coincide with the single-attribute ones, so unwrap the
     %     single cell entry and alias the perm-side weight/count under the
     %     flat single-multiset names. ---

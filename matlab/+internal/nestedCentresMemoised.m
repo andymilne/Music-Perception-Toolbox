@@ -5,7 +5,7 @@ function [bundle, cache] = nestedCentresMemoised(cache, dens, a)
 %   returns MOBIUS.CLOSEDFORMATTRCENTRES(DENS, A), read from the memo
 %   CACHE when it already holds attribute A's bundle and built (and
 %   stored) otherwise. CACHE is a density's self-IP memo struct (the
-%   'keys' / 'vals' struct COSSIMEXPTENS threads through every route and
+%   'keys' / 'vals' struct SIMMAET threads through every route and
 %   returns in the density's 'selfIP' field); the bundles live in its
 %   optional 'nestedCentres' field, a 1 x A cell with [] where no bundle
 %   has been built, so they ride the same channel back to the caller as

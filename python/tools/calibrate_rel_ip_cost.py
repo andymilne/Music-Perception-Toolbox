@@ -178,7 +178,7 @@ def _timed(dens_x, dens_y, method, route,
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             t0 = time.perf_counter()
-            v = mpt.cos_sim_exp_tens(dens_x, dens_y, method=method,
+            v = mpt.sim_maet(dens_x, dens_y, method=method,
                                      verbose=False)
             warm = time.perf_counter() - t0
             if warm > budget:
@@ -191,7 +191,7 @@ def _timed(dens_x, dens_y, method, route,
                 reps = []
                 for _ in range(3):
                     t1 = time.perf_counter()
-                    mpt.cos_sim_exp_tens(dens_x, dens_y, method=method,
+                    mpt.sim_maet(dens_x, dens_y, method=method,
                                          verbose=False)
                     reps.append(time.perf_counter() - t1)
                 t = sorted(reps)[1] * 1e3
@@ -225,9 +225,9 @@ def _check(period=1200.0):
     p_x = np.sort(rng.uniform(0, period, (K, N)), axis=0)
     w_x = np.ones((K, N))
     with contextlib.redirect_stdout(io.StringIO()):
-        d = mpt.build_exp_tens([p_x], [w_x], [sigma], [r], [1], [1],
+        d = mpt.build_maet([p_x], [w_x], [sigma], [r], [1], [1],
                                [period], verbose=False)
-        d_flat = mpt.build_exp_tens(p_x, w_x, sigma, r, 1, 1, period,
+        d_flat = mpt.build_maet(p_x, w_x, sigma, r, 1, 1, period,
                                     verbose=False)
 
     # Events: the density must carry N of them. The single-multiset
@@ -242,7 +242,7 @@ def _check(period=1200.0):
 
     # A multi-event density is one density, so its cosine is one number.
     with contextlib.redirect_stdout(io.StringIO()):
-        v = mpt.cos_sim_exp_tens(d, d, method="mobius", verbose=False)
+        v = mpt.sim_maet(d, d, method="mobius", verbose=False)
     ok("multi-event call returns one cosine", np.shape(v) == (),
        f"shape {np.shape(v)}")
     ok("self-similarity is 1", abs(float(v) - 1.0) < 1e-9, f"{float(v):.12f}")
@@ -272,7 +272,7 @@ def _check(period=1200.0):
     for route in ("centres", "grid"):
         mpt.set_default(rel_attr_route=route)
         with contextlib.redirect_stdout(io.StringIO()):
-            vals[route] = mpt.cos_sim_exp_tens(d, d, method="mobius",
+            vals[route] = mpt.sim_maet(d, d, method="mobius",
                                                verbose=False)
     mpt.set_default(rel_attr_route="auto")
     gap = float(np.max(np.abs(vals["centres"] - vals["grid"])))
@@ -281,9 +281,9 @@ def _check(period=1200.0):
     # Unequal value counts must reach both sides.
     p_y = np.sort(rng.uniform(0, period, (K * 3, N)), axis=0)
     with contextlib.redirect_stdout(io.StringIO()):
-        d2 = mpt.build_exp_tens([p_y], [np.ones((K * 3, N))], [sigma], [r],
+        d2 = mpt.build_maet([p_y], [np.ones((K * 3, N))], [sigma], [r],
                                 [1], [1], [period], verbose=False)
-        v2 = mpt.cos_sim_exp_tens(d, d2, method="mobius", verbose=False)
+        v2 = mpt.sim_maet(d, d2, method="mobius", verbose=False)
     ok("unequal value counts run", np.all(np.isfinite(v2)))
 
     # Weight profiles must actually differ.
@@ -422,10 +422,10 @@ def main(argv=None):
                                 # same array into one event of K*N values,
                                 # which is a different density entirely.
                                 with contextlib.redirect_stdout(io.StringIO()):
-                                    dens_x = mpt.build_exp_tens(
+                                    dens_x = mpt.build_maet(
                                         [p_x], [w_x], [sigma], [r], [1],
                                         [int(is_per)], [P], verbose=False)
-                                    dens_y = mpt.build_exp_tens(
+                                    dens_y = mpt.build_maet(
                                         [p_y], [w_y], [sigma], [r], [1],
                                         [int(is_per)], [P], verbose=False)
                                 pairs = float(N * N)

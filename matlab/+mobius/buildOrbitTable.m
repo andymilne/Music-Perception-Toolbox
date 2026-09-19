@@ -80,22 +80,32 @@ function table = buildOrbitTable(r)
             if nT == 0
                 continue
             end
-            % Flat key: [rs_canon (1xqA) | cs_canon (1xqB) | M_canon(:)' (1xqA*qB)]
+            % Flat key: [rs (1xqA) | cs (1xqB) | M(:)' (1xqA*qB)].
+            % Stage 1: bucket the tables by the cheap greedy invariant.
             keyDim = qA + qB + qA * qB;
-            flatKeys = zeros(nT, keyDim);
+            greedyKeys = zeros(nT, keyDim);
             for k = 1:nT
-                [rsC, csC, McC] = mobius.canonicalForm(T{k}, m_A, m_B);
-                flatKeys(k, :) = [rsC, csC, McC(:)'];
+                [rsG, csG, McG] = mobius.greedyForm(T{k}, m_A, m_B);
+                greedyKeys(k, :) = [rsG, csG, McG(:)'];
             end
-            % Group by canonical form. We use the default sorted-unique
-            % (no 'stable') because (i) orbit order within a bucket
-            % does not affect any downstream computation, which
-            % iterates all orbits; (ii) sorted order is well-defined
-            % across MATLAB releases; (iii) 'stable' is observed to
-            % return an empty index vector on duplicate rows under
-            % Octave, breaking development-time testing there.
-            [uniqKeys, ~, ic] = unique(flatKeys, 'rows');
-            counts = accumarray(ic, 1);
+            [~, firstIdx, icG] = unique(greedyKeys, 'rows');
+            bucketCounts = accumarray(icG, 1);
+            % Stage 2: exact canonical form of one representative per
+            % bucket, merging buckets that share an orbit (the greedy
+            % form splits some orbits from r = 5 on). We use the default
+            % sorted-unique (no 'stable') because (i) orbit order does
+            % not affect any downstream computation, which iterates all
+            % orbits; (ii) sorted order is well-defined across MATLAB
+            % releases; (iii) 'stable' is observed to return an empty
+            % index vector on duplicate rows under Octave.
+            nB = numel(firstIdx);
+            exactKeys = zeros(nB, keyDim);
+            for b = 1:nB
+                [rsC, csC, McC] = mobius.canonicalForm(T{firstIdx(b)}, m_A, m_B);
+                exactKeys(b, :) = [rsC, csC, McC(:)'];
+            end
+            [uniqKeys, ~, ic] = unique(exactKeys, 'rows');
+            counts = accumarray(ic, bucketCounts);
 
             for j = 1:size(uniqKeys, 1)
                 rsCanon = uniqKeys(j, 1:qA);

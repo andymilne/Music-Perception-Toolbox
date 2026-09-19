@@ -15,7 +15,7 @@
 %
 %  The test strategy:
 %   (a) Build the same density as the demo (K=72, r=3, rel).
-%   (b) Call evalExpTens at n_q=1000 — large enough to overflow the
+%   (b) Call evalMaet at n_q=1000 — large enough to overflow the
 %       difference-tensor allocation under any chunking budget below
 %       ~5 GB, but small enough for a routine test run (~few seconds).
 %   (c) Verify (i) no OOM, (ii) all outputs finite, (iii) the chunked
@@ -48,21 +48,21 @@ cc_K = 72;
 cc_p = linspace(0, 1200, cc_K + 1)';
 cc_p = cc_p(1:end-1);
 cc_w = ones(cc_K, 1);
-cc_dens = buildExpTens(cc_p, cc_w, 12, 3, true, false, 1200, ...
+cc_dens = buildMaet(cc_p, cc_w, 12, 3, true, false, 1200, ...
     'verbose', false);
 
 rng(42, 'twister');
 cc_X = rand(2, 1000) * 1200;
 
 % --- Full call: fast-path with internal n_q chunking ---
-cc_vFull = evalExpTens(cc_dens, cc_X, 'method', 'centres', 'verbose', false);
+cc_vFull = evalMaet(cc_dens, cc_X, 'method', 'centres', 'verbose', false);
 
 % --- Manual split: two halves, each potentially chunked too ---
 cc_n = size(cc_X, 2);
 cc_mid = floor(cc_n / 2);
-cc_v1 = evalExpTens(cc_dens, cc_X(:, 1:cc_mid), ...
+cc_v1 = evalMaet(cc_dens, cc_X(:, 1:cc_mid), ...
     'method', 'centres', 'verbose', false);
-cc_v2 = evalExpTens(cc_dens, cc_X(:, cc_mid + 1:end), ...
+cc_v2 = evalMaet(cc_dens, cc_X(:, cc_mid + 1:end), ...
     'method', 'centres', 'verbose', false);
 cc_vManual = [cc_v1, cc_v2];
 

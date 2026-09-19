@@ -31,7 +31,7 @@ import mpt
 from mpt import unpack_pre_maet
 from mpt import (
     add_spectra,
-    entropy_exp_tens,
+    entropy_maet,
     weight_events,
 )
 
@@ -237,7 +237,7 @@ def test_differential_entropy_bounded_after_weight_events_truncation():
     assert n_nonzero_events < 30  # narrow window keeps only a handful
 
     t0 = time.time()
-    H = entropy_exp_tens(
+    H = entropy_maet(
         p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='differential', base=2.0,
     )
@@ -268,7 +268,7 @@ def test_differential_entropy_matches_manual_prune():
         is_per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
     ))
-    H_auto = entropy_exp_tens(
+    H_auto = entropy_maet(
         p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='differential', base=2.0,
     )
@@ -277,7 +277,7 @@ def test_differential_entropy_matches_manual_prune():
     keep = w_w[0].sum(axis=0) > 0
     p_w_pruned = [p[:, keep] for p in p_w]
     w_w_pruned = [ww[:, keep] for ww in w_w]
-    H_manual = entropy_exp_tens(
+    H_manual = entropy_maet(
         p_w_pruned, w_w_pruned, [10.0], [1],
         [False], [False], [0.0],
         method='differential', base=2.0,
@@ -307,7 +307,7 @@ def test_shannon_grid_matches_manual_prune():
         is_per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
     ))
-    H_auto = entropy_exp_tens(
+    H_auto = entropy_maet(
         p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='shannon', base=2.0,
         n_points_per_dim=2001, x_min=3000.0, x_max=13000.0,
@@ -316,7 +316,7 @@ def test_shannon_grid_matches_manual_prune():
     keep = w_w[0].sum(axis=0) > 0
     p_w_pruned = [p[:, keep] for p in p_w]
     w_w_pruned = [ww[:, keep] for ww in w_w]
-    H_manual = entropy_exp_tens(
+    H_manual = entropy_maet(
         p_w_pruned, w_w_pruned, [10.0], [1],
         [False], [False], [0.0],
         method='shannon', base=2.0,

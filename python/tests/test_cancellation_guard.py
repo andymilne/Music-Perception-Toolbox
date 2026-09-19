@@ -14,10 +14,10 @@ import warnings
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 from mpt._defaults import truncation_floor
-from mpt.tensor import (_cos_sim_exp_tens_ma_orbit,
-                        _cos_sim_exp_tens_ma_pairwise)
+from mpt.tensor import (_sim_maet_ma_orbit,
+                        _sim_maet_ma_pairwise)
 
 
 # ----------------------------------------------------------------------
@@ -35,11 +35,11 @@ def test_default_threshold_does_not_perturb_result(seed):
     w_a = rng.uniform(0.5, 1.5, n)
     w_b = rng.uniform(0.5, 1.5, n)
     sigma = 30.0
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
 
-    cos_default = cos_sim_exp_tens(T_a, T_b, verbose=False)
-    cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
+    cos_default = sim_maet(T_a, T_b, verbose=False)
+    cos_pw = sim_maet(T_a, T_b, method='bulger', verbose=False)
     abs_err = abs(cos_default - cos_pw)
     rel_err = abs_err / max(abs(cos_default), abs(cos_pw), 1e-300)
     assert rel_err < 1e-10 or abs_err < 1e-12
@@ -61,11 +61,11 @@ def test_auto_and_bulger_agree_within_truncation_budget():
     w_a = rng.uniform(0.5, 1.5, n)
     w_b = rng.uniform(0.5, 1.5, n)
     sigma = 30.0
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
 
-    cos_default = cos_sim_exp_tens(T_a, T_b, verbose=False)
-    cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
+    cos_default = sim_maet(T_a, T_b, verbose=False)
+    cos_pw = sim_maet(T_a, T_b, method='bulger', verbose=False)
     # A cosine has value scale 1, so the floor applies directly.
     assert abs(cos_default - cos_pw) <= 10 * truncation_floor(None)
 
@@ -82,8 +82,8 @@ def test_self_cosine_is_one_under_orbit_path():
     p_a = np.sort(rng.uniform(0, 5000, n))
     w_a = rng.uniform(0.5, 1.5, n)
     sigma = 30.0
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
-    cos_self = cos_sim_exp_tens(T_a, T_a, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
+    cos_self = sim_maet(T_a, T_a, verbose=False)
     assert abs(cos_self - 1.0) < 1e-12
 
 
@@ -111,11 +111,11 @@ def test_orbit_and_pairwise_triples_give_same_cosine():
     w_a = rng.uniform(0.5, 1.5, n)
     w_b = rng.uniform(0.5, 1.5, n)
     sigma = 20.0
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
 
-    ip_xy_o, ip_xx_o, ip_yy_o = _cos_sim_exp_tens_ma_orbit(T_a, T_b)
-    ip_xy_p, ip_xx_p, ip_yy_p = _cos_sim_exp_tens_ma_pairwise(T_a, T_b, verbose=False)
+    ip_xy_o, ip_xx_o, ip_yy_o = _sim_maet_ma_orbit(T_a, T_b)
+    ip_xy_p, ip_xx_p, ip_yy_p = _sim_maet_ma_pairwise(T_a, T_b, verbose=False)
 
     cos_orbit = ip_xy_o / np.sqrt(ip_xx_o * ip_yy_o)
     cos_pw = ip_xy_p / np.sqrt(ip_xx_p * ip_yy_p)

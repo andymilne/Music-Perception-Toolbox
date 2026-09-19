@@ -2,7 +2,7 @@
 %
 %  A nested attribute is a flat K_total x N value matrix plus a
 %  (K_total, L-1) integer tags matrix (one grouping column per level,
-%  innermost-grouping first) and per-level r/sym/rel vectors. These
+%  innermost-grouping first) and per-level r/exch/rel vectors. These
 %  exercise the L-general enumeration and the absolute and outer
 %  (global-transposition) projections at three levels; the per-group
 %  inner/intermediate reductions at L >= 3 are a later step and must defer.
@@ -22,17 +22,17 @@ end
 tags3 = [0 0; 0 0; 1 0; 1 0; 2 1; 2 1; 3 1; 3 1];     % 8 x 2
 P3    = {[0 4 7 11 12 16 19 23].'};                   % K_total = 8, N = 1
 
-specAbs = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false]);
-specOut = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false], ...
+specAbs = struct('tags', tags3, 'r', [2 2 2], 'exch', [true true false]);
+specOut = struct('tags', tags3, 'r', [2 2 2], 'exch', [true true false], ...
                  'rel', [0 0 1]);
-specOutS = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false], ...
+specOutS = struct('tags', tags3, 'r', [2 2 2], 'exch', [true true false], ...
                   'rel', 'outermost');
 
 bkw = {'sigma', 30, 'isPer', false, 'period', 0, 'verbose', false};
 
-dA  = buildExpTens(P3, [], 'specs', {specAbs},  bkw{:});
-dO  = buildExpTens(P3, [], 'specs', {specOut},  bkw{:});
-dOS = buildExpTens(P3, [], 'specs', {specOutS}, bkw{:});
+dA  = buildMaet(P3, [], 'specs', {specAbs},  bkw{:});
+dO  = buildMaet(P3, [], 'specs', {specOut},  bkw{:});
+dOS = buildMaet(P3, [], 'specs', {specOutS}, bkw{:});
 
 
 % --- Dimensions ---
@@ -48,20 +48,20 @@ results{end,2}   = dOS.dim == dO.dim && dO.dim == 7;
 
 % --- Cosine self-match ---
 results{end+1,1} = 'L3: absolute cosine self-match = 1';
-results{end,2}   = abs(cosSimExpTens(dA, dA, 'verbose', false) - 1) < 1e-9;
+results{end,2}   = abs(simMaet(dA, dA, 'verbose', false) - 1) < 1e-9;
 
 results{end+1,1} = 'L3: outer cosine self-match = 1';
-results{end,2}   = abs(cosSimExpTens(dO, dO, 'verbose', false) - 1) < 1e-9;
+results{end,2}   = abs(simMaet(dO, dO, 'verbose', false) - 1) < 1e-9;
 
 
 % --- Global-transposition invariance (outermost unit) ---
-dOT = buildExpTens({P3{1} + 5}, [], 'specs', {specOut}, bkw{:});
+dOT = buildMaet({P3{1} + 5}, [], 'specs', {specOut}, bkw{:});
 results{end+1,1} = 'L3: outer is global-transposition invariant';
-results{end,2}   = abs(cosSimExpTens(dO, dOT, 'verbose', false) - 1) < 1e-9;
+results{end,2}   = abs(simMaet(dO, dOT, 'verbose', false) - 1) < 1e-9;
 
-dAT = buildExpTens({P3{1} + 5}, [], 'specs', {specAbs}, bkw{:});
+dAT = buildMaet({P3{1} + 5}, [], 'specs', {specAbs}, bkw{:});
 results{end+1,1} = 'L3: absolute is NOT transposition invariant';
-results{end,2}   = cosSimExpTens(dA, dAT, 'verbose', false) < 0.999;
+results{end,2}   = simMaet(dA, dAT, 'verbose', false) < 0.999;
 
 
 % --- inner / intermediate per-group reduction at L = 3 ---
@@ -75,34 +75,34 @@ perChord = P3{1} + [0; 0; 60; 60; 0; 0; 60; 60];
 perBar   = P3{1} + [10; 10; 10; 10; 20; 20; 20; 20];
 glob     = P3{1} + 5;
 
-specIn  = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false], ...
+specIn  = struct('tags', tags3, 'r', [2 2 2], 'exch', [true true false], ...
                  'rel', [1 0 0]);
-specMid = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false], ...
+specMid = struct('tags', tags3, 'r', [2 2 2], 'exch', [true true false], ...
                  'rel', [0 1 0]);
 
-dIn  = buildExpTens(P3, [], 'specs', {specIn},  bkw{:});
-dMid = buildExpTens(P3, [], 'specs', {specMid}, bkw{:});
+dIn  = buildMaet(P3, [], 'specs', {specIn},  bkw{:});
+dMid = buildMaet(P3, [], 'specs', {specMid}, bkw{:});
 
 % inner: dim 4, self-match, per-chord transposition invariant
-dInC = buildExpTens({perChord}, [], 'specs', {specIn}, bkw{:});
+dInC = buildMaet({perChord}, [], 'specs', {specIn}, bkw{:});
 results{end+1,1} = 'L3: inner dim = D - G0 (4)';
 results{end,2}   = dIn.dim == 4;
 results{end+1,1} = 'L3: inner cosine self-match = 1';
-results{end,2}   = abs(cosSimExpTens(dIn, dIn, 'verbose', false) - 1) < 1e-9;
+results{end,2}   = abs(simMaet(dIn, dIn, 'verbose', false) - 1) < 1e-9;
 results{end+1,1} = 'L3: inner is per-chord transposition invariant';
-results{end,2}   = abs(cosSimExpTens(dIn, dInC, 'verbose', false) - 1) < 1e-6;
+results{end,2}   = abs(simMaet(dIn, dInC, 'verbose', false) - 1) < 1e-6;
 
 % intermediate: dim 6, self-match, per-bar invariant, per-chord NOT
-dMidB = buildExpTens({perBar},   [], 'specs', {specMid}, bkw{:});
-dMidC = buildExpTens({perChord}, [], 'specs', {specMid}, bkw{:});
+dMidB = buildMaet({perBar},   [], 'specs', {specMid}, bkw{:});
+dMidC = buildMaet({perChord}, [], 'specs', {specMid}, bkw{:});
 results{end+1,1} = 'L3: intermediate dim = D - G1 (6)';
 results{end,2}   = dMid.dim == 6;
 results{end+1,1} = 'L3: intermediate cosine self-match = 1';
-results{end,2}   = abs(cosSimExpTens(dMid, dMid, 'verbose', false) - 1) < 1e-9;
+results{end,2}   = abs(simMaet(dMid, dMid, 'verbose', false) - 1) < 1e-9;
 results{end+1,1} = 'L3: intermediate is per-bar transposition invariant';
-results{end,2}   = abs(cosSimExpTens(dMid, dMidB, 'verbose', false) - 1) < 1e-6;
+results{end,2}   = abs(simMaet(dMid, dMidB, 'verbose', false) - 1) < 1e-6;
 results{end+1,1} = 'L3: intermediate NOT invariant to finer (per-chord)';
-results{end,2}   = cosSimExpTens(dMid, dMidC, 'verbose', false) < 0.5;
+results{end,2}   = simMaet(dMid, dMidC, 'verbose', false) < 0.5;
 
 % Unit dims strictly increase inner -> intermediate -> outer -> absolute
 results{end+1,1} = 'L3: unit dims increase 4 < 6 < 7 < 8';
@@ -113,10 +113,10 @@ results{end,2}   = isequal([dIn.dim, dMid.dim, dO.dim, dA.dim], [4 6 7 8]);
 % Was a MemoryError via the flat S_8 = 40320 orbit; now the per-attribute
 % inner matrix is built numerically from the nested tuples and block
 % metric. Values are golden against the Python implementation (base 2).
-hIn  = entropyExpTens(dIn,  'method', 'renyi2', 'verbose', false);
-hMid = entropyExpTens(dMid, 'method', 'renyi2', 'verbose', false);
-hOut = entropyExpTens(dO,   'method', 'renyi2', 'verbose', false);
-hAbs = entropyExpTens(dA,   'method', 'renyi2', 'verbose', false);
+hIn  = entropyMaet(dIn,  'method', 'renyi2', 'verbose', false);
+hMid = entropyMaet(dMid, 'method', 'renyi2', 'verbose', false);
+hOut = entropyMaet(dO,   'method', 'renyi2', 'verbose', false);
+hAbs = entropyMaet(dA,   'method', 'renyi2', 'verbose', false);
 
 results{end+1,1} = 'L3: renyi2 finite for all four projections';
 results{end,2}   = all(isfinite([hIn, hMid, hOut, hAbs]));
@@ -136,37 +136,37 @@ results{end,2}   = abs(hAbs - 53.964178) < 1e-3;
 
 % --- Representation validation ---
 specVecTags = struct('tags', zeros(1, 8), 'r', [2 2 2], ...
-                     'sym', [true true false]);
+                     'exch', [true true false]);
 results{end+1,1} = 'L3: 1-D tags rejected for deep nesting';
 results{end,2}   = throwsErrorWithId( ...
-    @() buildExpTens(P3, [], 'specs', {specVecTags}, bkw{:}), ...
-    'buildExpTens:nestedTags');
+    @() buildMaet(P3, [], 'specs', {specVecTags}, bkw{:}), ...
+    'buildMaet:nestedTags');
 
 specBadShape = struct('tags', [tags3, tags3(:, 1)], 'r', [2 2 2], ...
-                      'sym', [true true false]);    % 8 x 3, need 8 x 2
+                      'exch', [true true false]);    % 8 x 3, need 8 x 2
 results{end+1,1} = 'L3: tag matrix wrong shape rejected';
 results{end,2}   = throwsErrorWithId( ...
-    @() buildExpTens(P3, [], 'specs', {specBadShape}, bkw{:}), ...
-    'buildExpTens:nestedTags');
+    @() buildMaet(P3, [], 'specs', {specBadShape}, bkw{:}), ...
+    'buildMaet:nestedTags');
 
 specScalarRel = struct('tags', tags3, 'r', [2 2 2], ...
-                       'sym', [true true false], 'rel', true);
+                       'exch', [true true false], 'rel', true);
 results{end+1,1} = 'L3: scalar rel rejected when nested';
 results{end,2}   = throwsErrorWithId( ...
-    @() buildExpTens(P3, [], 'specs', {specScalarRel}, bkw{:}), ...
-    'buildExpTens:nestedRelScalar');
+    @() buildMaet(P3, [], 'specs', {specScalarRel}, bkw{:}), ...
+    'buildMaet:nestedRelScalar');
 
 specInfeasible = struct('tags', tags3, 'r', [2 2 3], ...
-                        'sym', [true true false]);  % 3 bars, only 2 present
+                        'exch', [true true false]);  % 3 bars, only 2 present
 results{end+1,1} = 'L3: infeasible read errors';
 results{end,2}   = throwsErrorWithId( ...
-    @() buildExpTens(P3, [], 'specs', {specInfeasible}, bkw{:}), ...
-    'buildExpTens:nestedInfeasible');
+    @() buildMaet(P3, [], 'specs', {specInfeasible}, bkw{:}), ...
+    'buildMaet:nestedInfeasible');
 
 
 % --- bind_events deepening: flat -> L=2 -> L=3 ---
 % bindEvents deepens an already-nested attribute by tiling the existing
-% tag columns and appending a new outermost grouping level; r/sym/rel
+% tag columns and appending a new outermost grouping level; r/exch/rel
 % extend by the bound outer level.
 pf = {[0 2 4 5 7 9]};                        % flat, K=1, N=6
 [p1, w1, s1] = unpackPreMaet(bindEvents(pf, [], 2));        % -> L=2
@@ -175,25 +175,25 @@ sp = s2{1};
 results{end+1,1} = 'L3 bind: deepened tags is (4,2)';
 results{end,2}   = isequal(size(sp.tags), [4 2]);
 results{end+1,1} = 'L3 bind: deepened r = [1 2 2]';
-results{end,2}   = isequal(sp.r(:).', [1 2 2]) && numel(sp.sym) == 3 ...
+results{end,2}   = isequal(sp.r(:).', [1 2 2]) && numel(sp.exch) == 3 ...
                    && numel(sp.rel) == 3;
 results{end+1,1} = 'L3 bind: new outermost column = [0 0 1 1]';
 results{end,2}   = isequal(sp.tags(:, 2).', [0 0 1 1]) ...
                    && isequal(sp.tags(:, 1).', [0 1 0 1]);
 
-dB = buildExpTens(p2, w2, 'specs', s2, bkw{:});
+dB = buildMaet(p2, w2, 'specs', s2, bkw{:});
 results{end+1,1} = 'L3 bind: deepened density builds (dim 4)';
 results{end,2}   = dB.dim == 4;
 results{end+1,1} = 'L3 bind: deepened cosine self-match = 1';
-results{end,2}   = abs(cosSimExpTens(dB, dB, 'verbose', false) - 1) < 1e-9;
+results{end,2}   = abs(simMaet(dB, dB, 'verbose', false) - 1) < 1e-9;
 
 [p2r, w2r, s2r] = unpackPreMaet(bindEvents(p1, w1, 2, 'specs', s1, 'relOuter', true));
-dR  = buildExpTens(p2r, w2r, 'specs', s2r, bkw{:});
-dRT = buildExpTens({p2r{1} + 5}, w2r, 'specs', s2r, bkw{:});
+dR  = buildMaet(p2r, w2r, 'specs', s2r, bkw{:});
+dRT = buildMaet({p2r{1} + 5}, w2r, 'specs', s2r, bkw{:});
 results{end+1,1} = 'L3 bind: relOuter deepen -> rel [0 0 1], outer dim 3';
 results{end,2}   = isequal(s2r{1}.rel(:).', [0 0 1]) && dR.dim == 3;
 results{end+1,1} = 'L3 bind: relOuter deepen is global-transposition invariant';
-results{end,2}   = abs(cosSimExpTens(dR, dRT, 'verbose', false) - 1) < 1e-6;
+results{end,2}   = abs(simMaet(dR, dRT, 'verbose', false) - 1) < 1e-6;
 
 results{end+1,1} = 'L3 bind: levelNames rejected when deepening';
 results{end,2}   = throwsErrorWithId( ...

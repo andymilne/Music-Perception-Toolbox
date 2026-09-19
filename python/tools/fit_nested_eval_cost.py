@@ -107,7 +107,7 @@ def report(path, exclude_pathological):
     print(f"   always-centres (the previous 'auto'): geomean "
           f"{np.exp(np.log(base).mean()):.3f}, max {base.max():.1f}")
     rng = np.random.default_rng(0)
-    keys = d.groupby(["groups", "group_size", "r_levels", "sym",
+    keys = d.groupby(["groups", "group_size", "r_levels", "exch",
                       "rel_unit", "per"]).ngroup().values
     ckeys = keys[c.index.map(lambda i: d.index.get_loc(i)).values]
     regs = []

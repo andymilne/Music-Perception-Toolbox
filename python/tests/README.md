@@ -30,8 +30,9 @@ The test suite expects the `mpt` package to be importable. Install it in editabl
 Tests are flat (no subdirectories) and named by topic:
 
 - `test_maet.py`, `test_lazy_density.py`, `test_lazy_density_ma.py` — multi-attribute tensor density and lazy evaluation
-- `test_eval_*.py` — `eval_exp_tens` paths (centres / orbit / fast), dispatcher routing, unified raw-array signature
-- `test_cos_sim_*.py`, `test_batch_cos_sim_thinning.py` — `cos_sim_exp_tens` paths, polymorphic forms, canonical-form dedup
+- `test_maet_centres.py` — the `maet_centres` accessor over the lazy per-tuple fields
+- `test_eval_*.py` — `eval_maet` paths (centres / orbit / fast), dispatcher routing, unified raw-array signature
+- `test_cos_sim_*.py`, `test_batch_cos_sim_thinning.py` — `sim_maet` paths, polymorphic forms, canonical-form dedup
 - `test_dispatcher*.py` — path-selection cost model and dispatch messages
 - `test_windowed_*.py`, `test_window_*.py` — `windowed_similarity`, `windowed_entropy`, and `weight_events` (event weighting)
 - `test_circular*.py`, `test_balance_sigma.py`, `test_evenness_sigma.py`, `test_*_sigma_space.py`, `test_dft_circular_simulate.py`, `test_proj_centroid_sigma.py` — DFT, scale-structure, and pulse-level circular measures
@@ -41,6 +42,10 @@ Tests are flat (no subdirectories) and named by topic:
 - `test_continuity.py` — ordered-sequence utilities
 - `test_simplex_vertices.py`, `test_transform_attributes.py`, `test_add_spectra.py`, `test_kernel_truncation.py`, `test_cross_language_golden.py` — utility, kernel-precision, and MATLAB-vs-Python golden tests
 - `test_method_keyword.py`, `test_wrapper_routing.py`, `test_input_validation.py` — public API edge cases
+- `test_batched_shape_rule.py` — the shape rule that selects batched-raw mode, and the NaN-padded spelling that reads the same way in MATLAB
+- `test_bucket_padding.py` — the padded bucket lattice in the truncated kernel sums: the culled sum against a direct sum, for queries outside the centres' bounding box as well as within it
+- `test_periodic_cull.py` — the spatial cull on the relative periodic path: the half-width bound that makes it exact, the gate that stands it down where the window fills the circle, and agreement with the untruncated evaluation
+- `test_kernel_threads.py` — the `kernel_threads` default and the threaded kernel paths: resolution rules, the work threshold, and bit-identity with the serial path. Python-only; MATLAB threads elementwise arithmetic in the runtime and has no counterpart
 
 ## Memory-aware chunking
 

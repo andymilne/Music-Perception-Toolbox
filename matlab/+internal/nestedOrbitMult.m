@@ -1,4 +1,4 @@
-function mult = nestedOrbitMult(rLevels, symLevels)
+function mult = nestedOrbitMult(rLevels, exchLevels)
 %INTERNAL.NESTEDORBITMULT  Order of a nested attribute's tuple-symmetry group.
 %
 %   MULT = INTERNAL.NESTEDORBITMULT(RLEVELS, SYMLEVELS) returns |G|, the
@@ -11,9 +11,9 @@ function mult = nestedOrbitMult(rLevels, symLevels)
 %   level l independently at each of those nodes when SYMLEVELS(l) is
 %   set, so the group is the iterated wreath product
 %
-%       G = prod_{l : sym} (S_{RLEVELS(l)}) ^ (prod_{m > l} RLEVELS(m))
+%       G = prod_{l : exch} (S_{RLEVELS(l)}) ^ (prod_{m > l} RLEVELS(m))
 %
-%   of order prod_{l : sym} RLEVELS(l)!^(prod(RLEVELS(l+1:end))).
+%   of order prod_{l : exch} RLEVELS(l)!^(prod(RLEVELS(l+1:end))).
 %   Ordered levels contribute no factor, so an all-ordered attribute
 %   gives 1.
 %
@@ -29,10 +29,10 @@ function mult = nestedOrbitMult(rLevels, symLevels)
 %   See also MOBIUS.CLOSEDFORMATTRCENTRES, INTERNAL.NESTEDCONTRACT.
 
     rLevels   = double(rLevels(:)).';
-    symLevels = logical(symLevels(:)).';
+    exchLevels = logical(exchLevels(:)).';
     mult = 1;
-    for l = 1:numel(symLevels)
-        if ~symLevels(l)
+    for l = 1:numel(exchLevels)
+        if ~exchLevels(l)
             continue;
         end
         % prod of an empty slice is 1, so the outermost symmetric level

@@ -1,6 +1,6 @@
 function args = buildPreMaetArgs(args)
 %BUILDPREMAETARGS  Build any whole pre-MAET among positional arguments.
-%   A pre-MAET is a density in waiting: it holds everything buildExpTens
+%   A pre-MAET is a density in waiting: it holds everything buildMaet
 %   needs, so it stands wherever a density does and is built here. That
 %   goes for a CELL of them too: a cell of pre-MAETs stands wherever a
 %   cell of densities does, so the list and scalar-vs-list forms take
@@ -22,12 +22,12 @@ function args = buildPreMaetArgs(args)
             if localIsSweep(a)
                 args{k} = localBuildSweep(a, verbose);
             else
-                args{k} = buildExpTens(a, 'verbose', verbose);
+                args{k} = buildMaet(a, 'verbose', verbose);
             end
         elseif iscell(a) && localAnyPreMaet(a)
             for j = 1:numel(a)
                 if internal.isPreMaet(a{j})
-                    a{j} = buildExpTens(a{j}, 'verbose', verbose);
+                    a{j} = buildMaet(a{j}, 'verbose', verbose);
                 end
             end
             args{k} = a;
@@ -48,7 +48,7 @@ function dens = localBuildSweep(pm, verbose)
     M = numel(pm.pAttr);
     dens = cell(1, M);
     for m = 1:M
-        dens{m} = buildExpTens(preMaet(pm.pAttr{m}, pm.wAttr, pm.specs), ...
+        dens{m} = buildMaet(preMaet(pm.pAttr{m}, pm.wAttr, pm.specs), ...
                                'verbose', verbose);
     end
 end

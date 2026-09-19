@@ -21,7 +21,7 @@ RNG = np.random.default_rng(7)
 
 def _r1_density(pitches, times, sigma=(0.25, 0.08), is_per=(False, False),
                 period=(0.0, 0.0)):
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         [np.asarray(pitches, dtype=float).reshape(1, -1),
          np.asarray(times, dtype=float).reshape(1, -1)],
         None, list(sigma), [1, 1], [False, False], list(is_per),
@@ -43,10 +43,10 @@ def test_broadcast_matches_fresh_scalars_r1(norm):
 
     dX = _r1_density(P, T)
     dYs = [_r1_density(qP + k * 0.7, qT + k * 1.3) for k in range(6)]
-    batch = mpt.cos_sim_exp_tens(dX, dYs, normalize=norm, verbose=False)
+    batch = mpt.sim_maet(dX, dYs, normalize=norm, verbose=False)
 
     fresh = np.array([
-        mpt.cos_sim_exp_tens(
+        mpt.sim_maet(
             _r1_density(P, T), _r1_density(qP + k * 0.7, qT + k * 1.3),
             normalize=norm, verbose=False)
         for k in range(6)
@@ -60,7 +60,7 @@ def test_broadcast_matches_fresh_scalars_r1(norm):
 
 def _r2_density(vals, sigma=1.0, n_events=None):
     vals = np.asarray(vals, dtype=float)
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         [vals], None, [sigma], [2], [True], [False], [0.0],
         verbose=False,
     )
@@ -75,18 +75,18 @@ def test_broadcast_matches_fresh_scalars_mobius(norm):
     Ys = [RNG.uniform(0, 24, (2, 6)) for _ in range(4)]
 
     def build(v):
-        return mpt.build_exp_tens([v], None, [1.0], [2], [True], [False],
+        return mpt.build_maet([v], None, [1.0], [2], [True], [False],
                                   [0.0], verbose=False)
 
     dX = build(X)
     dYs = [build(Y) for Y in Ys]
     batch = np.array([
-        mpt.cos_sim_exp_tens(dX, dY, method="mobius", normalize=norm,
+        mpt.sim_maet(dX, dY, method="mobius", normalize=norm,
                              verbose=False)
         for dY in dYs
     ])
     fresh = np.array([
-        mpt.cos_sim_exp_tens(build(X), build(Y), method="mobius",
+        mpt.sim_maet(build(X), build(Y), method="mobius",
                              normalize=norm, verbose=False)
         for Y in Ys
     ])
@@ -129,13 +129,13 @@ def test_pairwise_need_xx_false_returns_none_xx():
     dX = _r1_density(RNG.uniform(40, 90, 50),
                      np.sort(RNG.uniform(0, 20, 50))).pruned()
     dY = _r1_density([60.0, 64.0, 67.0], [0.0, 1.0, 2.0]).pruned()
-    ip_xy, ip_xx, ip_yy = C._cos_sim_exp_tens_ma_pairwise(
+    ip_xy, ip_xx, ip_yy = C._sim_maet_ma_pairwise(
         dX, dY, verbose=False, need_xx=False)
     assert ip_xx is None
     assert np.isfinite(ip_xy) and np.isfinite(ip_yy)
     # The value oneSidedDenom produces from the reduced triple matches
     # the full-triple computation.
-    full = C._cos_sim_exp_tens_ma_pairwise(dX, dY, verbose=False)
+    full = C._sim_maet_ma_pairwise(dX, dY, verbose=False)
     assert ip_xy == full[0] and ip_yy == full[2]
     with pytest.raises(ValueError):
         C._finalise_normalisation(ip_xy, None, ip_yy, "cosine")
@@ -145,16 +145,16 @@ def test_cached_self_ip_is_reused_and_keyed():
     dX = _r1_density(RNG.uniform(40, 90, 40),
                      np.sort(RNG.uniform(0, 20, 40))).pruned()
     dY = _r1_density([60.0, 64.0], [0.0, 1.0]).pruned()
-    C._cos_sim_exp_tens_ma_pairwise(dX, dY, verbose=False)
+    C._sim_maet_ma_pairwise(dX, dY, verbose=False)
     key = C._self_ip_cache_key("bulger", None, None)
     assert key in dX._self_ip_cache and key in dY._self_ip_cache
     cached = dX._self_ip_cache[key]
     # Second call reuses the cached value (identity of the float, and
     # the triple slot equals it exactly).
-    trip = C._cos_sim_exp_tens_ma_pairwise(dX, dY, verbose=False)
+    trip = C._sim_maet_ma_pairwise(dX, dY, verbose=False)
     assert trip[1] == cached
     # A different truncation budget is a different key: no leak.
-    C._cos_sim_exp_tens_ma_pairwise(dX, dY, verbose=False,
+    C._sim_maet_ma_pairwise(dX, dY, verbose=False,
                                     truncation_sigmas=6.0)
     key6 = C._self_ip_cache_key("bulger", 6.0, None)
     assert key6 in dX._self_ip_cache
@@ -191,7 +191,7 @@ def test_r1_broadcast_batched_matches_loop(norm, shared_is_x, is_per,
     dS = mk(P, T)
     ents = [mk(qP + 0.7 * k, qT + 1.3 * k) for k in range(5)]
     args = (dS, ents) if shared_is_x else (ents, dS)
-    fast = mpt.cos_sim_exp_tens(*args, normalize=norm, verbose=False)
+    fast = mpt.sim_maet(*args, normalize=norm, verbose=False)
 
     orig = C._r1_broadcast_fast
     C._r1_broadcast_fast = lambda *a, **k: None
@@ -199,7 +199,7 @@ def test_r1_broadcast_batched_matches_loop(norm, shared_is_x, is_per,
         dS2 = mk(P, T)
         ents2 = [mk(qP + 0.7 * k, qT + 1.3 * k) for k in range(5)]
         args2 = (dS2, ents2) if shared_is_x else (ents2, dS2)
-        slow = mpt.cos_sim_exp_tens(*args2, normalize=norm, verbose=False)
+        slow = mpt.sim_maet(*args2, normalize=norm, verbose=False)
     finally:
         C._r1_broadcast_fast = orig
     np.testing.assert_allclose(fast, slow, rtol=1e-13, atol=0)
@@ -209,12 +209,12 @@ def test_r1_broadcast_batched_mismatch_still_raises():
     dS = _r1_density(RNG.uniform(40, 90, 30),
                      np.sort(RNG.uniform(0, 10, 30)))
     good = _r1_density([60.0, 64.0], [0.0, 1.0])
-    bad = mpt.build_exp_tens(
+    bad = mpt.build_maet(
         [np.array([[60.0, 64.0]]), np.array([[0.0, 1.0]])], None,
         [0.5, 0.08], [1, 1], [False, False], [False, False], [0.0, 0.0],
         verbose=False)  # different sigma
     with pytest.raises(ValueError):
-        mpt.cos_sim_exp_tens(dS, [good, bad], verbose=False)
+        mpt.sim_maet(dS, [good, bad], verbose=False)
 
 
 def test_r1_build_fast_path_matches_general_fields():
@@ -227,12 +227,12 @@ def test_r1_build_fast_path_matches_general_fields():
     T = np.sort(RNG.uniform(0, 10, 25))
     d_fast = _r1_density(P, T)
     pad = np.full((1, 25), np.nan)
-    d_gen = mpt.build_exp_tens(
+    d_gen = mpt.build_maet(
         [np.vstack([P, pad[0]]).reshape(2, -1),
          np.vstack([T, pad[0]]).reshape(2, -1)], None,
         [0.25, 0.08], [1, 1], [False, False], [False, False], [0.0, 0.0],
         verbose=False)
     q = _r1_density([60.0, 64.0, 67.0], [0.0, 1.0, 2.0])
-    v_fast = mpt.cos_sim_exp_tens(d_fast, q, verbose=False)
-    v_gen = mpt.cos_sim_exp_tens(d_gen, q, verbose=False)
+    v_fast = mpt.sim_maet(d_fast, q, verbose=False)
+    v_gen = mpt.sim_maet(d_gen, q, verbose=False)
     assert v_fast == pytest.approx(v_gen, rel=1e-13)

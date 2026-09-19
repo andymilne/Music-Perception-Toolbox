@@ -31,7 +31,7 @@ else
 end
 
 absPerP  = 1200;
-absPerID = 'buildExpTens:absPerSingleImage';
+absPerID = 'buildMaet:absPerSingleImage';
 absPerP_ = [0; 100; 300; 700];
 absPerW_ = ones(4, 1);
 
@@ -83,10 +83,10 @@ for ii = 1:size(absPerCases, 1)
     fired = false;
     try
         if isempty(wrap_)
-            buildExpTens(absPerP_, absPerW_, sop * absPerP, 2, ...
+            buildMaet(absPerP_, absPerW_, sop * absPerP, 2, ...
                          isRel_, isPer_, period_);
         else
-            buildExpTens(absPerP_, absPerW_, sop * absPerP, 2, ...
+            buildMaet(absPerP_, absPerW_, sop * absPerP, 2, ...
                          isRel_, isPer_, period_, 'wrap', wrap_);
         end
         [~, lastId] = lastwarn();
@@ -103,7 +103,7 @@ end
 absPerOK = true;
 try
     for r = 1:3
-        d = buildExpTens(absPerP_, absPerW_, 0.20 * absPerP, r, ...
+        d = buildMaet(absPerP_, absPerW_, 0.20 * absPerP, r, ...
                          false, true, absPerP);
         absPerOK = absPerOK && isstruct(d);
     end

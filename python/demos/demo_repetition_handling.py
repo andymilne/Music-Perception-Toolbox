@@ -49,7 +49,7 @@ Sections:
      count attribute is what keeps them apart.
 
 Exact invariances only (rel_outer flags); the graded counterparts (the
-sd_shift ridge of interval_kernel_cov, tending to rel in the limit) are
+sd_shift ridge of kernel_cov, tending to rel in the limit) are
 the subject of demo_tempo_invariance.
 """
 
@@ -57,7 +57,7 @@ import numpy as np
 
 import mpt
 from mpt import unpack_pre_maet
-from mpt import (bind_events, build_exp_tens, cos_sim_exp_tens,
+from mpt import (bind_events, build_maet, sim_maet,
                  difference_events)
 
 # Keep the dispatcher's per-call announcements out of the printed
@@ -207,7 +207,7 @@ def build_density(ev, log_ioi, sigma_count=SIGMA_COUNT,
         mpt.show_pre_maet(p_b, w_b, sp_b, names=names, sigma=sig,
                           is_per=[False] * len(sig), max_elements=6)
         print()
-    return build_exp_tens(p_b, w_b, specs=sp_b, sigma=sig,
+    return build_maet(p_b, w_b, specs=sp_b, sigma=sig,
                           is_per=[False] * len(sig),
                           period=[None] * len(sig), verbose=False)
 
@@ -251,7 +251,7 @@ def similarity_table(log_ioi):
         row = f"  {name:<12}"
         for tr in TREATMENTS:
             d = build_density(make_events(p, t, tr), log_ioi)
-            s = cos_sim_exp_tens(ref_dens[tr], d, verbose=False)
+            s = sim_maet(ref_dens[tr], d, verbose=False)
             row += f"{s:>10.3f}"
         print(row)
     print()
@@ -303,7 +303,7 @@ ev_held = make_events(VARIANTS[1][1], VARIANTS[1][2], "count")
 for sc in (0.25, 0.75, 1.5, 3.0):
     d_ref = build_density(ev_ref, log_ioi=True, sigma_count=sc)
     d_held = build_density(ev_held, log_ioi=True, sigma_count=sc)
-    s = cos_sim_exp_tens(d_ref, d_held, verbose=False)
+    s = sim_maet(d_ref, d_held, verbose=False)
     print(f"    count sigma = {sc:.2f}: similarity = {s:.3f}")
 print()
 
@@ -327,7 +327,7 @@ T_UNOREP = np.arange(4, dtype=float)
 for tr in ("prolong", "count"):
     d1 = build_density(make_events(P_UNIF, T_UNIF, tr), log_ioi=True)
     d2 = build_density(make_events(P_UNOREP, T_UNOREP, tr), log_ioi=True)
-    s = cos_sim_exp_tens(d1, d2, verbose=False)
+    s = sim_maet(d1, d2, verbose=False)
     print(f"    {tr:<8}: doubled figure vs closed-up figure = {s:.3f}")
 print()
 print("  With intervals in beats the two are already distinct under")

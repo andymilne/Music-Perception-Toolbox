@@ -10,7 +10,7 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
 %
 %     rVec, kVec, A, Nx, Ny, anyPer, anyRelNonper, anyRelPer,
 %     sigmaOverPMax, relVec, nuVec, kVecY, wrapVec, truncationSigmas,
-%     skipXX, skipYY, symVec, guardForcedBulger, perVec
+%     skipXX, skipYY, exchVec, guardForcedBulger, perVec
 %
 %   together with ORDEREDANY (an attribute ordered at r > 1 on either
 %   side, which overrides the selector's choice with Bulger's method)
@@ -18,7 +18,7 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
 %   operands' self-IP memo caches; omitted, they are read from the
 %   structs' 'selfIP' fields (INTERNAL.SELFIPFROMSTRUCT).
 %
-%   One function builds these for the real call (cosSimExpTens's
+%   One function builds these for the real call (simMaet's
 %   localCosSimMA) and for EXPLAINDISPATCH, so the report cannot drift
 %   from the route the call takes: the report used to omit the wrap
 %   vector, the grid node counts and the memo flags, and so named the
@@ -133,22 +133,22 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
     % Nested densities route through the hierarchical contraction, not
     % the flat Bulger pairwise path, so the flat forced-Bulger
     % feasibility guard must not fire for them; the selector receives
-    % that as its guard flag. The per-attribute sym flags let the guard
+    % that as its guard flag. The per-attribute exch flags let the guard
     % count an ordered attribute's C(K_a, r_a) tuples rather than the
     % unordered K_a!/(K_a - r_a)!.
     nestedAny = localAnyNested(densX) || localAnyNested(densY);
-    if isfield(densX, 'isSym')
-        symVec = logical(densX.isSym(:).');
+    if isfield(densX, 'isExch')
+        exchVec = logical(densX.isExch(:).');
     else
-        symVec = true(1, A);
+        exchVec = true(1, A);
     end
 
-    % Ordered (isSym = false) attributes at r_a > 1 on either side.
+    % Ordered (isExch = false) attributes at r_a > 1 on either side.
     rRow = double(rVec(:).');
-    orderedAny = any(~symVec & (rRow > 1));
-    if isfield(densY, 'isSym')
+    orderedAny = any(~exchVec & (rRow > 1));
+    if isfield(densY, 'isExch')
         orderedAny = orderedAny ...
-            || any(~logical(densY.isSym(:).') & (rRow > 1));
+            || any(~logical(densY.isExch(:).') & (rRow > 1));
     end
 
     in = struct( ...
@@ -158,7 +158,7 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
         'anyRelPer', anyRelPer, 'sigmaOverPMax', sigmaOverPMax, ...
         'relVec', relVec, 'nuVec', nuVec, 'kVecY', kVecY, ...
         'wrapVec', {wrapVec}, 'truncationSigmas', truncationSigmas, ...
-        'skipXX', skipXX, 'skipYY', skipYY, 'symVec', symVec, ...
+        'skipXX', skipXX, 'skipYY', skipYY, 'exchVec', exchVec, ...
         'guardForcedBulger', ~nestedAny, 'perVec', isPerG);
 end
 

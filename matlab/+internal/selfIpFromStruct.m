@@ -4,7 +4,7 @@ function cache = selfIpFromStruct(d)
 %   CACHE = INTERNAL.SELFIPFROMSTRUCT(D) reads the memo cache from D's
 %   'selfIP' field, or returns an empty cache when the field is absent
 %   or malformed (an unrecognised shape simply recomputes; it can never
-%   produce a wrong value). Shared by cosSimExpTens, which seeds its
+%   produce a wrong value). Shared by simMaet, which seeds its
 %   per-call caches from the operand structs, and by
 %   INTERNAL.FLATSELECTORINPUTS, which reads the same caches when
 %   explainDispatch asks what the call would cost.

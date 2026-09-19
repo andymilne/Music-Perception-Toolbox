@@ -145,7 +145,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %       consonance in music perception and composition. Psychological
 %       Review, 127(2), 216-244.
 %
-%   See also ADDSPECTRA, BUILDEXPTENS, EVALEXPTENS, CONVERTPITCH,
+%   See also ADDSPECTRA, BUILDMAET, EVALMAET, CONVERTPITCH,
 %            ROUGHNESS, AUDIOPEAKS.
 
     arguments
@@ -242,15 +242,15 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 
     % Time estimate (kernel cost only; conv() and other overheads not
     % included, so this is a lower bound). Pair count is the sum of
-    % the two evalExpTens workloads. dim = 1 since both densities use
+    % the two evalMaet workloads. dim = 1 since both densities use
     % r = 1, isRel = false.
     nPairs = double(numel(chord_p)) * double(numel(x_chord)) ...
            + double(numel(tmpl_p))  * double(numel(x_tmpl));
     estimateCompTime(nPairs, 1, 'templateHarmonicity', nvArgs.verbose);
 
-    tmpl_dens = buildExpTens(tmpl_p, tmpl_w, sigma, 1, false, ...
+    tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
         false, 1200, 'verbose', false);
-    tmpl_vals = evalExpTens(tmpl_dens, x_tmpl, ...
+    tmpl_vals = evalMaet(tmpl_dens, x_tmpl, ...
         'truncationSigmas', nvArgs.truncationSigmas, ...
         'kernelPrecision', nvArgs.kernelPrecision, ...
         'verbose', false);
@@ -300,7 +300,7 @@ function [hMax, hEntropy] = localTemplateChordOnly( ...
     % profile is treated as a probability distribution; this is a
     % discrete-Shannon computation on a vector, not on an
     % expectation-tensor density, so it does not delegate to
-    % entropyExpTens.)
+    % entropyMaet.)
     if requestedNargout > 1
         q = xcorr_norm(:);
         N = numel(q);       % total bins (before removing zeros)
@@ -328,8 +328,9 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
 %   rows are handled (NaN entries dropped per row); rows with fewer
 %   than 1 valid pitch yield NaN.
 %
-%   Applies the "build once, evaluate once" principle that
-%   batchCosSimExpTens and tensor_harmonicity_batched also use:
+%   Applies the "build once, evaluate once" principle that the
+%   batched-raw mode of simMaet and tensor_harmonicity_batched also
+%   use:
 %     - The harmonic template is built ONCE for the whole batch (it
 %       depends only on (spectrum, sigma, resolution), not on the
 %       chord), saving M template rebuilds compared to a recursive
@@ -377,9 +378,9 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
     [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
     margin = 4 * sigma;
     x_tmpl = 0:step:(max(tmpl_p) + margin);
-    tmpl_dens = buildExpTens(tmpl_p, tmpl_w, sigma, 1, false, ...
+    tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
         false, 1200, 'verbose', false);
-    tmpl_vals = evalExpTens(tmpl_dens, x_tmpl, ...
+    tmpl_vals = evalMaet(tmpl_dens, x_tmpl, ...
         'truncationSigmas', truncationSigmas, ...
         'kernelPrecision', kernelPrecision, ...
         'verbose', false);

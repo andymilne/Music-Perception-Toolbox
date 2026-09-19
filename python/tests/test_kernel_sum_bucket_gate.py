@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 from mpt._kernel import _bucket_index_worthwhile, gaussian_kernel_sum
 
 
@@ -37,9 +37,9 @@ def test_gate_rejects_more_offsets_than_centres():
 def test_r8_k9_single_multiset_cosine_completes():
     K, r = 9, 8
     g = np.arange(1, K + 1) * 37.0
-    d = build_exp_tens(g, np.ones(K), 6.0, r, False, False, 0.0,
+    d = build_maet(g, np.ones(K), 6.0, r, False, False, 0.0,
                        verbose=False)
-    s = cos_sim_exp_tens(d, d, method='auto', verbose=False)
+    s = sim_maet(d, d, method='auto', verbose=False)
     assert s == pytest.approx(1.0, abs=1e-9)
 
 

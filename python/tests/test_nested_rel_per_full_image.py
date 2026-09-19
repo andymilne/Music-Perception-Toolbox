@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens
+from mpt import build_maet
 from mpt._tensor.cosine import _nested_attr_matrix
 from mpt._tensor._nested_contraction import (
     auto_ntau_default, build_recipe)
@@ -43,7 +43,7 @@ def _at_the_accuracy_floor():
 P = 12.0
 CHORD, N_CHORDS, N_EVENTS = 2, 2, 2
 TAGS = np.repeat(np.arange(N_CHORDS), CHORD).reshape(-1, 1)
-SPEC = {"tags": TAGS, "r": [1, N_CHORDS], "sym": [True, True],
+SPEC = {"tags": TAGS, "r": [1, N_CHORDS], "exch": [True, True],
         "rel": [0, 1]}
 
 
@@ -54,7 +54,7 @@ def _pts(seed):
 
 
 def _dens(p, sigma):
-    return build_exp_tens([p], None, specs=[dict(SPEC)], sigma=[sigma],
+    return build_maet([p], None, specs=[dict(SPEC)], sigma=[sigma],
                           is_per=[True], period=[P], verbose=False)
 
 
@@ -119,7 +119,7 @@ def test_reference_nested_ip_matches_the_batched_matrix():
     same grid at sigma/P = 0.2, where the image treatment matters."""
     sigma = 0.2 * P
     x, y = _dens(_pts(1), sigma), _dens(_pts(2), sigma)
-    rec = build_recipe(np.asarray(SPEC["r"]), np.asarray(SPEC["sym"]),
+    rec = build_recipe(np.asarray(SPEC["r"]), np.asarray(SPEC["exch"]),
                        TAGS, is_rel=True, is_per=True)
     PX = np.asarray(x.p_attr[0], float)
     PY = np.asarray(y.p_attr[0], float)

@@ -6,7 +6,7 @@
 %  the diatonic scale [0, 2, 4, 5, 7, 9, 11] in 12-EDO as running
 %  examples.
 %
-%  Uses: transformAttributes, addSpectra, cosSimExpTens, templateHarmonicity,
+%  Uses: transformAttributes, addSpectra, simMaet, templateHarmonicity,
 %        tensorHarmonicity, spectralEntropy, roughness, balanceCircular,
 %        evennessCircular, coherence, sameness, nTupleEntropy, meanOffset,
 %        edges, markovS
@@ -39,7 +39,7 @@ chordNames = {'Major', 'Minor', 'Dim'};
 % Batched call: the scale (a single row vector) is broadcast against
 % every row of chord_mat. The 'spectrum' kwarg enriches both
 % sides identically.
-s = cosSimExpTens(scale_cents, [], chord_mat, [], ...
+s = simMaet(scale_cents, [], chord_mat, [], ...
                   10, 1, false, true, 1200, ...
                   'spectrum', {'harmonic', 24, 'powerlaw', 1}, ...
                   'verbose', false);

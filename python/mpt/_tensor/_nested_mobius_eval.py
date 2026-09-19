@@ -55,7 +55,7 @@ from .._utils import kernel_chunk_bytes_resolved
 from ._nested_contraction import build_recipe
 
 
-def eval_nested_attr_orbit(p, w, tags, r_levels, sym_levels, rel_unit,
+def eval_nested_attr_orbit(p, w, tags, r_levels, exch_levels, rel_unit,
                            sigma, x, *, is_per=False, period=0.0,
                            wrap='full-image', truncation_sigmas=None,
                            samples_per_sigma=None):
@@ -67,14 +67,14 @@ def eval_nested_attr_orbit(p, w, tags, r_levels, sym_levels, rel_unit,
         The event's live (non-NaN) values and their weights.
     tags : (K, L-1) int array
         Grouping tags of the live values, innermost grouping first.
-    r_levels, sym_levels : length-L sequences
+    r_levels, exch_levels : length-L sequences
         Per-level tuple size and symmetry, innermost first.
     rel_unit : None or int
         Co-transposition unit (level index), ``None`` for absolute.
     sigma : float
     x : (dim_a, n_q) array
         Query coordinates in the attribute's reduced layout (the layout
-        ``build_exp_tens`` documents for ``centres``).
+        ``build_maet`` documents for ``centres``).
     is_per, period, wrap, truncation_sigmas, samples_per_sigma :
         Kernel and quadrature controls, as on the flat evaluators.
 
@@ -91,7 +91,7 @@ def eval_nested_attr_orbit(p, w, tags, r_levels, sym_levels, rel_unit,
     w = np.asarray(w, dtype=np.float64).ravel()
     K = int(p.size)
     r_levels = [int(v) for v in np.asarray(r_levels).ravel()]
-    sym_levels = [bool(v) for v in np.asarray(sym_levels).ravel()]
+    exch_levels = [bool(v) for v in np.asarray(exch_levels).ravel()]
     L = len(r_levels)
     tags = np.asarray(tags)
     tags2 = tags.reshape(K, -1) if tags.ndim == 2 else tags.reshape(K, 1)
@@ -113,9 +113,9 @@ def eval_nested_attr_orbit(p, w, tags, r_levels, sym_levels, rel_unit,
                ts, r_levels, rel_unit, spp)
 
     # The tree: build_recipe groups values by the tag columns exactly as
-    # the enumeration does; only level / val_idx / children / r / sym are
+    # the enumeration does; only level / val_idx / children / r / exch are
     # read here.
-    root = build_recipe(np.asarray(r_levels), np.asarray(sym_levels), tags2)
+    root = build_recipe(np.asarray(r_levels), np.asarray(exch_levels), tags2)
 
     if x.shape[0] != ctx.width(L - 1):
         raise ValueError(
@@ -181,7 +181,7 @@ def _contract_abs(node, xq, ctx):
             c1 = min(n_q, c0 + step)
             d = xq[None, :, c0:c1] - ctx.p[vals][:, None, None]
             M = ctx.w[vals][:, None, None] * _theta(d, ctx)
-            out[c0:c1] = _combine(M, r, node.sym)
+            out[c0:c1] = _combine(M, r, node.exch)
         return out
     child_w = ctx.width(node.level - 1)
     M = np.empty((len(node.children), r, n_q), dtype=np.float64)
@@ -189,7 +189,7 @@ def _contract_abs(node, xq, ctx):
         for b in range(r):
             M[i, b, :] = _contract(child, xq[b * child_w:(b + 1) * child_w, :],
                                    ctx)
-    return _combine(M, r, node.sym)
+    return _combine(M, r, node.exch)
 
 
 def _theta(d, ctx):
@@ -205,7 +205,7 @@ def _theta(d, ctx):
     return np.exp(-(d * d) / (2.0 * ctx.sigma * ctx.sigma))
 
 
-def _combine(M, r, sym):
+def _combine(M, r, exch):
     """Σ over r-tuples of distinct children of Π_t M[c_t, t, :].
 
     ``M`` is (n_children, r, n_q). Symmetric: the Möbius set-partition sum
@@ -216,7 +216,7 @@ def _combine(M, r, sym):
         return M[:, 0, :].sum(axis=0)
     if n < r:
         return np.zeros(n_q, dtype=np.float64)
-    if sym:
+    if exch:
         unique_blocks, part_block_idx, mus = get_partition_block_structure(r)
         block_contribs = []
         for B in unique_blocks:

@@ -13,7 +13,7 @@ A tour of the toolbox's performance controls:
      precision.
   4. Toolbox-wide defaults — `mpt.set_default` lets all of the above
      be flipped globally so user code doesn't need per-call kwargs.
-  5. Renyi-2 entropy — `method='renyi2'` on `entropy_exp_tens` for a
+  5. Renyi-2 entropy — `method='renyi2'` on `entropy_maet` for a
      closed-form alternative to the numerical Shannon path.
 
 The dispatcher and a kernel truncation at 6 sigma are on by default
@@ -56,8 +56,8 @@ p_y = np.sort(rng.uniform(0, 1200, N_EVENTS))
 w_x = rng.uniform(0.5, 1.5, N_EVENTS)
 w_y = rng.uniform(0.5, 1.5, N_EVENTS)
 
-dens_x = mpt.build_exp_tens(p_x, w_x, SIGMA, R, False, False, 1200.0, verbose=False)
-dens_y = mpt.build_exp_tens(p_y, w_y, SIGMA, R, False, False, 1200.0, verbose=False)
+dens_x = mpt.build_maet(p_x, w_x, SIGMA, R, False, False, 1200.0, verbose=False)
+dens_y = mpt.build_maet(p_y, w_y, SIGMA, R, False, False, 1200.0, verbose=False)
 
 
 # A larger source set for the centres-path sections (2-4). MATLAB's
@@ -72,7 +72,7 @@ dens_y = mpt.build_exp_tens(p_y, w_y, SIGMA, R, False, False, 1200.0, verbose=Fa
 N_BIG = 50
 p_big = np.sort(rng.uniform(0, 1200, N_BIG))
 w_big = rng.uniform(0.5, 1.5, N_BIG)
-dens_big = mpt.build_exp_tens(p_big, w_big, SIGMA, R, False, False, 1200.0, verbose=False)
+dens_big = mpt.build_maet(p_big, w_big, SIGMA, R, False, False, 1200.0, verbose=False)
 
 
 # ===================================================================
@@ -81,19 +81,19 @@ dens_big = mpt.build_exp_tens(p_big, w_big, SIGMA, R, False, False, 1200.0, verb
 
 # Warm-up: flush first-call costs (orbit-table .pkl load, np.einsum_path
 # cache priming, function resolution) out of the timed section.
-mpt.cos_sim_exp_tens(dens_x, dens_y, method='mobius', verbose=False)
-mpt.cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+mpt.sim_maet(dens_x, dens_y, method='mobius', verbose=False)
+mpt.sim_maet(dens_x, dens_y, method='bulger', verbose=False)
 
 print(f"=== 1. Method dispatch (N={N_EVENTS}, r={R}, sigma={SIGMA}, abs nonper) ===\n")
 
 t_auto, c_auto = time_call(
-    lambda: mpt.cos_sim_exp_tens(dens_x, dens_y, verbose=False),
+    lambda: mpt.sim_maet(dens_x, dens_y, verbose=False),
 )
 t_bulger, c_bulger = time_call(
-    lambda: mpt.cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False),
+    lambda: mpt.sim_maet(dens_x, dens_y, method='bulger', verbose=False),
 )
 t_mobius, c_mobius = time_call(
-    lambda: mpt.cos_sim_exp_tens(dens_x, dens_y, method='mobius', verbose=False),
+    lambda: mpt.sim_maet(dens_x, dens_y, method='mobius', verbose=False),
 )
 
 print(f"  method='auto'    : {t_auto*1000:6.1f} ms   cosine = {c_auto:.10f}")
@@ -111,8 +111,8 @@ print(mpt.explain_dispatch(dens_x, dens_y))
 #  2. Kernel truncation
 # ===================================================================
 #
-# truncation_sigmas affects the centres path of eval_exp_tens and
-# Bulger's method in cos_sim_exp_tens, both of which form a kernel over
+# truncation_sigmas affects the centres path of eval_maet and
+# Bulger's method in sim_maet, both of which form a kernel over
 # tuple centres. The Möbius method evaluates the same density
 # analytically without a centres matrix, so the truncation control
 # does not apply to it. The default is 6 sigma; inf gives the exact,
@@ -132,15 +132,15 @@ def max_abs_err(v, ref):
     return float(np.max(np.abs(v - ref))) / scale
 
 t_no_trunc, v_no_trunc = time_call(
-    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
+    lambda: mpt.eval_maet(dens_big, queries, method='centres',
                               truncation_sigmas=float('inf'), verbose=False),
 )
 t_k6, v_k6 = time_call(
-    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
+    lambda: mpt.eval_maet(dens_big, queries, method='centres',
                               truncation_sigmas=6, verbose=False),
 )
 t_k4, v_k4 = time_call(
-    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
+    lambda: mpt.eval_maet(dens_big, queries, method='centres',
                               truncation_sigmas=4, verbose=False),
 )
 
@@ -161,11 +161,11 @@ print(f"   k=6 ~ exp(-18) ~ 1.5e-8; k=4 ~ exp(-8) ~ 3e-4.)")
 print(f"\n=== 3. kernel_precision ===\n")
 
 t_double, v_double = time_call(
-    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
+    lambda: mpt.eval_maet(dens_big, queries, method='centres',
                               kernel_precision='double', verbose=False),
 )
 t_single, v_single = time_call(
-    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
+    lambda: mpt.eval_maet(dens_big, queries, method='centres',
                               kernel_precision='single', verbose=False),
 )
 
@@ -191,14 +191,14 @@ prev = mpt.set_default(truncation_sigmas=4, kernel_precision='single')
 print(f"  New defaults:     {mpt.get_defaults()}")
 
 t_global, _ = time_call(
-    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres', verbose=False),
+    lambda: mpt.eval_maet(dens_big, queries, method='centres', verbose=False),
 )
 print(f"  eval with global defaults active : {t_global*1000:6.1f} ms")
 
 # Per-call kwargs always override the global defaults: here to the
 # exact, untruncated, double-precision computation.
 t_override, _ = time_call(
-    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
+    lambda: mpt.eval_maet(dens_big, queries, method='centres',
                               truncation_sigmas=float('inf'),
                               kernel_precision='double', verbose=False),
 )
@@ -215,12 +215,12 @@ print(f"  Restored; defaults now: {mpt.get_defaults()}")
 print(f"\n=== 5. Renyi-2 differential entropy ===\n")
 
 t_shannon, h_shannon = time_call(
-    lambda: mpt.entropy_exp_tens(dens_x, method='shannon',
+    lambda: mpt.entropy_maet(dens_x, method='shannon',
                                  x_min=0.0, x_max=1200.0,
                                  n_points_per_dim=100, verbose=False),
 )
 t_renyi2, h_renyi2 = time_call(
-    lambda: mpt.entropy_exp_tens(dens_x, method='renyi2', verbose=False),
+    lambda: mpt.entropy_maet(dens_x, method='renyi2', verbose=False),
 )
 
 print(f"  method='shannon' (numerical grid)  : {t_shannon*1000:7.1f} ms   H  = {h_shannon:.4f}")

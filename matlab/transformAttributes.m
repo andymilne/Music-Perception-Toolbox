@@ -6,7 +6,7 @@ function pm = transformAttributes(varargin)
 %   PM = transformAttributes(pAttr, wAttr, transforms, ...) are
 %   per-attribute preprocessing on the pre-MAET: every value of each
 %   selected attribute is passed through the transform given for that
-%   attribute, and the returned pre-MAET feeds straight into buildExpTens
+%   attribute, and the returned pre-MAET feeds straight into buildMaet
 %   or a further pre-MAET step.%
 %   The pre-MAET may be passed whole, as preMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
@@ -71,7 +71,7 @@ function pm = transformAttributes(varargin)
 %                 to |x| and a SIGN ATTRIBUTE with values in {-1/2, 0, +1/2}
 %                 is inserted immediately after the source attribute. The
 %                 attribute count grows by one for each such attribute, so
-%                 downstream per-attribute arguments (sigma, r, rel, sym,
+%                 downstream per-attribute arguments (sigma, r, rel, exch,
 %                 wrap, diffOrders, ...) must include the new column; this
 %                 is why the insertion is explicit rather than automatic.
 %                 The sign attribute copies the source's spec with rel
@@ -88,7 +88,7 @@ function pm = transformAttributes(varargin)
 %            transformed numeric array is returned instead.
 %
 %   See also PREMAET, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
-%   WEIGHTEVENTS, BUILDEXPTENS.
+%   WEIGHTEVENTS, BUILDMAET.
 
 if ~isempty(varargin) && (isnumeric(varargin{1}) || islogical(varargin{1}))
     % Bare-array form: one array in, the transformed array out. There is
@@ -643,7 +643,7 @@ function s = localSignSpec(spec)
     % The spec of a sign attribute: the source's structure, rel cleared,
     % name suffixed '_sign'.
     if ~isstruct(spec)
-        s = struct('r', 1, 'rel', false, 'sym', true, 'name', 'sign');
+        s = struct('r', 1, 'rel', false, 'exch', true, 'name', 'sign');
         return;
     end
     s = spec;

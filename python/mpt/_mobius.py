@@ -1,10 +1,10 @@
 """Möbius–Bulger inner product machinery (internal).
 
 This module implements the orbit-collapsed Möbius reformulation of the
-distinct-index inner product underlying ``cos_sim_exp_tens``,
-``entropy_exp_tens`` (Rényi-2 mode), and the windowed inner product.
+distinct-index inner product underlying ``sim_maet``,
+``entropy_maet`` (Rényi-2 mode), and the windowed inner product.
 It also implements the (layer-1-only) Möbius point evaluator and
-total-mass calculation used by ``eval_exp_tens`` and the Rényi-2
+total-mass calculation used by ``eval_maet`` and the Rényi-2
 denominator.
 
 The reformulation has two layers:
@@ -25,8 +25,10 @@ Layer 1 alone is enough for point evaluation and total mass (which
 have only one side). Layer 2 is the inner-product-specific further
 reduction. The two layers compose multiplicatively in the inner-product
 case to give |Ω_r| tensor contractions per inner product, with
-|Ω_r| = 4, 10, 33, 92, 306, 948, 3210 for r = 2, ..., 8 (compared to
-B_r² = 4, 25, 225, 2704, 41209, 769129, 17139600 unsymmetrised).
+|Ω_r| = 4, 10, 33, 91, 298, 910, 3017 for r = 2, ..., 8 (OEIS A007716:
+non-negative integer matrices with entry sum r, up to row and column
+permutations; compared to B_r² = 4, 25, 225, 2704, 41209, 769129,
+17139600 unsymmetrised).
 
 The orbit table for each r is built once and cached. Pre-built tables
 for r = 2, ..., 8 ship with the package; tables for higher r are built
@@ -56,6 +58,7 @@ twin-language ``matlab/+mobius`` package map.
 """
 from __future__ import annotations
 
+import itertools
 import os
 import pickle
 from collections import Counter, defaultdict
@@ -177,24 +180,18 @@ def enumerate_contingency_tables(row_sums, col_sums) -> Iterator[list[list[int]]
     yield from helper(M, 0, 0, list(row_sums), list(col_sums))
 
 
-def canonical_form(M, row_sums, col_sums) -> tuple[tuple[int, ...], tuple[int, ...], tuple[tuple[int, ...], ...]]:
-    """Canonicalise a contingency table under row/column permutations
-    within size groups.
+def _greedy_form(M, row_sums, col_sums) -> tuple[tuple[int, ...], tuple[int, ...], tuple[tuple[int, ...], ...]]:
+    """Cheap pre-bucketing of a contingency table: iteratively sort rows by
+    (size, content) and columns likewise until stable.
 
-    Iteratively sorts rows by (size, content tuple) and columns likewise
-    until stable.
-
-    Returns
-    -------
-    tuple
-        ``(canonical_row_sums, canonical_col_sums, canonical_M)`` where the
-        last is a tuple of tuples.
+    This is an orbit *invariant* but not a canonical form: two tables in
+    the same orbit can settle on different fixed points (first at r = 5),
+    so it is used only to bucket tables before :func:`canonical_form` is
+    applied to one representative per bucket.
     """
     M_arr = np.asarray(M, dtype=int)
     rs = list(row_sums)
     cs = list(col_sums)
-    # Iterate to fixed point (max 20 iterations is far more than needed
-    # for any realistic r).
     for _ in range(20):
         row_keys = [(rs[i], tuple(M_arr[i, :])) for i in range(len(rs))]
         row_perm = sorted(range(len(rs)), key=lambda i: row_keys[i])
@@ -205,6 +202,50 @@ def canonical_form(M, row_sums, col_sums) -> tuple[tuple[int, ...], tuple[int, .
         M_arr = M_arr[:, col_perm]
         cs = [cs[j] for j in col_perm]
     return tuple(rs), tuple(cs), tuple(map(tuple, M_arr.tolist()))
+
+
+def canonical_form(M, row_sums, col_sums) -> tuple[tuple[int, ...], tuple[int, ...], tuple[tuple[int, ...], ...]]:
+    """Exact canonical form of a contingency table under independent row
+    and column permutations.
+
+    Columns are first ordered by an orbit-invariant key (column sum, then
+    the sorted multiset of (row sum, entry) pairs); columns sharing a key
+    form a group. The canonical form is the lexicographic minimum, over
+    all products of within-group column permutations, of the matrix with
+    its rows sorted by (row sum, content). Two tables are in the same
+    orbit if and only if their canonical forms coincide, so the orbit
+    table has exactly |Ω_r| entries (OEIS A007716). Mirrors
+    ``mobius.canonicalForm`` in MATLAB step for step.
+
+    Returns
+    -------
+    tuple
+        ``(canonical_row_sums, canonical_col_sums, canonical_M)`` where the
+        last is a tuple of tuples.
+    """
+    M_arr = np.asarray(M, dtype=int)
+    rs = [int(v) for v in row_sums]
+    cs = [int(v) for v in col_sums]
+    qB = len(cs)
+    inv = [(cs[j], tuple(sorted(zip(rs, M_arr[:, j].tolist()))))
+           for j in range(qB)]
+    order = sorted(range(qB), key=lambda j: inv[j])
+    groups: list[list[int]] = []
+    for j in order:
+        if groups and inv[groups[-1][0]] == inv[j]:
+            groups[-1].append(j)
+        else:
+            groups.append([j])
+    best = None
+    for choice in itertools.product(*(itertools.permutations(g) for g in groups)):
+        cols = [j for grp in choice for j in grp]
+        Mc = M_arr[:, cols]
+        rows = sorted(zip(rs, map(tuple, Mc.tolist())))
+        key = tuple(content for _, content in rows)
+        if best is None or key < best[0]:
+            best = (key, tuple(sz for sz, _ in rows), tuple(cs[j] for j in cols))
+    key, rs_c, cs_c = best
+    return rs_c, cs_c, key
 
 
 # ---------------------------------------------------------------------
@@ -298,10 +339,19 @@ def _build_orbit_table(r: int) -> list[OrbitEntry]:
             mu_B = mobius_for_blocksizes(m_B)
             autB = aut_size(m_B)
 
-            # Enumerate contingency tables, group by canonical form
-            seen = defaultdict(int)
+            # Enumerate contingency tables; bucket them cheaply by the
+            # greedy invariant, then canonicalise one representative per
+            # bucket exactly and merge buckets that share an orbit.
+            buckets = defaultdict(int)
+            rep = {}
             for M in enumerate_contingency_tables(m_A, m_B):
-                seen[canonical_form(M, m_A, m_B)] += 1
+                g = _greedy_form(M, m_A, m_B)
+                buckets[g] += 1
+                if g not in rep:
+                    rep[g] = M
+            seen = defaultdict(int)
+            for g, count in buckets.items():
+                seen[canonical_form(rep[g], m_A, m_B)] += count
 
             for (rs_canon, cs_canon, M_canon), tables_in_orbit in seen.items():
                 lp_M = labelled_pairs_realising_M(M_canon)
@@ -649,7 +699,7 @@ def _ensure_paths(table):
     return table
 
 
-def _build_and_save_prebuilt_tables(max_r: int = 8) -> None:
+def _build_and_save_prebuilt_tables(max_r: int = 8, overwrite: bool = False) -> None:
     """Build orbit tables for r = 2, ..., max_r and save to the shipped
     location. Run during package release preparation; not called at runtime.
 
@@ -658,7 +708,7 @@ def _build_and_save_prebuilt_tables(max_r: int = 8) -> None:
     _PREBUILT_DIR.mkdir(parents=True, exist_ok=True)
     for r in range(2, max_r + 1):
         out = _PREBUILT_DIR / f"orbit_r{r}.pkl"
-        if out.is_file():
+        if out.is_file() and not overwrite:
             continue
         table = _build_orbit_table(r)
         with open(out, "wb") as f:
@@ -1391,7 +1441,7 @@ def eval_orbit_abs(
     # means "use the global default", so a user who set
     # ``set_default(truncation_sigmas=6)`` should see the orbit path
     # apply truncation even when the kwarg is omitted at the call.
-    # (Same principle as the resolver call at :func:`eval_exp_tens`'s
+    # (Same principle as the resolver call at :func:`eval_maet`'s
     # entry.)
     from ._defaults import resolve_truncation_sigmas
     trunc_resolved = resolve_truncation_sigmas(truncation_sigmas)

@@ -197,10 +197,10 @@ function [p, w] = addSpectra(p, w, mode, varargin)
 %     [p, w] = addSpectra([0; 4; 7], [], 'harmonic', 6, 'powerlaw', 1, ...
 %                            'units', 12);
 %
-%   The output can be passed directly to buildExpTens, evalExpTens, or
-%   cosSimExpTens as the pitch and weight arguments.
+%   The output can be passed directly to buildMaet, evalMaet, or
+%   simMaet as the pitch and weight arguments.
 %
-%   See also buildExpTens, evalExpTens, cosSimExpTens.
+%   See also buildMaet, evalMaet, simMaet.
 
 % === Input validation ===
 

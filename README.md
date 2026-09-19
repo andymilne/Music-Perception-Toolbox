@@ -20,14 +20,14 @@ Version 3.0.0 is a major release relative to the last public line (2.0.x); versi
 
 **Generalisation: multi-attribute expectation tensors and the pipeline around them.**
 
-- **Multi-attribute expectation tensors (MAET).** `buildExpTens`, `evalExpTens`, `cosSimExpTens`, and `entropyExpTens` accept a multi-attribute density specification alongside the v2.0 single-attribute form, which is now the single-multiset corner of the one density type, `MaetDensity`. Each attribute carries its own tuple order $r_a$ and per-event slot count $K_a$; groups share $\sigma$, periodicity, and relativity. The cosine-similarity inner product factorises analytically across attribute groups in the same way as the single-attribute case.
+- **Multi-attribute expectation tensors (MAET).** `buildMaet`, `evalMaet`, `simMaet`, and `entropyMaet` accept a multi-attribute density specification alongside the v2.0 single-attribute form, which is now the single-multiset corner of the one density type, `MaetDensity`. Each attribute carries its own tuple order $r_a$ and per-event slot count $K_a$; groups share $\sigma$, periodicity, and relativity. The cosine-similarity inner product factorises analytically across attribute groups in the same way as the single-attribute case.
 - **Pre-MAET preprocessing.** `differenceEvents` produces inter-event differences (interval content, IOIs, higher-order differences; a `circular` flag wraps at the sequence boundary), `bindEvents` gathers $n$ consecutive events into super-events with separate per-lag attributes (and accepts $K_{a,n} > 1$ input), `translateAttributes` shifts selected attributes by an offset or a sweep of offsets, `transformAttributes` maps attribute values through logarithmic, power, and scale-conversion transforms (Hz, MIDI, cents, ERB-rate, and so on; it absorbs the former `convertPitch`), `preMaetFromScore` reads a MIDI or MusicXML file straight into the carrier, and `weightEvents` writes a window factor computed from one attribute into the weights of another. Together they compose into windowed entropy, sliding comparisons, and the n-tuple entropy of Milne & Dean (2016) at $\sigma \to 0$.
-- **Windowed comparison.** `windowedSimilarity` slides a query across a context and returns a similarity profile with a closed-form inner product at each position; `windowedEntropy` does the same for entropy. `sweepCosSimExpTens` evaluates a whole translation sweep in one pass.
-- **Unified dispatch and consumer-level batching.** `evalExpTens`, `cosSimExpTens`, and `entropyExpTens` accept a single density, a list of densities, or raw arrays (1-D for a single multiset, 2-D for a batch). `tensorHarmonicity`, `templateHarmonicity`, `virtualPitches`, and `spectralEntropy` accept a 2-D pitch matrix for batched evaluation, returning per-row results. The DFT-equivariant family (`dftCircular`, `meanOffset`, `edges`, `projCentroid`, `circApm`), the structural family (`coherence`, `sameness`, `nTupleEntropy`), and the Monte Carlo family (`balanceCircular`, `evennessCircular`) likewise gain batched-input dispatch. Every batched path uses canonical-form deduplication to collapse symmetry-equivalent rows onto a single cached computation. The standalone `cos_sim_exp_tens_raw`, `eval_exp_tens_raw`, `batch_cos_sim_exp_tens` (Python) and `batchCosSimExpTens` (MATLAB) are now deprecated shims forwarding to the unified entry points.
+- **Windowed comparison.** `windowedSimilarity` slides a query across a context and returns a similarity profile with a closed-form inner product at each position; `windowedEntropy` does the same for entropy. `sweepSimMaet` evaluates a whole translation sweep in one pass.
+- **Unified dispatch and consumer-level batching.** `evalMaet`, `simMaet`, and `entropyMaet` accept a single density, a list of densities, or raw arrays (1-D for a single multiset, 2-D for a batch). `tensorHarmonicity`, `templateHarmonicity`, `virtualPitches`, and `spectralEntropy` accept a 2-D pitch matrix for batched evaluation, returning per-row results. The DFT-equivariant family (`dftCircular`, `meanOffset`, `edges`, `projCentroid`, `circApm`), the structural family (`coherence`, `sameness`, `nTupleEntropy`), and the Monte Carlo family (`balanceCircular`, `evennessCircular`) likewise gain batched-input dispatch. Every batched path uses canonical-form deduplication to collapse symmetry-equivalent rows onto a single cached computation. The standalone `cos_sim_exp_tens_raw`, `eval_exp_tens_raw`, `batch_cos_sim_exp_tens` (Python) and `batchCosSimExpTens` (MATLAB) are now deprecated shims forwarding to the unified entry points.
 - **Soft (`sigma > 0`) structural measures.** `sameness` and `coherence` accept an optional `sigma` argument that softens the discrete equality / ordering tests against Gaussian positional uncertainty; `nTupleEntropy`'s existing `sigma` argument gains a `sigmaSpace` flag (shared across all three functions) controlling whether `sigma` describes positional uncertainty on each event (the new default, exact at every $n$) or independent per-interval uncertainty.
 - **Argand-DFT Monte Carlo.** New `dftCircularSimulate` estimates the distribution of $|F(k)|$ under positional jitter; `balanceCircular`, `evennessCircular`, and `projCentroid` accept an optional `sigma` argument (Monte Carlo for the first two, closed-form analytical for the third).
 - **Sequential-analysis and encoding utilities.** `continuity` summarises the recent direction trend leading up to a query; `simplexVertices` returns equidistant vertex coordinates for simplex-coded categorical attributes (voice identity, instrument, etc.) suitable for MAET inputs.
-- **Anisotropic kernels.** On an ordered, absolute, non-periodic attribute, `sigma` may be an $r \times r$ covariance matrix; `intervalKernelCov` builds the covariance of consecutive intervals from position, interval, and common-shift uncertainties.
+- **Anisotropic kernels.** On an ordered, absolute, non-periodic attribute, `sigma` may be an $r \times r$ covariance matrix; `kernelCov` builds the covariance of a tuple of values, or of consecutive intervals, from value, interval, and common-shift uncertainties.
 
 **Performance.**
 
@@ -37,24 +37,24 @@ Version 3.0.0 is a major release relative to the last public line (2.0.x); versi
 
 A new **toolbox defaults API** (`mptDefaults` in MATLAB, `mpt.set_default` / `mpt.get_defaults` / `mpt.reset_defaults` / `mpt.show_defaults` in Python) lets the kernel-evaluation controls and other toolbox-wide settings be inspected, set, and reset per call or globally. Calling `mptDefaults` with no arguments (MATLAB) or `mpt.show_defaults()` (Python) prints the current values with brief descriptions of each setting. See the [User Guide](USER_GUIDE.md#toolbox-defaults-api-mptdefaults--mptset_default) for full details.
 
-Other user-facing additions: a **four-method entropy API** on `entropyExpTens` — `'shannon'`, `'normalized'`, adaptive `'differential'`, and closed-form **Rényi-2** (`'renyi2'`; Shannon differential entropy continues to be evaluated on a numerical grid, since it has no closed form) — replacing the v2.0 `normalize` kwarg; and a `normalize` option on `cosSimExpTens` (`'cosine'` or `'oneSidedDenom'`).
+Other user-facing additions: a **four-method entropy API** on `entropyMaet` — `'shannon'`, `'normalized'`, adaptive `'differential'`, and closed-form **Rényi-2** (`'renyi2'`; Shannon differential entropy continues to be evaluated on a numerical grid, since it has no closed form) — replacing the v2.0 `normalize` kwarg; and a `normalize` option on `simMaet` (`'cosine'` or `'oneSidedDenom'`).
 
-The release is a major version bump because a few defaults and one keyword changed: the `normalize` kwarg is removed from the entropy functions, `spectralEntropy` defaults to `'differential'`, `entropyExpTens` requires an explicit grid resolution for the discrete methods, and kernel truncation is on by default. Everything else preserves the v2.0 calling conventions. See [CHANGELOG.md](CHANGELOG.md) for the full list of changes and [MIGRATION.md](MIGRATION.md#v20--v30) for the v2.0 → v3.0 migration notes.
+The release is a major version bump because a few defaults and one keyword changed: the `normalize` kwarg is removed from the entropy functions, `spectralEntropy` defaults to `'differential'`, `entropyMaet` requires an explicit grid resolution for the discrete methods, and kernel truncation is on by default. Everything else preserves the v2.0 calling conventions. See [CHANGELOG.md](CHANGELOG.md) for the full list of changes and [MIGRATION.md](MIGRATION.md#v20--v30) for the v2.0 → v3.0 migration notes.
 
 ## What's new in v2
 
 This was a major rewrite. Key changes:
 
 - **Python implementation** — a functionally identical Python package (`mpt`) using snake_case naming. See the [User Guide](USER_GUIDE.md#4-api-conventions-matlab-vs-python) for the full name mapping.
-- Analytical methods have replaced the previous numerical approximations wherever feasible. In v1, analytical computation was available only for the cosine similarity inner product (`cosSimExpTens`); in v2, individual tensor construction and evaluation (`buildExpTens` / `build_exp_tens` and `evalExpTens` / `eval_exp_tens`) are also analytical, eliminating grid discretization.
-- The `cosSimExpTens` computation itself has been substantially optimized — the original double loop over r-ad combinations has been replaced by fully vectorized operations over pre-calculated r-ads.
-- Precomputed density objects (`buildExpTens` / `build_exp_tens`) eliminate redundant computation across repeated comparisons.
+- Analytical methods have replaced the previous numerical approximations wherever feasible. In v1, analytical computation was available only for the cosine similarity inner product (`simMaet`); in v2, individual tensor construction and evaluation (`buildMaet` / `build_maet` and `evalMaet` / `eval_maet`) are also analytical, eliminating grid discretization.
+- The `simMaet` computation itself has been substantially optimized — the original double loop over r-ad combinations has been replaced by fully vectorized operations over pre-calculated r-ads.
+- Precomputed density objects (`buildMaet` / `build_maet`) eliminate redundant computation across repeated comparisons.
 - Spectral enrichment (`addSpectra` / `add_spectra`) expanded from one mode to five: harmonic, stretched, frequency-linear, stiff-string, and custom.
 - All functions now accept event positions and weights directly (v1's indicator-vector inputs are no longer required).
 - No external dependencies (v1 required the [Sparse Array Toolbox](https://github.com/andymilne/Sparse-Array-Toolbox)).
 - **Comprehensive documentation** — every function includes a full help text with usage examples. A [User Guide](USER_GUIDE.md) covers the conceptual foundations, a complete function reference for both languages, worked examples, and nine demo scripts covering all major use cases. [MIGRATION.md](MIGRATION.md) maps every v1 function to its v2 equivalent.
 
-The original `cosSimExpTens` calling convention is fully backward compatible.
+The original `simMaet` calling convention is fully backward compatible.
 
 **v1 users:** see [MIGRATION.md](MIGRATION.md#v1--v2) for a complete function mapping. The original toolbox is permanently available as the [v1.0.0 release](https://github.com/andymilne/Music-Perception-Toolbox/releases/tag/v1.0.0).
 
@@ -88,6 +88,39 @@ pip install ./python[audio]
 
 Requires Python 3.10+. Dependencies (NumPy, SciPy) are installed automatically.
 
+### Python, working on the toolbox itself
+
+The install above copies the code, so edits to this repository have no
+effect on what `import mpt` finds. To run the toolbox *as it stands in the
+repository* — editing a source file or a demo and seeing the change at the
+next run, as MATLAB does — install it in editable mode instead. Once, from
+a clone:
+
+```bash
+cd Music-Perception-Toolbox/python
+python3 -m pip install -e .        # add --user if permission is refused
+```
+
+`import mpt` then resolves to this repository from any folder, and no
+reinstall is needed after an edit. The step is needed again only on a new
+clone or after a dependency changes.
+
+That installs into whichever Python is first on the path. If this machine
+runs several projects with conflicting requirements, put the toolbox in a
+virtual environment — a private Python belonging to this project alone —
+instead, and install into that:
+
+```bash
+cd Music-Perception-Toolbox/python
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+```
+
+In an editor that runs scripts for you, point it at the interpreter you
+installed into; it will then find the toolbox without any path setting of
+its own. In VS Code that is *Python: Select Interpreter* from the command
+palette, and the choice is remembered per folder.
+
 ## Quick example
 
 The two implementations are functionally identical. The main differences are naming convention (camelCase → snake_case), `[]` → `None` for default weights, and cell arrays → lists for spectrum arguments. See the [User Guide](USER_GUIDE.md#api-conventions-matlab-vs-python) for a complete mapping.
@@ -104,7 +137,7 @@ minor = [0, 300, 700];
 [min_p, min_w] = addSpectra(minor, [], 'harmonic', 12, 'powerlaw', 1);
 
 % Compute spectral pitch class similarity
-s = cosSimExpTens(maj_p, maj_w, min_p, min_w, 10, 1, false, true, 1200);
+s = simMaet(maj_p, maj_w, min_p, min_w, 10, 1, false, true, 1200);
 fprintf('SPCS(major, minor) = %.3f\n', s);
 ```
 
@@ -119,7 +152,7 @@ minor = [0, 300, 700]
 maj_p, maj_w = mpt.add_spectra(major, None, 'harmonic', 12, 'powerlaw', 1)
 min_p, min_w = mpt.add_spectra(minor, None, 'harmonic', 12, 'powerlaw', 1)
 
-s = mpt.cos_sim_exp_tens(maj_p, maj_w, min_p, min_w, 10, 1, False, True, 1200)
+s = mpt.sim_maet(maj_p, maj_w, min_p, min_w, 10, 1, False, True, 1200)
 print(f'SPCS(major, minor) = {s:.3f}')
 ```
 
@@ -164,7 +197,7 @@ For functions related to balance, evenness, and rhythmic structure, additionally
 
 This work was supported, in part, by an Australian Research Council Discovery Early Career Researcher Award (project number DE170100353) funded by the Australian Government.
 
-The original `cosSimExpTens` algorithm and the `markovS` function were contributed by David Bulger (Department of Mathematics and Statistics, Macquarie University).
+The original `simMaet` algorithm and the `markovS` function were contributed by David Bulger (Department of Mathematics and Statistics, Macquarie University).
 
 ## License
 

@@ -2,17 +2,20 @@
 
 Anisotropic kernels for tempo tolerance and tempo invariance:
 searching for a rhythmic motif in an onset stream with
-`interval_kernel_cov` and `windowed_similarity`.
+`kernel_cov` and `windowed_similarity`.
 
 A matrix-valued kernel covariance (accepted wherever `sigma` is, on an
 ordered, absolute, non-periodic, non-nested attribute whose tuple is
 its whole multiset, r == K) lets one Gaussian kernel express several
 independent sources of perceptual tolerance at once. The constructor
-`interval_kernel_cov(r, sd_position, sd_interval, sd_shift)` builds the
-covariance for an ordered tuple of r consecutive differences
-(intervals) of r + 1 underlying positions:
+`kernel_cov(r, sd_value, sd_interval, sd_shift, differenced=...)`
+builds the covariance from three sources of variance -- value noise,
+interval noise, and a common shift -- propagated according to whether
+the tuple holds values or their first differences. Here the tuple
+holds differences (`differenced=True`), r consecutive intervals of
+r + 1 onsets:
 
-    Sigma = sd_position**2 * D D^T      (tridiagonal: 2 / -1 / -1)
+    Sigma = sd_value**2 * D D^T      (tridiagonal: 2 / -1 / -1)
           + sd_interval**2 * I          (diagonal)
           + sd_shift**2   * ones((r,r)) (rank-one ridge)
 
@@ -22,11 +25,11 @@ coordinates is a common ADDITIVE shift of the whole tuple, log(a), along
 the all-ones diagonal. That makes the three constructor terms three
 musically distinct tolerances:
 
-  sd_position   Uncertainty on the underlying positions whose
+  sd_value   Uncertainty on the underlying values (onsets) whose
                 consecutive differences are the tuple's intervals.
                 Shared endpoints propagate it to the tridiagonal
-                sd_position**2 * D D^T: displacing one interior
-                position lengthens one interval and shortens its
+                sd_value**2 * D D^T: displacing one interior
+                onset lengthens one interval and shortens its
                 neighbour by the same amount. On log-IOIs this models
                 onset-level timing jitter that scales with the local
                 inter-onset interval (Weber-like motor noise); the
@@ -93,7 +96,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import mpt
-from mpt import interval_kernel_cov
+from mpt import kernel_cov
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 FN_FIG_MAIN = os.path.join(OUT_DIR, 'demo_tempo_invariance.png')
@@ -185,14 +188,14 @@ print("  read at r = 3, timed at the onset that completes its first")
 print("  interval (the window-placing attribute).")
 
 
-# ===== 2. interval_kernel_cov: shaping the kernel covariance =====
+# ===== 2. kernel_cov: shaping the kernel covariance =====
 
-# interval_kernel_cov builds the covariance of the trigram attribute's
+# kernel_cov builds the covariance of the trigram attribute's
 # Gaussian kernel -- the object that sets how much of each kind of
 # departure from the motif the search treats as small. The covariance
 # is a sum of three independently scaled terms, one per source of
 # uncertainty being smoothed over:
-#   sd_position -- jitter in the underlying onset times. Neighbouring
+#   sd_value -- jitter in the underlying onset times. Neighbouring
 #     intervals share an onset, so this uncertainty couples them: it
 #     enters as a tridiagonal term (2 sd^2 on the diagonal, -sd^2
 #     between neighbours).
@@ -206,26 +209,26 @@ print("  interval (the window-placing attribute).")
 #     the shift out exactly. Section 4 traces this convergence.
 # The three cases below turn on one term at a time so each contribution
 # to the covariance is visible on its own.
-print("\n=== 2. interval_kernel_cov: the kernel covariance ===\n")
-print("  interval_kernel_cov builds the covariance of the trigram")
+print("\n=== 2. kernel_cov: the kernel covariance ===\n")
+print("  kernel_cov builds the covariance of the trigram")
 print("  attribute's Gaussian kernel from three terms, one per source")
 print("  of uncertainty the search smooths over: onset-time jitter")
-print("  (sd_position), per-interval noise (sd_interval), and a common")
+print("  (sd_value), per-interval noise (sd_interval), and a common")
 print("  tempo shift (sd_shift). Each case below turns on one term:\n")
 
-S_POS = interval_kernel_cov(3, sd_position=0.05)
-S_INT = interval_kernel_cov(3, sd_interval=0.05 * np.sqrt(2))
-S_RDG = interval_kernel_cov(3, sd_position=0.05, sd_shift=0.25)
+S_POS = kernel_cov(3, sd_value=0.05, differenced=True)
+S_INT = kernel_cov(3, sd_interval=0.05 * np.sqrt(2), differenced=True)
+S_RDG = kernel_cov(3, sd_value=0.05, sd_shift=0.25, differenced=True)
 
 np.set_printoptions(precision=4, suppress=True)
-print("  sd_position = 0.05 alone -- onset-time jitter, coupled across")
+print("  sd_value = 0.05 alone -- onset-time jitter, coupled across")
 print("  shared onsets (tridiagonal, 2 sd^2 diagonal, -sd^2 off):")
 print("   ", str(S_POS).replace("\n", "\n    "))
 print("  sd_interval = 0.05*sqrt(2) alone -- independent per-interval")
 print("  noise (diagonal; chosen to match the tridiagonal's per-interval")
 print("  marginal variance of 0.005):")
 print("   ", str(S_INT).replace("\n", "\n    "))
-print("  sd_position = 0.05 with sd_shift = 0.25 -- onset jitter plus a")
+print("  sd_value = 0.05 with sd_shift = 0.25 -- onset jitter plus a")
 print("  common-shift ridge (rank-one, added to every entry):")
 print("   ", str(S_RDG).replace("\n", "\n    "))
 
@@ -244,7 +247,7 @@ PERTS = [
     ("tempo shift     (e, e, e)", np.array([EPS,  EPS,  EPS])),
 ]
 PURE = [
-    ("position", S_POS),
+    ("value", S_POS),
     ("interval", S_INT),
     ("pos+shift", S_RDG),
 ]
@@ -257,7 +260,7 @@ print("  " + "-" * (35 + 12 * len(PURE)))
 for pname, delta in PERTS:
     row = []
     for _, S in PURE:
-        v = mpt.cos_sim_exp_tens(X_MOTIF, W3, X_MOTIF + delta, W3,
+        v = mpt.sim_maet(X_MOTIF, W3, X_MOTIF + delta, W3,
                                  S, 3, False, False, 0.0, False,
                                  normalize="oneSidedDenom", verbose=False)
         row.append(float(v))
@@ -266,17 +269,17 @@ for pname, delta in PERTS:
 
 print("""
   Reading the columns:
-  - position: the displaced onset is CHEAPER than the single stretched
+  - value: the displaced onset is CHEAPER than the single stretched
     interval despite having twice its squared norm -- anticorrelated
     perturbation of adjacent intervals is exactly what shared-endpoint
     noise generates, and the -sd^2 off-diagonals penalize it accordingly.
     The tempo shift is all but forbidden: the sum of the r intervals
     equals the difference of the two endpoint positions, so its
-    variance under position noise is 2 sd^2 regardless of r -- a
-    common drift of all intervals is highly atypical of position
+    variance under value (onset) noise is 2 sd^2 regardless of r -- a
+    common drift of all intervals is highly atypical of onset
     noise.
   - interval: the penalty is by Euclidean norm alone (the two marginals
-    are matched to the position column), so the ordering of the first
+    are matched to the value column), so the ordering of the first
     two rows reverses.
   - pos+shift: the ridge makes the tempo shift the cheapest direction
     while leaving the within-shape penalties essentially unchanged.""")
@@ -286,40 +289,40 @@ print("""
 
 print("\n=== 3. Searching the stream for the motif ===\n")
 
-# Six kernels. sd values are in natural-log units: sd_position = 0.10
+# Six kernels. sd values are in natural-log units: sd_value = 0.10
 # tolerates onset jitter of roughly 10% of the local inter-onset
 # interval; sd_shift = 0.25 makes one sd a tempo factor of
 # exp(0.25) ~ 1.28 (or its reciprocal). The rel entry is exact tempo
 # invariance; its scalar sigma = 0.10*sqrt(2) matches the timing
-# kernel's per-interval marginal (2 * sd_position^2).
+# kernel's per-interval marginal (2 * sd_value^2).
 KERNELS = [
-    ("strict", "sd_position = 0.02",
-     dict(sigma=interval_kernel_cov(3, sd_position=0.02),
+    ("strict", "sd_value = 0.02",
+     dict(sigma=kernel_cov(3, sd_value=0.02, differenced=True),
           spec=sp_bound[0])),
-    ("timing", "sd_position = 0.10",
-     dict(sigma=interval_kernel_cov(3, sd_position=0.10),
+    ("timing", "sd_value = 0.10",
+     dict(sigma=kernel_cov(3, sd_value=0.10, differenced=True),
           spec=sp_bound[0])),
-    ("tempo", "sd_position = 0.02, sd_shift = 0.25",
-     dict(sigma=interval_kernel_cov(3, sd_position=0.02, sd_shift=0.25),
+    ("tempo", "sd_value = 0.02, sd_shift = 0.25",
+     dict(sigma=kernel_cov(3, sd_value=0.02, sd_shift=0.25, differenced=True),
           spec=sp_bound[0])),
-    ("timing+tempo", "sd_position = 0.10, sd_shift = 0.25",
-     dict(sigma=interval_kernel_cov(3, sd_position=0.10, sd_shift=0.25),
+    ("timing+tempo", "sd_value = 0.10, sd_shift = 0.25",
+     dict(sigma=kernel_cov(3, sd_value=0.10, sd_shift=0.25, differenced=True),
           spec=sp_bound[0])),
     ("large-shift", "sd_interval = 0.10*sqrt(2), sd_shift = 100",
-     dict(sigma=interval_kernel_cov(3, sd_interval=0.10 * np.sqrt(2),
-                                    sd_shift=100.0),
+     dict(sigma=kernel_cov(3, sd_interval=0.10 * np.sqrt(2),
+                                    sd_shift=100.0, differenced=True),
           spec=sp_bound[0])),
     ("rel", "rel_outer = True, sigma = 0.10*sqrt(2)",
      dict(sigma=0.10 * np.sqrt(2), spec=sp_bound_rel[0])),
 ]
-print("  strict       : interval_kernel_cov(3, sd_position=0.02)")
-print("  timing       : interval_kernel_cov(3, sd_position=0.10)")
-print("  tempo        : interval_kernel_cov(3, sd_position=0.02, "
-      "sd_shift=0.25)")
-print("  timing+tempo : interval_kernel_cov(3, sd_position=0.10, "
-      "sd_shift=0.25)")
-print("  large-shift  : interval_kernel_cov(3, sd_interval=0.10*sqrt(2), "
-      "sd_shift=100)")
+print("  strict       : kernel_cov(3, sd_value=0.02, differenced=True)")
+print("  timing       : kernel_cov(3, sd_value=0.10, differenced=True)")
+print("  tempo        : kernel_cov(3, sd_value=0.02, "
+      "sd_shift=0.25, differenced=True)")
+print("  timing+tempo : kernel_cov(3, sd_value=0.10, "
+      "sd_shift=0.25, differenced=True)")
+print("  large-shift  : kernel_cov(3, sd_interval=0.10*sqrt(2), "
+      "sd_shift=100, differenced=True)")
 print("  rel          : rel_outer=True bind spec, sigma = 0.10*sqrt(2)  "
       "(exact tempo invariance)")
 print("  The large-shift kernel's within-shape term is matched to the")
@@ -380,7 +383,7 @@ print("""
   Reading the rows:
   - 20% faster / double speed: pure tempo changes. Positional sigma
     alone barely admits them at any tolerable width ('timing' gives
-    0.016 at sd_position = 0.10); sd_shift admits the moderate change
+    0.016 at sd_value = 0.10); sd_shift admits the moderate change
     and GRADES the large one ('tempo' gives 0.876 and 0.147); rel
     admits both exactly.
   - jittered: a same-tempo timing perturbation. Tempo sigma alone does
@@ -396,7 +399,7 @@ print("""
     a pure tempo change (its displacement scales with the tempo), and
     rel quotients tempo out.
   - reversed: same interval multiset as the motif; the ordered outer
-    read (sym_outer = False, the bind default) keeps it at zero under
+    read (exch_outer = False, the bind default) keeps it at zero under
     every kernel.
   - isochronous: a genuinely different shape; near zero throughout.
   - large-shift vs rel: the two columns agree at this precision.
@@ -510,7 +513,7 @@ print("  while the within-shape metric is left behind. With the")
 print("  within-shape term supplied by sd_interval = 0.08, the limit")
 print("  is EXACTLY is_rel=True at sigma = 0.08, because rel mode's")
 print("  isotropic within-shape kernel is the limit of the diagonal")
-print("  (sd_interval) family. (The sd_position family also has a")
+print("  (sd_interval) family. (The sd_value family also has a")
 print("  shift-invariant limit, but its within-shape metric is the")
 print("  tridiagonal restricted to the zero-sum subspace, which is")
 print("  not isotropic, so no scalar rel sigma reproduces it.)\n")
@@ -523,14 +526,14 @@ print("  " + f"{'sd_shift':<12}"
       + "".join(f"{nm:>15}" for nm, _ in targets))
 print("  " + "-" * (12 + 15 * len(targets)))
 for ss in (0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 20.0):
-    S = interval_kernel_cov(3, sd_interval=SD_INT, sd_shift=ss)
-    row = [float(mpt.cos_sim_exp_tens(X_MOTIF, W3, x, W3, S, 3,
+    S = kernel_cov(3, sd_interval=SD_INT, sd_shift=ss, differenced=True)
+    row = [float(mpt.sim_maet(X_MOTIF, W3, x, W3, S, 3,
                                       False, False, 0.0, False,
                                       normalize="oneSidedDenom",
                                       verbose=False))
            for _, x in targets]
     print("  " + f"{ss:<12g}" + "".join(f"{v:>15.4f}" for v in row))
-row = [float(mpt.cos_sim_exp_tens(X_MOTIF, W3, x, W3, SD_INT, 3,
+row = [float(mpt.sim_maet(X_MOTIF, W3, x, W3, SD_INT, 3,
                                   True, False, 0.0, False,
                                   normalize="oneSidedDenom",
                                   verbose=False))
@@ -542,9 +545,9 @@ print("  " + f"{'is_rel=True':<12}"
 ss_dense = np.logspace(np.log10(0.05), np.log10(20.0), 60)
 fig2, ax2 = plt.subplots(figsize=(6.5, 4.2))
 for j, ((tname, x), rel_v) in enumerate(zip(targets, row)):
-    curve = [float(mpt.cos_sim_exp_tens(
+    curve = [float(mpt.sim_maet(
                  X_MOTIF, W3, x, W3,
-                 interval_kernel_cov(3, sd_interval=SD_INT, sd_shift=ss),
+                 kernel_cov(3, sd_interval=SD_INT, sd_shift=ss, differenced=True),
                  3, False, False, 0.0, False,
                  normalize="oneSidedDenom", verbose=False))
              for ss in ss_dense]

@@ -155,18 +155,18 @@ class TestBoundary:
     KW = dict(sigma=[0.5, 0.25], is_per=[False, False], period=[0.0, 0.0],
               verbose=False)
 
-    def test_build_exp_tens_takes_a_pre_maet(self):
+    def test_build_maet_takes_a_pre_maet(self):
         p, w, sp = _pm()
-        d1 = mpt.build_exp_tens(mpt.pre_maet(p, w, sp), **self.KW)
-        d2 = mpt.build_exp_tens(p, w, specs=sp, **self.KW)
+        d1 = mpt.build_maet(mpt.pre_maet(p, w, sp), **self.KW)
+        d2 = mpt.build_maet(p, w, specs=sp, **self.KW)
         X = np.array([[60.0], [0.0]])
-        assert np.allclose(mpt.eval_exp_tens(d1, X, verbose=False),
-                           mpt.eval_exp_tens(d2, X, verbose=False))
+        assert np.allclose(mpt.eval_maet(d1, X, verbose=False),
+                           mpt.eval_maet(d2, X, verbose=False))
 
     def test_build_rejects_weights_passed_twice(self):
         p, w, sp = _pm()
         with pytest.raises(TypeError, match="must not be passed again"):
-            mpt.build_exp_tens(mpt.pre_maet(p, w, sp), w, **self.KW)
+            mpt.build_maet(mpt.pre_maet(p, w, sp), w, **self.KW)
 
     def test_entropy_takes_a_pre_maet(self):
         p, w, sp = _pm()
@@ -175,10 +175,10 @@ class TestBoundary:
         for a in range(2):
             pm["specs"][a].update(sigma=self.KW["sigma"][a], is_per=False,
                                   period=0.0)
-        d = mpt.build_exp_tens(pm, verbose=False)
-        assert mpt.entropy_exp_tens(pm, method="renyi2", verbose=False) \
+        d = mpt.build_maet(pm, verbose=False)
+        assert mpt.entropy_maet(pm, method="renyi2", verbose=False) \
             == pytest.approx(
-                mpt.entropy_exp_tens(d, method="renyi2", verbose=False))
+                mpt.entropy_maet(d, method="renyi2", verbose=False))
 
     def test_eval_and_cosine_take_a_pre_maet(self):
         p, w, sp = _pm()
@@ -187,11 +187,11 @@ class TestBoundary:
         for a in range(2):
             pm["specs"][a].update(sigma=self.KW["sigma"][a], is_per=False,
                                   period=0.0)
-        d = mpt.build_exp_tens(pm, verbose=False)
+        d = mpt.build_maet(pm, verbose=False)
         X = np.array([[62.0], [1.0]])
-        assert np.allclose(mpt.eval_exp_tens(pm, X, verbose=False),
-                           mpt.eval_exp_tens(d, X, verbose=False))
-        assert np.isclose(float(mpt.cos_sim_exp_tens(pm, pm, verbose=False)),
+        assert np.allclose(mpt.eval_maet(pm, X, verbose=False),
+                           mpt.eval_maet(d, X, verbose=False))
+        assert np.isclose(float(mpt.sim_maet(pm, pm, verbose=False)),
                           1.0)
 
 
@@ -203,9 +203,9 @@ class TestWindowed:
         pC = [np.array([[60.0, 64, 67, 60, 64, 67]]),
               np.array([[0.0, 1, 2, 5, 6, 7]])]
         pQ = [np.array([[60.0, 64, 67]]), np.array([[0.0, 1, 2]])]
-        sp = [{"name": "pitch", "r": 1, "rel": False, "sym": True,
+        sp = [{"name": "pitch", "r": 1, "rel": False, "exch": True,
                "sigma": 0.5, "is_per": True, "period": 12.0},
-              {"name": "time", "r": 1, "rel": False, "sym": True,
+              {"name": "time", "r": 1, "rel": False, "exch": True,
                "sigma": 0.25, "is_per": False, "period": 0.0}]
         return pC, pQ, sp
 
@@ -274,34 +274,34 @@ class TestLists:
 
     def test_list_versus_list(self):
         a, b = self._pm([60, 64, 67]), self._pm([62, 65, 69])
-        got = mpt.cos_sim_exp_tens([a, a], [b, b], verbose=False)
-        d_a = mpt.build_exp_tens(a, verbose=False)
-        d_b = mpt.build_exp_tens(b, verbose=False)
-        ref = mpt.cos_sim_exp_tens([d_a, d_a], [d_b, d_b], verbose=False)
+        got = mpt.sim_maet([a, a], [b, b], verbose=False)
+        d_a = mpt.build_maet(a, verbose=False)
+        d_b = mpt.build_maet(b, verbose=False)
+        ref = mpt.sim_maet([d_a, d_a], [d_b, d_b], verbose=False)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
 
     def test_scalar_versus_list(self):
         a, b = self._pm([60, 64, 67]), self._pm([62, 65, 69])
-        got = mpt.cos_sim_exp_tens(a, [b, a], verbose=False)
+        got = mpt.sim_maet(a, [b, a], verbose=False)
         assert got[1] == pytest.approx(1.0)
 
     def test_eval_takes_a_list(self):
         a, b = self._pm([60, 64, 67]), self._pm([62, 65, 69])
         X = np.array([[60.0], [0.0]])
-        got = mpt.eval_exp_tens([a, b], X, verbose=False)
-        ref = mpt.eval_exp_tens(
-            [mpt.build_exp_tens(a, verbose=False),
-             mpt.build_exp_tens(b, verbose=False)], X, verbose=False)
+        got = mpt.eval_maet([a, b], X, verbose=False)
+        ref = mpt.eval_maet(
+            [mpt.build_maet(a, verbose=False),
+             mpt.build_maet(b, verbose=False)], X, verbose=False)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
 
     def test_entropy_takes_a_list(self):
         a, b = self._pm([60, 64, 67]), self._pm([62, 65, 69])
         kw = dict(method="shannon", n_points_per_dim=24,
                   x_min=[0.0, -1.0], x_max=[12.0, 3.0], verbose=False)
-        got = mpt.entropy_exp_tens([a, b], **kw)
-        ref = mpt.entropy_exp_tens(
-            [mpt.build_exp_tens(a, verbose=False),
-             mpt.build_exp_tens(b, verbose=False)], **kw)
+        got = mpt.entropy_maet([a, b], **kw)
+        ref = mpt.entropy_maet(
+            [mpt.build_maet(a, verbose=False),
+             mpt.build_maet(b, verbose=False)], **kw)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
 
     def test_a_sweep_pre_maet_is_a_list(self):
@@ -311,18 +311,18 @@ class TestLists:
         a = self._pm([60, 64, 67])
         pm_sw = mpt.translate_attributes(a, [np.array([[0.0, 3.0, 7.0]]),
                                              None])
-        got = mpt.cos_sim_exp_tens(a, pm_sw, verbose=False)
-        built = [mpt.build_exp_tens(
+        got = mpt.sim_maet(a, pm_sw, verbose=False)
+        built = [mpt.build_maet(
             mpt.pre_maet(blk, None, a["specs"]), verbose=False)
             for blk in pm_sw["p_attr"]]
-        ref = mpt.cos_sim_exp_tens(mpt.build_exp_tens(a, verbose=False),
+        ref = mpt.sim_maet(mpt.build_maet(a, verbose=False),
                                    built, verbose=False)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
         assert got[0] == pytest.approx(1.0)     # the zero offset
 
 
 class TestGeometryOverrides:
-    """r, rel, and sym override the specs, as sigma and its kin do."""
+    """r, rel, and exch override the specs, as sigma and its kin do."""
 
     KW = dict(sigma=[0.5, 0.25], is_per=[False, False], period=[0.0, 0.0],
               verbose=False)
@@ -339,21 +339,21 @@ class TestGeometryOverrides:
     def test_scalar_and_per_attribute_r(self):
         p, w, sp = self._chords()
         pm = mpt.pre_maet(p, w, sp)
-        assert list(mpt.build_exp_tens(pm, r=[2, 1], **self.KW).r) == [2, 1]
-        assert list(mpt.build_exp_tens(pm, r=1, **self.KW).r) == [1, 1]
+        assert list(mpt.build_maet(pm, r=[2, 1], **self.KW).r) == [2, 1]
+        assert list(mpt.build_maet(pm, r=1, **self.KW).r) == [1, 1]
 
-    def test_rel_and_sym(self):
+    def test_rel_and_exch(self):
         p, w, sp = self._chords()
         pm = mpt.pre_maet(p, w, sp)
-        d = mpt.build_exp_tens(pm, r=[2, 1], rel=[True, False],
-                               sym=[False, True], **self.KW)
+        d = mpt.build_maet(pm, r=[2, 1], rel=[True, False],
+                               exch=[False, True], **self.KW)
         assert list(d.is_rel) == [True, False]
-        assert list(d.is_sym) == [False, True]
+        assert list(d.is_exch) == [False, True]
 
     def test_a_sweep_is_one_call_per_value(self):
         p, w, sp = _pm()
         pm = mpt.pre_maet(p, w, sp)
-        vals = [mpt.build_exp_tens(pm, sigma=[s, 0.25],
+        vals = [mpt.build_maet(pm, sigma=[s, 0.25],
                                    is_per=[False, False],
                                    period=[0.0, 0.0], verbose=False)
                 for s in (0.25, 0.5, 1.0)]
@@ -364,19 +364,19 @@ class TestGeometryOverrides:
         p, w, sp = _pm()
         pmb = mpt.bind_events(mpt.pre_maet(p, w, sp), [2, 2])
         with pytest.raises(ValueError, match="nested attribute"):
-            mpt.build_exp_tens(pmb, r=2, **self.KW)
+            mpt.build_maet(pmb, r=2, **self.KW)
 
     def test_overrides_need_specs(self):
         p, w, _ = _pm()
         with pytest.raises(ValueError, match="only valid alongside specs"):
-            mpt.build_exp_tens(p, w, [0.5, 0.25], [1, 1], [False, False],
+            mpt.build_maet(p, w, [0.5, 0.25], [1, 1], [False, False],
                                [False, False], [0.0, 0.0], r=2,
                                verbose=False)
 
     def test_wrong_length_override_errors(self):
         p, w, sp = _pm()
         with pytest.raises(ValueError, match="length A"):
-            mpt.build_exp_tens(mpt.pre_maet(p, w, sp), r=[1, 1, 1], **self.KW)
+            mpt.build_maet(mpt.pre_maet(p, w, sp), r=[1, 1, 1], **self.KW)
 
 
 def _same(a, b):

@@ -4,7 +4,7 @@
 through a named transform, a scale conversion, or a user function. It
 sits with :func:`difference_events`, :func:`bind_events`,
 :func:`translate_attributes`, and :func:`weight_events` in the
-preprocessing layer before :func:`build_exp_tens`, and it absorbs the
+preprocessing layer before :func:`build_maet`, and it absorbs the
 pitch and frequency scale conversions that ``convert_pitch`` used to
 provide on bare arrays.
 
@@ -374,7 +374,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
     Per-attribute preprocessing on the ``(p_attr, w, specs)`` triple: every
     value of each selected attribute is passed through the transform given
     for that attribute, and the triple feeds straight into
-    :func:`build_exp_tens` or a further pre-MAET step. Weights pass through
+    :func:`build_maet` or a further pre-MAET step. Weights pass through
     unchanged. The map is elementwise, so it composes with the other
     preprocessors in either order, and the order carries meaning: ``'log'``
     *then* :func:`difference_events` gives log ratios (the natural
@@ -431,7 +431,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
     magnitude transform (``'log'`` or ``'power'``) to ``|x|`` and inserts a **sign attribute** with
     values in {-1/2, 0, +1/2} immediately after the source attribute. The
     attribute count grows by one for each such attribute, so downstream
-    per-attribute arguments (``sigma``, ``r``, ``rel``, ``sym``, ``wrap``,
+    per-attribute arguments (``sigma``, ``r``, ``rel``, ``exch``, ``wrap``,
     ``diff_orders``, ...) must include the new column; this is why the
     insertion is explicit rather than automatic. The sign attribute copies
     the source's spec with ``rel=False`` and the name suffixed ``'_sign'``,
@@ -471,7 +471,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
     See Also
     --------
     difference_events, bind_events, translate_attributes, weight_events,
-    build_exp_tens
+    build_maet
     """
     p_attr, w_attr, (transforms,), specs = shift_lead(
         p_attr, w_attr, [transforms], specs, func="transform_attributes")
@@ -618,7 +618,7 @@ def _sign_spec(spec):
     """The spec of a sign attribute: the source's structure, ``rel``
     cleared, name suffixed ``'_sign'``."""
     if not isinstance(spec, dict):
-        return {"r": 1, "rel": False, "sym": True, "name": "sign"}
+        return {"r": 1, "rel": False, "exch": True, "name": "sign"}
     s = dict(spec)
     rel = s.get("rel", False)
     if isinstance(rel, str):

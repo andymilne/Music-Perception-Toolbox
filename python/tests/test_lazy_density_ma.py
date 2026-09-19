@@ -2,7 +2,7 @@
 
 Parallel to ``test_lazy_density.py`` for the single-multiset path. Verifies:
 
-1. ``build_exp_tens`` returns a lazy MA density.
+1. ``build_maet`` returns a lazy MA density.
 2. Reading any of the eager fields (``p_attr``, ``w``, ``sigma``,
    ``r``, ``k``, ``is_rel``, ``is_per``, ``period``,
    ``n_attrs``,
@@ -17,15 +17,15 @@ Parallel to ``test_lazy_density.py`` for the single-multiset path. Verifies:
    v2.0 path (regression check via cosine self-similarity = 1 and
    orbit-vs-pairwise agreement).
 7. Eager input-validation errors (insufficient non-NaN values,
-   wrong-shaped vectors) still fire at the ``build_exp_tens`` call
+   wrong-shaped vectors) still fire at the ``build_maet`` call
    rather than being deferred.
 """
 import numpy as np
 import pytest
 
 import mpt
-from mpt.tensor import build_exp_tens, cos_sim_exp_tens, eval_exp_tens
-from mpt.entropy import entropy_exp_tens
+from mpt.tensor import build_maet, sim_maet, eval_maet
+from mpt.entropy import entropy_maet
 
 
 P = 1200.0
@@ -43,7 +43,7 @@ def _make_ma(seed=0):
         rng.uniform(0.5, 1.5, (3, N)),
         rng.uniform(0.5, 1.5, (1, N)),
     ]
-    return build_exp_tens(
+    return build_maet(
         p_attr, w, [33.0, 0.05], [2, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
@@ -101,7 +101,7 @@ def test_ma_lazy_arrays_cache_across_reads():
 def test_ma_cos_sim_orbit_does_not_materialise():
     T_x = _make_ma(seed=0)
     T_y = _make_ma(seed=1)
-    cos_sim_exp_tens(T_x, T_y, method="mobius", verbose=False)
+    sim_maet(T_x, T_y, method="mobius", verbose=False)
     assert T_x.materialised is False
     assert T_y.materialised is False
 
@@ -118,7 +118,7 @@ def test_ma_renyi2_does_not_materialise():
     sel, _, _ = _flat_selector_inputs(T, T, normalize="none",
                                       truncation_sigmas=None)
     chosen = _select_ma_inner_product_method(user_method="auto", **sel)
-    entropy_exp_tens(T, method="renyi2")
+    entropy_maet(T, method="renyi2")
     assert T.materialised is (chosen != "mobius")
 
 
@@ -136,14 +136,14 @@ def test_ma_eval_materialises():
     x[0, :] = rng.uniform(0, P, 5)
     x[1, :] = rng.uniform(0, P, 5)
     x[2, :] = rng.uniform(0, 1.0, 5)
-    eval_exp_tens(T, x, verbose=False)
+    eval_maet(T, x, verbose=False)
     assert T.materialised is True
 
 
 def test_ma_cos_sim_pairwise_materialises():
     T_x = _make_ma(seed=0)
     T_y = _make_ma(seed=1)
-    cos_sim_exp_tens(T_x, T_y, method="bulger", verbose=False)
+    sim_maet(T_x, T_y, method="bulger", verbose=False)
     assert T_x.materialised is True
     assert T_y.materialised is True
 
@@ -155,7 +155,7 @@ def test_ma_cos_sim_pairwise_materialises():
 
 def test_ma_self_similarity_equals_one():
     T = _make_ma()
-    c = cos_sim_exp_tens(T, T, method="bulger", verbose=False)
+    c = sim_maet(T, T, method="bulger", verbose=False)
     assert np.isclose(c, 1.0, atol=1e-12, rtol=1e-12)
 
 
@@ -165,12 +165,12 @@ def test_ma_orbit_vs_pairwise_agree():
     materialises. Both paths must see the same density mathematically."""
     T_x = _make_ma(seed=0)
     T_y = _make_ma(seed=1)
-    c_orbit = cos_sim_exp_tens(T_x, T_y, method="mobius", verbose=False)
+    c_orbit = sim_maet(T_x, T_y, method="mobius", verbose=False)
     # Use distinct density objects so the orbit call's "no
     # materialisation" assertion stays meaningful.
     T_x2 = _make_ma(seed=0)
     T_y2 = _make_ma(seed=1)
-    c_pw = cos_sim_exp_tens(T_x2, T_y2, method="bulger", verbose=False)
+    c_pw = sim_maet(T_x2, T_y2, method="bulger", verbose=False)
     assert np.isclose(c_orbit, c_pw, atol=1e-12, rtol=1e-10)
 
 
@@ -185,7 +185,7 @@ def test_ma_insufficient_slots_eager_error():
     malformed inputs to fail fast."""
     pitch = np.array([[0.0, 0.0], [4.0, np.nan], [np.nan, np.nan]])
     with pytest.raises(ValueError, match="non-NaN value"):
-        build_exp_tens(
+        build_maet(
             [pitch], None, [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
@@ -195,7 +195,7 @@ def test_ma_wrong_r_vec_length_eager_error():
     """r_vec length mismatch fires eagerly at the build call."""
     pitch = np.array([[0.0, 4.0]])
     with pytest.raises(ValueError, match="r_vec"):
-        build_exp_tens(
+        build_maet(
             [pitch, pitch], None, [10.0, 10.0], [1], 
             [False, False], [True, True], [1200.0, 1200.0],
             verbose=False,

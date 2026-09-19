@@ -89,7 +89,7 @@ def audio_peaks(
         fB, wB, _ = mpt.audio_peaks('audio/piano_G7_3rd_inversion.wav')
         pA = mpt.transform_attributes(fA, None, ('hz', 'cents'))
         pB = mpt.transform_attributes(fB, None, ('hz', 'cents'))
-        s = mpt.cos_sim_exp_tens_raw(pA, wA, pB, wB, 12, 2, True, True, 1200)
+        s = mpt.sim_maet(pA, wA, pB, wB, 12, 2, True, True, 1200)
 
     Spectral entropy (no add_spectra needed)::
 

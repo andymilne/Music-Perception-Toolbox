@@ -27,9 +27,10 @@ B = [1 1 2 5 15 52 203 877 4140];
 
 %% ---- Orbit count per r matches expected ----
 
-% r = 2..8: 4, 10, 33, 92, 306, 948, 3210. Source: Möbius-Bulger orbit
-% decomposition; r=7, r=8 counts measured at table-build time in v3.
-expectedOrbits = [4 10 33 92 306 948 3210];
+% r = 2..8: 4, 10, 33, 91, 298, 910, 3017 -- OEIS A007716, the number of
+% non-negative integer matrices with entry sum r up to row and column
+% permutations, i.e. the orbits of S_r on pairs of set partitions.
+expectedOrbits = [4 10 33 91 298 910 3017];
 ok = true;
 for r = 2:8
     T = mobius.getOrbitTable(r);

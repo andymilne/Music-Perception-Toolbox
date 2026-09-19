@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens, explain_dispatch
+from mpt import build_maet, sim_maet, explain_dispatch
 from mpt._tensor import cosine as _cos
 from mpt._tensor import dispatch as _disp
 from mpt._tensor._mobius_inner import (_closed_form_attr_matrix_from,
@@ -51,20 +51,20 @@ P = 12.0
 
 
 def _flat(seed, sigma, r=2, *, is_rel=False, is_per=False,
-          wrap='full-image', K=5, N=2, is_sym=True, weight=None):
+          wrap='full-image', K=5, N=2, is_exch=True, weight=None):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     w = None if weight is None else [np.full((K, N), float(weight))]
-    return build_exp_tens([p], w, [sigma], [r], [is_rel], [is_per],
-                          [P if is_per else 0.0], [is_sym], wrap=[wrap],
+    return build_maet([p], w, [sigma], [r], [is_rel], [is_per],
+                          [P if is_per else 0.0], [is_exch], wrap=[wrap],
                           verbose=False)
 
 
 def _route_taken(monkeypatch):
-    """Record which flat inner-product route ``cos_sim_exp_tens`` runs."""
+    """Record which flat inner-product route ``sim_maet`` runs."""
     taken = []
-    orbit = _cos._cos_sim_exp_tens_ma_orbit
-    pairwise = _cos._cos_sim_exp_tens_ma_pairwise
+    orbit = _cos._sim_maet_ma_orbit
+    pairwise = _cos._sim_maet_ma_pairwise
 
     def _orbit(*a, **k):
         taken.append("mobius")
@@ -74,8 +74,8 @@ def _route_taken(monkeypatch):
         taken.append("bulger")
         return pairwise(*a, **k)
 
-    monkeypatch.setattr(_cos, "_cos_sim_exp_tens_ma_orbit", _orbit)
-    monkeypatch.setattr(_cos, "_cos_sim_exp_tens_ma_pairwise", _pairwise)
+    monkeypatch.setattr(_cos, "_sim_maet_ma_orbit", _orbit)
+    monkeypatch.setattr(_cos, "_sim_maet_ma_pairwise", _pairwise)
     return taken
 
 
@@ -96,7 +96,7 @@ def test_explain_follows_the_wrap_rule_above_the_threshold(
     assert exp.chosen == expected
     assert exp.decided_by == "structural rule"
     taken = _route_taken(monkeypatch)
-    cos_sim_exp_tens(x, y, verbose=False)
+    sim_maet(x, y, verbose=False)
     assert taken == [expected]
     # The measure line follows the same reading.
     assert ("transposition average" in exp.measure) == (expected == "mobius")
@@ -104,16 +104,16 @@ def test_explain_follows_the_wrap_rule_above_the_threshold(
 
 @pytest.mark.parametrize("method", ["auto", "mobius", "centres"])
 def test_explain_applies_the_ordered_attribute_rule(monkeypatch, method):
-    """An ordered ([sym]=0) attribute at r > 1 has no orbit: the call
+    """An ordered ([exch]=0) attribute at r > 1 has no orbit: the call
     takes Bulger's method whatever ``method`` asked for, and so does the
     report."""
-    x = _flat(3, 1.0, r=2, is_sym=False, K=5)
-    y = _flat(4, 1.0, r=2, is_sym=False, K=6)
+    x = _flat(3, 1.0, r=2, is_exch=False, K=5)
+    y = _flat(4, 1.0, r=2, is_exch=False, K=6)
     exp = explain_dispatch(x, y, method=method)
     assert exp.chosen == "bulger"
     assert "ordered" in exp.decided_by
     taken = _route_taken(monkeypatch)
-    cos_sim_exp_tens(x, y, method=method, verbose=False)
+    sim_maet(x, y, method=method, verbose=False)
     assert taken == ["bulger"]
 
 
@@ -124,7 +124,7 @@ def test_explain_uses_the_memo_flags_the_call_uses():
     x = _flat(5, 1.0, r=3, is_rel=True, is_per=False, K=6, N=3)
     y = _flat(6, 1.0, r=3, is_rel=True, is_per=False, K=6, N=3)
     cold = explain_dispatch(x, y)
-    cos_sim_exp_tens(x, y, method="bulger", verbose=False)
+    sim_maet(x, y, method="bulger", verbose=False)
     warm = explain_dispatch(x, y)
     pw_cold = next(r.predicted_ms for r in cold.routes if r.name == "bulger")
     pw_warm = next(r.predicted_ms for r in warm.routes if r.name == "bulger")
@@ -139,7 +139,7 @@ def test_explain_applies_the_empty_operand_rule():
     exp = explain_dispatch(x, y)
     assert exp.chosen is None
     assert "empty operand" in exp.decided_by
-    assert cos_sim_exp_tens(x, y, verbose=False) == 0.0
+    assert sim_maet(x, y, verbose=False) == 0.0
 
 
 def test_selector_inputs_are_shared_with_the_call():
@@ -156,7 +156,7 @@ def test_selector_inputs_are_shared_with_the_call():
     assert kw["per_vec"] == [True]
     assert kw["nu_vec"][0] > 1 and not ordered_any and not nested_any
     assert kw["skip_xx"] is False and kw["skip_yy"] is False
-    cos_sim_exp_tens(x, y, verbose=False)
+    sim_maet(x, y, verbose=False)
     kw2, _o, _n = _cos._flat_selector_inputs(
         x.pruned(), y.pruned(), normalize="cosine", truncation_sigmas=None)
     assert kw2["skip_xx"] is True and kw2["skip_yy"] is True
@@ -285,5 +285,5 @@ def test_cancellation_threshold_keyword_is_rejected():
     x = _flat(21, 1.0, r=2, K=4, N=1)
     y = _flat(22, 1.0, r=2, K=4, N=1)
     with pytest.raises(TypeError, match="cancellation_threshold"):
-        cos_sim_exp_tens(x, y, cancellation_threshold=1e-12, verbose=False)
+        sim_maet(x, y, cancellation_threshold=1e-12, verbose=False)
 

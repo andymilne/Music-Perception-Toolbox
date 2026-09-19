@@ -16,7 +16,7 @@ import numpy as np
 
 from mpt._defaults import truncation_floor
 from mpt.tensor import (
-    build_exp_tens, _cos_sim_exp_tens_ma_orbit, _cos_sim_exp_tens_ma_pairwise,
+    build_maet, _sim_maet_ma_orbit, _sim_maet_ma_pairwise,
 )
 
 MODES = [
@@ -37,10 +37,10 @@ FLOOR = truncation_floor(6)
 def both_cosines(p1, w1, p2, w2, r, is_rel, is_per):
     """Return the orbit and enumerated cosine similarities."""
     geom = ([SIGMA], [r], [is_rel], [is_per], [P])
-    d1 = build_exp_tens([p1], [w1], *geom, verbose=False)
-    d2 = build_exp_tens([p2], [w2], *geom, verbose=False)
-    o_xy, o_xx, o_yy = _cos_sim_exp_tens_ma_orbit(d1, d2)
-    p_xy, p_xx, p_yy = _cos_sim_exp_tens_ma_pairwise(d1, d2, verbose=False)
+    d1 = build_maet([p1], [w1], *geom, verbose=False)
+    d2 = build_maet([p2], [w2], *geom, verbose=False)
+    o_xy, o_xx, o_yy = _sim_maet_ma_orbit(d1, d2)
+    p_xy, p_xx, p_yy = _sim_maet_ma_pairwise(d1, d2, verbose=False)
     return (o_xy / np.sqrt(o_xx * o_yy), p_xy / np.sqrt(p_xx * p_yy))
 
 

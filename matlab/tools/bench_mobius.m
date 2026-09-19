@@ -6,11 +6,11 @@ function bench_mobius(varargin)
 %
 %   Two tasks, selected with the 'task' parameter:
 %
-%     'ip'    the inner product (cosSimExpTens): 'centres' (unrestricted
+%     'ip'    the inner product (simMaet): 'centres' (unrestricted
 %             enumeration of the tuple centres, the O(K^(2r)) baseline),
 %             'bulger' (the within-r-ad decomposition), and 'mobius'
 %             (the Moebius-orbit decomposition).
-%     'eval'  point evaluation (evalExpTens): 'centres' (the centres
+%     'eval'  point evaluation (evalMaet): 'centres' (the centres
 %             array) and 'mobius' (the Moebius point evaluator).
 %             Bulger's identity has no analogue here, there being no
 %             two-sided pairing to exploit.
@@ -241,7 +241,7 @@ cleanupSpectral = onCleanup(@() internal.spectralIpForce(prevSpectral));
 if any(strcmp(opt.task, {'ip', 'both'})) && ~methodAccepted('centres', SIGMA, PERIOD)
     error('bench_mobius:centresUnavailable', ...
           ['this toolbox build does not accept method=''centres'' on ' ...
-           'cosSimExpTens, so the O(K^(2r)) baseline cannot be timed. ' ...
+           'simMaet, so the O(K^(2r)) baseline cannot be timed. ' ...
            'Apply the method-vocabulary update first, or run with ' ...
            '''task'', ''eval''.']);
 end
@@ -455,7 +455,7 @@ for mi = 1:size(modes, 1)
             end
             if K < r + 1, continue; end
             [p, wp, state] = draw(K, PERIOD, state);
-            dens = buildExpTens(p, wp, SIGMA, r, isRel, isPer, PERIOD, ...
+            dens = buildMaet(p, wp, SIGMA, r, isRel, isPer, PERIOD, ...
                                 'verbose', false);
             dim = max(r - double(isRel), 1);
             [u, state] = lcg(dim * N_QUERIES, state);
@@ -467,9 +467,9 @@ for mi = 1:size(modes, 1)
                 if any(strcmp(doneMethods, mm)), continue; end
                 if isKeyCell(doneCells, 'eval', mlabel, r, K, mm), continue; end
                 try
-                    vals(mm) = sum(sum(evalExpTens(dens, pts, 'method', mm, ...
+                    vals(mm) = sum(sum(evalMaet(dens, pts, 'method', mm, ...
                         'truncationSigmas', Inf, 'verbose', false)));
-                    fn = @() evalExpTens(dens, pts, 'method', mm, ...
+                    fn = @() evalMaet(dens, pts, 'method', mm, ...
                         'truncationSigmas', Inf, 'verbose', false);
                     [t, n, guarded] = timeIt(fn, TARGET_MS, CELL_BUDGET_S);
                     if guarded, doneMethods{end+1} = mm; end %#ok<AGROW>
@@ -639,16 +639,16 @@ tf = any(strcmp(keys, sprintf('%s|%s|%d|%d|%s', task, mlabel, r, K, method)));
 end
 
 function tf = methodAccepted(method, sigma, period)
-%METHODACCEPTED  True when the installed cosSimExpTens accepts a method.
+%METHODACCEPTED  True when the installed simMaet accepts a method.
 tf = true;
 try
-    A = buildExpTens((0:5)' * 100, [], sigma, 2, false, false, period, ...
+    A = buildMaet((0:5)' * 100, [], sigma, 2, false, false, period, ...
                      'verbose', false);
-    B = buildExpTens((2:7)' * 100, [], sigma, 2, false, false, period, ...
+    B = buildMaet((2:7)' * 100, [], sigma, 2, false, false, period, ...
                      'verbose', false);
-    cosSimExpTens(A, B, 'method', method, 'verbose', false);
+    simMaet(A, B, 'method', method, 'verbose', false);
 catch err
-    if strcmp(err.identifier, 'cosSimExpTens:badMethod')
+    if strcmp(err.identifier, 'simMaet:badMethod')
         tf = false;
     else
         rethrow(err);
@@ -675,8 +675,8 @@ end
 
 function [A, B] = buildPair(p, wp, q, wq, sigma, r, isRel, isPer, period)
 %BUILDPAIR  Construct both densities once, outside any timed region.
-A = buildExpTens(p, wp, sigma, r, isRel, isPer, period, 'verbose', false);
-B = buildExpTens(q, wq, sigma, r, isRel, isPer, period, 'verbose', false);
+A = buildMaet(p, wp, sigma, r, isRel, isPer, period, 'verbose', false);
+B = buildMaet(q, wq, sigma, r, isRel, isPer, period, 'verbose', false);
 end
 
 function v = callSim(A, B, method, trunc)
@@ -690,7 +690,7 @@ function v = callSim(A, B, method, trunc)
 %   there the density is an object whose cache would otherwise persist
 %   and the measured time would fall to the cross term alone -- about a
 %   third of the work.
-v = cosSimExpTens(A, B, 'method', method, 'truncationSigmas', trunc, ...
+v = simMaet(A, B, 'method', method, 'truncationSigmas', trunc, ...
                   'verbose', false);
 end
 
@@ -725,7 +725,7 @@ state = 20260822;
 [p, w, state] = draw(12, period, state);
 [q, wq, ~] = draw(12, period, state);
 [A, B] = buildPair(p, w, q, wq, sigma, 3, false, false, period);
-fn = @() cosSimExpTens(A, B, 'method', 'bulger', ...
+fn = @() simMaet(A, B, 'method', 'bulger', ...
                        'truncationSigmas', Inf, 'verbose', false);
 [t, ~] = timeIt(fn, 60);
 rate = t / (nchoosek(12, 3) * factorial(3) * nchoosek(12, 3));

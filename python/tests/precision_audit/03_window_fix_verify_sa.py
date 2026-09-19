@@ -1,7 +1,7 @@
 """Test that widening _orbit_inner_rel's window fixes the SA bug."""
 import numpy as np
 from mpt._mobius import inner_product_orbit_grid
-from mpt.tensor import build_exp_tens, _cos_sim_exp_tens_sa_pairwise
+from mpt.tensor import build_maet, _sim_maet_sa_pairwise
 
 
 def _orbit_inner_rel_widened(p_a, w_a, p_b, w_b, sigma, r, samples_per_sigma=10,
@@ -26,9 +26,9 @@ def sa_orbit_widened_cosine(p_a, w_a, p_b, w_b, sigma, r, window_sigma):
 
 
 def sa_pairwise_cosine(p_a, w_a, p_b, w_b, sigma, r):
-    da = build_exp_tens(p_a, w_a, sigma, r, True, False, 0.0, verbose=False)
-    db = build_exp_tens(p_b, w_b, sigma, r, True, False, 0.0, verbose=False)
-    ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(da, db, verbose=False)
+    da = build_maet(p_a, w_a, sigma, r, True, False, 0.0, verbose=False)
+    db = build_maet(p_b, w_b, sigma, r, True, False, 0.0, verbose=False)
+    ip_xy, ip_xx, ip_yy = _sim_maet_sa_pairwise(da, db, verbose=False)
     return ip_xy / np.sqrt(ip_xx * ip_yy)
 
 

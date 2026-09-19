@@ -25,7 +25,7 @@ _MARKER = "absolute-periodic"
 def _build(sigma, is_rel, is_per, period=PERIOD, r=2, wrap='single-image'):
     p = np.array([0.0, 100.0, 300.0, 700.0]).reshape(-1, 1)
     w = np.ones(4).reshape(-1, 1)
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         [p], [w], [sigma], [r], [is_rel], [is_per], [period],
         wrap=wrap, verbose=False,
     )
@@ -119,7 +119,7 @@ def test_multi_attribute_warns_once_per_offending_attribute():
     w = np.ones(4).reshape(-1, 1)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        mpt.build_exp_tens(
+        mpt.build_maet(
             [p, p], [w, w],
             [0.20 * PERIOD, 0.01 * PERIOD],   # first offends, second does not
             [2, 2], [False, False], [True, True], [PERIOD, PERIOD],

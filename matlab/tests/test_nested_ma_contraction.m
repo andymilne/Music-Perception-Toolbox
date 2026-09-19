@@ -51,8 +51,8 @@ Ysa = {[C Eb G], [G 11 2], [C Eb G]};
 for ri = [1 2]
     X = sadens(Xsa, ri);
     Y = sadens(Ysa, ri);
-    cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
-    cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+    cC = simMaet(X, Y, 'method', 'contract', 'verbose', false);
+    cB = simMaet(X, Y, 'method', 'bulger',   'verbose', false);
     results{end+1, 1} = sprintf('nested-ma: single-multiset ri=%d contract==bulger==Python', ri); %#ok<*SAGROW>
     results{end, 2}   = abs(cC - cB) < ATOL && abs(cC - ref_sa(ri)) < GTOL;
 end
@@ -83,7 +83,7 @@ for ri = [1 2]
     X = madens({IVI, ivi}, [0.5 -0.5], ri);
     Y = madens({IVI, mel}, [0.5 0.5], ri);
     [cC, cB] = bothMethods(X, Y);
-    cSelf = cosSimExpTens(X, X, 'method', 'contract', 'verbose', false);
+    cSelf = simMaet(X, X, 'method', 'contract', 'verbose', false);
     results{end+1, 1} = sprintf('nested-ma: 2ev multi-event ri=%d, self=1', ri);
     results{end, 2}   = abs(cC - ref_multi(ri)) < GTOL && abs(cB - ref_multi(ri)) < GTOL ...
                      && abs(cC - cB) < ATOL && abs(cSelf - 1) < GTOL;
@@ -101,16 +101,16 @@ for ri = [1 2]
     g = ref_os(ri); aTol = ATOL * max(1, g); gTol = GTOL * max(1, g);
     % single nested attribute (internal.nestedContract)
     Xs = sadens(IVI2, ri); Ys = sadens(IVI, ri);
-    osC = cosSimExpTens(Xs, Ys, 'method', 'contract', 'normalize', 'oneSidedDenom', 'verbose', false);
-    osB = cosSimExpTens(Xs, Ys, 'method', 'bulger',   'normalize', 'oneSidedDenom', 'verbose', false);
-    osA = cosSimExpTens(Xs, Ys, 'normalize', 'oneSidedDenom', 'verbose', false);
+    osC = simMaet(Xs, Ys, 'method', 'contract', 'normalize', 'oneSidedDenom', 'verbose', false);
+    osB = simMaet(Xs, Ys, 'method', 'bulger',   'normalize', 'oneSidedDenom', 'verbose', false);
+    osA = simMaet(Xs, Ys, 'normalize', 'oneSidedDenom', 'verbose', false);
     results{end+1, 1} = sprintf('nested-ma: single-multiset one-sided ri=%d contract==bulger==auto==Python', ri);
     results{end, 2}   = abs(osC - osB) < aTol && abs(osA - osB) < aTol && abs(osB - g) < gTol;
     % nested (x) flag (internal.nestedContractMA)
     Xm = madens({IVI2}, 0.5, ri); Ym = madens({IVI}, 0.5, ri);
-    omC = cosSimExpTens(Xm, Ym, 'method', 'contract', 'normalize', 'oneSidedDenom', 'verbose', false);
-    omB = cosSimExpTens(Xm, Ym, 'method', 'bulger',   'normalize', 'oneSidedDenom', 'verbose', false);
-    omA = cosSimExpTens(Xm, Ym, 'normalize', 'oneSidedDenom', 'verbose', false);
+    omC = simMaet(Xm, Ym, 'method', 'contract', 'normalize', 'oneSidedDenom', 'verbose', false);
+    omB = simMaet(Xm, Ym, 'method', 'bulger',   'normalize', 'oneSidedDenom', 'verbose', false);
+    omA = simMaet(Xm, Ym, 'normalize', 'oneSidedDenom', 'verbose', false);
     results{end+1, 1} = sprintf('nested-ma: MA one-sided ri=%d contract==bulger==auto==Python', ri);
     results{end, 2}   = abs(omC - omB) < aTol && abs(omA - omB) < aTol && abs(omB - g) < gTol;
 end
@@ -137,8 +137,8 @@ end
 
 % ----------------------------------------------------------------------
 function [cC, cB] = bothMethods(X, Y)
-    cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
-    cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+    cC = simMaet(X, Y, 'method', 'contract', 'verbose', false);
+    cB = simMaet(X, Y, 'method', 'bulger',   'verbose', false);
 end
 
 
@@ -150,8 +150,8 @@ function d = sadens(chords, rIn)
     for k = 1:nCh; tags = [tags, (k - 1) * ones(1, nValue)]; end
     p0 = [];
     for c = 1:nCh; p0 = [p0, chords{c}]; end
-    sp = struct('tags', tags, 'r', [rIn nCh], 'sym', [true false], 'rel', [0 1]);
-    d = buildExpTens({p0(:)}, {[]}, 'specs', {sp}, 'sigma', SIG, ...
+    sp = struct('tags', tags, 'r', [rIn nCh], 'exch', [true false], 'rel', [0 1]);
+    d = buildMaet({p0(:)}, {[]}, 'specs', {sp}, 'sigma', SIG, ...
                      'isPer', true, 'period', P, 'verbose', false);
 end
 
@@ -172,9 +172,9 @@ function d = madens(events, flags, rIn)
         p0(:, e) = col(:);
     end
     p1 = reshape(flags, 1, []);
-    sp0 = struct('tags', tags, 'r', [rIn nCh], 'sym', [true false], 'rel', [0 1]);
-    sp1 = struct('r', 1, 'sym', false, 'rel', false);
-    d = buildExpTens({p0, p1}, {[], []}, 'specs', {sp0, sp1}, ...
+    sp0 = struct('tags', tags, 'r', [rIn nCh], 'exch', [true false], 'rel', [0 1]);
+    sp1 = struct('r', 1, 'exch', false, 'rel', false);
+    d = buildMaet({p0, p1}, {[], []}, 'specs', {sp0, sp1}, ...
                      'sigma', [SIG SF], 'isPer', [true false], ...
                      'period', [P 1.0], 'verbose', false);
 end

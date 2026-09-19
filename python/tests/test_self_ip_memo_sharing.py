@@ -33,11 +33,11 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 from mpt._tensor.cosine import (
     _SELF_IP_ROUTES,
-    _cos_sim_exp_tens_ma_centres,
-    _cos_sim_exp_tens_ma_pairwise,
+    _sim_maet_ma_centres,
+    _sim_maet_ma_pairwise,
     _nested_attr_matrix,
     _nested_attr_plan,
     _nested_self_ip_skip_flags,
@@ -59,7 +59,7 @@ def _flat(K, N, r, is_rel, is_per, sigma, seed, wrap="full-image",
     rng = np.random.default_rng(seed)
     hi = P if is_per else span
     p = np.sort(rng.uniform(0.0, hi, size=(K, N)), axis=0)
-    return build_exp_tens([p], [np.ones((K, N))], [sigma], [r],
+    return build_maet([p], [np.ones((K, N))], [sigma], [r],
                           [is_rel], [is_per], [P], verbose=False,
                           wrap=[wrap])
 
@@ -70,16 +70,16 @@ def _nested(n_values, sigma, is_rel, is_per, seed, r_levels=(2, 2),
     hi = P if is_per else 24.0
     v = np.sort(rng.uniform(0.0, hi, n_values))
     tags = np.repeat(np.arange(n_values // r_levels[-1]), r_levels[-1])
-    spec = dict(r=list(r_levels), sym=[True] * len(r_levels), tags=tags,
+    spec = dict(r=list(r_levels), exch=[True] * len(r_levels), tags=tags,
                 rel=[0] * (len(r_levels) - 1) + [1 if is_rel else 0])
-    return build_exp_tens([v.reshape(-1, 1)], None, specs=[spec],
+    return build_maet([v.reshape(-1, 1)], None, specs=[spec],
                           sigma=[sigma], is_per=[is_per], period=[P],
                           wrap=[wrap], verbose=False)
 
 
 def _bulger_ip(dens):
     """``<X,X>`` on Bulger's scale, the canonical one for these identities."""
-    return _cos_sim_exp_tens_ma_pairwise(dens, dens, verbose=False)[1]
+    return _sim_maet_ma_pairwise(dens, dens, verbose=False)[1]
 
 
 # ----------------------------------------------------------------------
@@ -131,7 +131,7 @@ def test_route_scale_identities(is_rel, is_per, r, sigma):
     assert closed / base == pytest.approx(math.factorial(r), rel=1e-12)
 
     d2 = _flat(6, 3, r, is_rel, is_per, sigma, seed=11)
-    centres = _cos_sim_exp_tens_ma_centres(d2, d2, verbose=False)[1]
+    centres = _sim_maet_ma_centres(d2, d2, verbose=False)[1]
     assert centres / base == pytest.approx(math.factorial(r), rel=1e-12)
 
 
@@ -204,8 +204,8 @@ def test_memo_keys_stay_route_specific():
     """Two routes on one pair leave two entries, not one shared entry."""
     dx = _flat(6, 3, 2, False, False, 0.5, seed=1)
     dy = _flat(6, 4, 2, False, False, 0.5, seed=2)
-    cos_sim_exp_tens(dx, dy, method="bulger", verbose=False)
-    cos_sim_exp_tens(dx, dy, method="centres", verbose=False)
+    sim_maet(dx, dy, method="bulger", verbose=False)
+    sim_maet(dx, dy, method="centres", verbose=False)
     routes = {k[0] for k in dx._self_ip_cache}
     assert routes == {"bulger", "centres"}
     b = dx._self_ip_cache[_self_ip_cache_key("bulger", None, None)]
@@ -219,7 +219,7 @@ def test_self_ip_memoised_reports_any_route():
     dx = _flat(6, 3, 2, True, True, 0.25, seed=1)
     dy = _flat(6, 4, 2, True, True, 0.25, seed=2)
     assert not _self_ip_memoised(dx)
-    cos_sim_exp_tens(dx, dy, method="mobius", verbose=False)
+    sim_maet(dx, dy, method="mobius", verbose=False)
     assert _self_ip_memoised(dx) and _self_ip_memoised(dy)
     assert {k[0] for k in dx._self_ip_cache} <= set(_SELF_IP_ROUTES)
 
@@ -235,7 +235,7 @@ def test_nested_skip_flags_are_shared_by_plan_and_enumeration():
     dx = _nested(6, 0.8, True, False, seed=3)
     dy = _nested(6, 0.8, True, False, seed=4)
     assert _nested_self_ip_skip_flags(dx, dy, "cosine") == (False, False)
-    cos_sim_exp_tens(dx, dy, method="bulger", verbose=False)
+    sim_maet(dx, dy, method="bulger", verbose=False)
     # The enumeration's memo now prices the contraction plan as warm too.
     assert _nested_self_ip_skip_flags(dx, dy, "cosine") == (True, True)
 
@@ -273,7 +273,7 @@ def _lockin_values(a, b, K, N):
 def _lockin_pair(K=5, N=4):
     def one(a, b):
         v = _lockin_values(a, b, K, N)
-        return build_exp_tens([v], [np.ones_like(v)], [0.25], [2],
+        return build_maet([v], [np.ones_like(v)], [0.25], [2],
                               [True], [True], [P], verbose=False)
     return one(1.9, 0.4), one(2.6, 0.7)
 
@@ -291,7 +291,7 @@ def test_cold_auto_takes_one_definite_route_on_the_lockin_cell(K, N):
     choice is definite, so that a later call can be checked against it.
     """
     dx, dy = _lockin_pair(K, N)
-    cos_sim_exp_tens(dx, dy, verbose=False)
+    sim_maet(dx, dy, verbose=False)
     assert len(_routes_of(dx)) == 1
 
 
@@ -312,9 +312,9 @@ def test_a_memo_on_another_route_no_longer_locks_the_route_in(K, N):
     rival-warmed call must take that route and return the cold value.
     """
     dx, dy = _lockin_pair(K, N)
-    cold = cos_sim_exp_tens(dx, dy, verbose=False)
+    cold = sim_maet(dx, dy, verbose=False)
     cold_route, = _routes_of(dx)
-    cos_sim_exp_tens(dx, dy, verbose=False)
+    sim_maet(dx, dy, verbose=False)
     warm_routes = _routes_of(dx)
     # The reference warm route: the cold route's memo is present either way,
     # so it is the route that appears in the second call, or the cold route
@@ -325,9 +325,9 @@ def test_a_memo_on_another_route_no_longer_locks_the_route_in(K, N):
     assert others                      # the cell must have a rival at all
     for other in others:
         ax, ay = _lockin_pair(K, N)
-        cos_sim_exp_tens(ax, ay, method=other, verbose=False)
+        sim_maet(ax, ay, method=other, verbose=False)
         assert _routes_of(ax) == [other]
-        got = cos_sim_exp_tens(ax, ay, verbose=False)
+        got = sim_maet(ax, ay, verbose=False)
         # Exactly the rival's memo plus the reference route's (one entry
         # when they coincide): auto took the reference route, no other.
         assert set(_routes_of(ax)) == {other, warm_route}
@@ -341,7 +341,7 @@ def test_call_order_does_not_change_the_value():
     truncation treatment is never consumed by another.
     """
     dx, dy = _lockin_pair()
-    reference = cos_sim_exp_tens(dx, dy, verbose=False)
+    reference = sim_maet(dx, dy, verbose=False)
 
     orders = (
         ("mobius",),
@@ -354,19 +354,19 @@ def test_call_order_does_not_change_the_value():
     for pre in orders:
         ax, ay = _lockin_pair()
         for m in pre:
-            cos_sim_exp_tens(ax, ay, method=m, verbose=False)
-        got = cos_sim_exp_tens(ax, ay, verbose=False)
+            sim_maet(ax, ay, method=m, verbose=False)
+        got = sim_maet(ax, ay, verbose=False)
         assert np.allclose(got, reference, rtol=0.0, atol=1e-13)
 
 
 @pytest.mark.parametrize("method", ["bulger", "centres", "mobius"])
 def test_forced_method_is_reproducible_whatever_warmed_the_memo(method):
     dx, dy = _lockin_pair()
-    reference = cos_sim_exp_tens(dx, dy, method=method, verbose=False)
+    reference = sim_maet(dx, dy, method=method, verbose=False)
     for other in ("bulger", "centres", "mobius"):
         ax, ay = _lockin_pair()
-        cos_sim_exp_tens(ax, ay, method=other, verbose=False)
-        got = cos_sim_exp_tens(ax, ay, method=method, verbose=False)
+        sim_maet(ax, ay, method=other, verbose=False)
+        got = sim_maet(ax, ay, method=method, verbose=False)
         # Bit-identical: the forced route reads only its own memo.
         assert np.array_equal(got, reference)
 
@@ -374,10 +374,10 @@ def test_forced_method_is_reproducible_whatever_warmed_the_memo(method):
 def test_nested_call_order_does_not_change_the_value():
     dx = _nested(6, 0.8, True, False, seed=3)
     dy = _nested(6, 0.8, True, False, seed=4)
-    reference = cos_sim_exp_tens(dx, dy, verbose=False)
+    reference = sim_maet(dx, dy, verbose=False)
     for pre in ("bulger", "contract"):
         ax = _nested(6, 0.8, True, False, seed=3)
         ay = _nested(6, 0.8, True, False, seed=4)
-        cos_sim_exp_tens(ax, ay, method=pre, verbose=False)
-        got = cos_sim_exp_tens(ax, ay, verbose=False)
+        sim_maet(ax, ay, method=pre, verbose=False)
+        got = sim_maet(ax, ay, verbose=False)
         assert np.allclose(got, reference, rtol=0.0, atol=1e-13)

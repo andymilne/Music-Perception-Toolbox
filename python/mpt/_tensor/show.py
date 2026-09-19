@@ -53,7 +53,7 @@ def _unpack(p_attr, w, specs, sigma, is_rel, is_per, period, names):
             else:
                 sp.append({"r": int(np.atleast_1d(d.r)[a]),
                            "rel": bool(np.atleast_1d(d.is_rel)[a]),
-                           "sym": bool(np.atleast_1d(d.is_sym)[a])})
+                           "exch": bool(np.atleast_1d(d.is_exch)[a])})
         params = {
             "sigma": [float(v) for v in np.atleast_1d(d.sigma)],
             "is_per": [bool(v) for v in np.atleast_1d(d.is_per)],
@@ -75,7 +75,7 @@ def _unpack(p_attr, w, specs, sigma, is_rel, is_per, period, names):
             raise ValueError(
                 f"w has {len(W)} attributes but p_attr has {A}.")
     if specs is None:
-        sp = [{"r": 1, "rel": False, "sym": True} for _ in range(A)]
+        sp = [{"r": 1, "rel": False, "exch": True} for _ in range(A)]
     else:
         sp = [dict(s) for s in specs]
         if len(sp) != A:
@@ -199,20 +199,20 @@ def _param_num(x):
 def _cell_tree(p_col, w_col, spec, max_elements):
     """Nested list of leaf strings-to-be, honouring the tag hierarchy.
 
-    Returns ``(node, sym_levels)`` where ``node`` is either a list of
+    Returns ``(node, exch_levels)`` where ``node`` is either a list of
     ``(value, weight)`` leaves (flat attribute) or a nested list of such
-    lists (one per group, outermost grouping first), and ``sym_levels``
+    lists (one per group, outermost grouping first), and ``exch_levels``
     are the per-level symmetry flags, innermost first.
     """
     finite = np.isfinite(p_col)
-    sym_levels = _levels(spec, "sym", True)
+    exch_levels = _levels(spec, "exch", True)
     tags = spec.get("tags")
 
     if tags is None:
         leaves = [(float(p_col[k]),
                    None if w_col is None else float(w_col[k]))
                   for k in np.flatnonzero(finite)]
-        return _elide(leaves, max_elements), sym_levels
+        return _elide(leaves, max_elements), exch_levels
 
     T = np.asarray(tags)
     # A single grouping column arrives one-dimensional; it is a column of
@@ -238,7 +238,7 @@ def _cell_tree(p_col, w_col, spec, max_elements):
         return groups
 
     node = build(list(range(T.shape[0])), T.shape[1] - 1)
-    return node, sym_levels
+    return node, exch_levels
 
 
 def _stable_unique(v):
@@ -257,25 +257,25 @@ def _elide(leaves, max_elements):
     return leaves[:keep] + ["..."]
 
 
-def _render_node(node, sym_levels, decimals, show_w, latex, top=True):
+def _render_node(node, exch_levels, decimals, show_w, latex, top=True):
     """Bracket a cell tree.
 
-    ``sym_levels`` runs innermost first, so a node whose bracket depth is
-    ``d`` takes ``sym_levels[d]``: the leaves take the innermost flag and
+    ``exch_levels`` runs innermost first, so a node whose bracket depth is
+    ``d`` takes ``exch_levels[d]``: the leaves take the innermost flag and
     the outermost bracket the outermost flag. A flat attribute holding a
     single element is written bare, as the article writes it; an inner
     level of a nest keeps its brackets, so that the level stays visible.
     """
     depth = _depth(node)
-    sym = (sym_levels[depth] if depth < len(sym_levels)
-           else (sym_levels[-1] if sym_levels else True))
+    exch = (exch_levels[depth] if depth < len(exch_levels)
+           else (exch_levels[-1] if exch_levels else True))
     if depth == 0:
-        return _render_leaves(node, decimals, show_w, latex, sym, top)
+        return _render_leaves(node, decimals, show_w, latex, exch, top)
     sep = ", "
-    parts = [_render_node(child, sym_levels, decimals, show_w, latex,
+    parts = [_render_node(child, exch_levels, decimals, show_w, latex,
                           top=False)
              for child in node]
-    return _bracket(sep.join(parts), sym, latex)
+    return _bracket(sep.join(parts), exch, latex)
 
 
 def _depth(node):
@@ -284,7 +284,7 @@ def _depth(node):
     return 1 + _depth(node[0])
 
 
-def _render_leaves(leaves, decimals, show_w, latex, sym, top):
+def _render_leaves(leaves, decimals, show_w, latex, exch, top):
     items = []
     for leaf in leaves:
         if leaf == "...":
@@ -298,11 +298,11 @@ def _render_leaves(leaves, decimals, show_w, latex, sym, top):
         items.append(s)
     if top and len(items) == 1:
         return items[0]
-    return _bracket(", ".join(items), sym, latex)
+    return _bracket(", ".join(items), exch, latex)
 
 
-def _bracket(inner, sym, latex):
-    if sym:
+def _bracket(inner, exch, latex):
+    if exch:
         return ("\\{" + inner + "\\}") if latex else "{" + inner + "}"
     return "(" + inner + ")"
 
@@ -446,14 +446,14 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
     ``[rel]`` and ``[per]`` flags, and the period where it is periodic
     --- and its cells hold the elements from which the admitted tuples
     are formed. A cell is brace-delimited where the attribute is
-    unordered (``[sym] = 1``) and parenthesis-delimited where it is
+    unordered (``[exch] = 1``) and parenthesis-delimited where it is
     ordered; a nested attribute is bracketed level by level, the
     outermost level outermost. A single element is written bare. Where
     the weights are not uniform they are written as parenthesized
     superscripts on their values, ``60^(0.6)``.
 
     Two inputs are accepted, as elsewhere in the toolbox: a density
-    built by :func:`~mpt.build_exp_tens`, from which every field is
+    built by :func:`~mpt.build_maet`, from which every field is
     recovered, or the raw pre-MAET triple with the kernel parameters
     supplied alongside.
 
@@ -466,7 +466,7 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
         Per-attribute weight matrices, matching ``p_attr``. None is
         uniform.
     specs : list of dict, optional
-        Per-attribute specs, ``{r, rel, sym}`` flat or carrying ``tags``
+        Per-attribute specs, ``{r, rel, exch}`` flat or carrying ``tags``
         when nested, as produced by :func:`~mpt.flat_specs` and the
         pre-MAET operators. Defaults to flat, ``r = 1``, unordered.
     sigma, is_rel, is_per, period : scalar or length-A, optional
@@ -515,7 +515,7 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
 
     See also
     --------
-    build_exp_tens, flat_specs, difference_events, bind_events
+    build_maet, flat_specs, difference_events, bind_events
     """
     p_attr, w_attr, _, specs = shift_lead(
         p_attr, w_attr, [], specs, func="show_pre_maet")
@@ -557,11 +557,11 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
             if c is None:
                 row.append(gap)
                 continue
-            node, sym_levels = _cell_tree(
+            node, exch_levels = _cell_tree(
                 P[a][:, c], None if W is None else W[a][:, c],
                 sp[a], max_elements)
             row.append(_render_node(
-                node, sym_levels, decimals, show_w, latex))
+                node, exch_levels, decimals, show_w, latex))
         cells.append(row)
 
     stubs = [_stub_lines(nm[a], sp[a], params, a, latex) for a in range(A)]

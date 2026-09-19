@@ -39,14 +39,14 @@ from mpt._tensor.dispatch import (
 
 def _single(K, spread, sigma, is_rel=True):
     p = [np.linspace(0.0, spread, K).reshape(-1, 1)]
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         p, None, [sigma], [2], [is_rel], [False], [0.0], verbose=False,
     )
 
 
 def _two_attr(K, spread, sigma):
     p = [np.linspace(0.0, spread, K).reshape(-1, 1)] * 2
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         p, None, [sigma, sigma], [2, 2], [True, True], [False, False],
         [0.0, 0.0], verbose=False,
     )
@@ -109,7 +109,7 @@ class TestCullingCorrection:
         K, nq = 12, 500
         spread, sigma = 1150.0, 20.0
         p = [np.linspace(0.0, spread, K).reshape(-1, 1)] * 2
-        d = mpt.build_exp_tens(
+        d = mpt.build_maet(
             p, None, [sigma, sigma], [2, 1], [True, False], [False, False],
             [0.0, 0.0], verbose=False,
         )
@@ -146,7 +146,7 @@ class TestCullingCorrection:
         K, nq = 30, 4000
         r = 2 if is_rel else 1
         p = [np.linspace(0.0, 1150.0, K).reshape(-1, 1)]
-        d = mpt.build_exp_tens(
+        d = mpt.build_maet(
             p, None, [22.0], [r], [is_rel], [True], [1200.0], verbose=False,
         )
         joint = 2 * (K * (K - 1) // 2) if is_rel else K
@@ -193,8 +193,8 @@ class TestEmission:
         d = _single(20, 1150.0, 20.0)
         chosen, _ = _select_ma_eval(d, 50, method="auto")
         with _dispatch_scope():
-            _maybe_warn_eval_time("eval_exp_tens (MAET)", d, 50, chosen)
-            _maybe_warn_eval_time("eval_exp_tens (MAET)", d, 50, chosen)
+            _maybe_warn_eval_time("eval_maet (MAET)", d, 50, chosen)
+            _maybe_warn_eval_time("eval_maet (MAET)", d, 50, chosen)
         out = capsys.readouterr().out
         assert out.count("estimated") == 1
 
@@ -203,7 +203,7 @@ class TestEmission:
         chosen, _ = _select_ma_eval(d, 50, method="auto")
         for _ in range(2):
             with _dispatch_scope():
-                _maybe_warn_eval_time("eval_exp_tens (MAET)", d, 50, chosen)
+                _maybe_warn_eval_time("eval_maet (MAET)", d, 50, chosen)
         assert capsys.readouterr().out.count("estimated") == 2
 
     def test_respects_show_hints(self, capsys):
@@ -211,7 +211,7 @@ class TestEmission:
         chosen, _ = _select_ma_eval(d, 50, method="auto")
         mpt.set_default(show_hints=False)
         with _dispatch_scope():
-            _maybe_warn_eval_time("eval_exp_tens (MAET)", d, 50, chosen)
+            _maybe_warn_eval_time("eval_maet (MAET)", d, 50, chosen)
         assert "estimated" not in capsys.readouterr().out
 
     def test_threshold_suppresses_fast_evals(self, capsys, monkeypatch):
@@ -219,7 +219,7 @@ class TestEmission:
         d = _single(20, 1150.0, 20.0)
         chosen, _ = _select_ma_eval(d, 50, method="auto")
         with _dispatch_scope():
-            _maybe_warn_eval_time("eval_exp_tens (MAET)", d, 50, chosen)
+            _maybe_warn_eval_time("eval_maet (MAET)", d, 50, chosen)
         assert "estimated" not in capsys.readouterr().out
 
     def test_harmony_wrapper_emits_at_most_once(self, capsys):
@@ -249,11 +249,11 @@ class TestAccuracySmoke:
         chosen, _ = _select_ma_eval(d, 8000, method="auto")
         assert chosen == "mobius"
         est = _estimate_eval_seconds(d, 8000, chosen)
-        mpt.eval_exp_tens(d, x, verbose=False)  # warm
+        mpt.eval_maet(d, x, verbose=False)  # warm
         ts = []
         for _ in range(3):
             t0 = time.perf_counter()
-            mpt.eval_exp_tens(d, x, verbose=False)
+            mpt.eval_maet(d, x, verbose=False)
             ts.append(time.perf_counter() - t0)
         act = sorted(ts)[1]
         assert 0.2 < est / act < 5.0

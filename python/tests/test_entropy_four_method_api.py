@@ -1,6 +1,6 @@
 """Tests for the four-method entropy API.
 
-Covers ``entropy_exp_tens``'s ``method`` kwarg in its post-Stage-2 form:
+Covers ``entropy_maet``'s ``method`` kwarg in its post-Stage-2 form:
 ``'differential'``, ``'shannon'``, ``'normalized'`` (with British
 ``'normalised'`` alias), ``'renyi2'``. Also exercises the policy
 guards (sigma=0 rejection for continuous methods; explicit grid
@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, entropy_exp_tens, n_tuple_entropy, spectral_entropy
+from mpt import build_maet, entropy_maet, n_tuple_entropy, spectral_entropy
 
 mpt.set_default(show_hints=False)
 
@@ -30,17 +30,17 @@ class TestMethodCanonicalization:
 
     @pytest.fixture
     def dens_1d(self):
-        return build_exp_tens(
+        return build_maet(
             np.array([100., 200., 300.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
 
     def test_normalised_alias_matches_normalized(self, dens_1d):
-        H_us = entropy_exp_tens(
+        H_us = entropy_maet(
             dens_1d, method='normalized', n_points_per_dim=200,
             x_min=50., x_max=350., verbose=False,
         )
-        H_uk = entropy_exp_tens(
+        H_uk = entropy_maet(
             dens_1d, method='normalised', n_points_per_dim=200,
             x_min=50., x_max=350., verbose=False,
         )
@@ -48,12 +48,12 @@ class TestMethodCanonicalization:
 
     def test_bogus_method_rejected(self, dens_1d):
         with pytest.raises(ValueError, match="method must be one of"):
-            entropy_exp_tens(dens_1d, method='bogus',
+            entropy_maet(dens_1d, method='bogus',
                              n_points_per_dim=200, verbose=False)
 
     def test_method_must_be_string(self, dens_1d):
         with pytest.raises(TypeError, match="must be a string"):
-            entropy_exp_tens(dens_1d, method=42,
+            entropy_maet(dens_1d, method=42,
                              n_points_per_dim=200, verbose=False)
 
 
@@ -68,25 +68,25 @@ class TestExplicitGridPolicy:
 
     @pytest.fixture
     def dens(self):
-        return build_exp_tens(
+        return build_maet(
             np.array([100., 200., 300.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
 
     def test_shannon_without_grid_raises(self, dens):
         with pytest.raises(TypeError, match="requires an explicit"):
-            entropy_exp_tens(dens, method='shannon', verbose=False)
+            entropy_maet(dens, method='shannon', verbose=False)
 
     def test_normalized_without_grid_raises(self, dens):
         with pytest.raises(TypeError, match="requires an explicit"):
-            entropy_exp_tens(dens, method='normalized', verbose=False)
+            entropy_maet(dens, method='normalized', verbose=False)
 
     def test_differential_works_without_grid(self, dens):
-        h = entropy_exp_tens(dens, method='differential', verbose=False)
+        h = entropy_maet(dens, method='differential', verbose=False)
         assert math.isfinite(h)
 
     def test_renyi2_works_without_grid(self, dens):
-        h = entropy_exp_tens(dens, method='renyi2', verbose=False)
+        h = entropy_maet(dens, method='renyi2', verbose=False)
         assert math.isfinite(h)
 
 
@@ -100,18 +100,18 @@ class TestSigmaZeroGuard:
 
     @pytest.fixture
     def dens_sigma_zero(self):
-        return build_exp_tens(
+        return build_maet(
             np.array([100., 200., 300.]), np.ones(3),
             0.0, 1, False, False, 0.0, verbose=False,
         )
 
     def test_differential_at_sigma_zero_raises(self, dens_sigma_zero):
         with pytest.raises(ValueError, match=r"sigma > 0"):
-            entropy_exp_tens(dens_sigma_zero, method='differential', verbose=False)
+            entropy_maet(dens_sigma_zero, method='differential', verbose=False)
 
     def test_renyi2_at_sigma_zero_raises(self, dens_sigma_zero):
         with pytest.raises(ValueError, match=r"sigma > 0"):
-            entropy_exp_tens(
+            entropy_maet(
                 dens_sigma_zero, method='renyi2', verbose=False,
             )
 
@@ -126,7 +126,7 @@ class TestNormalizedIsShannonOverLogN:
 
     @pytest.fixture
     def dens(self):
-        return build_exp_tens(
+        return build_maet(
             np.array([100., 200., 300.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
@@ -134,11 +134,11 @@ class TestNormalizedIsShannonOverLogN:
     def test_normalized_equals_shannon_over_log_n(self, dens):
         N = 200
         x_min, x_max = 50., 350.
-        H_shan = entropy_exp_tens(
+        H_shan = entropy_maet(
             dens, method='shannon',
             n_points_per_dim=N, x_min=x_min, x_max=x_max, verbose=False,
         )
-        H_norm = entropy_exp_tens(
+        H_norm = entropy_maet(
             dens, method='normalized',
             n_points_per_dim=N, x_min=x_min, x_max=x_max, verbose=False,
         )
@@ -155,15 +155,15 @@ class TestDifferentialConvergence:
     sequence, and concentrated vs spread densities order correctly."""
 
     def test_1d_converges_to_fixed_grid_value(self):
-        dens = build_exp_tens(
+        dens = build_maet(
             np.array([6000., 6300., 6700.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
-        h_diff = entropy_exp_tens(dens, method='differential', verbose=False)
+        h_diff = entropy_maet(dens, method='differential', verbose=False)
         # Compare to a very-fine fixed-grid h_hat = H_disc + log_2(dx)
         N = 25000
         x_min, x_max = 5500., 7200.
-        H_shan = entropy_exp_tens(
+        H_shan = entropy_maet(
             dens, method='shannon',
             n_points_per_dim=N, x_min=x_min, x_max=x_max, verbose=False,
         )
@@ -178,19 +178,19 @@ class TestDifferentialConvergence:
         W2 = np.array([[1., 1., 1., 1.]])
         period = 12.0
         sigma_eff = math.sqrt(2)
-        dens_ma = build_exp_tens(
+        dens_ma = build_maet(
             [P2, P2], [W2, W2], [sigma_eff, sigma_eff],
             [1, 1], [False, False], [True, True], [period, period],
             verbose=False,
         )
         # 6 sigma (~1e-8) is certified on a feasible grid; the tightest
         # accuracy is exercised separately below.
-        h_diff = entropy_exp_tens(
+        h_diff = entropy_maet(
             dens_ma, method='differential',
             truncation_sigmas=6.0, verbose=False,
         )
         # Compare to fixed N=500 h_hat at the same accuracy.
-        H_shan = entropy_exp_tens(
+        H_shan = entropy_maet(
             dens_ma, method='shannon',
             n_points_per_dim=500, truncation_sigmas=6.0, verbose=False,
         )
@@ -209,7 +209,7 @@ class TestDifferentialConvergence:
         W2 = np.array([[1., 1., 1., 1.]])
         period = 12.0
         sigma_eff = math.sqrt(2)
-        dens_ma = build_exp_tens(
+        dens_ma = build_maet(
             [P2, P2], [W2, W2], [sigma_eff, sigma_eff],
             [1, 1], [False, False], [True, True], [period, period],
             verbose=False,
@@ -218,7 +218,7 @@ class TestDifferentialConvergence:
         try:
             mpt.set_default(kernel_chunk_bytes=8 * 1024 * 1024)
             with pytest.raises(ValueError, match="renyi2|truncation_sigmas"):
-                entropy_exp_tens(
+                entropy_maet(
                     dens_ma, method='differential',
                     truncation_sigmas=np.inf, verbose=False,
                 )
@@ -230,31 +230,31 @@ class TestDifferentialConvergence:
         differential entropy with B (spread) > A (concentrated). This
         is the principled property differential gives that grid-
         normalized Shannon does not."""
-        dens_A = build_exp_tens(
+        dens_A = build_maet(
             np.array([6500., 6600.]), np.ones(2),
             15.0, 1, False, False, 0.0, verbose=False,
         )
-        dens_B = build_exp_tens(
+        dens_B = build_maet(
             np.array([6000., 6400., 6800., 7200.]), np.ones(4),
             15.0, 1, False, False, 0.0, verbose=False,
         )
-        h_A = entropy_exp_tens(dens_A, method='differential', verbose=False)
-        h_B = entropy_exp_tens(dens_B, method='differential', verbose=False)
+        h_A = entropy_maet(dens_A, method='differential', verbose=False)
+        h_B = entropy_maet(dens_B, method='differential', verbose=False)
         assert h_B > h_A
 
     def test_truncation_sigmas_tightens_value(self):
         """Tightening truncation_sigmas should give a value that
         converges (monotonically in value, not necessarily in tol) to
         the kernel-untruncated reference."""
-        dens = build_exp_tens(
+        dens = build_maet(
             np.array([6000., 6300., 6700.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
-        h_ts4 = entropy_exp_tens(
+        h_ts4 = entropy_maet(
             dens, method='differential', truncation_sigmas=4.0, verbose=False)
-        h_ts6 = entropy_exp_tens(
+        h_ts6 = entropy_maet(
             dens, method='differential', truncation_sigmas=6.0, verbose=False)
-        h_ts8 = entropy_exp_tens(
+        h_ts8 = entropy_maet(
             dens, method='differential', truncation_sigmas=8.0, verbose=False)
         # All finite
         for h in (h_ts4, h_ts6, h_ts8):
@@ -275,18 +275,18 @@ class TestDifferentialConvergence:
         entry the dispatcher exposes to ``spectral_entropy`` and the
         rest of the toolbox."""
         from mpt._defaults import accuracy_floor_sigmas
-        dens = build_exp_tens(
+        dens = build_maet(
             np.array([6000., 6300., 6700.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
-        h_inf = entropy_exp_tens(
+        h_inf = entropy_maet(
             dens, method='differential', truncation_sigmas=math.inf,
             verbose=False)
-        h_floor = entropy_exp_tens(
+        h_floor = entropy_maet(
             dens, method='differential',
             truncation_sigmas=accuracy_floor_sigmas(),
             verbose=False)
-        h_ts6 = entropy_exp_tens(
+        h_ts6 = entropy_maet(
             dens, method='differential', truncation_sigmas=6.0,
             verbose=False)
         # Contract: inf resolves to the accuracy-floor width.
@@ -401,7 +401,7 @@ class TestSpectralEntropyMethod:
 # Per-method input-form coverage
 # ----------------------------------------------------------------------
 #
-# entropy_exp_tens supports five input forms:
+# entropy_maet supports five input forms:
 #   (a) scalar density object (MaetDensity)
 #   (b) list of density objects
 #   (c) raw single-multiset scalar (p, w, sigma, r, is_rel, is_per, period)
@@ -426,7 +426,7 @@ def single_multiset_inputs():
 
 @pytest.fixture
 def single_multiset_dens(single_multiset_inputs):
-    return build_exp_tens(
+    return build_maet(
         single_multiset_inputs["p"], single_multiset_inputs["w"],
         single_multiset_inputs["sigma"], single_multiset_inputs["r"],
         single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"], single_multiset_inputs["period"],
@@ -439,7 +439,7 @@ def single_multiset_dens_list(single_multiset_inputs):
     """List of three single-multiset densities (slightly different centres)."""
     out = []
     for shift in (0., 50., 100.):
-        out.append(build_exp_tens(
+        out.append(build_maet(
             single_multiset_inputs["p"] + shift, single_multiset_inputs["w"],
             single_multiset_inputs["sigma"], single_multiset_inputs["r"],
             single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"], single_multiset_inputs["period"],
@@ -471,7 +471,7 @@ def ma_dens():
         np.array([[10., 20., 30., 40.]]),
     ]
     w = [np.ones(4), np.ones(4)]
-    return build_exp_tens(
+    return build_maet(
         p_attr, w,
         [20.0, 5.0], [1, 1], 
         [False, False], [False, False], [0.0, 0.0], verbose=False,
@@ -482,14 +482,14 @@ class TestShannonInputForms:
     """``method='shannon'`` supports all five input forms."""
 
     def test_scalar_density(self, single_multiset_dens):
-        h = entropy_exp_tens(
+        h = entropy_maet(
             single_multiset_dens, method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_list_of_densities(self, single_multiset_dens_list):
-        H = entropy_exp_tens(
+        H = entropy_maet(
             single_multiset_dens_list, method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
@@ -497,7 +497,7 @@ class TestShannonInputForms:
         assert np.all(np.isfinite(H))
 
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
-        h = entropy_exp_tens(
+        h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
             single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
             single_multiset_inputs["period"],
@@ -507,7 +507,7 @@ class TestShannonInputForms:
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_raw_single_attribute_batched(self, single_attribute_batched):
-        H = entropy_exp_tens(
+        H = entropy_maet(
             single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
             single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
             single_attribute_batched["period"],
@@ -521,7 +521,7 @@ class TestShannonInputForms:
         # The MA scalar form: pre-built density object goes through the
         # same dispatch. Non-periodic MA needs explicit per-axis bounds;
         # we pass x_min / x_max as lists to mirror the per-attribute span.
-        h = entropy_exp_tens(
+        h = entropy_maet(
             ma_dens, method='shannon', n_points_per_dim=80,
             x_min=[0., 0.], x_max=[500., 50.], verbose=False,
         )
@@ -533,14 +533,14 @@ class TestNormalizedInputForms:
     values in [0, 1]."""
 
     def test_scalar_density(self, single_multiset_dens):
-        h = entropy_exp_tens(
+        h = entropy_maet(
             single_multiset_dens, method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(h, float) and 0.0 <= h <= 1.0
 
     def test_list_of_densities(self, single_multiset_dens_list):
-        H = entropy_exp_tens(
+        H = entropy_maet(
             single_multiset_dens_list, method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
@@ -548,7 +548,7 @@ class TestNormalizedInputForms:
         assert np.all((H >= 0.0) & (H <= 1.0))
 
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
-        h = entropy_exp_tens(
+        h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
             single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
             single_multiset_inputs["period"],
@@ -558,7 +558,7 @@ class TestNormalizedInputForms:
         assert isinstance(h, float) and 0.0 <= h <= 1.0
 
     def test_raw_single_attribute_batched(self, single_attribute_batched):
-        H = entropy_exp_tens(
+        H = entropy_maet(
             single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
             single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
             single_attribute_batched["period"],
@@ -569,7 +569,7 @@ class TestNormalizedInputForms:
         assert np.all((H >= 0.0) & (H <= 1.0))
 
     def test_raw_ma_scalar(self, ma_dens):
-        h = entropy_exp_tens(
+        h = entropy_maet(
             ma_dens, method='normalized', n_points_per_dim=80,
             x_min=[0., 0.], x_max=[500., 50.], verbose=False,
         )
@@ -581,11 +581,11 @@ class TestDifferentialInputForms:
     raise NotImplementedError."""
 
     def test_scalar_density(self, single_multiset_dens):
-        h = entropy_exp_tens(single_multiset_dens, method='differential', verbose=False)
+        h = entropy_maet(single_multiset_dens, method='differential', verbose=False)
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
-        h = entropy_exp_tens(
+        h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
             single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
             single_multiset_inputs["period"],
@@ -597,7 +597,7 @@ class TestDifferentialInputForms:
         # 2-D differential entropy: certifying the tightest accuracy needs
         # an infeasibly fine grid, so pin a feasible accuracy for this
         # input-form check (the refusal path is tested separately).
-        h = entropy_exp_tens(
+        h = entropy_maet(
             ma_dens, method='differential',
             truncation_sigmas=5.0, verbose=False,
         )
@@ -605,11 +605,11 @@ class TestDifferentialInputForms:
 
     def test_list_rejected(self, single_multiset_dens_list):
         with pytest.raises(NotImplementedError):
-            entropy_exp_tens(single_multiset_dens_list, method='differential', verbose=False)
+            entropy_maet(single_multiset_dens_list, method='differential', verbose=False)
 
     def test_batched_rejected(self, single_attribute_batched):
         with pytest.raises(NotImplementedError):
-            entropy_exp_tens(
+            entropy_maet(
                 single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
                 single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
                 single_attribute_batched["period"],
@@ -622,11 +622,11 @@ class TestRenyi2InputForms:
     raise NotImplementedError."""
 
     def test_scalar_density(self, single_multiset_dens):
-        h = entropy_exp_tens(single_multiset_dens, method='renyi2', verbose=False)
+        h = entropy_maet(single_multiset_dens, method='renyi2', verbose=False)
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
-        h = entropy_exp_tens(
+        h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
             single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
             single_multiset_inputs["period"],
@@ -635,16 +635,16 @@ class TestRenyi2InputForms:
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_raw_ma_scalar(self, ma_dens):
-        h = entropy_exp_tens(ma_dens, method='renyi2', verbose=False)
+        h = entropy_maet(ma_dens, method='renyi2', verbose=False)
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_list_rejected(self, single_multiset_dens_list):
         with pytest.raises(NotImplementedError):
-            entropy_exp_tens(single_multiset_dens_list, method='renyi2', verbose=False)
+            entropy_maet(single_multiset_dens_list, method='renyi2', verbose=False)
 
     def test_batched_rejected(self, single_attribute_batched):
         with pytest.raises(NotImplementedError):
-            entropy_exp_tens(
+            entropy_maet(
                 single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
                 single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
                 single_attribute_batched["period"],
@@ -664,30 +664,30 @@ class TestNormalizeKwargMigrationError:
 
     @pytest.fixture
     def dens(self):
-        return build_exp_tens(
+        return build_maet(
             np.array([100., 200., 300.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
 
-    def test_entropy_exp_tens_normalize_true_rejected(self, dens):
+    def test_entropy_maet_normalize_true_rejected(self, dens):
         with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
-            entropy_exp_tens(
+            entropy_maet(
                 dens, method='shannon', n_points_per_dim=100,
                 normalize=True, verbose=False,
             )
 
-    def test_entropy_exp_tens_normalize_false_rejected(self, dens):
+    def test_entropy_maet_normalize_false_rejected(self, dens):
         with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
-            entropy_exp_tens(
+            entropy_maet(
                 dens, method='shannon', n_points_per_dim=100,
                 normalize=False, verbose=False,
             )
 
-    def test_entropy_exp_tens_normalize_rejected_under_renyi2(self, dens):
+    def test_entropy_maet_normalize_rejected_under_renyi2(self, dens):
         # In an earlier internal build this combination triggered a
         # NotImplementedError; in v3 it triggers the migration error.
         with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
-            entropy_exp_tens(dens, method='renyi2', normalize=False, verbose=False)
+            entropy_maet(dens, method='renyi2', normalize=False, verbose=False)
 
     def test_spectral_entropy_normalize_true_rejected(self):
         with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
@@ -707,7 +707,7 @@ class TestNormalizeKwargMigrationError:
         # The error text must point users to the two replacement methods
         # so they can pick the right one without re-reading the docs.
         try:
-            entropy_exp_tens(
+            entropy_maet(
                 dens, method='shannon', n_points_per_dim=100,
                 normalize=True, verbose=False,
             )
@@ -733,14 +733,14 @@ class TestDifferentialTruncationSigmasContract:
     of two clearly-separated densities must be preserved."""
 
     def test_ts3_finite_and_close_to_ts6(self):
-        dens = build_exp_tens(
+        dens = build_maet(
             np.array([6000., 6300., 6700.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
         )
-        h_ts3 = entropy_exp_tens(
+        h_ts3 = entropy_maet(
             dens, method='differential', truncation_sigmas=3.0, verbose=False,
         )
-        h_ts6 = entropy_exp_tens(
+        h_ts6 = entropy_maet(
             dens, method='differential', truncation_sigmas=6.0, verbose=False,
         )
         assert math.isfinite(h_ts3)
@@ -748,19 +748,19 @@ class TestDifferentialTruncationSigmasContract:
         assert abs(h_ts3 - h_ts6) < 1e-2
 
     def test_ts3_preserves_ordering(self):
-        dens_concentrated = build_exp_tens(
+        dens_concentrated = build_maet(
             np.array([6500., 6600.]), np.ones(2),
             15.0, 1, False, False, 0.0, verbose=False,
         )
-        dens_spread = build_exp_tens(
+        dens_spread = build_maet(
             np.array([6000., 6400., 6800., 7200.]), np.ones(4),
             15.0, 1, False, False, 0.0, verbose=False,
         )
-        h_conc = entropy_exp_tens(
+        h_conc = entropy_maet(
             dens_concentrated, method='differential',
             truncation_sigmas=3.0, verbose=False,
         )
-        h_spread = entropy_exp_tens(
+        h_spread = entropy_maet(
             dens_spread, method='differential',
             truncation_sigmas=3.0, verbose=False,
         )
@@ -778,12 +778,12 @@ def test_spectral_entropy_discrete_grid_is_resolution_based():
     to ~1e-4, the difference between a mass and a point sample at 1
     cent."""
     import numpy as np
-    from mpt import spectral_entropy, build_exp_tens, eval_exp_tens
+    from mpt import spectral_entropy, build_maet, eval_maet
     p = np.array([0.0, 400.0, 700.0]); sigma = 12.0
-    d = build_exp_tens(p, np.ones(3), sigma, 1, False, False, 1200,
+    d = build_maet(p, np.ones(3), sigma, 1, False, False, 1200,
                        verbose=False)
     x = np.arange(0.0, p.max() + 4 * sigma + 1.0, 1.0)
-    t = eval_exp_tens(d, x[None, :], verbose=False)
+    t = eval_maet(d, x[None, :], verbose=False)
     q = t / t.sum(); n_bins = q.size; q = q[q > 0]
     h_ref = -(q * np.log2(q)).sum()
     h = spectral_entropy(p, None, sigma, method="shannon", verbose=False)

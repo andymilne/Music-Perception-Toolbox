@@ -16,7 +16,7 @@ import warnings
 import numpy as np
 
 import mpt._tensor.dispatch as D
-from mpt.tensor import build_exp_tens
+from mpt.tensor import build_maet
 
 P = 1200.0
 N = 2
@@ -26,7 +26,7 @@ def route(r, K, is_rel, is_per, n_q=500):
     """Route chosen by each flat dispatcher for this configuration."""
     rng = np.random.default_rng(0)
     geom = ([0.025 * P], [r], [is_rel], [is_per], [P])
-    dens = build_exp_tens([rng.uniform(0, P, (K, N))],
+    dens = build_maet([rng.uniform(0, P, (K, N))],
                           [rng.uniform(0.1, 1.0, (K, N))], *geom,
                           verbose=False)
     with warnings.catch_warnings():

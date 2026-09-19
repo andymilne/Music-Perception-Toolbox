@@ -1,4 +1,4 @@
-"""Parity tests for ``eval_exp_tens`` single-multiset centres-path routing through
+"""Parity tests for ``eval_maet`` single-multiset centres-path routing through
 the shared helper (:func:`mpt._kernel.gaussian_kernel_sum`).
 
 Verifies, on a battery of representative densities and queries, that:
@@ -62,7 +62,7 @@ def _atol_for(ref):
 import pytest
 
 import mpt
-from mpt.tensor import build_exp_tens, eval_exp_tens
+from mpt.tensor import build_maet, eval_maet
 
 
 # ---------------------------------------------------------------------
@@ -147,7 +147,7 @@ def density_case(request):
     rng = np.random.default_rng(zlib.crc32(label.encode()))
     p = np.sort(rng.uniform(0, 1000, K))
     w = rng.uniform(0.5, 1.5, K)
-    dens = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=False)
+    dens = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
     dim = r - 1 if is_rel else r
     if is_per:
         x = rng.uniform(0, period, (dim, n_q))
@@ -174,7 +174,7 @@ def density_case(request):
 def test_default_settings_match_reference(density_case):
     label, dens, x = density_case
     with accuracy_floor_context(1e-300):
-        v = eval_exp_tens(dens, x, method='centres', truncation_sigmas=math.inf,
+        v = eval_maet(dens, x, method='centres', truncation_sigmas=math.inf,
                           verbose=False)
     ref = _ref_eval(dens, x)
     np.testing.assert_allclose(
@@ -186,7 +186,7 @@ def test_default_settings_match_reference(density_case):
 def test_explicit_inf_matches_reference(density_case):
     label, dens, x = density_case
     with accuracy_floor_context(1e-300):
-        v = eval_exp_tens(
+        v = eval_maet(
             dens, x, method='centres', truncation_sigmas=math.inf,
             kernel_precision='double', verbose=False,
         )
@@ -207,7 +207,7 @@ def test_truncation_within_bound(density_case, k):
     # Periodic mode falls through to exact: truncation has no effect.
     if dens.is_per:
         pytest.skip("periodic mode currently exact-only")
-    v_trunc = eval_exp_tens(
+    v_trunc = eval_maet(
         dens, x, method='centres', truncation_sigmas=k, verbose=False,
     )
     ref = _ref_eval(dens, x)
@@ -225,8 +225,8 @@ def test_truncation_within_bound(density_case, k):
 def test_truncation_inf_is_exact(density_case):
     """At truncation_sigmas=inf, output is bit-identical to default."""
     label, dens, x = density_case
-    v_default = eval_exp_tens(dens, x, method='centres', verbose=False)
-    v_inf = eval_exp_tens(
+    v_default = eval_maet(dens, x, method='centres', verbose=False)
+    v_inf = eval_maet(
         dens, x, method='centres', truncation_sigmas=math.inf, verbose=False,
     )
     assert np.array_equal(v_default, v_inf), \
@@ -245,8 +245,8 @@ def test_periodic_truncation_agrees_within_floor(density_case):
     label, dens, x = density_case
     if not dens.is_per:
         pytest.skip("only applies to periodic")
-    v_default = eval_exp_tens(dens, x, method='centres', verbose=False)
-    v_trunc = eval_exp_tens(
+    v_default = eval_maet(dens, x, method='centres', verbose=False)
+    v_trunc = eval_maet(
         dens, x, method='centres', truncation_sigmas=6, verbose=False,
     )
     np.testing.assert_allclose(
@@ -261,7 +261,7 @@ def test_periodic_truncation_agrees_within_floor(density_case):
 
 def test_single_precision_within_bound(density_case):
     label, dens, x = density_case
-    v_single = eval_exp_tens(
+    v_single = eval_maet(
         dens, x, method='centres', kernel_precision='single', verbose=False,
     )
     ref = _ref_eval(dens, x)
@@ -286,20 +286,20 @@ def test_global_default_picked_up():
     p = np.sort(rng.uniform(0, 1000, 6))
     w = rng.uniform(0.5, 1.5, 6)
     sigma = 12.0
-    dens = build_exp_tens(p, w, sigma, 3, True, False, 0.0, verbose=False)
+    dens = build_maet(p, w, sigma, 3, True, False, 0.0, verbose=False)
     x = rng.uniform(0, 1000, (2, 20))
     ref = _ref_eval(dens, x)
 
     # With the default width, agreement is to the accuracy floor: the
     # resolved width is k = 7.43, not an untruncated sum.
     with accuracy_floor_context(1e-300):
-        v1 = eval_exp_tens(dens, x, method='centres',
+        v1 = eval_maet(dens, x, method='centres',
                            truncation_sigmas=math.inf, verbose=False)
     np.testing.assert_allclose(v1, ref, rtol=_RTOL, atol=_atol_for(ref))
 
     # Set global default; bit-identical now requires truncation match.
     mpt.set_default(truncation_sigmas=6)
-    v2 = eval_exp_tens(dens, x, method='centres', verbose=False)
+    v2 = eval_maet(dens, x, method='centres', verbose=False)
     weight_mass = float(np.sum(np.abs(dens.w_j)))
     bound = max(1e-12, 10 * weight_mass * math.exp(-18))
     err = np.max(np.abs(v2 - ref))
@@ -311,7 +311,7 @@ def test_per_call_overrides_global():
     p = np.sort(rng.uniform(0, 1000, 6))
     w = rng.uniform(0.5, 1.5, 6)
     sigma = 12.0
-    dens = build_exp_tens(p, w, sigma, 3, True, False, 0.0, verbose=False)
+    dens = build_maet(p, w, sigma, 3, True, False, 0.0, verbose=False)
     x = rng.uniform(0, 1000, (2, 20))
     ref = _ref_eval(dens, x)
 
@@ -320,7 +320,7 @@ def test_per_call_overrides_global():
     # A per-call Inf must still resolve to the accuracy floor, overriding
     # the laxer global width.
     with accuracy_floor_context(1e-300):
-        v = eval_exp_tens(
+        v = eval_maet(
             dens, x, method='centres', truncation_sigmas=math.inf,
             verbose=False,
         )
@@ -350,14 +350,14 @@ def _transposition_average(p, w, sigma, r, x, n_tau):
     constant across queries to 8e-8 at sigma/P = 0.05 but only to 4e-1
     at sigma/P = 0.01, where six grid points span a sigma.
     """
-    dens_abs = build_exp_tens(
+    dens_abs = build_maet(
         p, w, sigma, r, False, True, P_REL, verbose=False,
     )
     n_q = x.shape[1]
     full = np.vstack([np.zeros((1, n_q)), x])            # (r, n_q)
     taus = np.arange(n_tau) * (P_REL / n_tau)
     grid = (full[:, :, None] + taus[None, None, :]) % P_REL
-    vals = eval_exp_tens(
+    vals = eval_maet(
         dens_abs, grid.reshape(r, n_q * n_tau), verbose=False,
     )
     return vals.reshape(n_q, n_tau).mean(axis=1)
@@ -384,9 +384,9 @@ def test_mobius_route_computes_the_transposition_average(sigma_over_P, tol):
     rng = np.random.default_rng(zlib.crc32(b"transposition-average"))
     p = np.sort(rng.uniform(0, P_REL, 6))
     w = rng.uniform(0.5, 1.5, 6)
-    dens = build_exp_tens(p, w, sigma, 3, True, True, P_REL, verbose=False)
+    dens = build_maet(p, w, sigma, 3, True, True, P_REL, verbose=False)
     x = rng.uniform(0, P_REL, (2, 9))
-    mobius = eval_exp_tens(dens, x, method='mobius', verbose=False)
+    mobius = eval_maet(dens, x, method='mobius', verbose=False)
     ref = _transposition_average(p, w, sigma, 3, x, n_tau=600)
     ratio = ref / mobius
     assert np.all(np.isfinite(ratio))
@@ -409,7 +409,7 @@ def test_beyond_the_limit_the_measure_decides_the_route():
     assert 0.05 > _orbit_sigma_over_p_threshold(None)
     rng = np.random.default_rng(zlib.crc32(b"beyond-the-limit"))
     p = np.sort(rng.uniform(0, P_REL, 12))
-    dens = build_exp_tens(p, None, sigma, 3, True, True, P_REL,
+    dens = build_maet(p, None, sigma, 3, True, True, P_REL,
                           verbose=False)
     report = mpt.explain_dispatch(dens, n_q=200)
     priced = {rt.name: rt.predicted_ms for rt in report.routes}

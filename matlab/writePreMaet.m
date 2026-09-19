@@ -15,7 +15,7 @@ function out = writePreMaet(varargin)
 %
 %   STR = WRITEPREMAET(...) also returns the CSV text.
 %
-%   See also READPREMAET, SHOWPREMAET, BUILDEXPTENS.
+%   See also READPREMAET, SHOWPREMAET, BUILDMAET.
 
 varargin = internal.expandPreMaet(varargin, 2);
 out = localWritePreMaet(varargin{:});

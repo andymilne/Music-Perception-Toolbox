@@ -22,28 +22,29 @@
 % in octave to count as similar; wide, and pitch-class equivalence
 % dominates. Voice information enters in one of three ways:
 %   (i)   Voice-aware: one event per chord; each attribute holds the
-%         ordered (S, A, T, B) voicing — K = 4, [sym] = 0, r = 4 — so
+%         ordered (S, A, T, B) voicing — K = 4, [exch] = 0, r = 4 — so
 %         matching is voice by voice, a multiplicative AND across voices.
 %   (ii)  Simplex-voice: one event per note (N = 4 single-pitch events);
 %         pitch class and pitch height at r = 1, plus a voice attribute
 %         holding each note's vertex of a regular tetrahedron
 %         (simplexVertices(4), its three coordinates taken in order:
-%         [sym] = 0, r = 3, sigma_voice = 0.2), so matching accrues
+%         [exch] = 0, r = 3, sigma_voice = 0.2), so matching accrues
 %         additive partial credit, voice by voice.
-%   (iii) Voice-agnostic: one event per chord; the four pitches as an
-%         unordered multiset (K = 4, r = 1) on both attributes; voice
-%         identity is not encoded.
+%   (iii) Voice-agnostic: one event per note (N = 4, K = 1, r = 1) on the
+%         same two attributes -- the simplex-voice encoding without its
+%         voice attribute, so each note's pitch class stays bound to its
+%         own height; voice identity is not encoded.
 % Each chord's density is built once per encoding and sigma_ph
-% (buildExpTens, in jmm.buildVoiceAware, jmm.buildSimplexVoice, and
+% (buildMaet, in jmm.buildVoiceAware, jmm.buildSimplexVoice, and
 % jmm.buildVoiceAgnostic), and the six pair similarities come from one
-% batched cosSimExpTens call on density lists (elementwise list mode).
+% batched simMaet call on density lists (elementwise list mode).
 %
 % An appendix figure (HEATMAPS = true) extends the same three encodings
 % to every event of the chorale: N x N cosine-similarity matrices over the
-% 272 sixteenth-note grid points, one broadcast cosSimExpTens call per
+% 272 sixteenth-note grid points, one broadcast simMaet call per
 % row and encoding, at three pitch-height widths.
 %
-% Data: jmm.bwv347Grid. Toolbox: buildExpTens, cosSimExpTens,
+% Data: jmm.bwv347Grid. Toolbox: buildMaet, simMaet,
 % simplexVertices. Runtime: seconds for the sweep; a few minutes more for
 % the heat maps.
 %
@@ -53,7 +54,7 @@
 % reachable, rather than from the script itself: in a script neither
 % mfilename nor dbstack reports the file, and the current folder need not
 % be the script's own. Adding it puts the +jmm helper package in scope.
-mptRoot = which('buildExpTens');
+mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
         ['The toolbox is not on the path. Add the matlab folder of the ' ...
@@ -144,7 +145,7 @@ for spIdx = 1:numel(SIGMA_PHS)
         end
         % One batched call per encoding: list-vs-list elementwise mode
         % returns all six pair similarities at once.
-        sims(bIdx, :, spIdx) = cell2mat(cosSimExpTens(dens(pairI), dens(pairJ), ...
+        sims(bIdx, :, spIdx) = cell2mat(simMaet(dens(pairI), dens(pairJ), ...
                                                       'verbose', false));
     end
 end
@@ -225,7 +226,7 @@ if HEATMAPS
             % on, mirrored below the diagonal.
             S = zeros(N, N);
             for i = 1:N
-                S(i, i:N) = cell2mat(cosSimExpTens(dens{i}, dens(i:N), ...
+                S(i, i:N) = cell2mat(simMaet(dens{i}, dens(i:N), ...
                                                    'verbose', false));
                 S(i:N, i) = S(i, i:N).';
             end

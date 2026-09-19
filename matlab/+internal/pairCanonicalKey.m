@@ -16,7 +16,7 @@ function [pAc, wAc, pBc, wBc] = pairCanonicalKey(pAv, wAv, pBv, wBv, ...
 %     each is canonicalized on its own via internal.canonicalizeSet.
 %
 %     Absolute ([rel] = 0). Only a joint co-transposition preserves the
-%     similarity, since cosSimExpTens(A + c, B + c) = cosSimExpTens(A, B):
+%     similarity, since simMaet(A + c, B + c) = simMaet(A, B):
 %     the raw tuple differences cancel. A therefore determines a shift and
 %     B inherits it. Under octave equivalence ([per] = 1) A is reduced to
 %     its cyclic canonical form, the lexicographically smallest rotation,
@@ -54,7 +54,7 @@ function [pAc, wAc, pBc, wBc] = pairCanonicalKey(pAv, wAv, pBv, wBv, ...
         [pBc, wBc] = internal.canonicalizeSet(pBv, wBv, isRel, isPer, period);
     else
         % Absolute: joint co-transposition normalization.
-        % cosSimExpTens(A-c, B-c) = cosSimExpTens(A, B) because the
+        % simMaet(A-c, B-c) = simMaet(A, B) because the
         % raw tuple differences cancel. Find A's canonical form and
         % apply the same shift to B.
 

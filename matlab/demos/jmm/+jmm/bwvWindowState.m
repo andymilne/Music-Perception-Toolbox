@@ -26,14 +26,14 @@ function S = bwvWindowState()
 %     under a fermata); an off-beat passing chord enters at half weight.
 %   * A context window pair (or triple, for the three-chord prototypes)
 %     is one bound pitch attribute: the inner level is each aggregate's
-%     pitch multiset ([sym] = 1, r = rInner), the outer level the ordered
-%     aggregates ([sym] = 0, r = L), taken relative at the outer level
+%     pitch multiset ([exch] = 1, r = rInner), the outer level the ordered
+%     aggregates ([exch] = 0, r = L), taken relative at the outer level
 %     alone ([rel] = (0, 1)) and periodic (P = 12, sigma = 0.15). The
 %     optional inversion flag is a second, simplex-coded attribute
 %     (+/-0.5, sigmaFlag = 0.1) carried by query and context alike.
 %
 %   All densities are built with the toolbox's bindEvents ->
-%   buildExpTens pipeline; similarities use cosSimExpTens. Data come from
+%   buildMaet pipeline; similarities use simMaet. Data come from
 %   jmm.bwv347Grid (the bundled MusicXML read with readScore).
 %
 %   Fields

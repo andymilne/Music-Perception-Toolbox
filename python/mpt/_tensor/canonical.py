@@ -1,7 +1,8 @@
 """Canonical-form key helpers for batched cosine-similarity dedup.
 
-Pure stateless utilities used by :func:`batch_cos_sim_exp_tens` (and a
-single per-chord call from :func:`eval_exp_tens` cache plumbing) to
+Pure stateless utilities used by the batched-raw mode of
+:func:`~mpt.sim_maet` (and a
+single per-chord call from :func:`eval_maet` cache plumbing) to
 produce hashable keys identifying inputs up to the relevant symmetry
 group:
 
@@ -26,7 +27,7 @@ import numpy as np
 
 
 # -------------------------------------------------------------------
-#  Canonicalization helpers (for batch_cos_sim_exp_tens)
+#  Canonicalization helpers (for the batched-raw mode)
 # -------------------------------------------------------------------
 
 
@@ -167,7 +168,7 @@ def _chord_canonical_key(
     ``(p, w, sigma, r, is_rel, is_per, period)``-determined density),
     regardless of input-side permutation or, in relative modes,
     in-batch translation. Used by the consumer-level deduplication in
-    :func:`cos_sim_exp_tens` and the
+    :func:`sim_maet` and the
     harmony wrappers when given batched chord input.
 
     Parameters
@@ -240,7 +241,7 @@ def _pair_canonical_key(
       each set. Each side is canonicalised separately via
       :func:`_canonicalize_set`.
     - **Absolute** (``is_rel=False``): joint co-transposition.
-      ``cos_sim_exp_tens(A + c, B + c) == cos_sim_exp_tens(A, B)``,
+      ``sim_maet(A + c, B + c) == sim_maet(A, B)``,
       so A's canonical form determines a shift, and the same shift
       is applied to B. For ``is_per=True``, A is reduced to its
       cyclic canonical form (the lex-smallest rotation), and B is

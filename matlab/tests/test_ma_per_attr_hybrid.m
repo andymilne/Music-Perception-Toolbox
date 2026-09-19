@@ -14,7 +14,7 @@
 %      direct-enum reference.
 %    - Every event at K_eff = r: the batched matrix equals the per-pair
 %      direct-enum reference.
-%    - Mixed K_eff: cosSimExpTens with method='mobius' agrees with
+%    - Mixed K_eff: simMaet with method='mobius' agrees with
 %      method='bulger' to high precision.
 %    - r=1 ragged: zero-pad path unchanged, still matches Bulger.
 %
@@ -36,7 +36,7 @@ end
 %% ---- innerProductDirectAbsSingleMultiset correctness ----
 
 % Compare direct enumeration to a hand-rolled centres-array IP for a
-% small abs-mode single-multiset case. The hand-rolled version uses buildExpTens to
+% small abs-mode single-multiset case. The hand-rolled version uses buildMaet to
 % generate ordered tuples + weight products and computes the IP via
 % explicit kernel matmul.
 rng(81, 'twister');
@@ -49,10 +49,10 @@ sigma = 30;
 ip_direct = reference.innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, ...
     sigma, 3, false, 0);
 
-% Hand-rolled reference via buildExpTens centres
-densX = buildExpTens(p_x, w_x, sigma, 3, false, false, 0, ...
+% Hand-rolled reference via buildMaet centres
+densX = buildMaet(p_x, w_x, sigma, 3, false, false, 0, ...
     'lazy', false, 'verbose', false);
-densY = buildExpTens(p_y, w_y, sigma, 3, false, false, 0, ...
+densY = buildMaet(p_y, w_y, sigma, 3, false, false, 0, ...
     'lazy', false, 'verbose', false);
 diffs_ref = reshape(densX.U_perm{1}, 3, densX.nJ, 1) ...
           - reshape(densY.U_perm{1}, 3, 1, densY.nJ);
@@ -84,7 +84,7 @@ sigma = 30; r = 3;
 I_big = mobius.maPerAttrInnerMatrix(P_big, W_big, P_big, W_big, ...
     sigma, r, false, false, 0);
 
-% Reference: a single buildExpTens-style direct computation per pair
+% Reference: a single buildMaet-style direct computation per pair
 % (gives the gold-standard IP; no Möbius cancellation since we're
 % summing positive terms).
 N_big = 4;
@@ -152,11 +152,11 @@ for n = 1:N_kg
     P_kg(1:K_eff_n, n) = 1200 * rand(K_eff_n, 1);
     W_kg(1:K_eff_n, n) = 1;
 end
-dens_kg = buildExpTens({P_kg}, {W_kg}, sigma_kg, r_kg, ...
+dens_kg = buildMaet({P_kg}, {W_kg}, sigma_kg, r_kg, ...
     false, false, 0, 'verbose', false);
-s_orbit_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'mobius', ...
+s_orbit_kg = simMaet(dens_kg, dens_kg, 'method', 'mobius', ...
     'verbose', false);
-s_pw_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'bulger', ...
+s_pw_kg = simMaet(dens_kg, dens_kg, 'method', 'bulger', ...
     'verbose', false);
 results{end+1,1} = 'maPerAttrInnerMatrix ragged K_eff: Möbius matches Bulger (1e-12)';
 results{end,2}   = abs(s_orbit_kg - s_pw_kg) < 1e-12;
@@ -185,14 +185,14 @@ W_mix = [1  1  1;
          NaN  1  NaN;
          NaN  1  NaN];
 
-dx = buildExpTens({P_mix}, {W_mix}, 30, 3, ...
+dx = buildMaet({P_mix}, {W_mix}, 30, 3, ...
     false, false, 0, 'verbose', false);
-dy = buildExpTens({P_mix}, {W_mix}, 30, 3, ...
+dy = buildMaet({P_mix}, {W_mix}, 30, 3, ...
     false, false, 0, 'verbose', false);
-s_orbit = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
-s_pwise = cosSimExpTens(dx, dy, 'method', 'bulger', 'verbose', false);
+s_orbit = simMaet(dx, dy, 'method', 'mobius', 'verbose', false);
+s_pwise = simMaet(dx, dy, 'method', 'bulger', 'verbose', false);
 
-results{end+1,1} = 'cosSimExpTens mixed K_eff MA Möbius matches Bulger (1e-8)';
+results{end+1,1} = 'simMaet mixed K_eff MA Möbius matches Bulger (1e-8)';
 results{end,2}   = abs(s_orbit - s_pwise) < 1e-8;
 
 %% ---- r=1 ragged still matches pairwise ----
@@ -201,13 +201,13 @@ results{end,2}   = abs(s_orbit - s_pwise) < 1e-8;
 % used.
 P_r1 = [10 100 200; 30 NaN 400; 50 NaN NaN];
 W_r1 = [1 1 1; 1 NaN 1; 1 NaN NaN];
-dx_r1 = buildExpTens({P_r1}, {W_r1}, 30, 1, ...
+dx_r1 = buildMaet({P_r1}, {W_r1}, 30, 1, ...
     false, false, 0, 'verbose', false);
-dy_r1 = buildExpTens({P_r1}, {W_r1}, 30, 1, ...
+dy_r1 = buildMaet({P_r1}, {W_r1}, 30, 1, ...
     false, false, 0, 'verbose', false);
-s_r1_orbit = cosSimExpTens(dx_r1, dy_r1, 'method', 'mobius', 'verbose', false);
-s_r1_pw    = cosSimExpTens(dx_r1, dy_r1, 'method', 'bulger', 'verbose', false);
-results{end+1,1} = 'cosSimExpTens r=1 ragged: Möbius matches Bulger (1e-10)';
+s_r1_orbit = simMaet(dx_r1, dy_r1, 'method', 'mobius', 'verbose', false);
+s_r1_pw    = simMaet(dx_r1, dy_r1, 'method', 'bulger', 'verbose', false);
+results{end+1,1} = 'simMaet r=1 ragged: Möbius matches Bulger (1e-10)';
 results{end,2}   = abs(s_r1_orbit - s_r1_pw) < 1e-10;
 
 %% ---- Standalone summary ----

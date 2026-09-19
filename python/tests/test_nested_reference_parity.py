@@ -9,7 +9,7 @@ optimised route computes.
 
 A reference implementation nothing exercises documents what someone once
 believed the optimised path computed. These tests make the claim checkable:
-on small cases the reference must reproduce ``cos_sim_exp_tens`` to
+on small cases the reference must reproduce ``sim_maet`` to
 floating-point precision, in each of the three quadrature modes the
 reference distinguishes (absolute, relative-periodic, relative
 non-periodic).
@@ -17,7 +17,7 @@ non-periodic).
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 from mpt._tensor._nested_contraction import build_recipe
 from tests.references.nested_ip_reference import make_quadrature, nested_ip
 
@@ -58,11 +58,11 @@ def test_reference_reproduces_the_shipped_cosine(label, is_rel, is_per,
     w_x = rng.uniform(0.5, 1.5, 5)
     w_y = rng.uniform(0.5, 1.5, 5)
 
-    d_x = build_exp_tens(p_x, w_x, sigma, r, is_rel, is_per, period,
+    d_x = build_maet(p_x, w_x, sigma, r, is_rel, is_per, period,
                          verbose=False)
-    d_y = build_exp_tens(p_y, w_y, sigma, r, is_rel, is_per, period,
+    d_y = build_maet(p_y, w_y, sigma, r, is_rel, is_per, period,
                          verbose=False)
-    shipped = cos_sim_exp_tens(d_x, d_y, truncation_sigmas=np.inf,
+    shipped = sim_maet(d_x, d_y, truncation_sigmas=np.inf,
                                verbose=False)
     reference = _reference_cosine(p_x, p_y, w_x, w_y, sigma, r,
                                   is_rel, is_per, period)

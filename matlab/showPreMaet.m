@@ -8,7 +8,7 @@ function out = showPreMaet(varargin)
 %   sigma, the tuple size r, the [rel] and [per] flags, and the period
 %   where it is periodic -- and its cells hold the elements from which
 %   the admitted tuples are formed. A cell is brace-delimited where the
-%   attribute is unordered ([sym] = 1) and parenthesis-delimited where it
+%   attribute is unordered ([exch] = 1) and parenthesis-delimited where it
 %   is ordered; a nested attribute is bracketed level by level, the
 %   outermost level outermost. A single element is written bare. Where
 %   the weights are not uniform they are written as parenthesized
@@ -17,7 +17,7 @@ function out = showPreMaet(varargin)
 %   Octave and it survives any terminal encoding; the LaTeX rendering
 %   carries the article's own symbols.
 %
-%   SHOWPREMAET(DENS) takes a density built by buildExpTens, from which
+%   SHOWPREMAET(DENS) takes a density built by buildMaet, from which
 %   every field is recovered.
 %
 %   STR = SHOWPREMAET(...) also returns the rendered table.
@@ -51,7 +51,7 @@ function out = showPreMaet(varargin)
 %                 'sigma', [0.5 0.25], 'isPer', [true false], ...
 %                 'period', [12 0]);
 %
-%   See also buildExpTens, flatSpecs, differenceEvents, bindEvents.
+%   See also buildMaet, flatSpecs, differenceEvents, bindEvents.
 
 varargin = internal.expandPreMaet(varargin, 1);
 if nargout > 0
@@ -129,10 +129,10 @@ for a = 1:A
         else
             wCol = W{a}(:, cols(j));
         end
-        [node, symLevels] = localCellTree( ...
+        [node, exchLevels] = localCellTree( ...
             P{a}(:, cols(j)), wCol, sp{a}, nv.maxElements);
         cells{a, j} = localRenderNode( ...
-            node, symLevels, nv.decimals, showW, isLatex, true);
+            node, exchLevels, nv.decimals, showW, isLatex, true);
     end
 end
 
@@ -159,10 +159,10 @@ if isCsv
             else
                 wCol = W{a}(:, cols(j));
             end
-            [node, symLevels] = localCellTree( ...
+            [node, exchLevels] = localCellTree( ...
                 P{a}(:, cols(j)), wCol, sp{a}, nv.maxElements);
             cells{a, j} = localRenderNode( ...
-                node, symLevels, nv.decimals, showWa, false, true);
+                node, exchLevels, nv.decimals, showWa, false, true);
         end
     end
     str = localRenderCsv(names, sp, prm, cells, cols, nv);
@@ -209,7 +209,7 @@ if isstruct(pAttr) && isfield(pAttr, 'pAttr') && isfield(pAttr, 'nAttrs')
             sp{a} = d.nested{a};
         else
             sp{a} = struct('r', double(d.r(a)), ...
-                'rel', logical(d.isRel(a)), 'sym', logical(d.isSym(a)));
+                'rel', logical(d.isRel(a)), 'exch', logical(d.isExch(a)));
         end
     end
     prm = struct('sigma', {num2cell(double(d.sigma(:)'))}, ...
@@ -253,7 +253,7 @@ end
 if isempty(specs)
     sp = cell(1, A);
     for a = 1:A
-        sp{a} = struct('r', 1, 'rel', false, 'sym', true);
+        sp{a} = struct('r', 1, 'rel', false, 'exch', true);
     end
 else
     if ~iscell(specs), specs = {specs}; end
@@ -368,9 +368,9 @@ end
 %  Cell model
 % ===================================================================
 
-function [node, symLevels] = localCellTree(pCol, wCol, spec, maxElements)
+function [node, exchLevels] = localCellTree(pCol, wCol, spec, maxElements)
 finite = isfinite(pCol);
-symLevels = localLevels(spec, 'sym', 1);
+exchLevels = localLevels(spec, 'exch', 1);
 
 if ~isfield(spec, 'tags') || isempty(spec.tags)
     node = localLeaves(find(finite), pCol, wCol, maxElements); %#ok<FNDSB>
@@ -444,26 +444,26 @@ end
 end
 
 
-function s = localRenderNode(node, symLevels, decimals, showW, isLatex, top)
+function s = localRenderNode(node, exchLevels, decimals, showW, isLatex, top)
 d = localDepth(node);
-if d < numel(symLevels)
-    sym = symLevels(d + 1);
-elseif ~isempty(symLevels)
-    sym = symLevels(end);
+if d < numel(exchLevels)
+    exch = exchLevels(d + 1);
+elseif ~isempty(exchLevels)
+    exch = exchLevels(end);
 else
-    sym = 1;
+    exch = 1;
 end
 if d == 0
-    s = localRenderLeaves(node, decimals, showW, isLatex, sym, top);
+    s = localRenderLeaves(node, decimals, showW, isLatex, exch, top);
     return;
 end
 sep = ', ';
 parts = cell(1, numel(node));
 for k = 1:numel(node)
-    parts{k} = localRenderNode(node{k}, symLevels, decimals, showW, ...
+    parts{k} = localRenderNode(node{k}, exchLevels, decimals, showW, ...
         isLatex, false);
 end
-s = localBracket(localJoin(parts, sep), sym, isLatex);
+s = localBracket(localJoin(parts, sep), exch, isLatex);
 end
 
 
@@ -476,7 +476,7 @@ end
 end
 
 
-function s = localRenderLeaves(leaves, decimals, showW, isLatex, sym, top)
+function s = localRenderLeaves(leaves, decimals, showW, isLatex, exch, top)
 items = cell(1, numel(leaves));
 for k = 1:numel(leaves)
     lf = leaves{k};
@@ -503,12 +503,12 @@ if top && numel(items) == 1
     s = items{1};
     return;
 end
-s = localBracket(localJoin(items, ', '), sym, isLatex);
+s = localBracket(localJoin(items, ', '), exch, isLatex);
 end
 
 
-function s = localBracket(inner, sym, isLatex)
-if sym
+function s = localBracket(inner, exch, isLatex)
+if exch
     if isLatex
         s = ['\{' inner '\}'];
     else
@@ -842,7 +842,7 @@ function str = localRenderCsv(names, sp, prm, cells, cols, nv)
 %LOCALRENDERCSV  The pre-MAET as CSV, in the format readPreMaet reads.
 %
 %   One row per attribute: the fixed parameter columns name, sigma, r,
-%   rel, per, P, sym, then one column per event carrying the same cell
+%   rel, per, P, exch, then one column per event carrying the same cell
 %   grammar the markdown and LaTeX renderings use.
 A = numel(names);
 nCol = numel(cols);
@@ -854,7 +854,7 @@ for j = 1:nCol
         headings{j} = nv.headings{j};
     end
 end
-lines = {localJoinCsv([{'name', 'sigma', 'r', 'rel', 'per', 'P', 'sym'}, ...
+lines = {localJoinCsv([{'name', 'sigma', 'r', 'rel', 'per', 'P', 'exch'}, ...
                        headings], nv.delimiter)};
 for a = 1:A
     row = {localCsvName(names{a}), ...
@@ -863,7 +863,7 @@ for a = 1:A
            localFmtParam(localSpecLevels(sp{a}, 'rel', 0)), ...
            localFmtParam(localCsvFlag(prm.isPer{a})), ...
            localFmtParam(prm.period{a}), ...
-           localFmtParam(localSpecLevels(sp{a}, 'sym', 1))};
+           localFmtParam(localSpecLevels(sp{a}, 'exch', 1))};
     for j = 1:nCol
         row{end+1} = cells{a, j}; %#ok<AGROW>
     end
@@ -905,7 +905,7 @@ end
 function s = localFmtParam(v)
 %LOCALFMTPARAM  A parameter cell: '' absent, NA, a value, or a tuple.
 %
-%   A kernel covariance is written as the three scalars that generate it;
+%   A kernel covariance is written as the flag and three scalars that generate it;
 %   one outside that family has no such scalars and is refused.
 if isempty(v)
     s = '';
@@ -916,16 +916,17 @@ if ~isscalar(v) && min(size(v)) > 1
     if isempty(prm)
         error('showPreMaet:covToCsv', ...
             ['This kernel covariance cannot be written to CSV. The ' ...
-             'format carries a covariance as the three scalars that ' ...
-             'generate it (sdPosition, sdInterval, sdShift), and this ' ...
-             'matrix is not of that family -- so there are no such ' ...
-             'scalars to write. Set it on the spec after reading ' ...
+             'format carries a covariance as the flag and three scalars that ' ...
+             'generate it (differenced, sdValue, sdInterval, sdShift), ' ...
+             'and this matrix is of neither family -- so there are no ' ...
+             'such scalars to write. Set it on the spec after reading ' ...
              'instead.']);
     end
     % The written spelling is the same in both languages, so an exported
     % file is byte-identical whichever wrote it; either spelling is read.
-    s = sprintf('cov(sd_position=%g, sd_interval=%g, sd_shift=%g)', ...
-                prm(1), prm(2), prm(3));
+    s = sprintf(['cov(differenced=%d, sd_value=%g, ' ...
+                 'sd_interval=%g, sd_shift=%g)'], ...
+                prm(1), prm(2), prm(3), prm(4));
     return;
 end
 if isscalar(v)

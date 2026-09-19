@@ -1,17 +1,17 @@
 function specs = flatSpecs(pAttr, nvArgs)
 %FLATSPECS Build a cell of flat (one-level) specs for bare attributes.
 %
-%   specs = flatSpecs(pAttr, 'r', r, 'rel', rel, 'sym', sym, 'name', name)
+%   specs = flatSpecs(pAttr, 'r', r, 'rel', rel, 'exch', exch, 'name', name)
 %   specs = flatSpecs(pAttr, ..., 'sigma', s, 'isPer', per, 'period', P)
 %   is a convenience constructor for the canonical attribute
 %   specifications: it wraps a cell of per-attribute value matrices in
 %   flat spec structs
-%   struct('r', ., 'rel', ., 'sym', .[, 'name', .][, 'sigma', .,
+%   struct('r', ., 'rel', ., 'exch', .[, 'name', .][, 'sigma', .,
 %   'isPer', ., 'period', .]), broadcasting scalar geometry across
 %   attributes. This is the trivial flat-specs synthesis at the entry of a
 %   pre-MAET chain (raw attributes carry no level structure yet) and an
 %   ergonomic alternative to hand-writing flat structs for
-%   buildExpTens(..., 'specs', specs).
+%   buildMaet(..., 'specs', specs).
 %
 %   The kernel parameters are optional here and compulsory at the tensor
 %   (User Guide 7.4.3). Given them, the specs are a complete pre-MAET
@@ -20,9 +20,9 @@ function specs = flatSpecs(pAttr, nvArgs)
 %     pm = preMaet(pAttr, wAttr, flatSpecs(pAttr, 'r', [2 1], ...
 %              'sigma', [0.5 0.25], 'isPer', [true false], ...
 %              'period', [12 0]));
-%     dens = buildExpTens(pm);
+%     dens = buildMaet(pm);
 %
-%   Omitted, they are simply absent from the specs, and buildExpTens then
+%   Omitted, they are simply absent from the specs, and buildMaet then
 %   names the attribute that still needs one. NaN is NA, the third state:
 %   a width that a step could not carry forward.
 %
@@ -33,7 +33,7 @@ function specs = flatSpecs(pAttr, nvArgs)
 %   Name-value pairs
 %       'r'    - scalar or 1 x A per-attribute tuple size (default 1).
 %       'rel'  - scalar or 1 x A [rel] (default false).
-%       'sym'  - scalar or 1 x A [sym] (default true).
+%       'exch'  - scalar or 1 x A [exch] (default true).
 %       'name'   - [], char, or 1 x A cell of per-attribute names.
 %       'sigma'  - [] or scalar / 1 x A per-attribute kernel width; a
 %                  per-attribute entry may be a matrix-valued kernel
@@ -44,16 +44,16 @@ function specs = flatSpecs(pAttr, nvArgs)
 %
 %   Output
 %       specs - 1 x A cell of flat spec structs, ready for
-%               buildExpTens('specs', specs) or to thread through the
+%               buildMaet('specs', specs) or to thread through the
 %               pre-MAET operators.
 %
-%   See also BUILDEXPTENS, BINDEVENTS, DIFFERENCEEVENTS.
+%   See also BUILDMAET, BINDEVENTS, DIFFERENCEEVENTS.
 
 arguments
     pAttr
     nvArgs.r = 1
     nvArgs.rel = false
-    nvArgs.sym = true
+    nvArgs.exch = true
     nvArgs.name = []
     nvArgs.sigma = []
     nvArgs.isPer = []
@@ -67,12 +67,12 @@ end
 A = numel(pAttr);
 rV   = localBcast(nvArgs.r,   A, 'r',   false);
 relV = localBcast(nvArgs.rel, A, 'rel', true);
-symV = localBcast(nvArgs.sym, A, 'sym', true);
+exchV = localBcast(nvArgs.exch, A, 'exch', true);
 names = localNames(nvArgs.name, A);
 
 specs = cell(1, A);
 for a = 1:A
-    s = struct('r', rV(a), 'rel', relV(a), 'sym', symV(a));
+    s = struct('r', rV(a), 'rel', relV(a), 'exch', exchV(a));
     if ~isempty(names{a})
         s.name = names{a};
     end

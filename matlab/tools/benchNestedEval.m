@@ -4,7 +4,7 @@ function benchNestedEval(outFile)
 %   benchNestedEval()            prints the CSV to the console
 %   benchNestedEval('file.csv')  writes it to a file
 %
-%   Twin of python/tools/bench_nested_eval.py. evalExpTens on a nested
+%   Twin of python/tools/bench_nested_eval.py. evalMaet on a nested
 %   density has two routes: the tuple-centres route (materialise every
 %   nested tuple, M_perm per event, and sum a Gaussian per centre) and the
 %   per-level Möbius evaluator (mobius.evalNestedAttrOrbit), which touches
@@ -35,12 +35,12 @@ function benchNestedEval(outFile)
         fid = fopen(outFile, 'w');
     end
     fprintf(fid, 'BEGIN_CSV\n');
-    fprintf(fid, ['groups,group_size,r_levels,sym,rel_unit,per,k,n,n_q,d,m_perm,' ...
+    fprintf(fid, ['groups,group_size,r_levels,exch,rel_unit,per,k,n,n_q,d,m_perm,' ...
                   'bell_sum,n_u,centres_ms,mobius_ms\n']);
 
     shapes = {2, 3; 3, 3; 4, 3; 3, 4; 4, 4; 2, 5};
     rls = {[1 2], [2 2], [2 3], [3 2], [3 3], [1 3], [2 4]};
-    syms = {[true true], [true false], [false true]};
+    exchFlags = {[true true], [true false], [false true]};
     relUnits = {[], 2, 1};             % [] absolute; 1-based level
     for iS = 1:size(shapes, 1)
         groups = shapes{iS, 1}; gsize = shapes{iS, 2};
@@ -49,8 +49,8 @@ function benchNestedEval(outFile)
             if rLevels(1) > gsize || rLevels(2) > groups
                 continue;
             end
-            for iY = 1:numel(syms)
-                sym = syms{iY};
+            for iY = 1:numel(exchFlags)
+                exch = exchFlags{iY};
                 for iU = 1:numel(relUnits)
                     relUnit = relUnits{iU};
                     if isequal(relUnit, 1) && rLevels(1) < 2
@@ -65,23 +65,23 @@ function benchNestedEval(outFile)
                         end
                         for N = [4 32]
                             p = sort(P * rand(K, N), 1);
-                            spec = struct('tags', tags, 'r', rLevels, 'sym', sym, 'rel', rel);
+                            spec = struct('tags', tags, 'r', rLevels, 'exch', exch, 'rel', rel);
                             sigma = 0.6;
-                            d = buildExpTens({p}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
+                            d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
                                              'isPer', per, 'period', P, 'verbose', false);
                             if d.dim == 0
                                 continue;
                             end
-                            % buildExpTens is lazy: nJ is an expensive field.
+                            % buildMaet is lazy: nJ is an expensive field.
                             % Materialise once, as Python's cached d.n_j does,
                             % and time the centres route on the materialised
                             % density so that neither language pays the tuple
                             % enumeration inside the timed call.
-                            dm = internal.ensureExpTensExpensive(d);
+                            dm = internal.ensureMaetExpensive(d);
                             mPerm = dm.nJ / N;
                             bellSum = 0;
                             for l = 1:2
-                                if sym(l) && rLevels(l) >= 2
+                                if exch(l) && rLevels(l) >= 2
                                     bellSum = bellSum + numel(mobius.getSetPartitionsWithMobius(rLevels(l)));
                                 end
                             end
@@ -91,12 +91,12 @@ function benchNestedEval(outFile)
                                 if mPerm * N * nQ > 4e7
                                     tC = NaN;
                                 else
-                                    tC = localMedianMs(@() evalExpTens(dm, X, 'method', 'centres', 'verbose', false));
+                                    tC = localMedianMs(@() evalMaet(dm, X, 'method', 'centres', 'verbose', false));
                                 end
-                                tM = localMedianMs(@() evalExpTens(d, X, 'method', 'mobius', 'verbose', false));
+                                tM = localMedianMs(@() evalMaet(d, X, 'method', 'mobius', 'verbose', false));
                                 if isempty(relUnit), ru = -1; else, ru = relUnit - 1; end
                                 fprintf(fid, '%d,%d,%dx%d,%d%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%.4f\n', ...
-                                        groups, gsize, rLevels(1), rLevels(2), sym(1), sym(2), ...
+                                        groups, gsize, rLevels(1), rLevels(2), exch(1), exch(2), ...
                                         ru, per, K, N, nQ, d.dim, mPerm, bellSum, nU, tC, tM);
                             end
                         end

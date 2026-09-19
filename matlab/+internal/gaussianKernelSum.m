@@ -11,7 +11,7 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %      rel mode (opts.isRel=true):    Q(D) = sum(D.^2) - sum(D)^2 / r
 %
 %   This helper is the single centres-path numerical kernel used by
-%   evalExpTens, cosSimExpTens, entropyExpTens, and (eventually) the
+%   evalMaet, simMaet, entropyMaet, and (eventually) the
 %   batched user-facing wrappers. Consumers route through here so the
 %   truncation and kernelPrecision options are applied uniformly across the
 %   toolbox.
@@ -54,7 +54,7 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %   Output:
 %     v       (1, nQ) double row vector
 %
-%   See also: MPTDEFAULTS, EVALEXPTENS, COSSIMEXPTENS.
+%   See also: MPTDEFAULTS, EVALMAET, SIMMAET.
 
     arguments
         C double
@@ -163,6 +163,16 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
                 opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
                 opts.wrap, opts.truncationSigmas);
         end
+    elseif useTruncation && opts.isPer && opts.isRel ...
+            && localRelPerCullWorthwhile(size(C_w, 1), nJ, nQ, opts.r, ...
+                   sigma_w, opts.truncationSigmas, period_w)
+        % Relative periodic: the bucket cull on a lattice that wraps with
+        % the density rather than ending at the centres' bounding box.
+        % Absolute periodic keeps the exact path, where the
+        % distinct-value table in evalMaet already collapses the
+        % per-tuple kernel to one evaluation per distinct source value.
+        v_w = localTruncatedKernelSumRelPer(C_w, wJ_w, X_w, sigma_w, ...
+            opts.r, period_w, opts.truncationSigmas, inv2s2);
     elseif useTruncation && opts.isPer && size(C_w, 1) == 1 && ~opts.isRel
         % Circular 1-D truncation, valid only when the window is narrower
         % than the circle; otherwise there are no savings (and the
@@ -403,12 +413,29 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
     cMax = max(Ct, [], 2);
     nBuckets = max(1, double(ceil(double(cMax - cMin) / double(bucketSize)) + 1));
 
-    % Centre bucket coordinates.
+    % One empty bucket of margin on every face, so that no neighbour of
+    % an occupied-region bucket can fall off the lattice. Without the
+    % margin the neighbour expansion needs a bounds test and a
+    % coordinate array to test; with it, a bucket's linear index is its
+    % coordinates against the lattice strides, and a whole chunk's
+    % neighbourhood is one broadcast addition. A neighbour that would
+    % have failed the bounds test now lands in a padded bucket, which
+    % holds no centres and is discarded by the occupancy test instead,
+    % at the same place in the same sequence, so the surviving
+    % (query, centre) pairs and their order are unchanged. Twin of the
+    % padded lattice in the Python _truncated_kernel_sum.
+    paddedBuckets = nBuckets + 2;
+    strides = ones(dim, 1);
+    for d = 2:dim
+        strides(d) = strides(d - 1) * paddedBuckets(d - 1);
+    end
+
+    % Centre bucket coordinates, shifted into the padded interior.
     buckIdxC = floor(double(Ct - cMin) / double(bucketSize)) + 1;
-    buckIdxC = max(1, min(nBuckets, buckIdxC));
+    buckIdxC = max(1, min(nBuckets, buckIdxC)) + 1;
 
     % Group centres by linear bucket index.
-    linIdxC = localSubToInd(nBuckets, buckIdxC);
+    linIdxC = localSubToInd(paddedBuckets, buckIdxC);
     [sortedLin, permIdx] = sort(linIdxC);
     if isempty(sortedLin)
         v = zeros(1, nQ, 'like', C);
@@ -435,13 +462,18 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
 
     % Query bucket coords (clamped).
     buckIdxX = floor(double(Xt - cMin) / double(bucketSize)) + 1;
-    buckIdxX = max(1, min(nBuckets, buckIdxX));
+    buckIdxX = max(1, min(nBuckets, buckIdxX)) + 1;
+
+    % One linear index per query, and one linear displacement per
+    % neighbour offset; their outer sum is the neighbourhood.
+    baseQ    = localSubToInd(paddedBuckets, buckIdxX);      % nQ x 1
+    deltaOff = double(offsetGrid)' * strides;               % nOff x 1
 
     % ----- Vectorised per-chunk processing -----
     % For each query chunk:
     %   1. Expand each query's bucket to its 3^dim neighbour buckets.
-    %   2. Mask in-bounds neighbours; look up non-empty runs by
-    %      membership in the occupied-bucket list.
+    %   2. Look up non-empty runs by membership in the occupied-bucket
+    %      list.
     %   3. Flatten each (query, run) pair into per-centre pairs via a
     %      cumsum-based ragged expansion (no AGROW, no inner loop).
     %   4. Compute Q for all (query, centre) pairs in one vector op,
@@ -461,26 +493,16 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
         qIdx = c0:c1;                          % row 1 × nQc
         nQc  = numel(qIdx);
 
-        % 1. Neighbour bucket coords for every query in the chunk.
-        %    Shape (dim, nOff, nQc), flattened to (dim, nOff*nQc).
-        buckQc = buckIdxX(:, qIdx);                                 % dim × nQc
-        nbAll  = reshape(buckQc, dim, 1, nQc) + ...
-                 reshape(offsetGrid, dim, nOff, 1);
-        nbAll  = reshape(nbAll, dim, nOff * nQc);
+        % 1. Neighbour buckets for every query in the chunk, as linear
+        %    indices directly: nOff × nQc, flattened column-major so
+        %    that the offsets of one query are contiguous.
+        nbLin = reshape(deltaOff + reshape(baseQ(qIdx), 1, []), [], 1);
 
         % Local query index (within chunk) for each neighbour column.
         queryOfNb = reshape(repmat(1:nQc, nOff, 1), [], 1);          % column
 
-        % 2. In-bounds mask, then bucket-run lookup.
-        inBounds = all(nbAll >= 1 & nbAll <= nBuckets, 1);
-        if ~any(inBounds)
-            continue;
-        end
-        nbAll     = nbAll(:, inBounds);
-        queryOfNb = queryOfNb(inBounds);
-
-        nbLin   = localSubToInd(nBuckets, nbAll);
-        [hasRun, runIdx] = ismember(nbLin(:), runLinIdx);
+        % 2. Bucket-run lookup.
+        [hasRun, runIdx] = ismember(nbLin, runLinIdx);
         runIdx  = runIdx(:);
         hasRun  = hasRun(:);
         if ~any(hasRun)
@@ -529,6 +551,198 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
         % above can pick up a row orientation, which would broadcast the
         % product into a matrix and break accumarray. All three have
         % nnz(keep) elements, so column-forcing is exact.
+        wKept      = wJ(centreKept(:));
+        kernelVals = wKept(:) .* exp(-Qkept(:) * inv2s2);
+
+        vChunk = accumarray(queryKept(:), kernelVals, [nQc, 1]);
+        v(qIdx) = v(qIdx) + cast(vChunk, 'like', C).';
+    end
+end
+
+
+function halfWidth = localRelPerHalfWidth(r, sigma, kSigma, period)
+%LOCALRELPERHALFWIDTH  Half-width, per reduced coordinate, of a box
+%   containing the truncation region of a relative periodic density.
+%
+%   Q = [sum_k wrap(D_k)^2 + sum_{i<j} wrap(D_i - D_j)^2] / r, and the
+%   inner terms are non-negative, so a pair surviving Q <= (k sigma)^2
+%   has every |wrap(D_k)| <= sqrt(r) k sigma. That is the bound returned
+%   when it is all that holds.
+%
+%   When the period leaves room for it a tighter one applies. On that
+%   a-priori region no inner pair can wrap -- the wrapped coordinates
+%   span at most 2 sqrt(r) k sigma, which is under half the period -- so
+%   Q there is exactly the quadratic form w' (I - J/r) w on the reduced
+%   coordinates. That matrix is I_{r-1} - J_{r-1}/r, whose inverse is
+%   I + J; the diagonal of the inverse is the squared half-width of the
+%   ellipsoid's bounding box in units of the radius, and it is 2 in
+%   every coordinate whatever r is. So the region fits in a box of
+%   half-width sqrt(2) k sigma, which at r = 4 is a candidate set some
+%   eight times smaller than the a-priori bound gives.
+%
+%   Twin of Python mpt._tensor.eval._rel_per_cull_half_width.
+    rho   = double(kSigma) * double(sigma);
+    loose = sqrt(double(r)) * rho;
+    if 4 * loose < double(period)
+        halfWidth = sqrt(2) * rho;
+    else
+        halfWidth = loose;
+    end
+end
+
+
+function tf = localRelPerCullWorthwhile(dim, nJ, nQ, r, sigma, kSigma, period)
+%LOCALRELPERCULLWORTHWHILE  Whether the relative periodic cull applies
+%   and is worth running.
+%
+%   It needs the truncation window to be narrower than the circle -- at
+%   least three buckets around it, so that a query's three-bucket span in
+%   a coordinate does not wrap onto itself -- and, as for the
+%   non-periodic cull, it needs the per-query neighbourhood lookup to
+%   cost less than the tuple count it saves.
+    tf = false;
+    if ~isfinite(kSigma) || kSigma <= 0
+        return;
+    end
+    halfWidth = localRelPerHalfWidth(r, sigma, kSigma, period);
+    if ~(halfWidth > 0) || double(period) < 3 * halfWidth
+        return;
+    end
+    nOffsets = 3 ^ double(dim);
+    if nOffsets >= double(nJ)
+        return;
+    end
+    tf = double(dim) * nOffsets * 8 * double(nQ) ...
+         <= internal.kernelChunkBytesResolved();
+end
+
+
+function v = localTruncatedKernelSumRelPer(C, wJ, X, sigma, r, period, ...
+                                           kSigma, inv2s2)
+%LOCALTRUNCATEDKERNELSUMRELPER  Bucket-grid spatial cull for the
+%   relative periodic path.
+%
+%   The periodic twin of localTruncatedKernelSum. The lattice is pitched
+%   on the circle rather than on the centres' bounding box: each reduced
+%   coordinate is divided into whole buckets of at least
+%   localRelPerHalfWidth, and a query's neighbour indices are taken
+%   modulo the bucket count, so the lattice wraps as the density does
+%   and needs no margin. Every tuple whose quadratic form is inside the
+%   truncation threshold lies within one bucket of the query in every
+%   coordinate, so the neighbourhood holds it; the form is then
+%   evaluated exactly, by the same pairwise-wrap expression the exact
+%   path uses, and thresholded identically.
+%
+%   Twin of Python
+%   mpt._tensor.eval._truncated_kernel_sum_culled_rel_per.
+    dim = size(C, 1);
+    nJ  = size(C, 2);
+    nQ  = size(X, 2);
+    v = zeros(1, nQ, 'like', C);
+    if nJ == 0 || nQ == 0
+        return;
+    end
+
+    P          = double(period);
+    halfWidth  = localRelPerHalfWidth(r, sigma, kSigma, P);
+    nB         = floor(P / halfWidth);
+    bSize      = P / nB;
+    threshold2 = (double(kSigma) * double(sigma))^2;
+
+    % Both operands reduced to the principal period, then bucketed
+    % (0-based). The clamp only catches a coordinate landing exactly on
+    % the period.
+    cRed  = double(C) - P .* floor(double(C) / P);
+    xRed  = double(X) - P .* floor(double(X) / P);
+    buckC = min(nB - 1, max(0, floor(cRed / bSize)));
+    buckX = min(nB - 1, max(0, floor(xRed / bSize)));
+
+    strides = nB .^ (0:dim-1)';
+    linC = (strides.' * buckC).';                  % nJ x 1, 0-based
+
+    [sortedLin, permIdx] = sort(linC);
+    boundaries = find([true; diff(sortedLin) ~= 0]);
+    runStarts  = boundaries;
+    runEnds    = [boundaries(2:end) - 1; numel(sortedLin)];
+    runLinIdx  = sortedLin(boundaries);
+
+    offsetGrid = localNeighbourOffsets(dim);
+    nOff = size(offsetGrid, 2);
+
+    bytesPerScalar = 4 * isa(C, 'single') + 8 * isa(C, 'double');
+    memLimit  = internal.kernelChunkBytesResolved();
+    perQuery  = max(1, nOff * double(nJ) / max(double(nB)^dim, 1));
+    chunkSize = max(1, floor(memLimit / ...
+        ((2 * dim + 4) * perQuery * bytesPerScalar)));
+
+    for c0 = 1:chunkSize:nQ
+        c1   = min(c0 + chunkSize - 1, nQ);
+        qIdx = c0:c1;
+        nQc  = numel(qIdx);
+
+        % 1. Neighbour buckets as linear indices. The wrap is per
+        %    coordinate, so the index is accumulated a coordinate at a
+        %    time rather than as one outer sum.
+        nbLin = zeros(nOff, nQc);
+        for j = 1:nOff
+            acc = zeros(1, nQc);
+            for d = 1:dim
+                acc = acc + mod(buckX(d, qIdx) + offsetGrid(d, j), nB) ...
+                          * strides(d);
+            end
+            nbLin(j, :) = acc;
+        end
+        nbLin = nbLin(:);
+        queryOfNb = reshape(repmat(1:nQc, nOff, 1), [], 1);
+
+        % 2. Bucket-run lookup.
+        [hasRun, runIdx] = ismember(nbLin, runLinIdx);
+        runIdx = runIdx(:);
+        hasRun = hasRun(:);
+        if ~any(hasRun)
+            continue;
+        end
+        runIdx     = runIdx(hasRun);
+        queryValid = queryOfNb(hasRun);
+
+        % 3. Ragged-expand each (query, run) pair into per-centre pairs.
+        runLens    = runEnds(runIdx) - runStarts(runIdx) + 1;
+        totalPairs = sum(runLens);
+        if totalPairs == 0
+            continue;
+        end
+        queryAll = repelem(queryValid, runLens);
+        endPos        = cumsum(runLens);
+        startPos      = endPos - runLens + 1;
+        startMark     = zeros(totalPairs, 1);
+        startMark(startPos) = 1;
+        runMembership = cumsum(startMark);
+        localOffsets  = (1:totalPairs)' - startPos(runMembership) + 1;
+        permPos       = runStarts(runIdx(runMembership)) + localOffsets - 1;
+        centreAll     = permIdx(permPos);
+
+        % 4. Quadratic form, threshold, accumulate. The pairwise-wrap
+        %    expression is the exact path's, so the surviving terms are
+        %    the same ones.
+        Dq   = C(:, centreAll) - X(:, qIdx(queryAll));
+        pos0 = Dq - period .* floor(Dq / period + 0.5);
+        Q    = sum(pos0 .* pos0, 1);
+        for i = 1:dim
+            for j = i+1:dim
+                delta = Dq(i, :) - Dq(j, :);
+                delta = delta - period .* floor(delta / period + 0.5);
+                Q = Q + delta .* delta;
+            end
+        end
+        Q = Q / r;
+
+        keep = Q(:) <= threshold2;
+        if ~any(keep)
+            continue;
+        end
+        centreKept = centreAll(keep);
+        queryKept  = queryAll(keep);
+        Qkept      = Q(keep);
         wKept      = wJ(centreKept(:));
         kernelVals = wKept(:) .* exp(-Qkept(:) * inv2s2);
 

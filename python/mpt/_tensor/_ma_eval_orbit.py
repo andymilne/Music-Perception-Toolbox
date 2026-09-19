@@ -115,7 +115,7 @@ def eval_ma_orbit(
                 tags = np.asarray(spec["tags"])
                 tags = tags[live] if tags.ndim == 1 else tags[live, :]
                 f_a = eval_nested_attr_orbit(
-                    p_an, w_an, tags, spec["r"], spec["sym"],
+                    p_an, w_an, tags, spec["r"], spec["exch"],
                     spec.get("rel_unit"), sigma[a], x_blocks[a],
                     is_per=is_per[a], period=period[a],
                     wrap=(str(wrap_dens[a]) if wrap_dens is not None

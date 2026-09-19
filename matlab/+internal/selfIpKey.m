@@ -55,12 +55,12 @@ function key = selfIpKey(route, tsResolved, extra)
 %   (measured 1.9e-5 relative at sigma/P = 0.058, 4.8e-2 at 0.125), and
 %   above it they are different quantities.
 %
-%   Promoted out of COSSIMEXPTENS's local LOCALSELFIPKEY so that
+%   Promoted out of SIMMAET's local LOCALSELFIPKEY so that
 %   INTERNAL.NESTEDCONTRACT, which memoises into the same caches, spells
 %   the key the same way; LOCALSELFIPKEY now delegates here. Twin of the
 %   Python cosine._self_ip_cache_key.
 %
-%   See also COSSIMEXPTENS, INTERNAL.NESTEDCONTRACT,
+%   See also SIMMAET, INTERNAL.NESTEDCONTRACT,
 %   INTERNAL.SELFIPMEMOISED.
 
     if nargin < 3 || isempty(extra)

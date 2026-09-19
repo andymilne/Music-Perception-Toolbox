@@ -58,7 +58,7 @@ plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19, 'axes.labelsize': 17
 import mpt
 from mpt import unpack_pre_maet
 mpt.set_default(show_hints=False, truncation_sigmas=4.0, kernel_precision='double')
-from mpt import (difference_events, build_exp_tens, eval_exp_tens,
+from mpt import (difference_events, build_maet, eval_maet,
                  show_pre_maet,
                  windowed_entropy)
 
@@ -97,13 +97,13 @@ show_pre_maet([pd[0], pd[1]], None, names=['dp', 'dt'],
               max_events=4, decimals=3)
 
 # --- (a) static (dp, dt) density over the whole voice (at the JND width) ---
-static = build_exp_tens([pd[0], pd[1]], None, [SIGMA_DP, SIGMA_JND], [1, 1],
+static = build_maet([pd[0], pd[1]], None, [SIGMA_DP, SIGMA_JND], [1, 1],
                         [False, False], [False, False], [0.0, 0.0],
                         verbose=False)
 dp_grid = np.linspace(dp.min() - 2, dp.max() + 2, 200)
 dt_grid = np.linspace(dt.min() - 0.04, dt.max() + 0.04, 120)
 DP, DT = np.meshgrid(dp_grid, dt_grid)
-Z = eval_exp_tens(static, np.column_stack([DP.ravel(), DT.ravel()]).T,
+Z = eval_maet(static, np.column_stack([DP.ravel(), DT.ravel()]).T,
                   verbose=False).reshape(DP.shape)
 print('static density evaluated')
 
@@ -137,7 +137,7 @@ H_jnd  = sweep(SIGMA_JND)
 H_fine = sweep(SIGMA_FINE)
 for tag, h in [('6 ms (JND)', H_jnd), ('0.1 ms', H_fine)]:
     print(f'sigma_t = {tag:>10}: entropy {np.nanmin(h):.3f}..{np.nanmax(h):.3f} '
-          f'nats (range {np.nanmax(h)-np.nanmin(h):.4f})')
+          f'bits (range {np.nanmax(h)-np.nanmin(h):.4f})')
 
 # --- figure ---------------------------------------------------------------
 if plt is None:
@@ -170,7 +170,7 @@ hi = max(np.nanmax(H_jnd), np.nanmax(H_fine))
 pad = 0.12 * (hi - lo)
 axH.set_ylim(lo - pad, hi + pad)
 axH.set_xlabel('window-centre offset (s); accelerandi marked orange, phase grey')
-axH.set_ylabel('Renyi-2 entropy (nats)')
+axH.set_ylabel('Renyi-2 entropy (bits)')
 axH.set_title(r'Windowed $(\Delta p,\ \Delta t)$ entropy at two kernel widths')
 axH.legend(loc='center left', framealpha=0.9, fontsize=14)
 axH.grid(True, alpha=0.3)

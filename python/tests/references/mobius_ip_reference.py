@@ -138,7 +138,7 @@ def build_ordered_r_tuples(p, w, r):
     along ordered r-tuples and ``wJ`` is ``(nJ,)`` of weight products.
     Used by :func:`inner_product_direct_abs` and any other helper
     that needs single-event ordered tuples without going through the
-    full :func:`build_exp_tens` API.
+    full :func:`build_maet` API.
     """
     K = p.size
     n_perms = math.factorial(r)

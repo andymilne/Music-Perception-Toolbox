@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens, entropy_exp_tens
+from mpt import build_maet, sim_maet, entropy_maet
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +39,9 @@ def _nested_plus_flat(seed, wrap):
     tags = np.repeat(np.arange(2), 3)
     p0 = np.sort(rng.uniform(0.0, P, size=(6, 2)), axis=0)
     p1 = np.sort(rng.uniform(0.0, P, size=(4, 2)), axis=0)
-    specs = [{"tags": tags, "r": [1, 2], "sym": [True, True], "rel": [0, 0]},
-             {"r": 2, "sym": True, "rel": False}]
-    return build_exp_tens([p0, p1], None, specs=specs, sigma=[0.05 * P, SIG],
+    specs = [{"tags": tags, "r": [1, 2], "exch": [True, True], "rel": [0, 0]},
+             {"r": 2, "exch": True, "rel": False}]
+    return build_maet([p0, p1], None, specs=specs, sigma=[0.05 * P, SIG],
                           is_per=[True, True], period=[P, P],
                           wrap=['full-image', wrap], verbose=False)
 
@@ -49,16 +49,16 @@ def _nested_plus_flat(seed, wrap):
 @pytest.mark.parametrize("wrap", ["full-image", "single-image"])
 def test_nested_ma_flat_attribute_honours_wrap(wrap):
     x, y = _nested_plus_flat(1, wrap), _nested_plus_flat(2, wrap)
-    c = cos_sim_exp_tens(x, y, method="contract", verbose=False)
-    b = cos_sim_exp_tens(x, y, method="bulger", verbose=False)
+    c = sim_maet(x, y, method="contract", verbose=False)
+    b = sim_maet(x, y, method="bulger", verbose=False)
     assert c == pytest.approx(b, rel=1e-9, abs=1e-12)
 
 
 def test_nested_ma_flat_attribute_wraps_differ():
-    cf = cos_sim_exp_tens(_nested_plus_flat(1, "full-image"),
+    cf = sim_maet(_nested_plus_flat(1, "full-image"),
                           _nested_plus_flat(2, "full-image"),
                           method="contract", verbose=False)
-    cs = cos_sim_exp_tens(_nested_plus_flat(1, "single-image"),
+    cs = sim_maet(_nested_plus_flat(1, "single-image"),
                           _nested_plus_flat(2, "single-image"),
                           method="contract", verbose=False)
     assert abs(cf - cs) > 1e-4
@@ -67,14 +67,14 @@ def test_nested_ma_flat_attribute_wraps_differ():
 def _flat(wrap):
     rng = np.random.default_rng(3)
     p = np.sort(rng.uniform(0.0, P, size=(5, 2)), axis=0)
-    return build_exp_tens([p], None, [SIG], [2], [False], [True], [P],
+    return build_maet([p], None, [SIG], [2], [False], [True], [P],
                           wrap=[wrap], verbose=False)
 
 
 def test_renyi2_flat_attribute_honours_wrap():
-    hf = entropy_exp_tens(_flat("full-image"), method="renyi2",
+    hf = entropy_maet(_flat("full-image"), method="renyi2",
                           verbose=False)
-    hs = entropy_exp_tens(_flat("single-image"), method="renyi2",
+    hs = entropy_maet(_flat("single-image"), method="renyi2",
                           verbose=False)
     assert np.isfinite(hf) and np.isfinite(hs)
     assert abs(hf - hs) > 1e-4
@@ -86,16 +86,16 @@ def test_eval_mobius_on_a_nested_density_takes_the_per_level_route():
     on this density) and was then refused; it now runs the per-level
     Möbius evaluator, which agrees with the centres route, while 'auto'
     keeps the centres."""
-    from mpt import eval_exp_tens
+    from mpt import eval_maet
     rng = np.random.default_rng(1)
     tags = np.repeat(np.arange(2), 3)
     p = np.sort(rng.uniform(0.0, P, size=(6, 2)), axis=0)
-    spec = {"tags": tags, "r": [1, 2], "sym": [True, True], "rel": [0, 1]}
-    d = build_exp_tens([p], None, specs=[spec], sigma=[0.5], is_per=[True],
+    spec = {"tags": tags, "r": [1, 2], "exch": [True, True], "rel": [0, 1]}
+    d = build_maet([p], None, specs=[spec], sigma=[0.5], is_per=[True],
                        period=[P], verbose=False)
     X = np.zeros((d.dim, 3))
-    v_mob = eval_exp_tens(d, X, method="mobius", verbose=False)
-    v_auto = eval_exp_tens(d, X, method="auto", verbose=False)
-    v_cent = eval_exp_tens(d, X, method="centres", verbose=False)
+    v_mob = eval_maet(d, X, method="mobius", verbose=False)
+    v_auto = eval_maet(d, X, method="auto", verbose=False)
+    v_cent = eval_maet(d, X, method="centres", verbose=False)
     np.testing.assert_allclose(v_auto, v_cent, rtol=1e-12)
     np.testing.assert_allclose(v_mob, v_cent, rtol=1e-7)

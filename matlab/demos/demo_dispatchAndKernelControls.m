@@ -14,7 +14,7 @@
 %    4. Toolbox-wide defaults -- 'mptDefaults' lets all of the above
 %       be flipped globally so user code does not need per-call
 %       name-value pairs.
-%    5. Renyi-2 entropy -- 'method','renyi2' on entropyExpTens for a
+%    5. Renyi-2 entropy -- 'method','renyi2' on entropyMaet for a
 %       closed-form alternative to the numerical Shannon path.
 %
 %  The dispatcher and a kernel truncation at 6 sigma are on by default
@@ -38,8 +38,8 @@ p_y = sort(1200 * rand(1, N_EVENTS));
 w_x = 0.5 + rand(1, N_EVENTS);
 w_y = 0.5 + rand(1, N_EVENTS);
 
-dens_x = buildExpTens(p_x, w_x, SIGMA, R, false, false, PERIOD);
-dens_y = buildExpTens(p_y, w_y, SIGMA, R, false, false, PERIOD);
+dens_x = buildMaet(p_x, w_x, SIGMA, R, false, false, PERIOD);
+dens_y = buildMaet(p_y, w_y, SIGMA, R, false, false, PERIOD);
 
 % A larger source set for the centres-path sections (2-4). MATLAB's
 % BLAS is so fast at modest scales that the kernel matmul is in the
@@ -53,23 +53,23 @@ dens_y = buildExpTens(p_y, w_y, SIGMA, R, false, false, PERIOD);
 N_BIG = 50;
 p_big = sort(1200 * rand(1, N_BIG));
 w_big = 0.5 + rand(1, N_BIG);
-dens_big = buildExpTens(p_big, w_big, SIGMA, R, false, false, PERIOD);
+dens_big = buildMaet(p_big, w_big, SIGMA, R, false, false, PERIOD);
 
 timeCall = @(fn) localTimeCall(fn, N_REPEATS);
 
 % Warm-up: flush MATLAB's first-call function resolution and the
 % orbit-table disk load out of the timed section. Without this the
 % first measurement below would carry ~5-20 ms of one-time cost.
-cosSimExpTens(dens_x, dens_y, 'method', 'mobius', 'verbose', false);
-cosSimExpTens(dens_x, dens_y, 'method', 'bulger', 'verbose', false);
+simMaet(dens_x, dens_y, 'method', 'mobius', 'verbose', false);
+simMaet(dens_x, dens_y, 'method', 'bulger', 'verbose', false);
 
 %% 1. Method dispatch -- Bulger's method vs the Möbius method
 fprintf('\n=== 1. Method dispatch (N=%d, r=%d, sigma=%g, abs nonper) ===\n\n', ...
         N_EVENTS, R, SIGMA);
 
-[t_auto,   c_auto]   = timeCall(@() cosSimExpTens(dens_x, dens_y, 'verbose', false));
-[t_bulger, c_bulger] = timeCall(@() cosSimExpTens(dens_x, dens_y, 'method', 'bulger', 'verbose', false));
-[t_mobius, c_mobius] = timeCall(@() cosSimExpTens(dens_x, dens_y, 'method', 'mobius', 'verbose', false));
+[t_auto,   c_auto]   = timeCall(@() simMaet(dens_x, dens_y, 'verbose', false));
+[t_bulger, c_bulger] = timeCall(@() simMaet(dens_x, dens_y, 'method', 'bulger', 'verbose', false));
+[t_mobius, c_mobius] = timeCall(@() simMaet(dens_x, dens_y, 'method', 'mobius', 'verbose', false));
 
 fprintf('  method=auto    : %6.1f ms   cosine = %.10f\n', 1000*t_auto,   c_auto);
 fprintf('  method=bulger  : %6.1f ms   cosine = %.10f\n', 1000*t_bulger, c_bulger);
@@ -83,8 +83,8 @@ explainDispatch(dens_x, dens_y);
 
 %% 2. Kernel truncation
 %
-%  truncationSigmas affects the centres path of evalExpTens and
-%  Bulger's method in cosSimExpTens, both of which form a kernel over
+%  truncationSigmas affects the centres path of evalMaet and
+%  Bulger's method in simMaet, both of which form a kernel over
 %  tuple centres. The Möbius method evaluates the same density
 %  analytically without a centres matrix, so the truncation control
 %  does not apply to it. The default is 6 sigma; Inf gives the exact,
@@ -94,11 +94,11 @@ fprintf('\n=== 2. Kernel truncation (N=%d, eval at 1000 query points) ===\n\n', 
 
 queries = sort(1200 * rand(R, 1000));
 
-[t_no_trunc, v_no_trunc] = timeCall(@() evalExpTens(dens_big, queries, ...
+[t_no_trunc, v_no_trunc] = timeCall(@() evalMaet(dens_big, queries, ...
     'method', 'centres', 'truncationSigmas', Inf, 'verbose', false));
-[t_k6, v_k6] = timeCall(@() evalExpTens(dens_big, queries, ...
+[t_k6, v_k6] = timeCall(@() evalMaet(dens_big, queries, ...
     'method', 'centres', 'truncationSigmas', 6, 'verbose', false));
-[t_k4, v_k4] = timeCall(@() evalExpTens(dens_big, queries, ...
+[t_k4, v_k4] = timeCall(@() evalMaet(dens_big, queries, ...
     'method', 'centres', 'truncationSigmas', 4, 'verbose', false));
 
 err_k6 = max(abs(v_k6(:) - v_no_trunc(:))) / (max(abs(v_no_trunc(:))) + 1e-30);
@@ -113,9 +113,9 @@ fprintf('   k=6 ~ exp(-18) ~ 1.5e-8; k=4 ~ exp(-8) ~ 3e-4.)\n');
 %% 3. Single-precision kernel
 fprintf('\n=== 3. kernelPrecision ===\n\n');
 
-[t_double, v_double] = timeCall(@() evalExpTens(dens_big, queries, ...
+[t_double, v_double] = timeCall(@() evalMaet(dens_big, queries, ...
     'method', 'centres', 'kernelPrecision', 'double', 'verbose', false));
-[t_single, v_single] = timeCall(@() evalExpTens(dens_big, queries, ...
+[t_single, v_single] = timeCall(@() evalMaet(dens_big, queries, ...
     'method', 'centres', 'kernelPrecision', 'single', 'verbose', false));
 
 err_single = max(abs(v_single(:) - v_double(:))) / (max(abs(v_double(:))) + 1e-30);
@@ -137,13 +137,13 @@ prev = mptDefaults('truncationSigmas', 4, 'kernelPrecision', 'single');
 fprintf('  New defaults:\n');
 disp(mptDefaults());
 
-[t_global, ~] = timeCall(@() evalExpTens(dens_big, queries, ...
+[t_global, ~] = timeCall(@() evalMaet(dens_big, queries, ...
     'method', 'centres', 'verbose', false));
 fprintf('  eval with global defaults active : %6.1f ms\n', 1000*t_global);
 
 % Per-call arguments always override the global defaults: here to the
 % exact, untruncated, double-precision computation.
-[t_override, ~] = timeCall(@() evalExpTens(dens_big, queries, ...
+[t_override, ~] = timeCall(@() evalMaet(dens_big, queries, ...
     'method', 'centres', 'truncationSigmas', Inf, ...
     'kernelPrecision', 'double', 'verbose', false));
 fprintf('  per-call override to exact/double : %6.1f ms\n', 1000*t_override);
@@ -155,10 +155,10 @@ disp(mptDefaults());
 %% 5. Renyi-2 differential entropy
 fprintf('\n=== 5. Renyi-2 differential entropy ===\n\n');
 
-[t_shannon, h_shannon] = timeCall(@() entropyExpTens(dens_x, ...
+[t_shannon, h_shannon] = timeCall(@() entropyMaet(dens_x, ...
     'method', 'shannon', 'xMin', 0, 'xMax', 1200, ...
     'nPointsPerDim', 100, 'verbose', false));
-[t_renyi2, h_renyi2] = timeCall(@() entropyExpTens(dens_x, ...
+[t_renyi2, h_renyi2] = timeCall(@() entropyMaet(dens_x, ...
     'method', 'renyi2', 'verbose', false));
 
 fprintf('  method=shannon (numerical grid)  : %7.1f ms   H  = %.4f\n', 1000*t_shannon, h_shannon);

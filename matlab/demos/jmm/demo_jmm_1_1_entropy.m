@@ -14,7 +14,7 @@
 % that the Online Supplement tests across a corpus of chorales.
 %
 % How it is computed. Every grid-point chord is spectrally augmented
-% (addSpectra: twelve harmonics with 1/n roll-off), so the pitch
+% (addSpectra: twelve harmonics, partial h weighted h^-0.67), so the pitch
 % attribute carries 48 partials per event. The chorale is then a two-
 % attribute pre-MAET (pitch, time). windowedEntropy sweeps a
 % window along the time attribute: at each centre the events are
@@ -22,7 +22,7 @@
 % factor multiplied into the pitch weights), the time axis is dropped, and
 % the differential entropy of the remaining pitch density is returned
 % ('method', 'differential': adaptive grid with Richardson extrapolation,
-% in nats). Two windows are compared: a tight rectangle of one sixteenth
+% in bits). Two windows are compared: a tight rectangle of one sixteenth
 % note (one event per window, so the profile is the per-event entropy) and
 % a Gaussian of one quarter note.
 %
@@ -37,7 +37,7 @@
 % reachable, rather than from the script itself: in a script neither
 % mfilename nor dbstack reports the file, and the current folder need not
 % be the script's own. Adding it puts the +jmm helper package in scope.
-mptRoot = which('buildExpTens');
+mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
         ['The toolbox is not on the path. Add the matlab folder of the ' ...
@@ -60,7 +60,7 @@ mptDefaults('showHints', false, ...
 % ---------------------------------------------------------------------------
 SIGMA_PITCH = 10.0;          % cents
 H_PARTIALS = 12;
-ROLLOFF = 1.0;
+ROLLOFF = 0.67;            % partial h weighted h^-0.67 (Milne et al. 2015)
 SPECTRUM = {'harmonic', H_PARTIALS, 'powerlaw', ROLLOFF};
 
 % Window specifications for weightEvents. Each window is specified through
@@ -147,7 +147,7 @@ for wi = 1:nWindows
     arr = H(wi, :);
     finite = arr(isfinite(arr));
     if ~isempty(finite)
-        fprintf('  %s: range [%.4f, %.4f] nats\n', WINDOWS(wi).label, ...
+        fprintf('  %s: range [%.4f, %.4f] bits\n', WINDOWS(wi).label, ...
                 min(finite), max(finite));
     end
 end
@@ -240,7 +240,7 @@ for wi = 1:nWindows
     ylim(ax, yl);
     set(ax, 'XTick', 1:8:floor(tEnd), 'FontSize', 13, 'Box', 'off');
     grid(ax, 'on');
-    ylabel(ax, sprintf('%s\n\ndifferential entropy (nats)', window.label), 'FontSize', 15);
+    ylabel(ax, sprintf('%s\n\ndifferential entropy (bits)', window.label), 'FontSize', 15);
     if wi == nWindows
         xlabel(ax, 'time (quarter notes)', 'FontSize', 15);
     end
@@ -285,7 +285,7 @@ end
 
 annotation(fig, 'textbox', [0.05 0.93 0.9 0.06], 'String', ...
            sprintf(['BWV 347 windowed differential pitch entropy (\\sigma_{pitch} = %.0f cents, ' ...
-                    'harmonic \\times %d with 1/n rolloff)'], SIGMA_PITCH, H_PARTIALS), ...
+                    'harmonic \\times %d, weight h^{-%.2f})'], SIGMA_PITCH, H_PARTIALS, ROLLOFF), ...
            'HorizontalAlignment', 'center', 'FontSize', 18, 'EdgeColor', 'none');
 if SAVE_FIGURES
     print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_1_entropy.png'));

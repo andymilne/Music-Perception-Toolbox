@@ -17,7 +17,7 @@
 %  the expectation tensor is a one-dimensional density over intervals).
 %  This is what makes these "one-dimensional approximations."
 %
-%  Uses: cosSimExpTens (batched-raw, broadcast form)
+%  Uses: simMaet (batched-raw, broadcast form)
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -36,7 +36,7 @@ nMin = 2;
 nMax = 102;
 
 % Expectation tensor parameters
-sigma  = 6;      % Gaussian smoothing width (cents)
+sigma  = 6;       % Gaussian smoothing width (cents)
 r      = 2;       % dyad expectation tensor
 isRel  = 1;       % relative (transposition-invariant)
 isPer  = 1;       % periodic (pitch-class equivalence)
@@ -49,7 +49,7 @@ nEDOs    = numel(edoRange);
 maxN     = nMax;  % maximum number of pitches in any EDO
 
 % Reference: a single row vector — broadcast against all EDO rows of
-% pMatB by cosSimExpTens.
+% pMatB by simMaet.
 % EDO multisets: NaN-padded to maxN columns
 pMatB = NaN(nEDOs, maxN);
 for i = 1:nEDOs
@@ -61,7 +61,7 @@ end
 %% === Compute similarities ===
 
 fprintf('Computing PCS of %d EDOs against %s...\n', nEDOs, refName);
-s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
+s = simMaet(refPitches, refWeights, pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
     'verbose', true);
 fprintf('Done.\n');

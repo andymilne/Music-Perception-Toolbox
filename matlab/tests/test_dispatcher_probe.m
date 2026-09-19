@@ -35,7 +35,7 @@ end
 function test_user_override_centres(testCase)
     dens = makeDens(12, 3, true);
     x = rand(2, 1000) * 1200;
-    [chosen, probed, est] = evalExpTens_dispatch(dens, x, 1000, 'centres');
+    [chosen, probed, est] = evalMaet_dispatch(dens, x, 1000, 'centres');
     verifyEqual(testCase, chosen, 'centres');
     verifyFalse(testCase, probed);
     verifyEqual(testCase, est, 0.0);
@@ -44,26 +44,26 @@ end
 function test_user_override_orbit(testCase)
     dens = makeDens(12, 3, true);
     x = rand(2, 1000) * 1200;
-    [chosen, probed, ~] = evalExpTens_dispatch(dens, x, 1000, 'mobius');
+    [chosen, probed, ~] = evalMaet_dispatch(dens, x, 1000, 'mobius');
     verifyEqual(testCase, chosen, 'mobius');
     verifyFalse(testCase, probed);
 end
 
 function test_r_one_routes_to_centres(testCase)
-    dens = buildExpTens([0; 400; 700], ones(3, 1), 12, 1, ...
+    dens = buildMaet([0; 400; 700], ones(3, 1), 12, 1, ...
                        false, false, 0, 'verbose', false);
     x = [100, 200, 300];
-    [chosen, probed, ~] = evalExpTens_dispatch(dens, x, 3, 'auto');
+    [chosen, probed, ~] = evalMaet_dispatch(dens, x, 3, 'auto');
     verifyEqual(testCase, chosen, 'centres');
     verifyFalse(testCase, probed);
 end
 
 function test_cancellation_guard(testCase)
     % K=3, r=3 → K-r=0, cancellation guard triggers
-    dens = buildExpTens([0; 400; 700], ones(3, 1), 12, 3, ...
+    dens = buildMaet([0; 400; 700], ones(3, 1), 12, 3, ...
                        true, false, 0, 'verbose', false);
     x = rand(2, 1000) * 1200;
-    [chosen, probed, ~] = evalExpTens_dispatch(dens, x, 1000, 'auto');
+    [chosen, probed, ~] = evalMaet_dispatch(dens, x, 1000, 'auto');
     verifyEqual(testCase, chosen, 'centres');
     verifyFalse(testCase, probed);
 end
@@ -72,7 +72,7 @@ function test_tiny_workload_skips_probe(testCase)
     dens = makeDens(12, 3, true);
     PROBE_MIN_NQ = 200;
     x = rand(2, PROBE_MIN_NQ - 1) * 1200;
-    [chosen, probed, ~] = evalExpTens_dispatch(dens, x, ...
+    [chosen, probed, ~] = evalMaet_dispatch(dens, x, ...
         PROBE_MIN_NQ - 1, 'auto');
     verifyEqual(testCase, chosen, 'centres');
     verifyFalse(testCase, probed);
@@ -88,10 +88,10 @@ function test_huge_centres_array_forces_orbit(testCase)
     K = 200;
     p = linspace(0, 1200, K + 1)';
     p = p(1:K);
-    dens = buildExpTens(p, ones(K, 1), 12, 5, false, false, 0, ...
+    dens = buildMaet(p, ones(K, 1), 12, 5, false, false, 0, ...
                        'verbose', false);
     x = rand(5, 1000) * 1200;
-    [chosen, probed, ~] = evalExpTens_dispatch(dens, x, 1000, 'auto');
+    [chosen, probed, ~] = evalMaet_dispatch(dens, x, 1000, 'auto');
     verifyEqual(testCase, chosen, 'mobius');
     verifyFalse(testCase, probed);
 end
@@ -104,7 +104,7 @@ end
 function test_probe_fires_for_non_trivial_workload(testCase)
     dens = makeDens(12, 3, true);
     x = rand(2, 500) * 1200;
-    [chosen, probed, est] = evalExpTens_dispatch(dens, x, 500, 'auto', ...
+    [chosen, probed, est] = evalMaet_dispatch(dens, x, 500, 'auto', ...
         'truncationSigmas', 6.0);
     verifyTrue(testCase, probed);
     verifyTrue(testCase, ismember(chosen, {'centres', 'mobius'}));
@@ -121,8 +121,8 @@ function test_auto_matches_centres_for_rel(testCase)
     rng(0, 'twister');
     x = rand(2, 300) * 1200;
     mptDefaults('reset');
-    v_auto = evalExpTens(dens, x, 'method', 'auto', 'verbose', false);
-    v_centres = evalExpTens(dens, x, 'method', 'centres', 'verbose', false);
+    v_auto = evalMaet(dens, x, 'method', 'auto', 'verbose', false);
+    v_centres = evalMaet(dens, x, 'method', 'centres', 'verbose', false);
     verifyEqual(testCase, v_auto, v_centres, 'AbsTol', 0);
 end
 
@@ -131,9 +131,9 @@ function test_auto_with_truncation_matches_centres(testCase)
     rng(1, 'twister');
     x = rand(2, 300) * 1200;
     mptDefaults('reset');
-    v_auto = evalExpTens(dens, x, 'method', 'auto', ...
+    v_auto = evalMaet(dens, x, 'method', 'auto', ...
                           'truncationSigmas', 6.0, 'verbose', false);
-    v_centres = evalExpTens(dens, x, 'method', 'centres', ...
+    v_centres = evalMaet(dens, x, 'method', 'centres', ...
                              'truncationSigmas', 6.0, 'verbose', false);
     verifyEqual(testCase, v_auto, v_centres, 'AbsTol', 0);
 end
@@ -147,20 +147,20 @@ function dens = makeDens(K, r, isRel)
     % Build a small harmonic-template density.
     [tp, tw] = addSpectra([0; 0; 0], [1; 1; 1], ...
                           'harmonic', max(K / 3, 3), 'powerlaw', 1);
-    dens = buildExpTens(tp, tw, 12, r, isRel, false, 0, 'verbose', false);
+    dens = buildMaet(tp, tw, 12, r, isRel, false, 0, 'verbose', false);
 end
 
-function [chosen, probed, est] = evalExpTens_dispatch(dens, x, nQ, ...
+function [chosen, probed, est] = evalMaet_dispatch(dens, x, nQ, ...
         method, varargin)
     % Invoke the dispatcher directly via the local helper. Because
-    % localSelectAndEstimateSingleMultiset is a local function in evalExpTens.m,
+    % localSelectAndEstimateSingleMultiset is a local function in evalMaet.m,
     % we exercise it indirectly through a verbose call and capture
-    % the message — or call evalExpTens with extra outputs if we had
+    % the message — or call evalMaet with extra outputs if we had
     % an API for that. Instead we exercise behaviour via output
     % comparison: run with 'auto' and an explicit override; if they
     % differ in path, the dispatch was non-trivial.
     %
-    % Simpler: the test framework uses evalExpTens and asserts on
+    % Simpler: the test framework uses evalMaet and asserts on
     % the printed output rather than capturing the internal triple.
     % For these tests we use a heuristic: hard-rule cases route to
     % 'centres' or 'mobius' deterministically; we infer 'probed' from
@@ -174,10 +174,10 @@ function [chosen, probed, est] = evalExpTens_dispatch(dens, x, nQ, ...
 
     % Run with verbose=true and capture stdout to detect probing.
     if isempty(truncationSigmas)
-        out = evalc('evalExpTens(dens, x, ''method'', method, ''verbose'', true);');
+        out = evalc('evalMaet(dens, x, ''method'', method, ''verbose'', true);');
     else
         out = evalc(sprintf( ...
-            'evalExpTens(dens, x, ''method'', method, ''truncationSigmas'', %g, ''verbose'', true);', ...
+            'evalMaet(dens, x, ''method'', method, ''truncationSigmas'', %g, ''verbose'', true);', ...
             truncationSigmas));
     end
 

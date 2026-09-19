@@ -25,7 +25,7 @@ variables term of the linear map).
 
 Constraints (validated at build time):
 
-- ``is_sym`` must be False (the symmetric power requires a
+- ``is_exch`` must be False (the symmetric power requires a
   permutation-invariant kernel; a general ``Sigma`` is not);
 - ``is_rel`` must be False (the exact common-shift quotient remains
   the province of the ``is_rel`` flag; graded shift tolerance is
@@ -94,17 +94,17 @@ def flatten_degenerate_nested_spec(spec):
 
     A two-level nested spec is *degenerate* when its nesting encodes
     nothing beyond a tuple of scalars: every inner group is a singleton
-    read whole (inner ``r`` = 1; the inner ``sym`` flag is vacuous on a
+    read whole (inner ``r`` = 1; the inner ``exch`` flag is vacuous on a
     singleton), the inner level is absolute (inner ``rel`` falsy), and
     the outer level reads all groups (outer ``r`` = the number of
-    groups). The flat equivalent is ``{r: K, sym: sym[outer],
+    groups). The flat equivalent is ``{r: K, exch: exch[outer],
     rel: rel[outer]}`` over the same ``(K, N)`` value matrix (their
     densities are identical). :func:`bind_events` applied to flat
     single-value events produces exactly this form; the isotropic build
     recognises the same structure downstream (the singleton-group fast
-    path in ``_build_exp_tens_ma``), but the matrix-covariance path
+    path in ``_build_maet_ma``), but the matrix-covariance path
     must flatten *before* spec normalisation, since whitening and the
-    ``r == K`` constraint need the true tuple size. Outer ``sym``/
+    ``r == K`` constraint need the true tuple size. Outer ``exch``/
     ``rel`` are carried through so :func:`check_aniso_constraints` can
     reject them with its canonical messages.
     """
@@ -114,9 +114,9 @@ def flatten_degenerate_nested_spec(spec):
     tags = tags.ravel() if tags.ndim == 1 else tags[:, 0]
     K = tags.size
     r_lv = list(np.asarray(spec.get("r", []), dtype=object).ravel())
-    sym_lv = list(np.asarray(spec.get("sym", []), dtype=object).ravel())
+    exch_lv = list(np.asarray(spec.get("exch", []), dtype=object).ravel())
     rel_lv = list(np.asarray(spec.get("rel", []), dtype=object).ravel())
-    if len(r_lv) != 2 or len(sym_lv) != 2 or len(rel_lv) != 2:
+    if len(r_lv) != 2 or len(exch_lv) != 2 or len(rel_lv) != 2:
         return None
     if np.unique(tags).size != K:           # every group a singleton
         return None
@@ -124,7 +124,7 @@ def flatten_degenerate_nested_spec(spec):
         return None                         # each read whole, all read
     if bool(rel_lv[0]):
         return None                         # inner level absolute
-    flat = {"r": int(K), "sym": bool(sym_lv[1]), "rel": bool(rel_lv[1])}
+    flat = {"r": int(K), "exch": bool(exch_lv[1]), "rel": bool(rel_lv[1])}
     if spec.get("name") is not None:
         flat["name"] = spec["name"]
     return flat
@@ -138,7 +138,7 @@ def resolve_specs_for_kernel_cov(specs, sigma_vec, name: str = "sigma"):
     specs (see :func:`flatten_degenerate_nested_spec`) are replaced by
     their flat equivalents; a non-degenerate nested spec on a
     matrix-sigma attribute raises. Attributes with isotropic sigma are
-    left untouched, nested or not. Outer-level ``sym``/``rel`` flags on
+    left untouched, nested or not. Outer-level ``exch``/``rel`` flags on
     a flattened spec are rejected downstream by
     :func:`check_aniso_constraints` exactly as on a flat attribute.
     """
@@ -224,7 +224,7 @@ def validate_kernel_cov(Sigma, dim: int | None = None, *,
     return Sigma, R
 
 
-def check_aniso_constraints(*, r: int, K: int, is_rel, is_per, is_sym,
+def check_aniso_constraints(*, r: int, K: int, is_rel, is_per, is_exch,
                             nested_attr: bool = False,
                             name: str = "sigma"):
     """Enforce the mode constraints for a matrix-sigma attribute."""
@@ -233,10 +233,10 @@ def check_aniso_constraints(*, r: int, K: int, is_rel, is_per, is_sym,
             f"{name}: a matrix-valued kernel covariance is not "
             f"supported on nested attributes."
         )
-    if bool(is_sym):
+    if bool(is_exch):
         raise ValueError(
             f"{name}: a matrix-valued kernel covariance requires an "
-            f"ordered multiset (is_sym=False); the symmetric power "
+            f"ordered multiset (is_exch=False); the symmetric power "
             f"requires a permutation-invariant kernel."
         )
     if bool(is_rel):
@@ -245,7 +245,7 @@ def check_aniso_constraints(*, r: int, K: int, is_rel, is_per, is_sym,
             f"is_rel=False; exact common-shift invariance remains the "
             f"province of is_rel=True, and graded shift tolerance is "
             f"expressed within the covariance (an sd_shift**2 * ones "
-            f"ridge; see interval_kernel_cov)."
+            f"ridge; see kernel_cov)."
         )
     if bool(is_per):
         raise ValueError(

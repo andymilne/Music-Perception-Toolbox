@@ -164,10 +164,25 @@ def test_orbit_weights_sum_to_bell_squared(r):
 
 
 def test_orbit_count_table():
-    """Orbit count for r = 2, ..., 5 matches expected values."""
-    expected_orbits = {2: 4, 3: 10, 4: 33, 5: 92}
+    """Orbit count for r = 2, ..., 8 matches OEIS A007716 (matrices with entry sum r up to row and column permutations)."""
+    expected_orbits = {2: 4, 3: 10, 4: 33, 5: 91, 6: 298, 7: 910, 8: 3017}  # OEIS A007716
     for r, n in expected_orbits.items():
         assert len(get_orbit_table(r)) == n, f"r={r}: got {len(get_orbit_table(r))}, expected {n}"
+
+
+def test_canonical_form_joins_the_orbit_the_greedy_sort_splits():
+    """Regression: at r = 5, m_A = (2,1,1,1), m_B = (2,2,1), the iterative
+    row/column sort settles on two different fixed points for tables in
+    one orbit (the first over-count in the old |Ω_5| = 92). The exact
+    canonical form must identify them."""
+    from mpt._mobius import canonical_form, _greedy_form
+    m_A, m_B = (2, 1, 1, 1), (2, 2, 1)
+    M1 = [[0, 0, 1], [0, 1, 0], [0, 1, 0], [1, 0, 1]]
+    M2 = [[0, 0, 1], [0, 0, 1], [0, 1, 0], [1, 1, 0]]
+    rs = [sum(r) for r in M1]
+    cs = [sum(c) for c in zip(*M1)]
+    assert _greedy_form(M1, rs, cs) != _greedy_form(M2, rs, cs)
+    assert canonical_form(M1, rs, cs) == canonical_form(M2, rs, cs)
 
 
 @pytest.mark.parametrize("r", [2, 3, 4, 5])

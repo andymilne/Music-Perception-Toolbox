@@ -243,7 +243,7 @@ def test_truncated_1d_maxwin_one():
     assert np.max(np.abs(v - ref)) < 200 * np.exp(-18) * max(np.max(np.abs(ref)), 1e-30)
 
 
-def test_truncated_1d_demo_expTensorPlots_config_3():
+def test_truncated_1d_demo_maet_plots_config_3():
     """Exact inputs from the MATLAB demo's failing config 3 call.
 
     sigma_eff = 10/sqrt(2) (m=2 partition block), query points are
@@ -314,6 +314,7 @@ def test_reset_defaults():
         "kernel_precision": "double",
         "show_hints": True,
         "kernel_chunk_bytes": "auto",
+        "kernel_threads": "auto",
         "post_hoc_guards": True,
         "orbit_cost_intercept": 3.8536,
         "rel_attr_route": "auto",

@@ -5,7 +5,7 @@ function pm = preMaetFromScore(source, nvArgs)
 %
 %   source is a file path (parsed with readScore: MIDI, MusicXML, or .mxl)
 %   or a note table from readScore. The output is the pre-MAET that
-%   buildExpTens and the pre-MAET preprocessors consume.
+%   buildMaet and the pre-MAET preprocessors consume.
 %
 %   Name-value pairs
 %       'attributes'     - cell of names from {'pitch', 'onset', 'duration',
@@ -35,7 +35,7 @@ function pm = preMaetFromScore(source, nvArgs)
 %            slots carry weight 0), or [] under 'ones'; specs a 1 x A cell
 %            of flat specs, named after the attributes.
 %
-%   See also PREMAET, READSCORE, BUILDEXPTENS, TRANSFORMATTRIBUTES,
+%   See also PREMAET, READSCORE, BUILDMAET, TRANSFORMATTRIBUTES,
 %            FLATSPECS.
 
     arguments
@@ -176,7 +176,7 @@ function pm = preMaetFromScore(source, nvArgs)
     % unbounded axis -- so [per] = 0 and the period is inert; octave
     % equivalence is an equivalence the analyst imposes, not one the score
     % states. Sigma is left unset rather than defaulted, because there is
-    % no width a score implies: buildExpTens will then name the attribute
+    % no width a score implies: buildMaet will then name the attribute
     % that still needs one.
     for a = 1:numel(specs)
         specs{a}.isPer = false;

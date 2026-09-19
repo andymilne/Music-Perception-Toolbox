@@ -1,5 +1,5 @@
 %% bench_ip_unit_cost.m
-%  Diagnostic for cosSimExpTens on the EDO-approximation workload: a
+%  Diagnostic for simMaet on the EDO-approximation workload: a
 %  five-partial just-intonation reference against an n-tone equal
 %  division, r = 2, relative and periodic.
 %
@@ -83,7 +83,7 @@ for i = 1:numel(nPair)
     n = nPair(i);
     edoPitches = (0:n-1) * (1200 / n);
 
-    call = @(m) cosSimExpTens(refPitches, [], edoPitches, [], ...
+    call = @(m) simMaet(refPitches, [], edoPitches, [], ...
         sigma, r, isRel, isPer, period, 'method', m, 'verbose', false);
 
     sBul = call('bulger');
@@ -115,7 +115,7 @@ nDone  = [];
 for i = 1:numel(nSolo)
     n = nSolo(i);
     edoPitches = (0:n-1) * (1200 / n);
-    call = @() cosSimExpTens(refPitches, [], edoPitches, [], ...
+    call = @() simMaet(refPitches, [], edoPitches, [], ...
         sigma, r, isRel, isPer, period, 'method', 'mobius', ...
         'verbose', false);
     try
@@ -195,7 +195,7 @@ for ri = 1:numel(rOrders)
             rs = RandStream('twister', 'Seed', 1000 * K + ra);
             px = sort(rand(rs, 1, K) * period);
             py = sort(rand(rs, 1, K) * period);
-            call = @() cosSimExpTens(px, [], py, [], sigma, ra, isRel, ...
+            call = @() simMaet(px, [], py, [], sigma, ra, isRel, ...
                 isPer, period, 'method', armMethod{arm}, 'verbose', false);
             try
                 tic; call(); tWarm = toc;
@@ -298,9 +298,9 @@ for ci = 1:size(s6cells, 1)
         wx = 0.5 + rand(rs, 1, s6K);
         wy = 0.5 + rand(rs, 1, s6K);
 
-        callB = @() cosSimExpTens(px, wx, py, wy, sigma, s6r, 1, s6per, ...
+        callB = @() simMaet(px, wx, py, wy, sigma, s6r, 1, s6per, ...
             s6P, 'method', 'bulger', 'verbose', false);
-        callM = @() cosSimExpTens(px, wx, py, wy, sigma, s6r, 1, s6per, ...
+        callM = @() simMaet(px, wx, py, wy, sigma, s6r, 1, s6per, ...
             s6P, 'method', 'mobius', 'verbose', false);
         try
             callB(); tB = internal.timeRepeated(callB) * 1e3;

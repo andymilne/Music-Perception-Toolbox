@@ -141,7 +141,7 @@ for ax, st in zip(axes, SIGMAS_T):
     ax2.tick_params(colors='#999')
     interior = (centres > t_lo + edge) & (centres < t_hi - edge)
     ax.set_ylim(H[st][interior].min() - 0.1, H[st][interior].max() + 0.1)
-    ax.set_ylabel(f'{lab}\nRenyi-2')
+    ax.set_ylabel(f'{lab}\nRenyi-2 (bits)')
     ax.grid(True, alpha=0.3); ax.spines['top'].set_visible(False)
 
 axes[-1].set_xlabel('window-centre offset (s); grey = phase $k$')

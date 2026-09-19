@@ -11,14 +11,14 @@ function pm = bindEvents(varargin)
 %   For each input attribute a, a sliding window of width L_a (bindOrders)
 %   is laid across the event axis and the L_a consecutive events are nested
 %   into a single output attribute (toolbox spec §6.1/§6.5): the bound
-%   events form an ordered outer level (symOuter = 0 by default, lossless),
+%   events form an ordered outer level (exchOuter = 0 by default, lossless),
 %   each event's own atom multiset is the inner level.
 %
-%   The inner level's geometry (r/rel/sym) is read from the incoming
+%   The inner level's geometry (r/rel/exch) is read from the incoming
 %   specifications --- the attribute's existing specification supplies the inner
 %   level(s). specs = [] synthesises flat specs (flatSpecs defaults: r = 1,
-%   rel = 0, sym = 1). The outer level defaults to r = L_a (read the whole
-%   bound window), sym = 0, rel = 0. L_a = 1 is the no-op: the incoming
+%   rel = 0, exch = 1). The outer level defaults to r = L_a (read the whole
+%   bound window), exch = 0, rel = 0. L_a = 1 is the no-op: the incoming
 %   (flat) spec passes through unchanged. With the defaults and
 %   rel = [relIn, 0], the outer r = L_a reading reproduces the old
 %   separate-attribute tensor join (§6.5). The genuinely new lever is
@@ -36,7 +36,7 @@ function pm = bindEvents(varargin)
 %       pm         - Pre-MAET, in place of pAttr and wAttr.
 %       pAttr      - 1 x A cell of K_a x N per-attribute value matrices.
 %       wAttr      - Weights ([], scalar, or 1 x A cell). Same convention
-%                    as buildExpTens; bound value weights are the windowed-
+%                    as buildMaet; bound value weights are the windowed-
 %                    and-stacked input weights.
 %       bindOrders - Scalar or 1 x A window widths L_a >= 1 (1 = no-op).
 %
@@ -56,8 +56,8 @@ function pm = bindEvents(varargin)
 %                      incoming spec may be flat or already nested: a flat
 %                      spec becomes the inner level of a new two-level
 %                      attribute, while an already-nested spec is deepened ---
-%                      a new outermost level (rOuter/symOuter/relOuter) is
-%                      appended above the existing nesting, and tags, r, sym,
+%                      a new outermost level (rOuter/exchOuter/relOuter) is
+%                      appended above the existing nesting, and tags, r, exch,
 %                      and rel each extend by one entry. Repeated binds nest
 %                      to arbitrary depth, but each call must be given the
 %                      specs returned by the previous one: passing [] on an
@@ -65,7 +65,7 @@ function pm = bindEvents(varargin)
 %                      silently discarding the existing nesting and producing
 %                      a shallower result.
 %       'rOuter'     - [] (default L_a) or scalar/1xA outer-level r.
-%       'symOuter'   - outer-level [sym] (default false; bag reading if true).
+%       'exchOuter'   - outer-level [exch] (default false; bag reading if true).
 %       'relOuter'   - outer-level [rel] (default false).
 %       'name'       - [] , char, or 1 x A names; overrides any name carried
 %                      on the incoming spec, otherwise inherited.
@@ -79,10 +79,10 @@ function pm = bindEvents(varargin)
 %            (L_a*K_a) x N' value matrix, and for L_a = 1 the leading-
 %            aligned K_a x N'; wAttr the transformed weights, aligned to
 %            the value layout; specs a 1 x A cell of structs, nested
-%            {tags,r,sym,rel,...} for L_a >= 2 and the incoming spec
+%            {tags,r,exch,rel,...} for L_a >= 2 and the incoming spec
 %            unchanged (flat or nested) for L_a = 1.
 %
-%   See also BUILDEXPTENS, DIFFERENCEEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
+%   See also BUILDMAET, DIFFERENCEEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
 
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
 [pAttrBound, wBound, specs] = localBindEvents(pAttr, wAttr, specsPm, rest{:});
@@ -100,7 +100,7 @@ arguments
     nvArgs.step (1, 1) double {mustBeInteger, mustBePositive} = 1
     nvArgs.specs = []
     nvArgs.rOuter = []
-    nvArgs.symOuter = false
+    nvArgs.exchOuter = false
     nvArgs.relOuter = false
     nvArgs.name = []
     nvArgs.levelNames = []
@@ -183,7 +183,7 @@ if isempty(nvArgs.rOuter)
 else
     rOut = localBcastGeom(nvArgs.rOuter, A, 'rOuter', false);
 end
-symOut = localBcastGeom(nvArgs.symOuter, A, 'symOuter', true);
+exchOut = localBcastGeom(nvArgs.exchOuter, A, 'exchOuter', true);
 relOut = localBcastGeom(nvArgs.relOuter, A, 'relOuter', true);
 namesAttr = localBcastNames(nvArgs.name, A);
 levelNames = nvArgs.levelNames;
@@ -249,7 +249,7 @@ for a = 1:A
         % Deepen: append a new outermost grouping level above the existing
         % nesting. The existing tag columns are tiled once per bound
         % super-event; the new column distinguishes the L_a bound
-        % super-events. r/sym/rel extend by the new outer level.
+        % super-events. r/exch/rel extend by the new outer level.
         tagsIn = sIn.tags;
         if isvector(tagsIn)
             tagsIn = tagsIn(:);               % K_total x 1 (L_in = 2)
@@ -257,7 +257,7 @@ for a = 1:A
         tagsNew = [repmat(tagsIn, L_a, 1), newColRow.'];
         spec = struct('tags', tagsNew, ...
                       'r',   [sIn.r(:).',            rOut(a)], ...
-                      'sym', [logical(sIn.sym(:).'), logical(symOut(a))], ...
+                      'exch', [logical(sIn.exch(:).'), logical(exchOut(a))], ...
                       'rel', [double(sIn.rel(:).'),  double(relOut(a))]);
         if isfield(sIn, 'names') && ~isempty(sIn.names)
             spec.names = [sIn.names(:).', {[]}];
@@ -266,9 +266,9 @@ for a = 1:A
         % Flat input -> two-level nested attribute (unchanged).
         rInA   = double(localSpecField(sIn, 'r',   1));
         relInA = logical(localSpecField(sIn, 'rel', false));
-        symInA = logical(localSpecField(sIn, 'sym', true));
+        exchInA = logical(localSpecField(sIn, 'exch', true));
         spec = struct('tags', newColRow, 'r', [rInA rOut(a)], ...
-                      'sym', [symInA symOut(a)], 'rel', [relInA relOut(a)]);
+                      'exch', [exchInA exchOut(a)], 'rel', [relInA relOut(a)]);
         if ~isempty(levelNames); spec.names = levelNames; end
     end
     % Binding regroups values; it does not touch them, so the attribute's
@@ -562,7 +562,7 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
     else
         rOut = localBcastGeom(nvArgs.rOuter, A, 'rOuter', false);
     end
-    symOut = localBcastGeom(nvArgs.symOuter, A, 'symOuter', true);
+    exchOut = localBcastGeom(nvArgs.exchOuter, A, 'exchOuter', true);
     relOut = localBcastGeom(nvArgs.relOuter, A, 'relOuter', true);
     namesAttr = localBcastNames(nvArgs.name, A);
     levelNames = nvArgs.levelNames;
@@ -600,9 +600,9 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
         sIn = specsIn{a};
         rInA   = double(localSpecField(sIn, 'r',   1));
         relInA = logical(localSpecField(sIn, 'rel', false));
-        symInA = logical(localSpecField(sIn, 'sym', true));
+        exchInA = logical(localSpecField(sIn, 'exch', true));
         spec = struct('tags', newColRow, 'r', [rInA rOut(a)], ...
-                      'sym', [symInA symOut(a)], 'rel', [relInA relOut(a)]);
+                      'exch', [exchInA exchOut(a)], 'rel', [relInA relOut(a)]);
         if ~isempty(levelNames); spec.names = levelNames; end
         if ~isempty(namesAttr{a})
             spec.name = namesAttr{a};

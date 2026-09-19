@@ -2,7 +2,7 @@ function bench_port_regression
 %BENCH_PORT_REGRESSION  Speed baseline for the MATLAB SA-merge port.
 %
 %   Times the exact code paths the port touches --- the truncation and
-%   normalisation call sites in evalExpTens, nestedContract, and the
+%   normalisation call sites in evalMaet, nestedContract, and the
 %   orbit cosine --- at configurations where MATLAB currently beats the
 %   Python version. Capture this table ONCE on the known-good baseline
 %   (the tree that passes test_mpt with 1145/1145), then re-run it after
@@ -18,7 +18,7 @@ function bench_port_regression
 %   The configs are deliberately the heavy ones:
 %     * eval_rel_dim3   --- r=4 relative non-periodic, dim=3, ~1.77M
 %       query points: the single configuration that dominates
-%       demo_expTensorPlots and is ~4x slower in Python. Exercises the
+%       demo_maetPlots and is ~4x slower in Python. Exercises the
 %       relative-mode centres/truncation eval path.
 %     * eval_abs_dim4   --- r=4 absolute, dim=4: the absolute centres
 %       path, a normalisation call site.
@@ -35,7 +35,7 @@ function bench_port_regression
     N_WARMUP = 2;
 
     % Silence dispatch decisions and the truncation notice for the
-    % duration of the bench. The nested/orbit rows call cosSimExpTens in
+    % duration of the bench. The nested/orbit rows call simMaet in
     % a tight inner loop, and with showHints on each call fires a
     % 'chose ... path.' fprintf INSIDE the timed region --- on a
     % sub-10-ms unit that print jitter is a real source of run-to-run
@@ -84,22 +84,22 @@ end
 function evalRelDim3()
     rng(0, 'twister');
     p = sort(1200 * rand(1, 6));
-    dens = buildExpTens(p, [], 60, 4, 1, 0, 0, 'verbose', false);   % r=4 rel non-per -> dim 3
+    dens = buildMaet(p, [], 60, 4, 1, 0, 0, 'verbose', false);   % r=4 rel non-per -> dim 3
     ax = linspace(0, 1200, 121);
     [G1, G2, G3] = ndgrid(ax, ax, ax);
     X = [G1(:), G2(:), G3(:)].';                  % 3 x 1.77M
-    evalExpTens(dens, X, 'gaussian', 'verbose', false);
+    evalMaet(dens, X, 'gaussian', 'verbose', false);
 end
 
 
 function evalAbsDim4()
     rng(1, 'twister');
     p = sort(1200 * rand(1, 6));
-    dens = buildExpTens(p, [], 60, 4, 0, 0, 0, 'verbose', false);   % r=4 abs -> dim 4
+    dens = buildMaet(p, [], 60, 4, 0, 0, 0, 'verbose', false);   % r=4 abs -> dim 4
     ax = linspace(0, 1200, 41);
     [G1, G2, G3, G4] = ndgrid(ax, ax, ax, ax);
     X = [G1(:), G2(:), G3(:), G4(:)].';           % 4 x 2.83M
-    evalExpTens(dens, X, 'gaussian', 'verbose', false);
+    evalMaet(dens, X, 'gaussian', 'verbose', false);
 end
 
 
@@ -118,7 +118,7 @@ function nestedContractRelPer(r, nInner)
     % rel-periodic cosine routes through the nested/orbit contraction;
     % force the pairwise path so the nestedContract truncation site is hit.
     for i = 1:nInner
-        cosSimExpTens(pA, [], pB, [], 30, r, 1, 1, 1200, ...
+        simMaet(pA, [], pB, [], 30, r, 1, 1, 1200, ...
                       'method', 'bulger', 'verbose', false);
     end
 end
@@ -131,7 +131,7 @@ function cosSimOrbitRelPer(r, nInner)
     pB = mod(pA + 41.7, 1200);
     % default dispatch: exercises selectMaInnerProductMethod calibration.
     for i = 1:nInner
-        cosSimExpTens(pA, [], pB, [], 30, r, 1, 1, 1200, 'verbose', false);
+        simMaet(pA, [], pB, [], 30, r, 1, 1, 1200, 'verbose', false);
     end
 end
 

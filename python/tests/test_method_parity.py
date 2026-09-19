@@ -19,7 +19,7 @@ import sys
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, cos_sim_exp_tens, eval_exp_tens
+from mpt import build_maet, sim_maet, eval_maet
 
 # The independent reference lives beside this file rather than in the
 # package: it is not a route, and must share no code with the core.
@@ -33,8 +33,8 @@ def _pair(K=7, r=3, sigma=30.0, is_rel=False, is_per=False, period=1200.0):
     q = np.sort(rng.uniform(0.0, period, K))
     w = rng.uniform(0.4, 1.0, K)
     wq = rng.uniform(0.4, 1.0, K)
-    a = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=False)
-    b = build_exp_tens(q, wq, sigma, r, is_rel, is_per, period, verbose=False)
+    a = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
+    b = build_maet(q, wq, sigma, r, is_rel, is_per, period, verbose=False)
     return a, b
 
 
@@ -46,23 +46,23 @@ RETIRED = "direct"
 @pytest.mark.parametrize("method", IP_ACCEPTED)
 def test_inner_product_accepts(method):
     a, b = _pair()
-    assert np.isfinite(cos_sim_exp_tens(a, b, method=method, verbose=False))
+    assert np.isfinite(sim_maet(a, b, method=method, verbose=False))
 
 
 @pytest.mark.parametrize("method", EVAL_ACCEPTED)
 def test_eval_accepts(method):
     a, _ = _pair()
     pts = np.array([[0.0], [100.0], [250.0]])
-    assert np.all(np.isfinite(eval_exp_tens(a, pts, method=method,
+    assert np.all(np.isfinite(eval_maet(a, pts, method=method,
                                             verbose=False)))
 
 
 def test_direct_retired_on_both_entry_points():
     a, b = _pair()
     with pytest.raises(ValueError):
-        cos_sim_exp_tens(a, b, method=RETIRED, verbose=False)
+        sim_maet(a, b, method=RETIRED, verbose=False)
     with pytest.raises(ValueError):
-        eval_exp_tens(a, np.array([[0.0]]), method=RETIRED, verbose=False)
+        eval_maet(a, np.array([[0.0]]), method=RETIRED, verbose=False)
 
 
 @pytest.mark.parametrize("is_rel,is_per", [(False, False), (False, True),
@@ -80,7 +80,7 @@ def test_three_routes_agree(is_rel, is_per):
     well inside the regime where they coincide.
     """
     a, b = _pair(is_rel=is_rel, is_per=is_per)
-    vals = {m: float(cos_sim_exp_tens(a, b, method=m,
+    vals = {m: float(sim_maet(a, b, method=m,
                                       truncation_sigmas=float("inf"),
                                       verbose=False))
             for m in ("bulger", "centres", "mobius")}
@@ -114,10 +114,10 @@ def test_routes_agree_with_an_independent_implementation(is_rel, is_per):
 
     expected = ind(p, w, q, wq) / np.sqrt(ind(p, w, p, w) * ind(q, wq, q, wq))
 
-    a = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=False)
-    b = build_exp_tens(q, wq, sigma, r, is_rel, is_per, period, verbose=False)
+    a = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
+    b = build_maet(q, wq, sigma, r, is_rel, is_per, period, verbose=False)
     for method in ("bulger", "centres", "mobius"):
-        got = float(cos_sim_exp_tens(a, b, method=method,
+        got = float(sim_maet(a, b, method=method,
                                      truncation_sigmas=float("inf"),
                                      verbose=False))
         # Relative-periodic mobius computes the transposition average,
@@ -204,16 +204,16 @@ def test_value_is_unchanged_by_the_sub_route(route):
     got = {}
     try:
         for is_per in (False, True):
-            a = build_exp_tens(p, w, sigma, r, True, is_per, period,
+            a = build_maet(p, w, sigma, r, True, is_per, period,
                                verbose=False)
-            b = build_exp_tens(q, wq, sigma, r, True, is_per, period,
+            b = build_maet(q, wq, sigma, r, True, is_per, period,
                                verbose=False)
             mpt.set_default(rel_attr_route=route)
-            got[is_per] = float(cos_sim_exp_tens(
+            got[is_per] = float(sim_maet(
                 a, b, method="mobius", truncation_sigmas=float("inf"),
                 verbose=False))
             mpt.set_default(rel_attr_route="auto")
-            ref = float(cos_sim_exp_tens(
+            ref = float(sim_maet(
                 a, b, method="bulger", truncation_sigmas=float("inf"),
                 verbose=False))
             assert abs(got[is_per] - ref) <= 1e-9 * max(abs(ref), 1.0), (
@@ -246,11 +246,11 @@ def test_spectral_force_changes_cost_not_value():
     try:
         for forced in (False, True):
             mi._SPECTRAL_IP_FORCE = forced
-            a = build_exp_tens(p, w, sigma, r, True, False, period,
+            a = build_maet(p, w, sigma, r, True, False, period,
                                verbose=False)
-            b = build_exp_tens(q, wq, sigma, r, True, False, period,
+            b = build_maet(q, wq, sigma, r, True, False, period,
                                verbose=False)
-            got[forced] = float(cos_sim_exp_tens(
+            got[forced] = float(sim_maet(
                 a, b, method="mobius", truncation_sigmas=float("inf"),
                 verbose=False))
     finally:

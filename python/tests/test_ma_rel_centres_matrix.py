@@ -52,7 +52,7 @@ def _make(seed):
     pitches = rng.uniform(0, PERIOD[1], (K, N_EVENTS))
     ones = np.ones((K, N_EVENTS))
     with _quiet():
-        return mpt.build_exp_tens(
+        return mpt.build_maet(
             [onsets, pitches], [ones, ones],
             list(SIGMA), [1, R], [False, True], [False, True],
             list(PERIOD), verbose=False,

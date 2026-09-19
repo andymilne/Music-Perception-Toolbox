@@ -32,17 +32,17 @@ pit2 = 60:74;
 results(end+1, :) = {'rOuter defaults to min group size', sp2{1}.r(2) == 4}; %#ok<SAGROW>
 
 % --- self-similarity = 1 on a ragged density -----------------------------
-[pb3, wb3, sp3] = unpackPreMaet(bindEvents({pit2, onset2}, [], [], 'groupBy', 2, 'rOuter', 4, 'symOuter', true));
-d3 = buildExpTens(pb3, wb3, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp3, 'verbose', false);
-s3 = cosSimExpTens(d3, d3, 'verbose', false);
+[pb3, wb3, sp3] = unpackPreMaet(bindEvents({pit2, onset2}, [], [], 'groupBy', 2, 'rOuter', 4, 'exchOuter', true));
+d3 = buildMaet(pb3, wb3, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp3, 'verbose', false);
+s3 = simMaet(d3, d3, 'verbose', false);
 results(end+1, :) = {'ragged self-similarity == 1', abs(s3 - 1) < tol}; %#ok<SAGROW>
 
 % --- large-tuple-size ragged smoke (orbit path carries it) ---------------------
 onset4 = [zeros(1,7), ones(1,6), 2*ones(1,8)];   % sizes 7,6,8 -> min 6
 pit4 = 60 + (0:numel(onset4)-1);
-[pb4, wb4, sp4] = unpackPreMaet(bindEvents({pit4, onset4}, [], [], 'groupBy', 2, 'rOuter', 6, 'symOuter', true));
-d4 = buildExpTens(pb4, wb4, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp4, 'verbose', false);
-s4 = cosSimExpTens(d4, d4, 'verbose', false);
+[pb4, wb4, sp4] = unpackPreMaet(bindEvents({pit4, onset4}, [], [], 'groupBy', 2, 'rOuter', 6, 'exchOuter', true));
+d4 = buildMaet(pb4, wb4, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp4, 'verbose', false);
+s4 = simMaet(d4, d4, 'verbose', false);
 results(end+1, :) = {'large-tuple-size ragged self-similarity == 1', abs(s4 - 1) < tol}; %#ok<SAGROW>
 
 % --- consecutive runs, not global grouping -------------------------------

@@ -15,8 +15,8 @@ function stride = progressStride(tPerRow, targetSec)
 %   stride = internal.progressStride(tPerRow, targetSec) uses a
 %   custom target interval in seconds (default 5).
 %
-%   Used by the batched helpers (cosSimExpTens, templateHarmonicity,
-%   spectralEntropy, virtualPitches, entropyExpTens) to set the
+%   Used by the batched helpers (simMaet, templateHarmonicity,
+%   spectralEntropy, virtualPitches, entropyMaet) to set the
 %   cadence of their "X / Y rows computed" progress prints. Callers
 %   also gate the prints on estTotal >= targetSec (i.e. only show
 %   progress at all when the loop is expected to take long enough to

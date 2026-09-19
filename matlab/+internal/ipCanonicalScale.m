@@ -42,10 +42,10 @@ function scale = ipCanonicalScale(dens, chosen, nestedRoutes)
     if isfield(dens, 'nested') && ~isempty(dens.nested)
         for a = 1:min(A, numel(dens.nested)); nested{a} = dens.nested{a}; end
     end
-    if isfield(dens, 'isSym') && ~isempty(dens.isSym)
-        isSym = logical(dens.isSym(:).');
+    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
+        isExch = logical(dens.isExch(:).');
     else
-        isSym = true(1, A);
+        isExch = true(1, A);
     end
     scale = 1.0;
     for a = 1:A
@@ -63,7 +63,7 @@ function scale = ipCanonicalScale(dens, chosen, nestedRoutes)
             else
                 g = sp^r_a;
             end
-            ordered = ~isSym(a) && r_a > 1;
+            ordered = ~isExch(a) && r_a > 1;
             switch chosen
                 case 'mobius'
                     f = 1.0;
@@ -90,7 +90,7 @@ function scale = ipCanonicalScale(dens, chosen, nestedRoutes)
             sU = prod(rLevels(1:relUnit));
             g = (sp^(sU - 1) * sqrt(sU))^(sTot / sU);
         end
-        G = double(internal.nestedOrbitMult(rLevels, logical(spec.sym(:).')));
+        G = double(internal.nestedOrbitMult(rLevels, logical(spec.exch(:).')));
         switch chosen
             case 'bulger'
                 f = G * g;

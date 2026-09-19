@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens, sweep_cos_sim_exp_tens
+from mpt import build_maet, sim_maet, sweep_sim_maet
 from mpt._tensor.sweep import sweep_eligibility
 
 PARITY = 1e-12
@@ -34,28 +34,28 @@ PARITY = 1e-12
 
 
 def _densities(p_x, p_y, sigma, r, is_rel=None, is_per=None, period=None,
-               is_sym=None):
+               is_exch=None):
     A = len(p_x)
     is_rel = [0] * A if is_rel is None else is_rel
     is_per = [0] * A if is_per is None else is_per
     period = [None] * A if period is None else period
-    is_sym = [1] * A if is_sym is None else is_sym
-    args = ([sigma] * A, [r] * A, is_rel, is_per, period, is_sym)
-    return (build_exp_tens(p_x, None, *args, verbose=False),
-            build_exp_tens(p_y, None, *args, verbose=False),
+    is_exch = [1] * A if is_exch is None else is_exch
+    args = ([sigma] * A, [r] * A, is_rel, is_per, period, is_exch)
+    return (build_maet(p_x, None, *args, verbose=False),
+            build_maet(p_y, None, *args, verbose=False),
             args)
 
 
 def _reference(p_x, p_y, offsets, args, *, method="bulger",
                normalize="cosine", truncation_sigmas=None):
     """Similarity offset by offset, translating the query explicitly."""
-    dx = build_exp_tens(p_x, None, *args, verbose=False)
+    dx = build_maet(p_x, None, *args, verbose=False)
     A = len(p_y)
     out = []
     for m in range(offsets.shape[1]):
         p_ym = [p_y[a] + offsets[a, m] for a in range(A)]
-        dy = build_exp_tens(p_ym, None, *args, verbose=False)
-        out.append(cos_sim_exp_tens(
+        dy = build_maet(p_ym, None, *args, verbose=False)
+        out.append(sim_maet(
             dx, dy, method=method, normalize=normalize,
             truncation_sigmas=truncation_sigmas, verbose=False))
     return np.array(out, dtype=np.float64)
@@ -108,14 +108,14 @@ SHAPES = [(1, 1), (3, 3), (4, 4), (3, 2), (4, 2), (5, 3)]
 
 
 @pytest.mark.parametrize("K,r", SHAPES)
-@pytest.mark.parametrize("is_sym", [0, 1])
+@pytest.mark.parametrize("is_exch", [0, 1])
 @pytest.mark.parametrize("A", [1, 2])
-def test_sweep_matches_per_offset(K, r, is_sym, A):
+def test_sweep_matches_per_offset(K, r, is_exch, A):
     """The reduction reproduces the per-offset sweep at the parity floor."""
     p_x, p_y = _random_case(K, 6, 3, A, seed=100 + K * 10 + r)
     off = _offsets(A, swept=tuple(range(A)))
-    dx, dy, args = _densities(p_x, p_y, 0.9, r, is_sym=[is_sym] * A)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    dx, dy, args = _densities(p_x, p_y, 0.9, r, is_exch=[is_exch] * A)
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -127,7 +127,7 @@ def test_sweep_matches_under_default_truncation(K, r):
     p_x, p_y = _random_case(K, 6, 3, 2, seed=7)
     off = _offsets(2, swept=(0, 1))
     dx, dy, args = _densities(p_x, p_y, 0.9, r)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  verbose=False)
     ref = _reference(p_x, p_y, off, args)
     assert _rel_dev(got, ref) <= PARITY
@@ -145,7 +145,7 @@ def test_off_peak_offsets_separate_the_denominator():
     p_x, p_y = _random_case(3, 5, 2, 1, seed=11)
     off = _offsets(1)
     dx, dy, args = _densities(p_x, p_y, 0.9, 3)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     zero_col = int(np.flatnonzero(off[0] == 0.0)[0])
@@ -160,14 +160,14 @@ def test_unordered_attribute_uses_the_unnormalised_permutation_sum():
     p_y = [np.array([[0.0], [4.0], [7.0]])]
     p_x = [p_y[0][[2, 0, 1], :]]           # same values, positions permuted
     off = np.zeros((1, 1))
-    for is_sym in (0, 1):
-        dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_sym=[is_sym])
-        got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    for is_exch in (0, 1):
+        dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_exch=[is_exch])
+        got = sweep_sim_maet(dx, dy, off, method="mixture",
                                      truncation_sigmas=np.inf, verbose=False)
         ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
         assert abs(got[0] - ref[0]) <= PARITY
-    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_sym=[1])
-    assert sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_exch=[1])
+    assert sweep_sim_maet(dx, dy, off, method="mixture",
                                   truncation_sigmas=np.inf,
                                   verbose=False)[0] == pytest.approx(1.0,
                                                                      abs=1e-12)
@@ -178,7 +178,7 @@ def test_both_normalisations(normalize):
     p_x, p_y = _random_case(3, 6, 3, 2, seed=21)
     off = _offsets(2, swept=(0, 1))
     dx, dy, args = _densities(p_x, p_y, 0.9, 3)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, normalize=normalize,
+    got = sweep_sim_maet(dx, dy, off, normalize=normalize,
                                  method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, normalize=normalize,
@@ -196,7 +196,7 @@ def test_unswept_relative_attribute():
     p_x, p_y = _random_case(3, 6, 3, 2, seed=31)
     off = _offsets(2, swept=(0,))
     dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_rel=[0, 1])
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -208,7 +208,7 @@ def test_unswept_absolute_periodic_attribute():
     off = _offsets(2, swept=(0,))
     dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_per=[0, 1],
                               period=[None, 12.0])
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -219,7 +219,7 @@ def test_no_attribute_swept_is_constant():
     p_x, p_y = _random_case(3, 5, 3, 1, seed=51)
     off = np.zeros((1, 4))
     dx, dy, args = _densities(p_x, p_y, 0.9, 3)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert np.all(np.abs(got - got[0]) <= PARITY)
@@ -235,7 +235,7 @@ def test_swept_relative_attribute_is_refused():
     p_x, p_y = _random_case(3, 4, 2, 1, seed=61)
     dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_rel=[1])
     with pytest.raises(ValueError, match="relative and swept"):
-        sweep_cos_sim_exp_tens(dx, dy, np.array([[0.0, 1.5]]), verbose=False)
+        sweep_sim_maet(dx, dy, np.array([[0.0, 1.5]]), verbose=False)
 
 
 def test_swept_periodic_attribute_is_refused_by_the_mixture():
@@ -247,7 +247,7 @@ def test_swept_periodic_attribute_is_refused_by_the_mixture():
     p_x, p_y = _random_case(3, 4, 2, 1, seed=62)
     dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_per=[1], period=[12.0])
     with pytest.raises(ValueError, match="periodic and swept"):
-        sweep_cos_sim_exp_tens(dx, dy, np.array([[0.0, 1.5]]),
+        sweep_sim_maet(dx, dy, np.array([[0.0, 1.5]]),
                                method="mixture", verbose=False)
 
 
@@ -266,8 +266,8 @@ def test_relative_periodic_above_the_limit_is_refused_by_the_mixture():
     off = np.zeros((2, 2))
     off[0] = [0.0, 1.5]
     with pytest.raises(ValueError, match="relative and periodic at sigma/P"):
-        sweep_cos_sim_exp_tens(dx, dy, off, method="mixture", verbose=False)
-    out = sweep_cos_sim_exp_tens(dx, dy, off, truncation_sigmas=np.inf,
+        sweep_sim_maet(dx, dy, off, method="mixture", verbose=False)
+    out = sweep_sim_maet(dx, dy, off, truncation_sigmas=np.inf,
                                  verbose=False)
     assert np.all(np.isfinite(out))
 
@@ -279,11 +279,11 @@ def test_relative_periodic_below_the_limit_is_accepted_by_the_mixture():
                               is_per=[0, 1], period=[None, 12.0])
     off = np.zeros((2, 3))
     off[0] = [0.0, 1.5, -2.0]
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = np.array([
-        cos_sim_exp_tens(
-            dx, build_exp_tens([p_y[0] + off[0, m], p_y[1]], None, *args,
+        sim_maet(
+            dx, build_maet([p_y[0] + off[0, m], p_y[1]], None, *args,
                                verbose=False),
             method="bulger", truncation_sigmas=np.inf, verbose=False)
         for m in range(off.shape[1])])
@@ -303,7 +303,7 @@ def test_offsets_shape_is_validated():
     p_x, p_y = _random_case(3, 4, 2, 2, seed=65)
     dx, dy, _ = _densities(p_x, p_y, 0.9, 3)
     with pytest.raises(ValueError, match=r"\(A, M\) array"):
-        sweep_cos_sim_exp_tens(dx, dy, np.zeros((3, 4)), verbose=False)
+        sweep_sim_maet(dx, dy, np.zeros((3, 4)), verbose=False)
 
 
 # -------------------------------------------------------------------
@@ -345,8 +345,8 @@ def test_tagged_sweep_routes_and_agrees(K, r):
     args = ([0.9] * A, [r] * A, [0] * A, [0] * A, [None] * A, [1] * A)
     tagged = _tagged(p_y, off)
     kw = dict(truncation_sigmas=np.inf, verbose=False)
-    fast = cos_sim_exp_tens(p_x, None, tagged, None, *args, **kw)
-    slow = cos_sim_exp_tens(p_x, None, list(tagged), None, *args, **kw)
+    fast = sim_maet(p_x, None, tagged, None, *args, **kw)
+    slow = sim_maet(p_x, None, list(tagged), None, *args, **kw)
     assert _rel_dev(fast, slow) <= PARITY
 
 
@@ -356,8 +356,8 @@ def test_tagged_sweep_routes_with_operands_reversed():
     args = ([0.9] * 2, [3] * 2, [0] * 2, [0] * 2, [None] * 2, [1] * 2)
     tagged = _tagged(p_y, off)
     kw = dict(truncation_sigmas=np.inf, verbose=False)
-    fast = cos_sim_exp_tens(tagged, None, p_x, None, *args, **kw)
-    slow = cos_sim_exp_tens(list(tagged), None, p_x, None, *args, **kw)
+    fast = sim_maet(tagged, None, p_x, None, *args, **kw)
+    slow = sim_maet(list(tagged), None, p_x, None, *args, **kw)
     assert _rel_dev(fast, slow) <= PARITY
 
 
@@ -374,7 +374,7 @@ def test_untagged_list_still_computes():
     hand_built = [[p_y[0] + off[0, m]] for m in range(off.shape[1])]
     args = ([0.9], [3], [0], [0], [None], [1])
     kw = dict(truncation_sigmas=np.inf, verbose=False)
-    got = cos_sim_exp_tens(p_x, None, hand_built, None, *args, **kw)
+    got = sim_maet(p_x, None, hand_built, None, *args, **kw)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
 
@@ -386,7 +386,7 @@ def test_forced_method_bypasses_the_reduction():
     args = ([0.9], [3], [0], [0], [None], [1])
     tagged = _tagged(p_y, off)
     kw = dict(truncation_sigmas=np.inf, verbose=False)
-    got = cos_sim_exp_tens(p_x, None, tagged, None, *args,
+    got = sim_maet(p_x, None, tagged, None, *args,
                            method="mobius", **kw)
     ref = _reference(p_x, p_y, off, args, method="mobius",
                      truncation_sigmas=np.inf)
@@ -403,8 +403,8 @@ def test_relative_no_op_column_still_agrees():
             p_y, None, [off[a].reshape(1, -1) for a in range(2)],
             specs=[{"rel": False}, {"rel": True}]))
     kw = dict(truncation_sigmas=np.inf, verbose=False)
-    fast = cos_sim_exp_tens(p_x, None, tagged, None, *args, **kw)
-    slow = cos_sim_exp_tens(p_x, None, list(tagged), None, *args, **kw)
+    fast = sim_maet(p_x, None, tagged, None, *args, **kw)
+    slow = sim_maet(p_x, None, list(tagged), None, *args, **kw)
     assert _rel_dev(fast, slow) <= PARITY
 
 
@@ -424,13 +424,13 @@ ROUTE_AGREEMENT = 1e-11
 
 def _orbit_reference(p_x, p_y, offsets, args, *, normalize="cosine",
                      truncation_sigmas=None):
-    dx = build_exp_tens(p_x, None, *args, verbose=False)
+    dx = build_maet(p_x, None, *args, verbose=False)
     A = len(p_y)
     out = []
     for m in range(offsets.shape[1]):
-        dy = build_exp_tens([p_y[a] + offsets[a, m] for a in range(A)],
+        dy = build_maet([p_y[a] + offsets[a, m] for a in range(A)],
                             None, *args, verbose=False)
-        out.append(cos_sim_exp_tens(
+        out.append(sim_maet(
             dx, dy, method="mobius", normalize=normalize,
             truncation_sigmas=truncation_sigmas, verbose=False))
     return np.array(out, dtype=np.float64)
@@ -441,7 +441,7 @@ def test_orbit_route_matches_per_offset(K, r):
     p_x, p_y = _random_case(K, 5, 3, 1, seed=200 + K)
     off = _offsets(1)
     dx, dy, args = _densities(p_x, p_y, 0.9, r)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+    got = sweep_sim_maet(dx, dy, off, method="orbit",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _orbit_reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -453,9 +453,9 @@ def test_orbit_and_mixture_agree(K, r):
     p_x, p_y = _random_case(K, 5, 3, 2, seed=210 + K)
     off = _offsets(2, swept=(0, 1))
     dx, dy, _ = _densities(p_x, p_y, 0.9, r)
-    mix = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    mix = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
-    orb = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+    orb = sweep_sim_maet(dx, dy, off, method="orbit",
                                  truncation_sigmas=np.inf, verbose=False)
     assert _rel_dev(orb, mix) <= ROUTE_AGREEMENT
 
@@ -467,11 +467,11 @@ def test_orbit_route_carries_a_swept_periodic_attribute():
     p_y = [rng.uniform(0, 12, size=(3, 2))]
     off = _offsets(1)
     args = ([0.6], [3], [0], [1], [12.0], [1])
-    dx = build_exp_tens(p_x, None, *args, verbose=False)
-    dy = build_exp_tens(p_y, None, *args, verbose=False)
+    dx = build_maet(p_x, None, *args, verbose=False)
+    dy = build_maet(p_y, None, *args, verbose=False)
     with pytest.raises(ValueError, match="periodic and swept"):
-        sweep_cos_sim_exp_tens(dx, dy, off, method="mixture", verbose=False)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+        sweep_sim_maet(dx, dy, off, method="mixture", verbose=False)
+    got = sweep_sim_maet(dx, dy, off, method="orbit",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _orbit_reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -482,7 +482,7 @@ def test_orbit_route_refuses_a_swept_relative_attribute():
     p_x, p_y = _random_case(3, 4, 2, 1, seed=230)
     dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_rel=[1])
     with pytest.raises(ValueError, match="orbit route does not support"):
-        sweep_cos_sim_exp_tens(dx, dy, np.array([[0.0, 1.5]]),
+        sweep_sim_maet(dx, dy, np.array([[0.0, 1.5]]),
                                method="orbit", verbose=False)
 
 
@@ -498,8 +498,8 @@ def _rel_per_pair(sop, seed, period=12.0, wrap=None):
     kw = dict(verbose=False)
     if wrap is not None:
         kw["wrap"] = wrap
-    dx = build_exp_tens(p_x, None, *args, **kw)
-    dy = build_exp_tens(p_y, None, *args, **kw)
+    dx = build_maet(p_x, None, *args, **kw)
+    dy = build_maet(p_y, None, *args, **kw)
     return p_x, p_y, dx, dy, args, kw
 
 
@@ -513,11 +513,11 @@ def test_orbit_route_carries_an_unswept_rel_per_attribute(sop):
     """
     p_x, p_y, dx, dy, args, kw = _rel_per_pair(sop, seed=600)
     off = _offsets(2, swept=(0,))
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+    got = sweep_sim_maet(dx, dy, off, method="orbit",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = np.array([
-        cos_sim_exp_tens(
-            dx, build_exp_tens([p_y[0] + off[0, m], p_y[1]], None,
+        sim_maet(
+            dx, build_maet([p_y[0] + off[0, m], p_y[1]], None,
                                *args, **kw),
             method="mobius", truncation_sigmas=np.inf, verbose=False)
         for m in range(off.shape[1])])
@@ -559,13 +559,13 @@ def test_auto_falls_back_to_the_orbit_route_when_the_mixture_is_refused():
     p_y = [rng.uniform(0, 12, size=(3, 2))]
     off = _offsets(1)
     args = ([0.6], [3], [0], [1], [12.0], [1])
-    dx = build_exp_tens(p_x, None, *args, verbose=False).pruned()
-    dy = build_exp_tens(p_y, None, *args, verbose=False).pruned()
+    dx = build_maet(p_x, None, *args, verbose=False).pruned()
+    dy = build_maet(p_y, None, *args, verbose=False).pruned()
     ok, _ = sweep_eligibility(dx, dy, off)
     assert not ok
     assert _choose_sweep_route(dx, dy, off, ok,
                                orbit_sweep_supported(dx, dy, off)) == "orbit"
-    got = sweep_cos_sim_exp_tens(dx, dy, off, truncation_sigmas=np.inf,
+    got = sweep_sim_maet(dx, dy, off, truncation_sigmas=np.inf,
                                  verbose=False)
     ref = _orbit_reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -575,7 +575,7 @@ def test_method_is_validated():
     p_x, p_y = _random_case(3, 4, 2, 1, seed=260)
     dx, dy, _ = _densities(p_x, p_y, 0.9, 3)
     with pytest.raises(ValueError, match="method must be"):
-        sweep_cos_sim_exp_tens(dx, dy, _offsets(1), method="bulger",
+        sweep_sim_maet(dx, dy, _offsets(1), method="bulger",
                                verbose=False)
 
 
@@ -589,10 +589,10 @@ def test_method_is_validated():
 #  it contributes one shape term per block and no placement term, and
 #  like a relative attribute it cannot be swept.
 
-_NEST_INNER = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+_NEST_INNER = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
                    rel="innermost")
-_NEST_ABS = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False])
-_NEST_OUTER = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+_NEST_ABS = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False])
+_NEST_OUTER = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
                    rel="outermost")
 
 
@@ -602,8 +602,8 @@ def _nested_pair(spec, seed, n_x=3, n_y=2):
     p_y = [np.sort(rng.normal(0, 4, size=(4, n_y)), axis=0)]
     kw = dict(nested=[spec], verbose=False)
     args = ([1.0], [1], [False], [False], [0.0])
-    dx = build_exp_tens(p_x, None, *args, **kw)
-    dy = build_exp_tens(p_y, None, *args, **kw)
+    dx = build_maet(p_x, None, *args, **kw)
+    dy = build_maet(p_y, None, *args, **kw)
     return p_x, p_y, dx, dy, args, kw
 
 
@@ -611,11 +611,11 @@ def test_nested_absolute_attribute_splits():
     """An absolute nested attribute is an absolute attribute."""
     p_x, p_y, dx, dy, args, kw = _nested_pair(_NEST_ABS, seed=300)
     off = _offsets(1)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = np.array([
-        cos_sim_exp_tens(
-            dx, build_exp_tens([p_y[0] + off[0, m]], None, *args, **kw),
+        sim_maet(
+            dx, build_maet([p_y[0] + off[0, m]], None, *args, **kw),
             method="bulger", truncation_sigmas=np.inf, verbose=False)
         for m in range(off.shape[1])])
     assert _rel_dev(got, ref) <= PARITY
@@ -630,14 +630,14 @@ def test_nested_inner_attribute_is_supported_unswept():
            rng.normal(0, 3, size=(2, 2))]
     args = ([1.0, 0.9], [1, 2], [False, False], [False, False], [0.0, 0.0])
     kw = dict(nested=[_NEST_INNER, None], verbose=False)
-    dx = build_exp_tens(p_x, None, *args, **kw)
-    dy = build_exp_tens(p_y, None, *args, **kw)
+    dx = build_maet(p_x, None, *args, **kw)
+    dy = build_maet(p_y, None, *args, **kw)
     off = _offsets(2, swept=(1,))
-    got = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture",
+    got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = np.array([
-        cos_sim_exp_tens(
-            dx, build_exp_tens([p_y[0], p_y[1] + off[1, m]], None,
+        sim_maet(
+            dx, build_maet([p_y[0], p_y[1] + off[1, m]], None,
                                *args, **kw),
             method="bulger", truncation_sigmas=np.inf, verbose=False)
         for m in range(off.shape[1])])
@@ -646,9 +646,9 @@ def test_nested_inner_attribute_is_supported_unswept():
 
 def test_nested_inner_attribute_alone_is_supported():
     p_x, p_y, dx, dy, args, kw = _nested_pair(_NEST_INNER, seed=320)
-    got = sweep_cos_sim_exp_tens(dx, dy, np.zeros((1, 3)), method="mixture",
+    got = sweep_sim_maet(dx, dy, np.zeros((1, 3)), method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
-    ref = cos_sim_exp_tens(dx, dy, method="bulger",
+    ref = sim_maet(dx, dy, method="bulger",
                            truncation_sigmas=np.inf, verbose=False)
     assert _rel_dev(got, np.full(3, ref)) <= PARITY
 
@@ -657,7 +657,7 @@ def test_swept_nested_inner_attribute_is_refused():
     """Each block removes its own all-ones, so a shift cancels in all."""
     p_x, p_y, dx, dy, _, _ = _nested_pair(_NEST_INNER, seed=330)
     with pytest.raises(ValueError, match="cancels within"):
-        sweep_cos_sim_exp_tens(dx, dy, _offsets(1), method="mixture",
+        sweep_sim_maet(dx, dy, _offsets(1), method="mixture",
                                verbose=False)
 
 
@@ -665,7 +665,7 @@ def test_swept_nested_outermost_attribute_is_refused():
     """The outermost unit rides the ordinary relative path."""
     p_x, p_y, dx, dy, _, _ = _nested_pair(_NEST_OUTER, seed=340)
     with pytest.raises(ValueError, match="relative and swept"):
-        sweep_cos_sim_exp_tens(dx, dy, _offsets(1), method="mixture",
+        sweep_sim_maet(dx, dy, _offsets(1), method="mixture",
                                verbose=False)
 
 
@@ -695,7 +695,7 @@ def test_accuracy_holds_far_from_the_origin(origin):
     realised = np.array([[float(np.mean((p_y[0] + off[0, m]) - p_y[0]))
                           for m in range(off.shape[1])]])
     dx, dy, args = _densities(p_x, p_y, 0.35, 3)
-    got = sweep_cos_sim_exp_tens(dx, dy, realised, method="mixture",
+    got = sweep_sim_maet(dx, dy, realised, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -790,7 +790,7 @@ def test_pruning_preserves_the_wrap_choice():
     """
     p = [np.array([[1.0, 5.0, 9.0, 2.0], [3.0, 7.0, 11.0, 4.0]])]
     w = [np.array([[1.0, 1.0, 0.0, 1.0], [1.0, 1.0, 0.0, 1.0]])]
-    dens = build_exp_tens(p, w, [1.2], [2], [1], [1], [12.0], [1],
+    dens = build_maet(p, w, [1.2], [2], [1], [1], [12.0], [1],
                           wrap=["single-image"], verbose=False)
     pruned = dens.pruned()
     assert pruned is not dens          # an event really was dropped
@@ -801,7 +801,7 @@ def test_pruning_preserves_the_wrap_choice():
 def test_pruning_preserves_wrap_for_every_attribute():
     p = [np.array([[0.0, 4.0, 8.0]]), np.array([[1.0, 5.0, 9.0]])]
     w = [np.array([[1.0, 0.0, 1.0]]), np.array([[1.0, 0.0, 1.0]])]
-    dens = build_exp_tens(p, w, [1.0, 1.2], [1, 1], [0, 1], [1, 1],
+    dens = build_maet(p, w, [1.0, 1.2], [1, 1], [0, 1], [1, 1],
                           [12.0, 12.0], [1, 1],
                           wrap=["single-image", "full-image"], verbose=False)
     assert list(dens.pruned().wrap) == ["single-image", "full-image"]
@@ -820,26 +820,26 @@ def test_orbit_route_declines_ordered_attributes():
 
     p_x, p_y = _random_case(5, 6, 3, 2, seed=830)
     off = _offsets(2, swept=(0, 1))
-    dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_sym=[0, 0])
+    dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_exch=[0, 0])
     dxp, dyp = dx.pruned(), dy.pruned()
     assert not orbit_sweep_supported(dxp, dyp, off, np.inf)
     with pytest.raises(ValueError, match="orbit route does not support"):
-        sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+        sweep_sim_maet(dx, dy, off, method="orbit",
                                truncation_sigmas=np.inf, verbose=False)
     # 'auto' falls back to the mixture and stays exact.
-    got = sweep_cos_sim_exp_tens(dx, dy, off, truncation_sigmas=np.inf,
+    got = sweep_sim_maet(dx, dy, off, truncation_sigmas=np.inf,
                                  verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
 
 
-@pytest.mark.parametrize("is_sym", [0, 1])
-def test_auto_is_exact_for_both_symmetry_settings(is_sym):
+@pytest.mark.parametrize("is_exch", [0, 1])
+def test_auto_is_exact_for_both_symmetry_settings(is_exch):
     """Whichever route ``'auto'`` picks, the answer is the same one."""
-    p_x, p_y = _random_case(4, 6, 3, 2, seed=840 + is_sym)
+    p_x, p_y = _random_case(4, 6, 3, 2, seed=840 + is_exch)
     off = _offsets(2, swept=(0, 1))
-    dx, dy, args = _densities(p_x, p_y, 0.9, 2, is_sym=[is_sym] * 2)
-    got = sweep_cos_sim_exp_tens(dx, dy, off, truncation_sigmas=np.inf,
+    dx, dy, args = _densities(p_x, p_y, 0.9, 2, is_exch=[is_exch] * 2)
+    got = sweep_sim_maet(dx, dy, off, truncation_sigmas=np.inf,
                                  verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
@@ -857,7 +857,7 @@ def test_default_truncation_reaches_every_route(method):
     p_x, p_y = _random_case(4, 6, 3, 1, seed=840)
     off = _offsets(1)
     dx, dy, _ = _densities(p_x, p_y, 0.9, 3)
-    out = sweep_cos_sim_exp_tens(dx, dy, off, method=method, verbose=False)
+    out = sweep_sim_maet(dx, dy, off, method=method, verbose=False)
     assert out.shape == (off.shape[1],)
     assert np.all(np.isfinite(out))
 
@@ -866,6 +866,6 @@ def test_routes_agree_at_the_default_truncation():
     p_x, p_y = _random_case(4, 6, 3, 1, seed=841)
     off = _offsets(1)
     dx, dy, _ = _densities(p_x, p_y, 0.9, 3)
-    mix = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture", verbose=False)
-    orb = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit", verbose=False)
+    mix = sweep_sim_maet(dx, dy, off, method="mixture", verbose=False)
+    orb = sweep_sim_maet(dx, dy, off, method="orbit", verbose=False)
     assert np.max(np.abs(mix - orb)) <= 1e-8

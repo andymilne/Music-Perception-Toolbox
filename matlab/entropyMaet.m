@@ -1,7 +1,7 @@
-function H = entropyExpTens(varargin)
-%ENTROPYEXPTENS Entropy of an expectation tensor density.
+function H = entropyMaet(varargin)
+%ENTROPYMAET Entropy of an expectation tensor density.
 %
-%   H = ENTROPYEXPTENS(...) returns the entropy of a single- or
+%   H = ENTROPYMAET(...) returns the entropy of a single- or
 %   multi-attribute expectation tensor density. Four variants are
 %   supported via the 'method' name-value argument:
 %
@@ -51,48 +51,58 @@ function H = entropyExpTens(varargin)
 %
 %   Input forms (both methods), in the order to reach for them: a
 %   single multiset; a pre-MAET, the canonical entry for everything
-%   else; a density built by buildExpTens; then the raw positional
+%   else; a density built by buildMaet; then the raw positional
 %   multi-attribute form.
 %
 %
-%     H = ENTROPYEXPTENS(p, w, sigma, r, isRel, isPer, period)
+%     H = ENTROPYMAET(p, w, sigma, r, isRel, isPer, period)
+%     H = ENTROPYMAET(p, w, sigma, r, isRel, isPer, period, isExch)
 %       Single-multiset raw form. Builds the density from the
 %       weighted multiset (p, w), where p represents pitches or
 %       positions.
 %
-%     H = ENTROPYEXPTENS(PM)
+%     H = ENTROPYMAET(PM)
 %       Pre-MAET form. A pre-MAET (preMaet) holds everything
-%       buildExpTens needs, so it stands wherever a density does: it is
+%       buildMaet needs, so it stands wherever a density does: it is
 %       built internally and no further positional arguments are
 %       required.
 %
-%     H = ENTROPYEXPTENS(T)
+%     H = ENTROPYMAET(T)
 %       Pre-built density form. T is a struct as returned by
-%       buildExpTens. Dispatches on its tag and shape: a single-multiset
+%       buildMaet. Dispatches on its tag and shape: a single-multiset
 %       MaetDensity (A = N = 1) -> single-multiset path, a general
 %       'MaetDensity' -> MA. When a struct is passed, no further
 %       positional arguments are required.
 %
-%     H = ENTROPYEXPTENS(pAttr, wAttr, sigmaVec, rVec, ...
-%                        isRelVec, isPerVec, periodVec)
+%     H = ENTROPYMAET(pAttr, wAttr, sigmaVec, rVec, ...
+%                        isRelVec, isPerVec, periodVec[, isExchVec])
 %       Multi-attribute raw form. pAttr is a cell of per-attribute
 %       matrices and wAttr the matching per-attribute weights;
-%       per-attribute parameters as in buildExpTens.
+%       per-attribute parameters as in buildMaet.
 %
 %   Input forms (Shannon-only):
 %
-%     HCell = ENTROPYEXPTENS({T_1, ..., T_n})
+%     HCell = ENTROPYMAET({T_1, ..., T_n})
 %       List form. Cell of density structs; returns a 1-by-n cell of
 %       per-density entropy values. Option II shape rule applies
 %       (length-1 input returns length-1 cell).
 %
-%     H = ENTROPYEXPTENS(P, W, sigma, r, isRel, isPer, period)
+%     H = ENTROPYMAET(P, W, sigma, r, isRel, isPer, period[, isExch])
 %       Batched-raw form. P is an nRows-by-K matrix (rows = multisets);
 %       returns an nRows-by-1 column vector. Detection is by P having
 %       both dimensions > 1; rows with fewer than r valid pitches
 %       return NaN.
 %
-%   H = ENTROPYEXPTENS(..., Name, Value) specifies additional options
+%       Shape rule (differs from Python). A vector is a vector
+%       whichever way it is oriented, so a K-by-1 column takes the
+%       single multiset raw path rather than being read as K rows of
+%       one element. Python dispatches on ndim, where a (K, 1) array
+%       is K single-element rows. A batch of one-element multisets is
+%       written the same way in both languages: pad to two columns
+%       with NaN, [p(:), nan(K, 1)], the padding being stripped per
+%       row before each density is built.
+%
+%   H = ENTROPYMAET(..., Name, Value) specifies additional options
 %   using one or more name-value arguments.
 %
 %   For periodic attributes (isPer = true), the Shannon grid spans
@@ -112,7 +122,7 @@ function H = entropyExpTens(varargin)
 %              (multi-attribute; per-attribute centre rows).
 %   Lowercase p stands for "pitch or position"; uppercase P is the
 %   2-D batched lift; pAttr is the multi-attribute generalisation.
-%   The same convention is used in evalExpTens and cosSimExpTens.
+%   The same convention is used in evalMaet and simMaet.
 %
 %   Inputs (single multiset raw and BATCHED-RAW paths)
 %       p       — Pitch or position values (vector of length K) for
@@ -128,15 +138,23 @@ function H = entropyExpTens(varargin)
 %       isRel   — Logical: true for relative (transposition-invariant).
 %       isPer   — Logical: true for periodic domain.
 %       period  — Period of the domain.
+%       isExch  — Optional logical (default: true): true for an
+%                 exchangeable (unordered) multiset, whose density is
+%                 invariant under permuting a tuple's coordinates; false
+%                 for an ordered one, where position in the tuple
+%                 carries identity. Trailing positional in every raw
+%                 form.
 %
 %   Inputs (MA raw path)
 %       pAttr     — 1 x A cell array of K_a x N matrices.
-%       wAttr     - Weights. []/scalar/1 x A cell; see buildExpTens.
+%       wAttr     - Weights. []/scalar/1 x A cell; see buildMaet.
 %       sigmaVec  - 1 x A per-attribute Gaussian widths.
 %       rVec      - 1 x A per-attribute tuple sizes.
 %       isRelVec  - 1 x A per-attribute relative flags.
 %       isPerVec  - 1 x A per-attribute periodic flags.
 %       periodVec - 1 x A per-attribute periods.
+%       isExchVec - Optional 1 x A per-attribute exchangeability flags
+%                   (default: all true); see isExch above.
 %
 %   Name-Value Arguments
 %       'method'        - One of {'shannon' (default), 'normalized',
@@ -197,24 +215,24 @@ function H = entropyExpTens(varargin)
 %
 %   Examples
 %       % Shannon entropy of a 12-EDO chromatic scale (periodic, single multiset)
-%       H = entropyExpTens(0:11, ones(1,12), 100, 1, false, true, 12);
+%       H = entropyMaet(0:11, ones(1,12), 100, 1, false, true, 12);
 %
 %       % Same chord via pre-built density (Shannon)
-%       T = buildExpTens([0 4 7], ones(1,3), 10, 1, false, true, 12);
-%       H = entropyExpTens(T);
+%       T = buildMaet([0 4 7], ones(1,3), 10, 1, false, true, 12);
+%       H = entropyMaet(T);
 %
 %       % Rényi-2 of the same chord --- closed-form, no grid
-%       H = entropyExpTens(T, 'method', 'renyi2');
+%       H = entropyMaet(T, 'method', 'renyi2');
 %
 %       % MA: pitch + time, Shannon
 %       pitch = [0 12; 4 15; 7 19];  time = [0 1];
-%       H = entropyExpTens({pitch, time}, [], ...
+%       H = entropyMaet({pitch, time}, [], ...
 %                          [20, 0.1], [2, 1], [], ...
 %                          [true, false], [true, false], [1200, 0], ...
 %                          'xMin', -0.5, 'xMax', 1.5, ...
 %                          'nPointsPerDim', 80);
 %
-%   See also PREMAET, BUILDEXPTENS, EVALEXPTENS, COSSIMEXPTENS.
+%   See also PREMAET, BUILDMAET, EVALMAET, SIMMAET.
 
 % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
 guard = internal.callGuard(); %#ok<NASGU>
@@ -232,8 +250,8 @@ for kArg = 1:numel(varargin)
     if (ischar(varargin{kArg}) || (isstring(varargin{kArg}) ...
                                    && isscalar(varargin{kArg}))) ...
             && strcmpi(char(varargin{kArg}), 'normalize')
-        error('entropyExpTens:normalizeRemoved', ...
-              ['entropyExpTens: the ''normalize'' kwarg has been ' ...
+        error('entropyMaet:normalizeRemoved', ...
+              ['entropyMaet: the ''normalize'' kwarg has been ' ...
                'removed in v3. Use method=''normalized'' for ' ...
                'H/log_b(N) in [0, 1] (the v2.0 default behaviour), ' ...
                'or method=''shannon'' for raw H = -sum q log_b q. ' ...
@@ -252,27 +270,27 @@ nvDefaults = struct( ...
     'gridLimit',         1e8, ...
     'truncationSigmas',  [], ...
     'kernelPrecision',   [], ...
-    'isSym',             [], ...
+    'isExch',             [], ...
     'verbose',           true);
 
 [posArgs, nvArgs] = localParseNVPairs(varargin, nvDefaults);
 nPos = numel(posArgs);
 
 if nPos < 1
-    error('entropyExpTens:noArgs', ...
+    error('entropyMaet:noArgs', ...
           'At least one positional argument is required.');
 end
 
-% Optional [sym] geometry flag for the raw forms. Entropy integrates
+% Optional [exch] geometry flag for the raw forms. Entropy integrates
 % over the whole space, so the raw layouts are pure geometry with no
-% query: ..., period[, isSym]. A raw call therefore has 7 positional
-% args, or 8 with isSym. (Struct and list forms have a single
-% positional and never reach 8.) Pop a trailing isSym here, leaving
+% query: ..., period[, isExch]. A raw call therefore has 7 positional
+% args, or 8 with isExch. (Struct and list forms have a single
+% positional and never reach 8.) Pop a trailing isExch here, leaving
 % posArgs at 7 so the per-method dispatch checks are unchanged, and
 % stash it on nvArgs for the build calls. The default (empty =
 % symmetric) comes from nvDefaults; an 8th positional overrides it.
 if nPos == 8
-    nvArgs.isSym = posArgs{8};
+    nvArgs.isExch = posArgs{8};
     posArgs(8) = [];
     nPos = numel(posArgs);
 end
@@ -306,7 +324,7 @@ switch nvArgs.method
         nvArgs.normalize = false;
         H = localEntropyRenyi2Dispatch(posArgs, nvArgs);
     otherwise
-        error('entropyExpTens:internalCanonicalisation', ...
+        error('entropyMaet:internalCanonicalisation', ...
               'Internal error: canonicalised method %s not handled.', ...
               nvArgs.method);
 end
@@ -330,7 +348,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
     firstArg = posArgs{1};
 
     % ==================================================================
-    % Canonical dispatch order (mirrors evalExpTens and cosSimExpTens):
+    % Canonical dispatch order (mirrors evalMaet and simMaet):
     %   1. Struct first operand: switch firstArg.tag.
     %   2. Cell first operand:
     %        - cell-of-struct  -> LIST (cell of density structs)
@@ -347,7 +365,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
     % --- 1. Struct first operand: precomputed density ---
     if isstruct(firstArg) && isfield(firstArg, 'tag')
         if nPos > 1
-            error('entropyExpTens:extraArgs', ...
+            error('entropyMaet:extraArgs', ...
                   ['When a precomputed density struct is passed, no ' ...
                    'further positional arguments may be provided.']);
         end
@@ -361,7 +379,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
                 end
                 return;
             otherwise
-                error('entropyExpTens:unknownTag', ...
+                error('entropyMaet:unknownTag', ...
                       'Unknown density struct tag: %s.', firstArg.tag);
         end
     end
@@ -370,7 +388,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
     % --- the inner element type. ---
     if iscell(firstArg)
         if isempty(firstArg)
-            error('entropyExpTens:emptyCell', ...
+            error('entropyMaet:emptyCell', ...
                   ['First argument is an empty cell. Expected a cell of ' ...
                    'density structs (LIST mode) or a cell of attribute ' ...
                    'matrices (MA raw mode).']);
@@ -378,7 +396,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         if isstruct(firstArg{1})
             % LIST: cell of density structs.
             if nPos > 1
-                error('entropyExpTens:listExtraArgs', ...
+                error('entropyMaet:listExtraArgs', ...
                       ['When a cell of density structs is passed, no ' ...
                        'further positional arguments may be provided.']);
             end
@@ -388,10 +406,10 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         if isnumeric(firstArg{1})
             % MA raw: cell of attribute matrices.
             if nPos ~= 7
-                error('entropyExpTens:wrongArgCountMA', ...
+                error('entropyMaet:wrongArgCountMA', ...
                       ['Multi-attribute raw call expects 7 or 8 positional ' ...
                        'arguments (pAttr, wAttr, sigmaVec, rVec, ' ...
-                       'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], ...
+                       'isRelVec, isPerVec, periodVec[, isExchVec]); got %d.'], ...
                       nPos);
             end
             pAttr     = posArgs{1};
@@ -402,14 +420,14 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             isPerVec  = posArgs{6};
             periodVec = posArgs{7};
             localRequireExplicitGrid(nvArgs.nPointsPerDim);
-            symArgs = localSymArgs(nvArgs);
-            dens = buildExpTens(pAttr, w, sigmaVec, rVec, ...
-                                isRelVec, isPerVec, periodVec, symArgs{:}, ...
+            exchArgs = localExchArgs(nvArgs);
+            dens = buildMaet(pAttr, w, sigmaVec, rVec, ...
+                                isRelVec, isPerVec, periodVec, exchArgs{:}, ...
                                 'verbose', false);
             H = localEntropyMA(dens, nvArgs);
             return;
         end
-        error('entropyExpTens:badCellContents', ...
+        error('entropyMaet:badCellContents', ...
               ['Cell first argument must contain either density structs ' ...
                '(LIST mode) or numeric attribute matrices (MA raw mode); ' ...
                'first cell entry is of class %s.'], class(firstArg{1}));
@@ -420,9 +438,9 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         if size(firstArg, 1) > 1 && size(firstArg, 2) > 1
             % BATCHED-RAW: 2-D matrix with both dims > 1 (rows = multisets).
             if nPos ~= 7
-                error('entropyExpTens:wrongArgCountBatched', ...
+                error('entropyMaet:wrongArgCountBatched', ...
                       ['Batched-raw call expects 7 or 8 positional arguments ' ...
-                       '(P, W, sigma, r, isRel, isPer, period[, isSym]); ' ...
+                       '(P, W, sigma, r, isRel, isPer, period[, isExch]); ' ...
                        'got %d.'], nPos);
             end
             localRequireExplicitGrid(nvArgs.nPointsPerDim);
@@ -431,10 +449,10 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         end
         % single multiset raw: numeric vector or scalar.
         if nPos ~= 7
-            error('entropyExpTens:wrongArgCountSingleMultiset', ...
+            error('entropyMaet:wrongArgCountSingleMultiset', ...
                   ['Single-multiset raw call expects 7 or 8 positional ' ...
                    'arguments (p, w, sigma, r, isRel, isPer, period' ...
-                   '[, isSym]); got %d.'], nPos);
+                   '[, isExch]); got %d.'], nPos);
         end
         p      = posArgs{1};
         w      = posArgs{2};
@@ -447,23 +465,23 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         % Apply spectral enrichment if requested.
         if ~isempty(nvArgs.spectrum)
             if ~iscell(nvArgs.spectrum)
-                error('entropyExpTens:badSpectrum', ...
+                error('entropyMaet:badSpectrum', ...
                       '''spectrum'' value must be a cell array of addSpectra arguments.');
             end
             [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
         end
 
         localRequireExplicitGrid(nvArgs.nPointsPerDim);
-        symArgs = localSymArgs(nvArgs);
-        maet = buildExpTens( ...
-            p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+        exchArgs = localExchArgs(nvArgs);
+        maet = buildMaet( ...
+            p, w, sigma, r, isRel, isPer, period, exchArgs{:}, ...
             'verbose', false);
         H = localEntropySingleMultiset(maet, nvArgs);
         return;
     end
 
     % --- 4. Else: usage error ---
-    error('entropyExpTens:badFirstArg', ...
+    error('entropyMaet:badFirstArg', ...
           ['First argument must be a density struct, a cell array (LIST or ' ...
            'MA raw), or a numeric array (single multiset raw or BATCHED-RAW); got class %s.'], ...
           class(firstArg));
@@ -480,7 +498,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
 %
 %   Receives the MaetDensity; the flat cell-mass kernel reads the
 %   single-multiset view, while the relative-mode point-evaluation branch
-%   delegates to evalExpTens on the density itself.
+%   delegates to evalMaet on the density itself.
 
     T = internal.singleMultisetView(maet);
 
@@ -491,11 +509,11 @@ function H = localEntropySingleMultiset(maet, nvArgs)
     % Validate bounds for non-periodic case.
     if ~isPer
         if isnan(nvArgs.xMin) || isnan(nvArgs.xMax)
-            error('entropyExpTens:missingBounds', ...
+            error('entropyMaet:missingBounds', ...
                   'xMin and xMax must be specified when isPer = false.');
         end
         if nvArgs.xMin >= nvArgs.xMax
-            error('entropyExpTens:invalidBounds', ...
+            error('entropyMaet:invalidBounds', ...
                   'xMin must be less than xMax.');
         end
     end
@@ -513,7 +531,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
     if dim > 1
         gridSize = nvArgs.nPointsPerDim ^ dim;
         if gridSize > nvArgs.gridLimit
-            error('entropyExpTens:gridLimitExceeded', ...
+            error('entropyMaet:gridLimitExceeded', ...
                   ['single multiset Cartesian grid (%g points = nPointsPerDim^dim = %d^%d) ' ...
                    'exceeds gridLimit (%g). Reduce nPointsPerDim or raise ' ...
                    '''gridLimit''.'], gridSize, nvArgs.nPointsPerDim, dim, nvArgs.gridLimit);
@@ -537,7 +555,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
         % axis's wrapped-Gaussian cell masses; a non-periodic axis's erf
         % differences are exact and never truncate.
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
-        Tx = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
+        Tx = internal.singleMultisetView(internal.ensureMaetExpensive(maet));
         t = localCellMassesSingleMultisetAbsolute(Tx, x1, ts);
     else
         % Build query matrix. For dim = 1, X is a 1 x nQ row vector. For
@@ -562,7 +580,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
         if isfield(nvArgs, 'kernelPrecision') && ~isempty(nvArgs.kernelPrecision)
             evalKw = [evalKw, {'kernelPrecision', nvArgs.kernelPrecision}];
         end
-        t = evalExpTens(maet, X, evalKw{:});
+        t = evalMaet(maet, X, evalKw{:});
     end
 
     % Normalize to pmf.
@@ -587,7 +605,7 @@ function H = localEntropyMA(dens, nvArgs)
 %   Builds a Cartesian-product grid with one 1-D linspace per effective
 %   dimension of the density's domain (one per non-isRel coordinate for
 %   each attribute, each on its group's domain), evaluates the density
-%   at every grid point via evalExpTens, normalises to a pmf, and
+%   at every grid point via evalMaet, normalises to a pmf, and
 %   returns Shannon entropy.
 
     base_dens = dens;
@@ -613,11 +631,11 @@ function H = localEntropyMA(dens, nvArgs)
     for idx = 1:numel(needsBounds)
         g = needsBounds(idx);
         if isnan(xMinG(g)) || isnan(xMaxG(g))
-            error('entropyExpTens:missingBounds', ...
+            error('entropyMaet:missingBounds', ...
                   'xMin and xMax must be specified for non-periodic attribute %d.', g);
         end
         if xMinG(g) >= xMaxG(g)
-            error('entropyExpTens:invalidBounds', ...
+            error('entropyMaet:invalidBounds', ...
                   'xMin must be less than xMax (attribute %d).', g);
         end
     end
@@ -626,7 +644,7 @@ function H = localEntropyMA(dens, nvArgs)
     totalPoints = double(nvArgs.nPointsPerDim) ^ double(dim);
     if totalPoints > nvArgs.gridLimit
         suggested = floor(nvArgs.gridLimit ^ (1 / double(dim)));
-        error('entropyExpTens:gridLimitExceeded', ...
+        error('entropyMaet:gridLimitExceeded', ...
               ['Grid size %d^%d = %.3g exceeds gridLimit = %.3g. ' ...
                'Reduce nPointsPerDim to %d or lower, or raise ' ...
                'gridLimit.'], ...
@@ -671,7 +689,7 @@ function H = localEntropyMA(dens, nvArgs)
         % Bin-integration cell-mass path (see the single multiset sibling
         % above: the resolved width fixes the full-image image count).
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
-        densX = internal.ensureExpTensExpensive(base_dens);
+        densX = internal.ensureMaetExpensive(base_dens);
         t = localCellMassesMAAbsolute(densX, axes1D, ts);
     else
         % --- Cartesian product as (dim x totalPoints) query matrix ---
@@ -690,7 +708,7 @@ function H = localEntropyMA(dens, nvArgs)
         if isfield(nvArgs, 'kernelPrecision') && ~isempty(nvArgs.kernelPrecision)
             evalKw = [evalKw, {'kernelPrecision', nvArgs.kernelPrecision}];
         end
-        t = evalExpTens(dens, X, evalKw{:});
+        t = evalMaet(dens, X, evalKw{:});
     end
 
     % --- Shannon entropy ---
@@ -727,7 +745,7 @@ function out = localBroadcastBounds(v, A, name)
         out = v(:).';
         return;
     end
-    error('entropyExpTens:badBoundsShape', ...
+    error('entropyMaet:badBoundsShape', ...
           '%s must be a scalar or a length-%d vector (one per attribute); got size [%s].', ...
           name, A, num2str(size(v)));
 end
@@ -764,7 +782,7 @@ function HCell = localEntropyDensityList(densCell, nvArgs)
 %LOCALENTROPYDENSITYLIST Per-density entropy for a list of densities.
 %
 %   Returns a 1-by-n cell of entropy values. Each element is computed
-%   by recursive call to entropyExpTens. Option II shape rule: a
+%   by recursive call to entropyMaet. Option II shape rule: a
 %   length-1 input returns a length-1 cell.
 
     n = numel(densCell);
@@ -774,12 +792,12 @@ function HCell = localEntropyDensityList(densCell, nvArgs)
     % up-front (before any compute) so that the listNonStruct error
     % surfaces deterministically regardless of where the bad entry
     % sits, and ahead of the grid-required check that fires on the
-    % recursive entropyExpTens call for the first valid entry.
+    % recursive entropyMaet call for the first valid entry.
     for i = 1:n
         if ~isstruct(densCell{i})
-            error('entropyExpTens:listNonStruct', ...
-                ['entropyExpTens (list mode): cell entries must be density ' ...
-                 'structs from buildExpTens; entry %d is not a struct.'], i);
+            error('entropyMaet:listNonStruct', ...
+                ['entropyMaet (list mode): cell entries must be density ' ...
+                 'structs from buildMaet; entry %d is not a struct.'], i);
         end
     end
 
@@ -787,7 +805,7 @@ function HCell = localEntropyDensityList(densCell, nvArgs)
     nvPairs = localPackNVPairs(nvArgs);
 
     for i = 1:n
-        HCell{i} = entropyExpTens(densCell{i}, nvPairs{:});
+        HCell{i} = entropyMaet(densCell{i}, nvPairs{:});
     end
 end
 
@@ -810,17 +828,17 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
 
     % The per-row dedup keys rows by a multiset canonical form, which
     % collapses rows that share a multiset but differ in order. That is
-    % correct only for the symmetric reading: under isSym = false the
+    % correct only for the symmetric reading: under isExch = false the
     % order is significant, so the dedup would silently merge distinct
     % ordered densities (and hence entropies). Reject rather than return
     % a wrong answer (parity with the Python batched path). Order-aware
     % batched dedup is a tracked follow-up; compute ordered densities one
     % row at a time.
-    if isfield(nvArgs, 'isSym') && ~isempty(nvArgs.isSym) ...
-            && ~all(logical(nvArgs.isSym(:))) && r > 1
-        error('entropyExpTens:batchedOrderedUnsupported', ...
-              ['entropyExpTens batched (2-D) input does not yet support ' ...
-               'isSym = false (ordered) densities at r > 1: the batched ' ...
+    if isfield(nvArgs, 'isExch') && ~isempty(nvArgs.isExch) ...
+            && ~all(logical(nvArgs.isExch(:))) && r > 1
+        error('entropyMaet:batchedOrderedUnsupported', ...
+              ['entropyMaet batched (2-D) input does not yet support ' ...
+               'isExch = false (ordered) densities at r > 1: the batched ' ...
                'dedup canonicalises each row''s multiset and would merge ' ...
                'order-distinct rows. Compute ordered densities one row ' ...
                'at a time (vector input).']);
@@ -834,8 +852,8 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
         if isvector(W) && numel(W) == size(P, 2)
             W_broadcast = W(:).';
         else
-            error('entropyExpTens:batchedWeightShape', ...
-                ['entropyExpTens (batched mode): W must be empty, a matrix the ' ...
+            error('entropyMaet:batchedWeightShape', ...
+                ['entropyMaet (batched mode): W must be empty, a matrix the ' ...
                  'same size as P, or a vector matching the number of pitch columns.']);
         end
     end
@@ -872,7 +890,7 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
             else
                 wValidS = [];
             end
-            entropyExpTens(pValidS, wValidS, sigma, r, isRel, isPer, period, nvPairs{:});
+            entropyMaet(pValidS, wValidS, sigma, r, isRel, isPer, period, nvPairs{:});
             warmupDone = true;
             break;
         end
@@ -895,14 +913,14 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
                 else
                     wValidS = [];
                 end
-                entropyExpTens(pValidS, wValidS, sigma, r, isRel, isPer, period, nvPairs{:});
+                entropyMaet(pValidS, wValidS, sigma, r, isRel, isPer, period, nvPairs{:});
                 nValidCal = nValidCal + 1;
             end
             if nValidCal > 0
                 tCalTotal = toc(tCalStart);
                 tPerRow   = tCalTotal / nValidCal;
                 estTotal  = tCalTotal + tPerRow * nRows;
-                internal.printBatchedEstimate('entropyExpTens', nRows, estTotal);
+                internal.printBatchedEstimate('entropyMaet', nRows, estTotal);
                 progStride = internal.progressStride(tPerRow);
                 showProgress = estTotal >= 5;
             end
@@ -924,7 +942,7 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
             H(k) = NaN;
             continue;
         end
-        H(k) = entropyExpTens(pK, wK, sigma, r, isRel, isPer, period, ...
+        H(k) = entropyMaet(pK, wK, sigma, r, isRel, isPer, period, ...
             nvPairs{:});
 
         if isfield(nvArgs, 'verbose') && nvArgs.verbose ...
@@ -940,26 +958,26 @@ function nvPairs = localPackNVPairs(nvArgs)
 %LOCALPACKNVPAIRS Re-pack a name-value struct into a flat name-value cell.
 %
 %   Used by the LIST and BATCHED-RAW dispatch helpers to forward the
-%   name-value arguments to recursive entropyExpTens calls.
+%   name-value arguments to recursive entropyMaet calls.
 %
 %   The 'normalize' field is omitted: it is an internal-only flag set
 %   from the user-facing 'method' value (true for 'normalized', false
 %   for the other three methods), not a name-value pair the user is
-%   allowed to supply. Recursive entropyExpTens calls would otherwise
+%   allowed to supply. Recursive entropyMaet calls would otherwise
 %   see 'normalize' in varargin and trip the v3 migration error.
 %
-%   The 'isSym' field is likewise omitted: it is an internal-only
+%   The 'isExch' field is likewise omitted: it is an internal-only
 %   carrier for the optional trailing positional flag, popped from the
 %   raw-form positional args. It is not a name-value pair, so forwarding
 %   it would be mis-parsed as a positional argument by the recursive
-%   call. The LIST path's densities already carry their own isSym, and
+%   call. The LIST path's densities already carry their own isExch, and
 %   the BATCHED path builds symmetric per-row densities by default
 %   (ordered batched input is rejected before any recursion).
 
     nvPairs = {};
     fns = fieldnames(nvArgs);
     for i = 1:numel(fns)
-        if strcmp(fns{i}, 'normalize') || strcmp(fns{i}, 'isSym')
+        if strcmp(fns{i}, 'normalize') || strcmp(fns{i}, 'isExch')
             continue;
         end
         nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
@@ -1034,7 +1052,7 @@ function Mat = localPhiDiffAxisPeriodic(centres, edgesLo, edgesHi, sigma, ...
 %
 %   wrap = 'full-image' (the default measure of an absolute-periodic
 %   attribute) integrates the *wrapped* Gaussian, the density the
-%   attribute declares and the one evalExpTens and the cosine inner
+%   attribute declares and the one evalMaet and the cosine inner
 %   product evaluate under that wrap: each cell's mass is the erf
 %   difference summed over the periodic images n = -L..L of the centre,
 %   with L the image count the resolved truncation width admits under
@@ -1314,7 +1332,7 @@ function cells = localCellMassesSingleMultisetAbsolute(T, ax, truncationSigmas)
 %   numerical outputs match across languages.
 
     if logical(T.isRel)
-        error('entropyExpTens:cellMassesSingleMultisetNotAbsolute', ...
+        error('entropyMaet:cellMassesSingleMultisetNotAbsolute', ...
             'localCellMassesSingleMultisetAbsolute: isRel=true is not supported by this path.');
     end
     dim = double(T.dim);
@@ -1372,7 +1390,7 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
 %   isRel=false). Mirrors Python's _cell_masses_ma_absolute.
 
     if any(logical(dens.isRel))
-        error('entropyExpTens:cellMassesMANotAbsolute', ...
+        error('entropyMaet:cellMassesMANotAbsolute', ...
             ['localCellMassesMAAbsolute: relative-mode densities are ' ...
              'not supported by this path. Route isRel=true via point-' ...
              'evaluation.']);
@@ -1446,16 +1464,16 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
 end
 
 
-function c = localSymArgs(nvArgs)
-%LOCALSYMARGS  Cell of the optional isSym positional for buildExpTens.
+function c = localExchArgs(nvArgs)
+%LOCALEXCHARGS  Cell of the optional isExch positional for buildMaet.
 %
-%   Returns {} when no [sym] flag was supplied (symmetric default) or
-%   {isSym} otherwise, for splatting into a buildExpTens call as the
+%   Returns {} when no [exch] flag was supplied (symmetric default) or
+%   {isExch} otherwise, for splatting into a buildMaet call as the
 %   trailing positional after periodVec.
-    if ~isfield(nvArgs, 'isSym') || isempty(nvArgs.isSym)
+    if ~isfield(nvArgs, 'isExch') || isempty(nvArgs.isExch)
         c = {};
     else
-        c = {nvArgs.isSym};
+        c = {nvArgs.isExch};
     end
 end
 
@@ -1467,7 +1485,7 @@ function methodCanon = localCanonicalizeMethod(methodRaw)
 %   unrecognised names.
 
     if ~(ischar(methodRaw) || isstring(methodRaw))
-        error('entropyExpTens:badMethodType', ...
+        error('entropyMaet:badMethodType', ...
               '''method'' must be a string; got %s.', class(methodRaw));
     end
     m = lower(strtrim(char(methodRaw)));
@@ -1476,7 +1494,7 @@ function methodCanon = localCanonicalizeMethod(methodRaw)
     end
     valid = {'differential', 'shannon', 'normalized', 'renyi2'};
     if ~any(strcmp(m, valid))
-        error('entropyExpTens:badMethod', ...
+        error('entropyMaet:badMethod', ...
               ['''method'' must be one of ' ...
                '{''differential'', ''shannon'', ''normalized'', ' ...
                '''renyi2''} (or the British alias ''normalised''); ' ...
@@ -1495,7 +1513,7 @@ function localRaiseIfAnySigmaZero(dens, methodName)
 
     sigma = dens.sigma;
     if ~isempty(sigma) && any(double(sigma(:)) <= 0)
-        error('entropyExpTens:sigmaZeroNotSupported', ...
+        error('entropyMaet:sigmaZeroNotSupported', ...
               ['method=''%s'' requires sigma > 0 for every group ' ...
                '(the continuous form diverges at sigma=0). For ' ...
                'categorical sigma=0 entropy, use method=''shannon'' ' ...
@@ -1515,7 +1533,7 @@ function localRequireExplicitGrid(nPointsPerDim)
 %   surface first when both apply).
 
     if isempty(nPointsPerDim)
-        error('entropyExpTens:gridRequired', ...
+        error('entropyMaet:gridRequired', ...
               ['Discrete entropy (method=''shannon'' or ' ...
                '''normalized'') requires an explicit ' ...
                '''nPointsPerDim'' (the previous toolbox-wide default ' ...
@@ -1555,12 +1573,12 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
 
     % --- Reject unsupported input forms early ---
     if iscell(firstArg) && ~isempty(firstArg) && isstruct(firstArg{1})
-        error('entropyExpTens:differentialListNotSupported', ...
+        error('entropyMaet:differentialListNotSupported', ...
             ['method=''differential'' does not yet support list ' ...
              'input. Apply it to each density individually.']);
     end
     if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1
-        error('entropyExpTens:differentialBatchedNotSupported', ...
+        error('entropyMaet:differentialBatchedNotSupported', ...
             ['method=''differential'' does not yet support raw single multiset ' ...
              'batched (2-D) input. Pass each chord row individually, ' ...
              'or pre-build a density struct.']);
@@ -1569,7 +1587,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
     % --- Resolve input to a density struct ---
     if isstruct(firstArg) && isfield(firstArg, 'tag')
         if nPos > 1
-            error('entropyExpTens:extraArgs', ...
+            error('entropyMaet:extraArgs', ...
                 ['When a precomputed density struct is passed, no ' ...
                  'further positional arguments may be provided.']);
         end
@@ -1578,29 +1596,29 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
                 dens = firstArg;
                 singleMultisetInput = internal.isSingleMultiset(firstArg);
             otherwise
-                error('entropyExpTens:unknownTag', ...
+                error('entropyMaet:unknownTag', ...
                     'Unknown density struct tag: %s.', firstArg.tag);
         end
     elseif iscell(firstArg)
         % MA raw args.
         if nPos ~= 7
-            error('entropyExpTens:wrongArgCountMA', ...
+            error('entropyMaet:wrongArgCountMA', ...
                 ['Multi-attribute raw call expects 7 or 8 positional ' ...
                  'arguments (pAttr, wAttr, sigmaVec, rVec, ' ...
-                 'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], nPos);
+                 'isRelVec, isPerVec, periodVec[, isExchVec]); got %d.'], nPos);
         end
-        symArgs = localSymArgs(nvArgs);
-        dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
-                            posArgs{5}, posArgs{6}, posArgs{7}, symArgs{:}, ...
+        exchArgs = localExchArgs(nvArgs);
+        dens = buildMaet(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, exchArgs{:}, ...
                             'verbose', false);
         singleMultisetInput = false;
     else
         % single multiset raw args.
         if nPos ~= 7
-            error('entropyExpTens:wrongArgCountSingleMultiset', ...
+            error('entropyMaet:wrongArgCountSingleMultiset', ...
                 ['Single-multiset raw call expects 7 or 8 positional ' ...
                  'arguments (p, w, sigma, r, isRel, isPer, period' ...
-                 '[, isSym]); got %d.'], nPos);
+                 '[, isExch]); got %d.'], nPos);
         end
         p      = posArgs{1};
         w      = posArgs{2};
@@ -1617,14 +1635,14 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
                      'the multiset size, breaking r == K).']);
             end
             if ~iscell(nvArgs.spectrum)
-                error('entropyExpTens:badSpectrum', ...
+                error('entropyMaet:badSpectrum', ...
                     '''spectrum'' value must be a cell array.');
             end
             [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
         end
-        symArgs = localSymArgs(nvArgs);
-        dens = buildExpTens( ...
-            p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+        exchArgs = localExchArgs(nvArgs);
+        dens = buildMaet( ...
+            p, w, sigma, r, isRel, isPer, period, exchArgs{:}, ...
             'verbose', false);
         singleMultisetInput = true;
     end
@@ -1702,7 +1720,7 @@ function H = localDifferentialAdaptive(dens, singleMultisetInput, base, ts, grid
                         'smaller grid); or use method=''renyi2'' ' ...
                         '(closed form, no grid)'];
                 end
-                error('entropyExpTens:differentialGridLimit', ...
+                error('entropyMaet:differentialGridLimit', ...
                     ['method=''differential'' cannot certify the ' ...
                      'requested accuracy (truncationSigmas=%.3g) in ' ...
                      'dim=%d: convergence needs more than %.0f grid ' ...
@@ -1919,12 +1937,12 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 
     % --- Reject unsupported input forms early ---
     if iscell(firstArg) && ~isempty(firstArg) && isstruct(firstArg{1})
-        error('entropyExpTens:renyi2ListNotSupported', ...
+        error('entropyMaet:renyi2ListNotSupported', ...
             ['method=''renyi2'' does not yet support list input. ' ...
              'Apply it to each density individually.']);
     end
     if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1
-        error('entropyExpTens:renyi2BatchedNotSupported', ...
+        error('entropyMaet:renyi2BatchedNotSupported', ...
             ['method=''renyi2'' does not yet support raw single-multiset batched ' ...
              '(2-D) input. Pass each chord row individually, or ' ...
              'pre-build a density struct.']);
@@ -1935,7 +1953,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     % --- Resolve input to a density struct ---
     if isstruct(firstArg) && isfield(firstArg, 'tag')
         if nPos > 1
-            error('entropyExpTens:extraArgs', ...
+            error('entropyMaet:extraArgs', ...
                 ['When a precomputed density struct is passed, no ' ...
                  'further positional arguments may be provided.']);
         end
@@ -1946,7 +1964,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                 H = localAnisoEntropyCorrection(H, firstArg, base);
                 return;
             otherwise
-                error('entropyExpTens:unknownTag', ...
+                error('entropyMaet:unknownTag', ...
                     'Unknown density struct tag: %s.', firstArg.tag);
         end
     end
@@ -1954,14 +1972,14 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     % --- MA raw args (first arg is a cell of arrays) ---
     if iscell(firstArg)
         if nPos ~= 7
-            error('entropyExpTens:wrongArgCountMA', ...
+            error('entropyMaet:wrongArgCountMA', ...
                 ['Multi-attribute raw call expects 7 or 8 positional ' ...
                  'arguments (pAttr, wAttr, sigmaVec, rVec, ' ...
-                 'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], nPos);
+                 'isRelVec, isPerVec, periodVec[, isExchVec]); got %d.'], nPos);
         end
-        symArgs = localSymArgs(nvArgs);
-        dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
-                            posArgs{5}, posArgs{6}, posArgs{7}, symArgs{:}, ...
+        exchArgs = localExchArgs(nvArgs);
+        dens = buildMaet(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, exchArgs{:}, ...
                             'verbose', false);
         localRaiseIfAnySigmaZero(dens, 'renyi2');
         H = localRenyi2(dens, base);
@@ -1971,9 +1989,9 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 
     % --- single multiset raw args ---
     if nPos ~= 7
-        error('entropyExpTens:wrongArgCountSingleMultiset', ...
+        error('entropyMaet:wrongArgCountSingleMultiset', ...
             ['Single-multiset raw call expects 7 or 8 positional arguments ' ...
-             '(p, w, sigma, r, isRel, isPer, period[, isSym]); got %d.'], nPos);
+             '(p, w, sigma, r, isRel, isPer, period[, isExch]); got %d.'], nPos);
     end
     p      = posArgs{1};
     w      = posArgs{2};
@@ -1992,16 +2010,16 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                    'the multiset size, breaking r == K).']);
         end
         if ~iscell(nvArgs.spectrum)
-            error('entropyExpTens:badSpectrum', ...
+            error('entropyMaet:badSpectrum', ...
                   '''spectrum'' value must be a cell array of addSpectra arguments.');
         end
         [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
     end
 
-    % buildExpTens is cheap in lazy mode; we only read cheap fields.
-    symArgs = localSymArgs(nvArgs);
-    maet = buildExpTens( ...
-        p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+    % buildMaet is cheap in lazy mode; we only read cheap fields.
+    exchArgs = localExchArgs(nvArgs);
+    maet = buildMaet( ...
+        p, w, sigma, r, isRel, isPer, period, exchArgs{:}, ...
         'verbose', false);
     localRaiseIfAnySigmaZero(maet, 'renyi2');
     H = localRenyi2(maet, base);
@@ -2051,7 +2069,7 @@ function H = localRenyi2(dens, base)
 %LOCALRENYI2  Analytical Rényi-2 entropy of an expectation tensor.
 %
 %   H_2 = -log_b(<T,T> / Z^2): the self inner product comes from the
-%   inner-product machinery --- cosSimExpTens(dens, dens, 'normalize',
+%   inner-product machinery --- simMaet(dens, dens, 'normalize',
 %   'none'), which runs the same selector, routes, cost models and memo
 %   as every cosine and returns the bare value on the canonical scale
 %   (INTERNAL.IPCANONICALSCALE) --- and the total mass Z = sum_n prod_a
@@ -2073,9 +2091,9 @@ function H = localRenyi2(dens, base)
 %   routes do not share one reading of that degenerate attribute, so it
 %   is left out of the density handed to them, and with nothing else
 %   left <T,T> = N^2. A density whose only attribute is of this kind
-%   therefore has H_2 = 0. Twin of the Python _renyi2_exp_tens_ma.
+%   therefore has H_2 = 0. Twin of the Python _renyi2_maet_ma.
 
-    dens = internal.prunedExpTens(dens);
+    dens = internal.prunedMaet(dens);
     A = double(dens.nAttrs);
     N = double(dens.N);
     if A == 0
@@ -2094,17 +2112,17 @@ function H = localRenyi2(dens, base)
     for a = 1:A
         isNested(a) = ~isempty(nested{a}) && isstruct(nested{a}) && isfield(nested{a}, 'tags');
     end
-    if isfield(dens, 'isSym') && ~isempty(dens.isSym)
-        isSymVec = logical(dens.isSym(:).');
+    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
+        isExchVec = logical(dens.isExch(:).');
     else
-        isSymVec = true(1, A);
+        isExchVec = true(1, A);
     end
     rVec = double(dens.r(:).');
     relR1 = ~isNested & logical(dens.isRel(:).') & (rVec == 1);
     live = find(~relR1);
 
-    internal.maybeShowDispatchMsg('entropyExpTens', 'ip', ...
-        sprintf('renyi2, A=%d (self inner product via cosSimExpTens)', A));
+    internal.maybeShowDispatchMsg('entropyMaet', 'ip', ...
+        sprintf('renyi2, A=%d (self inner product via simMaet)', A));
 
     if isempty(live)
         ip_xx = N^2;
@@ -2115,7 +2133,7 @@ function H = localRenyi2(dens, base)
             if isNested(a)
                 specs{i} = nested{a};
             else
-                specs{i} = struct('r', rVec(a), 'sym', isSymVec(a), ...
+                specs{i} = struct('r', rVec(a), 'exch', isExchVec(a), ...
                                   'rel', logical(dens.isRel(a)));
             end
         end
@@ -2123,12 +2141,12 @@ function H = localRenyi2(dens, base)
         if isfield(dens, 'wrap') && ~isempty(dens.wrap)
             bArgs = {'wrap', dens.wrap(live)};
         end
-        sub = buildExpTens(dens.pAttr(live), dens.w(live), 'specs', specs, ...
+        sub = buildMaet(dens.pAttr(live), dens.w(live), 'specs', specs, ...
                            'sigma', dens.sigma(live), 'isPer', logical(dens.isPer(live)), ...
                            'period', dens.period(live), bArgs{:}, 'verbose', false);
-        ip_xx = cosSimExpTens(sub, sub, 'normalize', 'none', 'verbose', false);
+        ip_xx = simMaet(sub, sub, 'normalize', 'none', 'verbose', false);
     else
-        ip_xx = cosSimExpTens(dens, dens, 'normalize', 'none', 'verbose', false);
+        ip_xx = simMaet(dens, dens, 'normalize', 'none', 'verbose', false);
     end
 
     % ---- Z = sum_n prod_a Z_a^(n) ----
@@ -2163,7 +2181,7 @@ function H = localRenyi2(dens, base)
             valid = ~isnan(col);
             wv = Wa(valid, n);
             if isNested(a)
-                Zpe(n, a) = vol * internal.nestedTupleCount(tg(valid, :), rLevels, spec.sym, wv);
+                Zpe(n, a) = vol * internal.nestedTupleCount(tg(valid, :), rLevels, spec.exch, wv);
             elseif relR1(a)
                 Zpe(n, a) = 1;
             else
@@ -2173,7 +2191,7 @@ function H = localRenyi2(dens, base)
                 else
                     z = mobius.totalMassAbs(pv, wv, sig, r_a);
                 end
-                if ~isSymVec(a) && r_a > 1
+                if ~isExchVec(a) && r_a > 1
                     z = z / factorial(r_a);   % one arrangement per combination
                 end
                 Zpe(n, a) = z;

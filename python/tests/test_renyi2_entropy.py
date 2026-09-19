@@ -1,4 +1,4 @@
-"""Tests for ``entropy_exp_tens(..., method='renyi2')``.
+"""Tests for ``entropy_maet(..., method='renyi2')``.
 
 Verifies the analytical Rényi-2 entropy
 
@@ -13,8 +13,8 @@ single-multiset/MA dispatch.
 import numpy as np
 import pytest
 
-from mpt import entropy_exp_tens
-from mpt.tensor import build_exp_tens, eval_exp_tens
+from mpt import entropy_maet
+from mpt.tensor import build_maet, eval_maet
 
 
 # Periodic-mode tests can match the orbit value to FP precision because
@@ -32,7 +32,7 @@ def _grid_renyi2_single_multiset(T, n_per_dim, ax_range):
     # A MaetDensity carries per-attribute vectors; this helper is written
     # against a single multiset, so read the flat view for r/is_rel/is_per.
     from mpt._tensor.density import single_multiset_view
-    Tq = T                      # keep the original for eval_exp_tens
+    Tq = T                      # keep the original for eval_maet
     T = single_multiset_view(T)
     if T.is_per:
         ax = np.linspace(0, T.period, n_per_dim, endpoint=False)
@@ -57,7 +57,7 @@ def _grid_renyi2_single_multiset(T, n_per_dim, ax_range):
         mesh = np.meshgrid(*([ax] * d), indexing='ij')
         X = np.stack([m.ravel() for m in mesh], axis=0)
         vol = dx ** d
-    t = eval_exp_tens(Tq, X, verbose=False)
+    t = eval_maet(Tq, X, verbose=False)
     Z = float(t.sum() * vol)
     if Z <= 0:
         raise RuntimeError("grid Z is non-positive")
@@ -75,8 +75,8 @@ def test_renyi2_single_multiset_abs_per_matches_grid(seed):
     r, K = 2, 5
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, sigma, r, False, True, P, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2')
+    T = build_maet(p, w, sigma, r, False, True, P, verbose=False)
+    H2 = entropy_maet(T, method='renyi2')
     H2_grid = _grid_renyi2_single_multiset(T, 600, None)
     assert abs(H2 - H2_grid) < TOL_FP
 
@@ -89,8 +89,8 @@ def test_renyi2_sa_rel_per_matches_grid(seed):
     r, K = 2, 5
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, sigma, r, True, True, P, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2')
+    T = build_maet(p, w, sigma, r, True, True, P, verbose=False)
+    H2 = entropy_maet(T, method='renyi2')
     H2_grid = _grid_renyi2_single_multiset(T, 600, None)
     assert abs(H2 - H2_grid) < TOL_FP
 
@@ -102,8 +102,8 @@ def test_renyi2_sa_abs_nonper_matches_grid(seed):
     r, K = 2, 5
     p = rng.uniform(-200, 200, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, sigma, r, False, False, 0.0, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2')
+    T = build_maet(p, w, sigma, r, False, False, 0.0, verbose=False)
+    H2 = entropy_maet(T, method='renyi2')
     H2_grid = _grid_renyi2_single_multiset(T, 1000, (-1000, 1000))
     assert abs(H2 - H2_grid) < TOL_GRID
 
@@ -115,8 +115,8 @@ def test_renyi2_sa_rel_nonper_matches_grid(seed):
     r, K = 2, 5
     p = rng.uniform(-200, 200, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, sigma, r, True, False, 0.0, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2')
+    T = build_maet(p, w, sigma, r, True, False, 0.0, verbose=False)
+    H2 = entropy_maet(T, method='renyi2')
     H2_grid = _grid_renyi2_single_multiset(T, 4000, (-1000, 1000))
     assert abs(H2 - H2_grid) < TOL_GRID
 
@@ -133,8 +133,8 @@ def test_renyi2_sa_high_r_works_where_grid_would_fail():
     r, K = 4, 7
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_exp_tens(p, w, sigma, r, False, True, P, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2')
+    T = build_maet(p, w, sigma, r, False, True, P, verbose=False)
+    H2 = entropy_maet(T, method='renyi2')
     # Sanity bounds: bounded above by log_2(P^r) (uniform on the
     # r-torus) and below by ~0 for typical configs at this sigma.
     assert np.isfinite(H2)
@@ -151,18 +151,18 @@ def test_renyi2_ma_two_attr_periodic_matches_grid():
     N = 5
     p_attr = [rng.uniform(0, P, (1, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (1, N)), rng.uniform(0.5, 1.5, (1, N))]
-    dens = build_exp_tens(
+    dens = build_maet(
         p_attr, w, [50.0, 0.05], [1, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
-    H2 = entropy_exp_tens(dens, method='renyi2')
+    H2 = entropy_maet(dens, method='renyi2')
 
     # Direct grid: each attribute contributes 1 dimension (r=1 abs)
     ax0 = np.linspace(0, P, 200, endpoint=False)
     ax1 = np.linspace(0, 1.0, 200, endpoint=False)
     mesh = np.meshgrid(ax0, ax1, indexing='ij')
     X = np.stack([m.ravel() for m in mesh], axis=0)
-    t = eval_exp_tens(dens, X, verbose=False)
+    t = eval_maet(dens, X, verbose=False)
     vol = (P / 200) * (1.0 / 200)
     Z = float(t.sum() * vol)
     H2_grid = -np.log2(float(((t / Z) ** 2).sum() * vol))
@@ -177,17 +177,17 @@ def test_renyi2_ma_mixed_r_matches_grid():
     N = 4
     p_attr = [rng.uniform(0, P, (3, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (3, N)), rng.uniform(0.5, 1.5, (1, N))]
-    dens = build_exp_tens(
+    dens = build_maet(
         p_attr, w, [50.0, 0.05], [2, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
-    H2 = entropy_exp_tens(dens, method='renyi2')
+    H2 = entropy_maet(dens, method='renyi2')
 
     ax0 = np.linspace(0, P, 100, endpoint=False)
     ax1 = np.linspace(0, 1.0, 100, endpoint=False)
     mesh = np.meshgrid(ax0, ax0, ax1, indexing='ij')
     X = np.stack([m.ravel() for m in mesh], axis=0)
-    t = eval_exp_tens(dens, X, verbose=False)
+    t = eval_maet(dens, X, verbose=False)
     vol = (P / 100) ** 2 * (1.0 / 100)
     Z = float(t.sum() * vol)
     H2_grid = -np.log2(float(((t / Z) ** 2).sum() * vol))
@@ -202,11 +202,11 @@ def test_renyi2_ma_relative_attribute():
     N = 5
     p_attr = [rng.uniform(0, P, (3, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (3, N)), rng.uniform(0.5, 1.5, (1, N))]
-    dens = build_exp_tens(
+    dens = build_maet(
         p_attr, w, [50.0, 0.05], [2, 1], 
         [True, False], [True, True], [P, 1.0], verbose=False,
     )
-    H2 = entropy_exp_tens(dens, method='renyi2')
+    H2 = entropy_maet(dens, method='renyi2')
     assert np.isfinite(H2)
 
 
@@ -219,25 +219,25 @@ def test_renyi2_normalize_kwarg_raises_migration():
     the four-method API."""
     rng = np.random.default_rng(0)
     P = 1200.0
-    T = build_exp_tens(
+    T = build_maet(
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
     with pytest.raises(TypeError, match="'normalize'.*removed in v3"):
-        entropy_exp_tens(T, method='renyi2', normalize=False)
+        entropy_maet(T, method='renyi2', normalize=False)
     with pytest.raises(TypeError, match="'normalize'.*removed in v3"):
-        entropy_exp_tens(T, method='renyi2', normalize=True)
+        entropy_maet(T, method='renyi2', normalize=True)
 
 
 def test_invalid_method_rejected():
     rng = np.random.default_rng(0)
     P = 1200.0
-    T = build_exp_tens(
+    T = build_maet(
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
     with pytest.raises(ValueError, match="method must be"):
-        entropy_exp_tens(T, method='bogus')
+        entropy_maet(T, method='bogus')
 
 
 def test_renyi2_default_is_shannon():
@@ -246,12 +246,12 @@ def test_renyi2_default_is_shannon():
     case which Shannon supports."""
     rng = np.random.default_rng(0)
     P = 1200.0
-    T = build_exp_tens(
+    T = build_maet(
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 1, False, True, P, verbose=False,
     )
-    H_default = entropy_exp_tens(T, n_points_per_dim=1200)
-    H_explicit = entropy_exp_tens(T, method='shannon', n_points_per_dim=1200)
+    H_default = entropy_maet(T, n_points_per_dim=1200)
+    H_explicit = entropy_maet(T, method='shannon', n_points_per_dim=1200)
     assert H_default == H_explicit
 
 
@@ -264,7 +264,7 @@ def test_renyi2_inequality_with_shannon():
     """
     rng = np.random.default_rng(0)
     P = 1200.0
-    T = build_exp_tens(
+    T = build_maet(
         rng.uniform(0, P, 8), rng.uniform(0.5, 1.5, 8),
         50.0, 1, False, True, P, verbose=False,
     )
@@ -273,12 +273,12 @@ def test_renyi2_inequality_with_shannon():
     # log2(P). Convert Shannon to its continuous equivalent by adding
     # log2(P/N) (the "differential entropy" correction).
     N = 1200
-    H_shannon_disc = entropy_exp_tens(
+    H_shannon_disc = entropy_maet(
         T, method='shannon',
         n_points_per_dim=N,
     )
     H_shannon_cont = H_shannon_disc + np.log2(P / N)
-    H2 = entropy_exp_tens(T, method='renyi2')
+    H2 = entropy_maet(T, method='renyi2')
     # Continuous Rényi-2 ≤ continuous Shannon, with rough equality
     # when the density is near-uniform.
     assert H2 <= H_shannon_cont + 1e-3
@@ -304,7 +304,7 @@ def test_renyi2_sa_nan_on_orbit_negative(monkeypatch):
     import mpt.entropy as ent_mod
     rng = np.random.default_rng(0)
     P = 1200.0
-    T = build_exp_tens(
+    T = build_maet(
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
@@ -312,8 +312,8 @@ def test_renyi2_sa_nan_on_orbit_negative(monkeypatch):
     # machinery; patch that call so the finite-and-positive guard sees a
     # corrupt value.
     import mpt._tensor.cosine as cos_mod
-    monkeypatch.setattr(cos_mod, 'cos_sim_exp_tens', lambda *a, **k: -1.0)
-    assert np.isnan(entropy_exp_tens(T, method='renyi2'))
+    monkeypatch.setattr(cos_mod, 'sim_maet', lambda *a, **k: -1.0)
+    assert np.isnan(entropy_maet(T, method='renyi2'))
 
 
 def test_renyi2_sa_nan_on_orbit_nonfinite(monkeypatch):
@@ -321,14 +321,14 @@ def test_renyi2_sa_nan_on_orbit_nonfinite(monkeypatch):
     import mpt.entropy as ent_mod
     rng = np.random.default_rng(0)
     P = 1200.0
-    T = build_exp_tens(
+    T = build_maet(
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
     import mpt._tensor.cosine as cos_mod
-    monkeypatch.setattr(cos_mod, 'cos_sim_exp_tens',
+    monkeypatch.setattr(cos_mod, 'sim_maet',
                         lambda *a, **k: float('nan'))
-    assert np.isnan(entropy_exp_tens(T, method='renyi2'))
+    assert np.isnan(entropy_maet(T, method='renyi2'))
 
 
 def test_renyi2_ma_nan_on_orbit_negative(monkeypatch):
@@ -341,16 +341,16 @@ def test_renyi2_ma_nan_on_orbit_negative(monkeypatch):
     N = 5
     p_attr = [rng.uniform(0, P, (1, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (1, N)), rng.uniform(0.5, 1.5, (1, N))]
-    dens = build_exp_tens(
+    dens = build_maet(
         p_attr, w, [50.0, 0.05], [1, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
 
     import mpt._tensor.cosine as cos_mod
-    real = cos_mod.cos_sim_exp_tens
+    real = cos_mod.sim_maet
 
     def fake(*args, **kwargs):
         return -real(*args, **kwargs)
-    monkeypatch.setattr(cos_mod, 'cos_sim_exp_tens', fake)
+    monkeypatch.setattr(cos_mod, 'sim_maet', fake)
 
-    assert np.isnan(entropy_exp_tens(dens, method='renyi2'))
+    assert np.isnan(entropy_maet(dens, method='renyi2'))

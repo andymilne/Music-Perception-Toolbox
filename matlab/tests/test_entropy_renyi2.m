@@ -1,4 +1,4 @@
-%% test_entropy_renyi2.m — v3 Rényi-2 entropy in entropyExpTens
+%% test_entropy_renyi2.m — v3 Rényi-2 entropy in entropyMaet
 %
 %  Tests for the new method='renyi2' kwarg added in v3 (Commit 6e).
 %  Covers:
@@ -7,7 +7,7 @@
 %    - single-multiset Rényi-2 closed-form correctness against a hand-rolled
 %      reference for r=1 abs and r>=2 abs/rel.
 %    - MA Rényi-2 closed-form correctness against a hand-rolled
-%      per-attribute reference (cosSimExpTens on (dens, dens) gives 1
+%      per-attribute reference (simMaet on (dens, dens) gives 1
 %      so cannot be used for cross-validation; here we construct
 %      <T,T> and Z manually and compare).
 %    - Input-form gating: list and 2-D batched inputs raise informative
@@ -37,41 +37,41 @@ end
 
 ok_badMethod = false;
 try
-    entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
+    entropyMaet([0 4 7], [], 30, 2, false, false, 0, ...
         'method', 'bogus', 'verbose', false);
 catch ME
-    ok_badMethod = strcmp(ME.identifier, 'entropyExpTens:badMethod');
+    ok_badMethod = strcmp(ME.identifier, 'entropyMaet:badMethod');
 end
-results{end+1,1} = 'entropy.renyi2: bad method string raises entropyExpTens:badMethod';
+results{end+1,1} = 'entropy.renyi2: bad method string raises entropyMaet:badMethod';
 results{end,2}   = ok_badMethod;
 
-% v3: passing 'normalize' to entropyExpTens (any value, any method)
+% v3: passing 'normalize' to entropyMaet (any value, any method)
 % raises the migration error. An earlier internal build raised
-% entropyExpTens:renyi2NormalizeNotSupported for renyi2 with the
+% entropyMaet:renyi2NormalizeNotSupported for renyi2 with the
 % default normalize=true; v3 unifies all normalize-kwarg paths under
 % the migration error.
 ok_normMigration_false = false;
 try
-    entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
+    entropyMaet([0 4 7], [], 30, 2, false, false, 0, ...
         'method', 'renyi2', 'normalize', false, 'verbose', false);
 catch ME
     ok_normMigration_false = strcmp(ME.identifier, ...
-        'entropyExpTens:normalizeRemoved');
+        'entropyMaet:normalizeRemoved');
 end
 ok_normMigration_true = false;
 try
-    entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
+    entropyMaet([0 4 7], [], 30, 2, false, false, 0, ...
         'method', 'renyi2', 'normalize', true, 'verbose', false);
 catch ME
     ok_normMigration_true = strcmp(ME.identifier, ...
-        'entropyExpTens:normalizeRemoved');
+        'entropyMaet:normalizeRemoved');
 end
 results{end+1,1} = 'entropy.renyi2: legacy normalize kwarg raises migration error';
 results{end,2}   = ok_normMigration_false && ok_normMigration_true;
 
 % method='renyi2' without any normalize kwarg works and returns a finite
 % value (the v3 design — renyi2 is continuous, no [0, 1] reference).
-H_rny_default = entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
+H_rny_default = entropyMaet([0 4 7], [], 30, 2, false, false, 0, ...
     'method', 'renyi2', 'verbose', false);
 results{end+1,1} = 'entropy.renyi2: default call returns finite value';
 results{end,2}   = isfinite(H_rny_default);
@@ -83,7 +83,7 @@ p1 = sort(2000 * rand(6, 1));
 w1 = 0.5 + rand(6, 1);
 sigma = 30;
 
-H_renyi = entropyExpTens(p1, w1, sigma, 1, false, false, 0, ...
+H_renyi = entropyMaet(p1, w1, sigma, 1, false, false, 0, ...
     'method', 'renyi2', 'base', 2, 'verbose', false);
 
 % Hand-rolled: <T,T> = sigma*sqrt(pi) * sum_{i,j} w_i w_j K[i,j]
@@ -99,11 +99,11 @@ results{end,2}   = abs(H_renyi - H_ref) < 1e-10;
 
 %% ---- single-multiset r=1 rel: degenerate, returns 0 ----
 
-% Suppress the buildExpTens:isRelDegenerate warning for this test —
+% Suppress the buildMaet:isRelDegenerate warning for this test —
 % the warning is informational, not a failure. The renyi2 path is
 % specifically built to return 0 by convention in this regime.
-ws = warning('off', 'buildExpTens:isRelDegenerate');
-H_deg = entropyExpTens(p1, w1, sigma, 1, true, false, 0, ...
+ws = warning('off', 'buildMaet:isRelDegenerate');
+H_deg = entropyMaet(p1, w1, sigma, 1, true, false, 0, ...
     'method', 'renyi2', 'verbose', false);
 warning(ws);
 results{end+1,1} = 'entropy.renyi2 single-multiset r=1 rel: degenerate, returns 0';
@@ -113,7 +113,7 @@ results{end,2}   = isequal(H_deg, 0);
 
 p3 = sort(2000 * rand(8, 1));
 w3 = ones(8, 1);
-H_r3 = entropyExpTens(p3, w3, sigma, 3, false, false, 0, ...
+H_r3 = entropyMaet(p3, w3, sigma, 3, false, false, 0, ...
     'method', 'renyi2', 'verbose', false);
 
 ip_ref = mobius.orbitInnerAbsSingleMultiset(p3, w3, p3, w3, sigma, 3, false, 0);
@@ -128,7 +128,7 @@ results{end,2}   = abs(H_r3 - H_ref3) < 1e-10;
 period_p = 1200;
 pP = sort(period_p * rand(8, 1));
 wP = ones(8, 1);
-H_rel = entropyExpTens(pP, wP, sigma, 3, true, true, period_p, ...
+H_rel = entropyMaet(pP, wP, sigma, 3, true, true, period_p, ...
     'method', 'renyi2', 'verbose', false);
 
 ip_rel = mobius.orbitInnerRelSingleMultiset(pP, wP, pP, wP, sigma, 3, true, period_p);
@@ -140,9 +140,9 @@ results{end,2}   = abs(H_rel - H_rel_ref) < 1e-8;
 
 %% ---- single-multiset: base argument flows through ----
 
-H_b2 = entropyExpTens(p3, w3, sigma, 3, false, false, 0, ...
+H_b2 = entropyMaet(p3, w3, sigma, 3, false, false, 0, ...
     'method', 'renyi2', 'base', 2, 'verbose', false);
-H_be = entropyExpTens(p3, w3, sigma, 3, false, false, 0, ...
+H_be = entropyMaet(p3, w3, sigma, 3, false, false, 0, ...
     'method', 'renyi2', 'base', exp(1), 'verbose', false);
 % H_e * log_e(2) == H_2 exactly (change-of-base).
 results{end+1,1} = 'entropy.renyi2 single-multiset: base=2 vs base=e differ by log(2) factor (1e-10)';
@@ -150,11 +150,11 @@ results{end,2}   = abs(H_b2 - H_be / log(2)) < 1e-10 * abs(H_b2);
 
 %% ---- single-multiset struct input flows through (skinny dens) ----
 
-dens_skinny = buildExpTens(p3, w3, sigma, 3, false, false, 0, 'verbose', false);
+dens_skinny = buildMaet(p3, w3, sigma, 3, false, false, 0, 'verbose', false);
 results{end+1,1} = 'entropy.renyi2 single-multiset: skinny dens has no Centres before call';
 results{end,2}   = ~isfield(dens_skinny, 'Centres');
 
-H_struct = entropyExpTens(dens_skinny, ...
+H_struct = entropyMaet(dens_skinny, ...
     'method', 'renyi2', 'verbose', false);
 results{end+1,1} = 'entropy.renyi2 single-multiset: skinny dens path matches raw-args path';
 results{end,2}   = abs(H_struct - H_r3) < 1e-12;
@@ -166,10 +166,10 @@ N = 3;
 PxA = sort(2000 * rand(6, N));   WxA = ones(6, N);
 PxB = sort(1500 * rand(6, N));   WxB = ones(6, N);
 
-dx = buildExpTens({PxA, PxB}, {WxA, WxB}, [30 30], [3 3], ...
+dx = buildMaet({PxA, PxB}, {WxA, WxB}, [30 30], [3 3], ...
     [false false], [false false], [0 0], 'verbose', false);
 
-H_ma = entropyExpTens(dx, ...
+H_ma = entropyMaet(dx, ...
     'method', 'renyi2', 'verbose', false);
 
 % Hand-rolled MA reference: <T,T> via per-attribute IP factorisation;
@@ -202,11 +202,11 @@ results{end,2}   = abs(H_ma - H_ma_ref) < 1e-10;
 dens_list = {dens_skinny, dens_skinny};
 ok_listReject = false;
 try
-    entropyExpTens(dens_list, 'method', 'renyi2', ...
+    entropyMaet(dens_list, 'method', 'renyi2', ...
         'verbose', false);
 catch ME
     ok_listReject = strcmp(ME.identifier, ...
-        'entropyExpTens:renyi2ListNotSupported');
+        'entropyMaet:renyi2ListNotSupported');
 end
 results{end+1,1} = 'entropy.renyi2: list input rejected with informative error';
 results{end,2}   = ok_listReject;
@@ -216,11 +216,11 @@ results{end,2}   = ok_listReject;
 P_batched = [0 400 700; 0 300 700];   % (2, 3) — rows are chords
 ok_batchReject = false;
 try
-    entropyExpTens(P_batched, [], sigma, 2, false, false, 0, ...
+    entropyMaet(P_batched, [], sigma, 2, false, false, 0, ...
         'method', 'renyi2', 'verbose', false);
 catch ME
     ok_batchReject = strcmp(ME.identifier, ...
-        'entropyExpTens:renyi2BatchedNotSupported');
+        'entropyMaet:renyi2BatchedNotSupported');
 end
 results{end+1,1} = 'entropy.renyi2: 2-D batched input rejected with informative error';
 results{end,2}   = ok_batchReject;

@@ -539,8 +539,8 @@ def test_auto_pruning_nan_weight_treated_as_missing():
 def test_bulger_ma_rel_per_truncation_parity():
     """The MA Bulger path (``_ip_core_ma`` / ``_ip_full_ma``) honours
     truncation_sigmas via log-space thresholding. Test through the
-    public cos_sim_exp_tens with method='bulger'."""
-    from mpt import build_exp_tens, cos_sim_exp_tens
+    public sim_maet with method='bulger'."""
+    from mpt import build_maet, sim_maet
 
     rng = np.random.default_rng(13)
     K = 4
@@ -549,14 +549,14 @@ def test_bulger_ma_rel_per_truncation_parity():
     P2 = rng.uniform(0.0, 12.0, size=K)
     W2 = rng.uniform(0.1, 1.0, size=K)
     # MA = two single-multiset densities cross-correlated; use
-    # build_exp_tens with two events to keep MA-shaped storage.
-    dens_x = build_exp_tens(P, W, 1.0, 2, True, True, 12.0)
-    dens_y = build_exp_tens(P2, W2, 1.0, 2, True, True, 12.0)
+    # build_maet with two events to keep MA-shaped storage.
+    dens_x = build_maet(P, W, 1.0, 2, True, True, 12.0)
+    dens_y = build_maet(P2, W2, 1.0, 2, True, True, 12.0)
 
     mpt.set_default(truncation_sigmas=float('inf'))
-    s_inf = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+    s_inf = sim_maet(dens_x, dens_y, method='bulger', verbose=False)
     mpt.set_default(truncation_sigmas=6.0)
-    s_6 = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
+    s_6 = sim_maet(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(s_inf - s_6) < 1e-7
 
 
@@ -572,7 +572,7 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
     so a tuple with w_j == 0 has at least one attribute with zero
     weight at that tuple --- contributes zero everywhere, drop is exact.
     """
-    from mpt._tensor.eval import _eval_exp_tens_ma
+    from mpt._tensor.eval import _eval_maet_ma
 
     p = [np.array([[float(i) for i in range(20)]]),
          np.array([[float(i) for i in range(20)]])]
@@ -591,7 +591,7 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
     finally:
         mpt.set_default(truncation_sigmas=old)
 
-    dens = mpt.build_exp_tens(
+    dens = mpt.build_maet(
         p, w, np.array([1.0, 1.0]), np.array([1, 1]), 
         np.array([False, False]), np.array([False, False]),
         np.array([0.0, 0.0]),
@@ -602,9 +602,9 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
     g = np.linspace(-2.0, 22.0, 24)
     x_grid = np.array([np.tile(g, g.size), np.repeat(g, g.size)])
 
-    vals_pruned   = _eval_exp_tens_ma(dens, x_grid, 'none',
+    vals_pruned   = _eval_maet_ma(dens, x_grid, 'none',
                                        prune_zero_weight_events=True)
-    vals_unpruned = _eval_exp_tens_ma(dens, x_grid, 'none',
+    vals_unpruned = _eval_maet_ma(dens, x_grid, 'none',
                                        prune_zero_weight_events=False)
 
     # Reordered sums give at-most a few ULPs of drift. Absolute
@@ -615,21 +615,21 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
 
 def test_eval_ma_auto_prune_default_is_on():
     """Default behaviour (no kwarg) matches the prune=True branch."""
-    from mpt._tensor.eval import _eval_exp_tens_ma
+    from mpt._tensor.eval import _eval_maet_ma
 
     p = [np.array([[float(i) for i in range(15)]])]
     w = [np.array([[0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0, 0.0, 0.0]])]
 
-    dens = mpt.build_exp_tens(
+    dens = mpt.build_maet(
         p, w, np.array([1.0]), np.array([1]), 
         np.array([False]), np.array([False]), np.array([0.0]),
         verbose=False,
     )
 
     g = np.linspace(-2.0, 17.0, 24).reshape(1, -1)
-    vals_default = _eval_exp_tens_ma(dens, g, 'none')
-    vals_explicit_on = _eval_exp_tens_ma(dens, g, 'none',
+    vals_default = _eval_maet_ma(dens, g, 'none')
+    vals_explicit_on = _eval_maet_ma(dens, g, 'none',
                                           prune_zero_weight_events=True)
     np.testing.assert_array_equal(vals_default, vals_explicit_on)
 
@@ -637,47 +637,47 @@ def test_eval_ma_auto_prune_default_is_on():
 def test_eval_ma_auto_prune_all_zero_returns_zeros():
     """A density whose joint weights are all zero returns identically
     zero at every query point."""
-    from mpt._tensor.eval import _eval_exp_tens_ma
+    from mpt._tensor.eval import _eval_maet_ma
 
     p = [np.array([[1.0, 2.0, 3.0]])]
     w = [np.zeros((1, 3))]   # entire weight is zero --- joint w_j is zero
 
-    dens = mpt.build_exp_tens(
+    dens = mpt.build_maet(
         p, w, np.array([1.0]), np.array([1]), 
         np.array([False]), np.array([False]), np.array([0.0]),
         verbose=False,
     )
 
     x = np.linspace(-2.0, 5.0, 24).reshape(1, -1)
-    vals = _eval_exp_tens_ma(dens, x, 'none')
+    vals = _eval_maet_ma(dens, x, 'none')
     np.testing.assert_array_equal(vals, np.zeros_like(x[0]))
 
 
 def test_eval_ma_auto_prune_no_zeros_is_a_noop():
     """When no joint weights are zero, prune is a no-op (FP-identical)."""
-    from mpt._tensor.eval import _eval_exp_tens_ma
+    from mpt._tensor.eval import _eval_maet_ma
 
     rng = np.random.default_rng(42)
     p = [rng.uniform(0.0, 10.0, size=(1, 8))]
     w = [rng.uniform(0.5, 1.5, size=(1, 8))]   # strictly positive
 
-    dens = mpt.build_exp_tens(
+    dens = mpt.build_maet(
         p, w, np.array([1.0]), np.array([1]), 
         np.array([False]), np.array([False]), np.array([0.0]),
         verbose=False,
     )
 
     x = np.linspace(-1.0, 11.0, 32).reshape(1, -1)
-    vals_pruned   = _eval_exp_tens_ma(dens, x, 'none',
+    vals_pruned   = _eval_maet_ma(dens, x, 'none',
                                        prune_zero_weight_events=True)
-    vals_unpruned = _eval_exp_tens_ma(dens, x, 'none',
+    vals_unpruned = _eval_maet_ma(dens, x, 'none',
                                        prune_zero_weight_events=False)
     # No tuples dropped --- this is bit-identical, not just close.
     np.testing.assert_array_equal(vals_pruned, vals_unpruned)
 
 
-def test_eval_ma_auto_prune_propagates_via_entropy_exp_tens():
-    """End-to-end check: entropy_exp_tens(method='shannon') on a
+def test_eval_ma_auto_prune_propagates_via_entropy_maet():
+    """End-to-end check: entropy_maet(method='shannon') on a
     weight_events-windowed density runs to completion and produces a
     finite, non-NaN value. This is the user-facing use case for the
     auto-prune."""
@@ -696,7 +696,7 @@ def test_eval_ma_auto_prune_propagates_via_entropy_exp_tens():
     finally:
         mpt.set_default(truncation_sigmas=old)
 
-    H = mpt.entropy_exp_tens(
+    H = mpt.entropy_maet(
         p, w, np.array([1.0, 1.0]), np.array([1, 1]), 
         np.array([False, False]), np.array([False, False]),
         np.array([0.0, 0.0]),
@@ -722,16 +722,16 @@ def test_eval_zero_weight_events_match_removed_grid():
     tolerance with the same density built without those events."""
     p = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     w = np.array([0.0, 1.0, 0.0, 1.0, 1.0])
-    dens = mpt.build_exp_tens(p, w, 1.0, 1, False, False, 0.0, verbose=False)
+    dens = mpt.build_maet(p, w, 1.0, 1, False, False, 0.0, verbose=False)
 
     p_kept = np.array([2.0, 4.0, 5.0])
     w_kept = np.array([1.0, 1.0, 1.0])
-    dens_kept = mpt.build_exp_tens(
+    dens_kept = mpt.build_maet(
         p_kept, w_kept, 1.0, 1, False, False, 0.0, verbose=False)
 
     x = np.linspace(0.0, 6.0, 32).reshape(1, -1)
-    vals = mpt.eval_exp_tens(dens, x, verbose=False)
-    vals_kept = mpt.eval_exp_tens(dens_kept, x, verbose=False)
+    vals = mpt.eval_maet(dens, x, verbose=False)
+    vals_kept = mpt.eval_maet(dens_kept, x, verbose=False)
     np.testing.assert_allclose(vals, vals_kept, atol=1e-12)
 
 
@@ -741,16 +741,16 @@ def test_eval_zero_weight_events_match_removed_tuple():
     rng = np.random.default_rng(7)
     p = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     w = np.array([0.0, 1.0, 0.0, 1.0, 1.0, 0.0])   # half the events zero
-    dens = mpt.build_exp_tens(p, w, 1.0, 2, False, False, 0.0, verbose=False)
+    dens = mpt.build_maet(p, w, 1.0, 2, False, False, 0.0, verbose=False)
 
     p_kept = np.array([2.0, 4.0, 5.0])
     w_kept = np.array([1.0, 1.0, 1.0])
-    dens_kept = mpt.build_exp_tens(
+    dens_kept = mpt.build_maet(
         p_kept, w_kept, 1.0, 2, False, False, 0.0, verbose=False)
 
     x = rng.uniform(0.0, 7.0, size=(2, 12))
-    vals = mpt.eval_exp_tens(dens, x, verbose=False)
-    vals_kept = mpt.eval_exp_tens(dens_kept, x, verbose=False)
+    vals = mpt.eval_maet(dens, x, verbose=False)
+    vals_kept = mpt.eval_maet(dens_kept, x, verbose=False)
     np.testing.assert_allclose(vals, vals_kept, atol=1e-12)
 
 
@@ -759,10 +759,10 @@ def test_eval_all_zero_weights_returns_zeros_tuple():
     query point."""
     p = np.array([1.0, 2.0, 3.0, 4.0])
     w = np.zeros(4)
-    dens = mpt.build_exp_tens(p, w, 1.0, 2, False, False, 0.0, verbose=False)
+    dens = mpt.build_maet(p, w, 1.0, 2, False, False, 0.0, verbose=False)
 
     x = np.random.default_rng(0).uniform(0.0, 5.0, size=(2, 8))
-    vals = mpt.eval_exp_tens(dens, x, verbose=False)
+    vals = mpt.eval_maet(dens, x, verbose=False)
     np.testing.assert_array_equal(vals, np.zeros(x.shape[1]))
 
 
@@ -771,8 +771,8 @@ def test_eval_all_zero_weights_returns_zeros_grid():
     grid point."""
     p = np.array([1.0, 2.0, 3.0])
     w = np.zeros(3)
-    dens = mpt.build_exp_tens(p, w, 1.0, 1, False, False, 0.0, verbose=False)
+    dens = mpt.build_maet(p, w, 1.0, 1, False, False, 0.0, verbose=False)
 
     x = np.linspace(0.0, 4.0, 16).reshape(1, -1)
-    vals = mpt.eval_exp_tens(dens, x, verbose=False)
+    vals = mpt.eval_maet(dens, x, verbose=False)
     np.testing.assert_array_equal(vals, np.zeros(x.shape[1]))

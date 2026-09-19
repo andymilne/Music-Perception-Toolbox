@@ -1,7 +1,7 @@
 """Timing grid for calibrating the multi-attribute eval cost model.
 
 Twin of matlab/tests/bench_ma_eval_calibration.m. The cost model in
-``mpt._tensor.dispatch`` routes ``eval_exp_tens`` between the
+``mpt._tensor.dispatch`` routes ``eval_maet`` between the
 joint-centres accumulator and the factored Moebius evaluator, and its
 constants absorb per-language constant factors -- BLAS, interpreter
 overhead, array layout -- so each language must be calibrated on its own
@@ -128,17 +128,17 @@ def _cell(rows, rng, is_rel, is_per, r, K, n_q_vals, sigma, span):
     joint = math.factorial(r) * math.comb(K, r)
     p = np.sort(rng.uniform(0.0, extent, K))
     w = 0.2 + 0.8 * rng.random(K)
-    dens = mpt.build_exp_tens(p, w, sigma, r, is_rel, is_per, period,
+    dens = mpt.build_maet(p, w, sigma, r, is_rel, is_per, period,
                               verbose=False)
     dim = r - 1 if is_rel else r
     for n_q in n_q_vals:
         x = rng.uniform(0.0, extent, (dim, n_q))
         if joint <= JOINT_SKIP and joint * n_q <= WORK_SKIP:
-            cen = _time_ms(lambda: mpt.eval_exp_tens(
+            cen = _time_ms(lambda: mpt.eval_maet(
                 dens, x, method="centres", verbose=False))
         else:
             cen = -1.0
-        mob = _time_ms(lambda: mpt.eval_exp_tens(
+        mob = _time_ms(lambda: mpt.eval_maet(
             dens, x, method="mobius", verbose=False))
         # Where centres was not timed there is no comparison to report:
         # the cell says which arm was faster only when both were run.

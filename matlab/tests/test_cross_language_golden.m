@@ -6,7 +6,7 @@
 %  values; running both pins down cross-language numerical agreement
 %  to 1e-8 relative on the v3 surface (Möbius cosine similarity single-multiset
 %  + MA Rényi-2 entropy single-multiset + MA,
-%  Möbius-method tensorHarmonicity, and Möbius-method evalExpTens).
+%  Möbius-method tensorHarmonicity, and Möbius-method evalMaet).
 %
 %  Inputs use 'method', 'mobius' on the cosine cases so the Möbius method
 %  Möbius machinery is genuinely exercised rather than the
@@ -40,7 +40,7 @@ ATOL = 1e-12;
 p1 = [0; 400; 700];
 p2 = [0; 300; 700];
 w  = [1; 1; 1];
-sA = cosSimExpTens(p1, w, p2, w, 80, 3, false, false, 0, ...
+sA = simMaet(p1, w, p2, w, 80, 3, false, false, 0, ...
     'method', 'mobius', 'verbose', false);
 GOLDEN_A = 0.67614851033133;
 results{end+1, 1} = 'cross-language golden A: single-multiset cosSim abs r=3 Möbius';
@@ -48,7 +48,7 @@ results{end, 2}   = abs(sA - GOLDEN_A) < RTOL * abs(GOLDEN_A) + ATOL;
 
 %% ---- Case B: single-multiset cosSim, rel r=3 per, Möbius ----
 
-sB = cosSimExpTens(p1, w, p2, w, 80, 3, true, true, 1200, ...
+sB = simMaet(p1, w, p2, w, 80, 3, true, true, 1200, ...
     'method', 'mobius', 'verbose', false);
 GOLDEN_B = 0.98878587398645;
 results{end+1, 1} = 'cross-language golden B: single-multiset cosSim rel r=3 per Möbius';
@@ -68,18 +68,18 @@ W_x = ones(size(P_x));
 W_x(isnan(P_x)) = NaN;
 P_y = P_x + 50;
 W_y = W_x;
-dx = buildExpTens({P_x}, {W_x}, 25, 3, false, false, 0, ...
+dx = buildMaet({P_x}, {W_x}, 25, 3, false, false, 0, ...
     'verbose', false);
-dy = buildExpTens({P_y}, {W_y}, 25, 3, false, false, 0, ...
+dy = buildMaet({P_y}, {W_y}, 25, 3, false, false, 0, ...
     'verbose', false);
-sC = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
+sC = simMaet(dx, dy, 'method', 'mobius', 'verbose', false);
 GOLDEN_C = 0.12066345091832;
 results{end+1, 1} = 'cross-language golden C: MA cosSim ragged-K';
 results{end, 2}   = abs(sC - GOLDEN_C) < RTOL * abs(GOLDEN_C) + ATOL;
 
 %% ---- Case D: single-multiset entropy Rényi-2, abs r=2 ----
 
-HD = entropyExpTens(p1, w, 20, 2, false, false, 0, ...
+HD = entropyMaet(p1, w, 20, 2, false, false, 0, ...
     'method', 'renyi2', 'base', 2);
 GOLDEN_D = 14.88031481996820;
 results{end+1, 1} = 'cross-language golden D: single-multiset entropy Rényi-2 abs r=2';
@@ -93,7 +93,7 @@ pitch = [   0   200   400   600;
          1000  1200  1300  1400;
          1100  1300  1500  1700];   % (5, 4)
 time = [0 0.5 1.0 1.5];              % (1, 4)
-HE = entropyExpTens({pitch, time}, [], ...
+HE = entropyMaet({pitch, time}, [], ...
     [12, 0.05], [3, 1], ...
     [false, false], [true, false], [1200, 0], ...
     'method', 'renyi2', 'base', 2);
@@ -108,14 +108,14 @@ GOLDEN_F = 0.17358467740231;
 results{end+1, 1} = 'cross-language golden F: tensorHarmonicity Möbius';
 results{end, 2}   = abs(hF - GOLDEN_F) < RTOL * abs(GOLDEN_F) + ATOL;
 
-%% ---- Case G: evalExpTens at single query, rel Möbius ----
+%% ---- Case G: evalMaet at single query, rel Möbius ----
 
 tp = [0; 1200; 1902; 2400];
 tw = [1; 0.5; 0.333; 0.25];
 X  = [400; 700];   % 2 x 1 (r=3 rel -> dim=2)
-v = evalExpTens(tp, tw, 80, 3, true, false, 1200, X, 'verbose', false);
+v = evalMaet(tp, tw, 80, 3, true, false, 1200, X, 'verbose', false);
 GOLDEN_G = 2.07507623760499e-06;
-results{end+1, 1} = 'cross-language golden G: evalExpTens rel orbit';
+results{end+1, 1} = 'cross-language golden G: evalMaet rel orbit';
 results{end, 2}   = abs(v - GOLDEN_G) < RTOL * abs(GOLDEN_G) + ATOL;
 
 %% ---- Case H: single-multiset Shannon entropy abs r=2 dim=2 (bin-integration path) ----
@@ -124,9 +124,9 @@ results{end, 2}   = abs(v - GOLDEN_G) < RTOL * abs(GOLDEN_G) + ATOL;
 % parallel MATLAB port for a release window; these goldens catch any
 % future drift between the per-axis Phi-difference contractions.
 
-dens_h = buildExpTens([100; 200; 300], [], 20, 2, false, false, 0, ...
+dens_h = buildMaet([100; 200; 300], [], 20, 2, false, false, 0, ...
     'verbose', false);
-HH = entropyExpTens(dens_h, 'method', 'shannon', ...
+HH = entropyMaet(dens_h, 'method', 'shannon', ...
     'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
 GOLDEN_H = 9.383611317877847;
 results{end+1, 1} = 'cross-language golden H: single-multiset shannon abs r=2 dim=2 bin-integration';
@@ -134,7 +134,7 @@ results{end, 2}   = abs(HH - GOLDEN_H) < RTOL * abs(GOLDEN_H) + ATOL;
 
 %% ---- Case I: single-multiset normalized (Pielou ratio) ----
 
-HI = entropyExpTens(dens_h, 'method', 'normalized', ...
+HI = entropyMaet(dens_h, 'method', 'normalized', ...
     'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
 GOLDEN_I = 0.8815988444951405;
 results{end+1, 1} = 'cross-language golden I: single-multiset normalized abs r=2 dim=2';
@@ -142,9 +142,9 @@ results{end, 2}   = abs(HI - GOLDEN_I) < RTOL * abs(GOLDEN_I) + ATOL;
 
 %% ---- Case J: single-multiset Shannon periodic r=1 ----
 
-dens_j = buildExpTens([0; 3; 7], [], 0.7, 1, false, true, 12, ...
+dens_j = buildMaet([0; 3; 7], [], 0.7, 1, false, true, 12, ...
     'verbose', false);
-HJ = entropyExpTens(dens_j, 'method', 'shannon', ...
+HJ = entropyMaet(dens_j, 'method', 'shannon', ...
     'nPointsPerDim', 24, 'verbose', false);
 GOLDEN_J = 4.093676510565166;
 results{end+1, 1} = 'cross-language golden J: single-multiset shannon periodic r=1';
@@ -154,9 +154,9 @@ results{end, 2}   = abs(HJ - GOLDEN_J) < RTOL * abs(GOLDEN_J) + ATOL;
 
 P2 = [100, 200, 300; 200, 250, 100];
 W2 = [1, 1, 1];
-dens_k = buildExpTens({P2}, {W2}, 20, 2, false, false, 0, ...
+dens_k = buildMaet({P2}, {W2}, 20, 2, false, false, 0, ...
     'verbose', false);
-HK = entropyExpTens(dens_k, 'method', 'shannon', ...
+HK = entropyMaet(dens_k, 'method', 'shannon', ...
     'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
 GOLDEN_K = 9.347143263809102;
 results{end+1, 1} = 'cross-language golden K: MA shannon abs dim=2';
@@ -166,9 +166,9 @@ results{end, 2}   = abs(HK - GOLDEN_K) < RTOL * abs(GOLDEN_K) + ATOL;
 % Adaptive convergence tolerance is ~exp(-18) ~ 1.5e-8;
 % allow 1e-5 absolute as a comfortable bound.
 
-dens_l = buildExpTens([0; 400; 700], [], 20, 1, false, false, 0, ...
+dens_l = buildMaet([0; 400; 700], [], 20, 1, false, false, 0, ...
     'verbose', false);
-HL = entropyExpTens(dens_l, 'method', 'differential', 'verbose', false);
+HL = entropyMaet(dens_l, 'method', 'differential', 'verbose', false);
 GOLDEN_L = 7.953986161000217;
 results{end+1, 1} = 'cross-language golden L: single-multiset differential r=1 adaptive';
 results{end, 2}   = abs(HL - GOLDEN_L) < 1e-5;
@@ -183,7 +183,7 @@ P0_m = [0, 120, 260];
 P1_m = [0, 80, 170];
 W0_m = [1.0, 0.7, 0.5];
 W1_m = [1.0, 1.0, 1.0];
-HM = entropyExpTens({P0_m, P1_m}, {W0_m, W1_m}, [45, 35], [1, 1], ...
+HM = entropyMaet({P0_m, P1_m}, {W0_m, W1_m}, [45, 35], [1, 1], ...
     [false, false], [false, false], [0, 0], ...
     'method', 'differential', 'base', 2, ...
     'truncationSigmas', 3.0, 'verbose', false);

@@ -24,7 +24,7 @@ PERIOD = 1200.0
 def _dens(K=12, r=3, sigma=60.0, is_rel=True, is_per=True, seed=0):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, PERIOD, K))
-    return mpt.build_exp_tens(
+    return mpt.build_maet(
         p, None, sigma, r, is_rel, is_per,
         PERIOD if is_per else 0.0, verbose=False,
     )
@@ -87,7 +87,7 @@ class TestReportsTheQuantities:
 class TestCosine:
     def test_reports_a_route_for_a_density_pair(self):
         e = mpt.explain_dispatch(_dens(seed=1), _dens(seed=2))
-        assert e.call == "cos_sim_exp_tens"
+        assert e.call == "sim_maet"
         assert e.chosen in ("bulger", "mobius")
 
 
@@ -103,13 +103,13 @@ class TestRendering:
         # reports what would happen without evaluating anything.
         d = _dens()
         called = {"n": 0}
-        real = mpt.eval_exp_tens
+        real = mpt.eval_maet
 
         def counting(*a, **k):
             called["n"] += 1
             return real(*a, **k)
 
-        monkeypatch.setattr(mpt, "eval_exp_tens", counting)
+        monkeypatch.setattr(mpt, "eval_maet", counting)
         mpt.explain_dispatch(d, n_q=200)
         assert called["n"] == 0
 
@@ -117,15 +117,15 @@ class TestRendering:
 def test_explain_dispatch_ordered_r9_does_not_raise():
     """explain_dispatch on a bound ordered 9-tuple density must reach
     the same routing the real call does: the selector's forced-Bulger
-    guard receives the density's [sym] flags, so the ordered
+    guard receives the density's [exch] flags, so the ordered
     C(K, r) = 1 tuple count passes where the unordered K! count would
     spuriously raise."""
     import numpy as np
-    from mpt import bind_events, build_exp_tens, explain_dispatch
+    from mpt import bind_events, build_maet, explain_dispatch
     x = np.arange(9, dtype=float)
     p_b, w_b, sp_b = unpack_pre_maet(bind_events([x[None, :], x[None, :]], None, 9,
                                  rel_outer=[False, True]))
-    dens = build_exp_tens(p_b, w_b, specs=sp_b, sigma=[0.3, 0.3],
+    dens = build_maet(p_b, w_b, specs=sp_b, sigma=[0.3, 0.3],
                           is_per=[False] * 2, period=[None] * 2,
                           verbose=False)
     report = explain_dispatch(dens, dens)

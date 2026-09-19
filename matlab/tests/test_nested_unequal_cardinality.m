@@ -35,17 +35,17 @@ GTOL = 1e-6;     % cross-language vs the Python brute-force goldens
 % --- 1. Absolute, unequal cardinality: contract == bulger == Python brute ---
 X = ndens([1 3 7 9],            [0 0 1 1],   2, 2, true, false, [], false, 1e9, 0.5);
 Y = ndens([1.2 2.8 5.1 6.7 9.3 10.8], [0 0 0 1 1 1], 2, 2, true, false, [], false, 1e9, 0.5);
-cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
-cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+cC = simMaet(X, Y, 'method', 'contract', 'verbose', false);
+cB = simMaet(X, Y, 'method', 'bulger',   'verbose', false);
 results{end+1, 1} = 'nested-uneq: abs 2v3 r_in=2 contract==bulger==golden'; %#ok<*SAGROW>
 results{end, 2}   = abs(cC - cB) < ATOL ...
                  && abs(cC - 0.2551553211) < GTOL ...
-                 && abs(cosSimExpTens(X, X, 'method', 'contract', 'verbose', false) - 1) < ATOL;
+                 && abs(simMaet(X, X, 'method', 'contract', 'verbose', false) - 1) < ATOL;
 
 X = ndens([1 3 5 7 9 11],     [0 0 0 1 1 1],   3, 2, true, false, [], false, 1e9, 0.5);
 Y = ndens([1 3 5 2 7 9 11 8], [0 0 0 0 1 1 1 1], 3, 2, true, false, [], false, 1e9, 0.5);
-cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
-cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+cC = simMaet(X, Y, 'method', 'contract', 'verbose', false);
+cB = simMaet(X, Y, 'method', 'bulger',   'verbose', false);
 results{end+1, 1} = 'nested-uneq: abs 3v4 r_in=3 contract==bulger==golden';
 results{end, 2}   = abs(cC - cB) < ATOL && abs(cC - 0.4809068849) < GTOL;
 
@@ -60,19 +60,19 @@ win8    = [0 4 7 0 0 4 7 0   7 11 2 7 7 11 2 7   0 4 7 0 0 4 7 0];
 tags8   = [0 0 0 0 0 0 0 0   1 1 1 1 1 1 1 1     2 2 2 2 2 2 2 2];
 A = ndens(proto4, tags4, 2, 3, true, false, 1, true, P, sg);
 B = ndens(win8,   tags8, 2, 3, true, false, 1, true, P, sg);
-xy = cosSimExpTens(A, B, 'method', 'contract', 'verbose', false);
-yx = cosSimExpTens(B, A, 'method', 'contract', 'verbose', false);
+xy = simMaet(A, B, 'method', 'contract', 'verbose', false);
+yx = simMaet(B, A, 'method', 'contract', 'verbose', false);
 results{end+1, 1} = 'nested-uneq: r=2 relper nonzero, symmetric, self=1';
 results{end, 2}   = xy > 1e-3 && abs(xy - yx) < ATOL ...
-                 && abs(cosSimExpTens(A, A, 'method', 'contract', 'verbose', false) - 1) < ATOL ...
-                 && abs(cosSimExpTens(B, B, 'method', 'contract', 'verbose', false) - 1) < ATOL;
+                 && abs(simMaet(A, A, 'method', 'contract', 'verbose', false) - 1) < ATOL ...
+                 && abs(simMaet(B, B, 'method', 'contract', 'verbose', false) - 1) < ATOL;
 
 
 % --- 3. Relative-periodic, unequal cardinality: contract == bulger ---
 X = ndens([0 4 7 2 5 9 4 7 11],    [0 0 0 1 1 1 2 2 2],     2, 3, true, false, 1, true, 12, 0.2);
 Y = ndens([0 4 7 0 2 5 9 2 4 7 11 4], [0 0 0 0 1 1 1 1 2 2 2 2], 2, 3, true, false, 1, true, 12, 0.2);
-cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
-cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+cC = simMaet(X, Y, 'method', 'contract', 'verbose', false);
+cB = simMaet(X, Y, 'method', 'bulger',   'verbose', false);
 results{end+1, 1} = 'nested-uneq: relper 3v4 contract==bulger';
 results{end, 2}   = abs(cC - cB) < ATOL;
 
@@ -80,17 +80,17 @@ results{end, 2}   = abs(cC - cB) < ATOL;
 % --- 4. Equal cardinality unchanged (X==Y path is the original walk) ---
 X = ndens([0 4 7 2 5 9 4 7 11], [0 0 0 1 1 1 2 2 2], 2, 3, true, false, 1, true, 12, 0.2);
 Y = ndens([0 3 7 2 5 9 4 7 10], [0 0 0 1 1 1 2 2 2], 2, 3, true, false, 1, true, 12, 0.2);
-cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
-cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+cC = simMaet(X, Y, 'method', 'contract', 'verbose', false);
+cB = simMaet(X, Y, 'method', 'bulger',   'verbose', false);
 results{end+1, 1} = 'nested-uneq: equal-card contract==bulger, self=1';
 results{end, 2}   = abs(cC - cB) < ATOL ...
-                 && abs(cosSimExpTens(X, X, 'method', 'contract', 'verbose', false) - 1) < ATOL;
+                 && abs(simMaet(X, X, 'method', 'contract', 'verbose', false) - 1) < ATOL;
 
 
 % --- 5. Absolute non-periodic with a finite stored period must not wrap ---
 X = ndens([1 3 7 9],            [0 0 1 1],   2, 2, true, false, [], false, 2.0, 0.5);
 Y = ndens([1.2 2.8 5.1 6.7 9.3 10.8], [0 0 0 1 1 1], 2, 2, true, false, [], false, 2.0, 0.5);
-cSmall = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
+cSmall = simMaet(X, Y, 'method', 'contract', 'verbose', false);
 results{end+1, 1} = 'nested-uneq: abs non-periodic finite period does not wrap';
 results{end, 2}   = abs(cSmall - 0.2551553211) < GTOL;
 
@@ -116,13 +116,13 @@ end
 
 
 % ----------------------------------------------------------------------
-function d = ndens(p, tags, rIn, rOut, symIn, symOut, relOut, isPer, period, sigma)
+function d = ndens(p, tags, rIn, rOut, exchIn, exchOut, relOut, isPer, period, sigma)
     if isempty(relOut)
-        sp = struct('tags', tags, 'r', [rIn rOut], 'sym', [symIn symOut]);
+        sp = struct('tags', tags, 'r', [rIn rOut], 'exch', [exchIn exchOut]);
     else
-        sp = struct('tags', tags, 'r', [rIn rOut], 'sym', [symIn symOut], ...
+        sp = struct('tags', tags, 'r', [rIn rOut], 'exch', [exchIn exchOut], ...
                     'rel', [0 relOut]);
     end
-    d = buildExpTens({p(:)}, [], sigma, 1, false, isPer, period, ...
+    d = buildMaet({p(:)}, [], sigma, 1, false, isPer, period, ...
                      'nested', {sp}, 'verbose', false);
 end

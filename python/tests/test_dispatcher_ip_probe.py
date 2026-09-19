@@ -1,4 +1,4 @@
-"""Tests for inner-product method selection in cos_sim_exp_tens.
+"""Tests for inner-product method selection in sim_maet.
 
 Method selection is a pure cost model
 (:func:`mpt._tensor.dispatch._select_ma_inner_product_method`) choosing
@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 
 
 def _dens(K: int, r: int, sigma: float = 1.0,
@@ -25,7 +25,7 @@ def _dens(K: int, r: int, sigma: float = 1.0,
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0, 100, K))
     w = np.ones(K)
-    return build_exp_tens(p, w, sigma, r, is_rel, is_per, 1200.0,
+    return build_maet(p, w, sigma, r, is_rel, is_per, 1200.0,
                           verbose=False)
 
 
@@ -35,17 +35,17 @@ def _dens(K: int, r: int, sigma: float = 1.0,
 
 
 class TestSemanticEquivalence:
-    """The cost-model dispatcher must produce the same cos_sim_exp_tens
+    """The cost-model dispatcher must produce the same sim_maet
     output as either explicit override for any reasonable workload ---
     the dispatcher only chooses which mathematically-equivalent path to
     use, not what to compute."""
 
     def test_explicit_orbit_matches_explicit_pairwise(self):
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)
-        sim_orbit = cos_sim_exp_tens(
+        sim_orbit = sim_maet(
             dens_x, dens_y, method="mobius", verbose=False,
         )
-        sim_pair = cos_sim_exp_tens(
+        sim_pair = sim_maet(
             dens_x, dens_y, method="bulger", verbose=False,
         )
         # Orbit and pairwise should agree to numerical precision.
@@ -53,8 +53,8 @@ class TestSemanticEquivalence:
 
     def test_auto_matches_explicit_paths(self):
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)
-        sim_auto = cos_sim_exp_tens(dens_x, dens_y, verbose=False)
-        sim_orbit = cos_sim_exp_tens(
+        sim_auto = sim_maet(dens_x, dens_y, verbose=False)
+        sim_orbit = sim_maet(
             dens_x, dens_y, method="mobius", verbose=False,
         )
         np.testing.assert_allclose(sim_auto, sim_orbit, atol=1e-10)
@@ -73,10 +73,10 @@ class TestVerboseDispatchMessage:
         mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
+            sim_maet(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
         # The cost race decides here, and the dispatch message names it.
-        assert "cos_sim_exp_tens" in out and "chose" in out
+        assert "sim_maet" in out and "chose" in out
 
     def test_message_appears_when_hard_rule_decides(self):
         """r=1 → hard rule, and a dispatch message still fires. Under
@@ -87,9 +87,9 @@ class TestVerboseDispatchMessage:
         mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
+            sim_maet(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
-        assert "cos_sim_exp_tens: chose 'bulger' path." in out
+        assert "sim_maet: chose 'bulger' path." in out
         # No parenthetical, no time estimate.
         assert "estimated" not in out
 
@@ -101,11 +101,11 @@ class TestVerboseDispatchMessage:
         mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cos_sim_exp_tens(
+            sim_maet(
                 dens_x, dens_y, method="bulger", verbose=True,
             )
         out = buf.getvalue()
-        assert "cos_sim_exp_tens: chose 'bulger' path." in out
+        assert "sim_maet: chose 'bulger' path." in out
         assert "estimated" not in out
 
     def test_message_throttled_within_a_top_level_call(self):
@@ -118,7 +118,7 @@ class TestVerboseDispatchMessage:
         scope do not.
 
         Verified here via the batched form, where a single top-level
-        ``cos_sim_exp_tens`` call internally evaluates many single-multiset-single-multiset
+        ``sim_maet`` call internally evaluates many single-multiset-single-multiset
         pairs sharing the same dispatch decision: exactly one
         ``"chose"`` line should appear regardless of how many
         internal pairs are evaluated.
@@ -134,7 +134,7 @@ class TestVerboseDispatchMessage:
         mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cos_sim_exp_tens(
+            sim_maet(
                 p_mat_a, None, p_mat_b, None,
                 12, 1, False, True, 1200,
                 verbose=True,
@@ -155,9 +155,9 @@ class TestVerboseDispatchMessage:
         mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
-            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
-            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
+            sim_maet(dens_x, dens_y, method="auto", verbose=True)
+            sim_maet(dens_x, dens_y, method="auto", verbose=True)
+            sim_maet(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
         # Three top-level calls → three "chose" lines.
         assert out.count("chose") == 3

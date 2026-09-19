@@ -118,7 +118,7 @@ print("=== 3. bind_events (B) ===")
 # Bind 2 consecutive events into 2-grams on both attributes. Each source
 # attribute becomes ONE nested attribute: the two bound events form the
 # ordered outer level, each event's own value the inner level (inheriting
-# the source r/is_rel/is_sym). A' = A = 2. Trailing-drop alignment gives
+# the source r/is_rel/is_exch). A' = A = 2. Trailing-drop alignment gives
 # N' = N - max(L) + 1 = 6. B gathers each super-event's constituent
 # weights alongside its values rather than combining them, so both of a
 # 2-gram's metre weights survive, in order, inside the cell.
@@ -131,7 +131,7 @@ print(f"  bind_orders = {bind_orders}   "
       f"attribute)")
 mpt.show_pre_maet(pmB, **KERNEL)
 s0 = specB[0]
-print(f"  spec[0]: r = {s0['r']}, sym = {s0['sym']}, rel = {s0['rel']}, "
+print(f"  spec[0]: r = {s0['r']}, exch = {s0['exch']}, rel = {s0['rel']}, "
       f"tags = {np.asarray(s0['tags']).ravel().tolist()}")
 print()
 
@@ -145,7 +145,7 @@ print("=== 3b. bind_events again (B o B): deepen to L = 3 ===")
 # bind_events accepts the (p_attr, w, specs) triple it produces, so a
 # second bind deepens the *already-nested* attribute rather than starting
 # over. The existing tag matrix is tiled and a fresh outermost grouping
-# column is appended; r/sym/rel each gain one outer level. The hierarchy
+# column is appended; r/exch/rel each gain one outer level. The hierarchy
 # grows note -> 2-event group (first bind) -> 2-group window (second
 # bind). Trailing-drop again: N'' = N' - max(L) + 1 = 5.
 pmBB = mpt.bind_events(pmB, [2, 2])
@@ -154,7 +154,7 @@ specBB = pmBB["specs"]
 sBB = specBB[0]
 print(f"  N'' = {pmBB['p_attr'][0].shape[1]}  (three-level super-events)")
 mpt.show_pre_maet(pmBB, max_events=4, **KERNEL)
-print(f"  spec[0]: r = {sBB['r']}, sym = {sBB['sym']}, rel = {sBB['rel']}")
+print(f"  spec[0]: r = {sBB['r']}, exch = {sBB['exch']}, rel = {sBB['rel']}")
 print("  (inner tag column tiled; a new outermost column appended.)")
 
 # Build the absolute L=3 nest and confirm a clean self-similarity.
@@ -163,8 +163,8 @@ print("  (inner tag column tiled; a new outermost column appended.)")
 # is what makes a sweep one call per value (demo_pre_maet_io, section 4).
 kwBB = dict(sigma=[0.5, 0.25], is_per=[True, False], period=[12.0, 0.0],
             verbose=False)
-dBB_abs = mpt.build_exp_tens(pmBB, **kwBB)
-sm_abs = float(mpt.cos_sim_exp_tens(dBB_abs, dBB_abs, verbose=False))
+dBB_abs = mpt.build_maet(pmBB, **kwBB)
+sm_abs = float(mpt.sim_maet(dBB_abs, dBB_abs, verbose=False))
 print(f"  absolute build: dim = {dBB_abs.dim}, "
       f"cosine self-match = {sm_abs:.4f}")
 
@@ -177,14 +177,14 @@ print(f"  absolute build: dim = {dBB_abs.dim}, "
 specBB_out = [dict(specBB[0]), dict(specBB[1])]
 specBB_out[0]["rel"] = [0, 0, 1]                 # outermost unit on pitch
 pmBB_out = mpt.pre_maet(pmBB, specs=specBB_out)
-dBB_out = mpt.build_exp_tens(pmBB_out, **kwBB)
+dBB_out = mpt.build_maet(pmBB_out, **kwBB)
 pmBB_T = mpt.pre_maet([pmBB["p_attr"][0] + 5.0, pmBB["p_attr"][1]],
                       pmBB["w_attr"], specBB)   # transpose all pitches +5
 pmBB_out_T = mpt.pre_maet(pmBB_T, specs=specBB_out)
-dBB_out_T = mpt.build_exp_tens(pmBB_out_T, **kwBB)
-dBB_abs_T = mpt.build_exp_tens(pmBB_T, **kwBB)
-sim_out = float(mpt.cos_sim_exp_tens(dBB_out, dBB_out_T, verbose=False))
-sim_abs = float(mpt.cos_sim_exp_tens(dBB_abs, dBB_abs_T, verbose=False))
+dBB_out_T = mpt.build_maet(pmBB_out_T, **kwBB)
+dBB_abs_T = mpt.build_maet(pmBB_T, **kwBB)
+sim_out = float(mpt.sim_maet(dBB_out, dBB_out_T, verbose=False))
+sim_abs = float(mpt.sim_maet(dBB_abs, dBB_abs_T, verbose=False))
 print(f"  outer pitch (rel=[0,0,1]): dim = {dBB_out.dim}, "
       f"vs +5 transpose = {sim_out:.4f}  (global-transposition invariant)")
 print(f"  absolute pitch:            vs +5 transpose = {sim_abs:.4f}  "
@@ -266,7 +266,7 @@ wts_agree = all(np.allclose(np.asarray(pmDB["w_attr"][a]),
 specs_agree = all(
     list(np.ravel(pmDB["specs"][a][k]))
     == list(np.ravel(pmBD["specs"][a][k]))
-    for a in range(2) for k in ("tags", "r", "sym", "rel")
+    for a in range(2) for k in ("tags", "r", "exch", "rel")
 )
 print(f"  values agree: {vals_agree};  weights agree: {wts_agree};  "
       f"specs agree: {specs_agree}")
@@ -335,7 +335,7 @@ print("  difference max = "
 
 print("\n=== 8b. transform_attributes (F): scale choice and order with D ===")
 
-# The kernel of build_exp_tens has a fixed width in whatever units the
+# The kernel of build_maet has a fixed width in whatever units the
 # values carry, so the choice of scale is made before the tensor. The
 # bare-array form converts a vector in one call (this replaces the
 # former convert_pitch):
@@ -365,10 +365,10 @@ p_f, s_f = pmF["p_attr"], pmF["specs"]
 print(f"  D(pitch)        = {p_dp[0].ravel()}")
 print(f"  log(|D(pitch)|+1) = {np.round(p_f[0].ravel(), 4)}, "
       f"sign = {p_f[1].ravel()} (spec name '{s_f[1]['name']}')")
-dens_f = mpt.build_exp_tens(pmF, sigma=[0.2, 0.3],
+dens_f = mpt.build_maet(pmF, sigma=[0.2, 0.3],
                             is_per=[False, False], period=[0, 0],
                             verbose=False)
-print(f"  build_exp_tens on the two-attribute pre-MAET: dim = {dens_f.dim}")
+print(f"  build_maet on the two-attribute pre-MAET: dim = {dens_f.dim}")
 
 # (iii) A zero under 'log' is an error with remedies, never -inf.
 try:
@@ -390,8 +390,8 @@ print("\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===")
 # Two routes lead from a pre-MAET triple to a density value, an
 # entropy, or a similarity:
 #
-#   (i)  build a MaetDensity once via build_exp_tens, then pass the
-#        struct to entropy_exp_tens / eval_exp_tens / cos_sim_exp_tens.
+#   (i)  build a MaetDensity once via build_maet, then pass the
+#        struct to entropy_maet / eval_maet / sim_maet.
 #        Preferred when the same density is re-evaluated many times,
 #        because the structural work (group canonicalisation, tuple
 #        index pre-computation, weight products) is paid once.
@@ -401,13 +401,13 @@ print("\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===")
 #        as positional arguments. The function builds the density
 #        internally and returns the answer; no struct is exposed.
 #        Convenient for single-shot uses and keeps the call shape
-#        symmetric with build_exp_tens itself.
+#        symmetric with build_maet itself.
 #
 # Section 9 below exercises route (ii) on the original p_attr and on
 # the differenced / translated pre-MAETs. Section 10 then exercises
 # route (i) on the same set, building each density once via
-# build_exp_tens and reusing it across entropy_exp_tens, eval_exp_tens,
-# cos_sim_exp_tens, and the LIST form of cos_sim_exp_tens, with parity
+# build_maet and reusing it across entropy_maet, eval_maet,
+# sim_maet, and the LIST form of sim_maet, with parity
 # assertions confirming the two routes return identical values.
 sigma = [0.5, 0.25]   # kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
 r     = [1, 1]        # single-value attributes (K_a = 1)
@@ -417,44 +417,44 @@ r     = [1, 1]        # single-value attributes (K_a = 1)
 pT = pmT["p_attr"]
 pD, wD = pmD["p_attr"], pmD["w_attr"]
 
-# --- 9a. entropy_exp_tens (raw MA form) ---
+# --- 9a. entropy_maet (raw MA form) ---
 # Signature:
-#   H = entropy_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods, ...)
-H_orig = mpt.entropy_exp_tens(
+#   H = entropy_maet(p_attr, w, sigma, r, is_rel, is_per, periods, ...)
+H_orig = mpt.entropy_maet(
     p_attr, w, sigma, r, is_rel, is_per, periods,
     method="renyi2", verbose=False,
 )
-print(f"  entropy_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods)")
+print(f"  entropy_maet(p_attr, w, sigma, r, is_rel, is_per, periods)")
 print(f"    = {H_orig:.4f}  (Renyi-2)")
 
-# --- 9b. eval_exp_tens at the penult event (pitch = 66, t = 6) ---
+# --- 9b. eval_maet at the penult event (pitch = 66, t = 6) ---
 # Query points are supplied as a length-A list, one (K_a, M_q) matrix
 # per attribute. Single query here, so a (1, 1) column for each of the
 # two attributes: pitch = 66, t = 6.
 Xq = [np.array([[66.0]]), np.array([[6.0]])]
-val_at_penult = mpt.eval_exp_tens(
+val_at_penult = mpt.eval_maet(
     p_attr, w, sigma, r, is_rel, is_per, periods, Xq,
     verbose=False,
 )
-print(f"  eval_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods, Xq)")
+print(f"  eval_maet(p_attr, w, sigma, r, is_rel, is_per, periods, Xq)")
 print(f"    = {float(val_at_penult[0]):.4f}")
 print("  (Density peak near an actual event; the value reflects the")
 print("   contribution from event 6 at (66, 6) plus tails from its neighbours.)")
 
-# --- 9c. cos_sim_exp_tens on two pre-MAETs (raw MA form) ---
+# --- 9c. sim_maet on two pre-MAETs (raw MA form) ---
 # Signature:
-#   s = cos_sim_exp_tens(p_X, w_X, p_Y, w_Y, sigma, r,
+#   s = sim_maet(p_X, w_X, p_Y, w_Y, sigma, r,
 #                        is_rel, is_per, periods, ...)
 # Compare the original chorale fragment against the transposed copy
 # (Section 4). Group 0's PC kernel is narrow (sigma = 0.5 semitones),
 # so the 5-semitone shift puts every event out of kernel reach of its
 # original PC, and the similarity collapses to 0. Pre-MAET D in step
 # 9d below recovers it.
-sim_T = mpt.cos_sim_exp_tens(
+sim_T = mpt.sim_maet(
     p_attr, w, pT, w, sigma, r, is_rel, is_per, periods,
     verbose=False,
 )
-print(f"  cos_sim_exp_tens(p_attr, w, pT, w, sigma, r, is_rel, is_per, periods)")
+print(f"  sim_maet(p_attr, w, pT, w, sigma, r, is_rel, is_per, periods)")
 print(f"    = {float(sim_T):.4f}")
 
 # --- 9d. cos_sim of the differenced pair: D(T) == D identity in action ---
@@ -462,18 +462,18 @@ print(f"    = {float(sim_T):.4f}")
 # original and the differenced transposed copy are value-wise
 # identical, so their cosine similarity must be exactly 1. The
 # algebraic identity from Section 7 surfacing as a downstream
-# observable; no build_exp_tens required.
+# observable; no build_maet required.
 
-sim_diffed = mpt.cos_sim_exp_tens(
+sim_diffed = mpt.sim_maet(
     pD, wD, pmDT["p_attr"], pmDT["w_attr"],
     sigma, r, is_rel, is_per, periods,
     verbose=False,
 )
-print(f"  cos_sim_exp_tens(pD, wD, pD(T), wD(T), ...)")
+print(f"  sim_maet(pD, wD, pD(T), wD(T), ...)")
 print(f"    = {float(sim_diffed):.4f}  (exactly 1: D absorbs T)")
 
 # ===================================================================
-#  10. Pre-MAET via build_exp_tens dens structs (route (i))
+#  10. Pre-MAET via build_maet dens structs (route (i))
 # ===================================================================
 
 print("\n=== 10. Dens form: build once, query many; parity with route (ii) ===")
@@ -482,54 +482,54 @@ print("\n=== 10. Dens form: build once, query many; parity with route (ii) ===")
 # structural work --- group canonicalisation, tuple-index
 # pre-computation, weight products --- is paid; subsequent
 # entropy/eval/cos_sim calls just consume the struct.
-dens_orig = mpt.build_exp_tens(
+dens_orig = mpt.build_maet(
     p_attr, w, sigma, r, is_rel, is_per, periods, verbose=False,
 )
-dens_T = mpt.build_exp_tens(
+dens_T = mpt.build_maet(
     pT, w, sigma, r, is_rel, is_per, periods, verbose=False,
 )
-dens_D = mpt.build_exp_tens(
+dens_D = mpt.build_maet(
     pD, wD, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 
-dens_DT = mpt.build_exp_tens(
+dens_DT = mpt.build_maet(
     pmDT["p_attr"], pmDT["w_attr"], sigma, r, is_rel, is_per, periods,
     verbose=False,
 )
 
-# --- 10a. entropy_exp_tens on the struct; same answer as 9a. ---
-H_orig_dens = mpt.entropy_exp_tens(
+# --- 10a. entropy_maet on the struct; same answer as 9a. ---
+H_orig_dens = mpt.entropy_maet(
     dens_orig, method="renyi2", verbose=False,
 )
 delta_a = abs(float(H_orig_dens) - float(H_orig))
-print("  entropy_exp_tens(dens_orig)")
+print("  entropy_maet(dens_orig)")
 print(f"    = {float(H_orig_dens):.4f}  (Renyi-2; parity vs 9a: |delta| = {delta_a:.2e})")
 assert delta_a < 1e-12, "Section 10a: entropy raw and dens forms disagree."
 
-# --- 10b. eval_exp_tens at the same query; same answer as 9b. ---
-val_at_penult_dens = mpt.eval_exp_tens(dens_orig, Xq, verbose=False)
+# --- 10b. eval_maet at the same query; same answer as 9b. ---
+val_at_penult_dens = mpt.eval_maet(dens_orig, Xq, verbose=False)
 delta_b = abs(float(val_at_penult_dens[0]) - float(val_at_penult[0]))
-print("  eval_exp_tens(dens_orig, Xq)")
+print("  eval_maet(dens_orig, Xq)")
 print(f"    = {float(val_at_penult_dens[0]):.4f}  (parity vs 9b: |delta| = {delta_b:.2e})")
 assert delta_b < 1e-12, "Section 10b: eval raw and dens forms disagree."
 
-# --- 10c. cos_sim_exp_tens(dens_orig, dens_T); same answer as 9c. ---
-sim_T_dens = mpt.cos_sim_exp_tens(dens_orig, dens_T, verbose=False)
+# --- 10c. sim_maet(dens_orig, dens_T); same answer as 9c. ---
+sim_T_dens = mpt.sim_maet(dens_orig, dens_T, verbose=False)
 delta_c = abs(float(sim_T_dens) - float(sim_T))
-print("  cos_sim_exp_tens(dens_orig, dens_T)")
+print("  sim_maet(dens_orig, dens_T)")
 print(f"    = {float(sim_T_dens):.4f}  (parity vs 9c: |delta| = {delta_c:.2e})")
 assert delta_c < 1e-12, "Section 10c: cos_sim raw and dens forms disagree."
 
-# --- 10d. cos_sim_exp_tens(dens_D, dens_DT) on the differenced pair; ---
+# --- 10d. sim_maet(dens_D, dens_DT) on the differenced pair; ---
 #       same answer as 9d. (Section 7 identity: should be exactly 1.)
-sim_diffed_dens = mpt.cos_sim_exp_tens(dens_D, dens_DT, verbose=False)
+sim_diffed_dens = mpt.sim_maet(dens_D, dens_DT, verbose=False)
 delta_d = abs(float(sim_diffed_dens) - float(sim_diffed))
-print("  cos_sim_exp_tens(dens_D, dens_DT)")
+print("  sim_maet(dens_D, dens_DT)")
 print(f"    = {float(sim_diffed_dens):.4f}  (parity vs 9d: |delta| = {delta_d:.2e})")
 assert delta_d < 1e-12, "Section 10d: cos_sim raw and dens forms disagree."
 
 # --- 10e. LIST form: one reference against many candidates. ---
-# Scalar-vs-list cos_sim_exp_tens broadcasts dens_orig against each
+# Scalar-vs-list sim_maet broadcasts dens_orig against each
 # candidate in the list, returning a length-n list of similarity
 # scalars. Useful for "compare one reference density against many"
 # workflows.
@@ -541,11 +541,11 @@ assert delta_d < 1e-12, "Section 10d: cos_sim raw and dens forms disagree."
 #             p_attr is to its first-difference.
 #   entry 3:  sim(orig, D(T))   -- Section 7's identity D o T == D
 #             forces this to equal entry 2.
-sim_list = mpt.cos_sim_exp_tens(
+sim_list = mpt.sim_maet(
     [dens_orig, dens_T, dens_D, dens_DT], dens_orig, verbose=False,
 )
 sim_list_vals = [float(v) for v in sim_list]
-print("  cos_sim_exp_tens([dens_orig, dens_T, dens_D, dens_DT], dens_orig)")
+print("  sim_maet([dens_orig, dens_T, dens_D, dens_DT], dens_orig)")
 print("    = [{:.4f}, {:.4f}, {:.4f}, {:.4f}]".format(*sim_list_vals))
 print("    (entry 0: self = 1; entry 1: vs T (= 9c);")
 print("     entry 2: vs D(orig); entry 3: vs D(T) -- equals entry 2 by D o T == D.)")

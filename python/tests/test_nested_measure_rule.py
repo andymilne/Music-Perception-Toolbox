@@ -33,7 +33,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, sim_maet
 from mpt._tensor import cosine as _cos
 from mpt._tensor.cosine import _LAST_NESTED_ROUTES, _nested_attr_route
 from mpt._tensor.dispatch import _orbit_sigma_over_p_threshold
@@ -43,11 +43,11 @@ P = 12.0
 #: cost race sends it to the tau-grid on its own at some shapes, small enough
 #: to run the materialised centres for comparison at every point.
 TAGS = np.repeat(np.arange(3), 3)
-SPEC = dict(r=[2, 2], sym=[True, True], tags=TAGS, rel=[0, 1])
+SPEC = dict(r=[2, 2], exch=[True, True], tags=TAGS, rel=[0, 1])
 #: A smaller nested attribute the cost race prefers to keep on the centres
 #: route, so the measure rule is what moves it, not the estimated cost.
 TAGS_S = np.repeat(np.arange(2), 2)
-SPEC_S = dict(r=[2, 2], sym=[True, True], tags=TAGS_S, rel=[0, 1])
+SPEC_S = dict(r=[2, 2], exch=[True, True], tags=TAGS_S, rel=[0, 1])
 
 _RNG = np.random.default_rng(20240904)
 _VX = np.sort(_RNG.uniform(0.0, P, 9))
@@ -70,12 +70,12 @@ def _dens(values, sigma, spec=SPEC, wrap=None, extra=None):
     wraps = [wrap or 'full-image']
     if extra is not None:
         p.append(np.asarray(extra, float).reshape(1, -1))
-        specs.append(dict(r=1, rel=False, sym=True))
+        specs.append(dict(r=1, rel=False, exch=True))
         sig.append(1.0)
         per.append(False)
         period.append(0.0)
         wraps.append('full-image')
-    return build_exp_tens(p, None, specs=specs, sigma=sig, is_per=per,
+    return build_maet(p, None, specs=specs, sigma=sig, is_per=per,
                           period=period, wrap=wraps, verbose=False)
 
 
@@ -107,11 +107,11 @@ def test_auto_is_the_all_image_measure_above_the_threshold(monkeypatch, ts,
     mpt.set_default(truncation_sigmas=ts)
     limit = _orbit_sigma_over_p_threshold(ts)
     for sop in [s for s in SOPS if s > limit]:
-        auto = cos_sim_exp_tens(_dens(vx, sop * P, spec),
+        auto = sim_maet(_dens(vx, sop * P, spec),
                                 _dens(vy, sop * P, spec), verbose=False)
         with pytest.MonkeyPatch.context() as mp:
             _forced(mp, "taugrid")
-            ref = cos_sim_exp_tens(_dens(vx, sop * P, spec),
+            ref = sim_maet(_dens(vx, sop * P, spec),
                                    _dens(vy, sop * P, spec), verbose=False)
         assert auto == pytest.approx(ref, abs=1e-12), f"sigma/P = {sop}"
 
@@ -129,7 +129,7 @@ def test_below_the_threshold_the_two_routes_agree_within_the_floor(ts):
         for route in ("centres", "taugrid"):
             with pytest.MonkeyPatch.context() as mp:
                 _forced(mp, route)
-                vals[route] = cos_sim_exp_tens(
+                vals[route] = sim_maet(
                     _dens(_VX, sop * P), _dens(_VY, sop * P), verbose=False)
         assert abs(vals["centres"] - vals["taugrid"]) <= max(floor, 1e-9), \
             f"sigma/P = {sop}: {vals}"
@@ -160,12 +160,12 @@ def test_sigma_over_p_sweep_tracks_one_measure(method, extra):
         vy = np.tile(_VY.reshape(-1, 1), (1, len(extra)))
     tol = max(truncation_floor(None), 1e-9)
     for s in np.linspace(0.01, 0.30, 25):
-        got = cos_sim_exp_tens(_dens(vx, s * P, extra=ex_x),
+        got = sim_maet(_dens(vx, s * P, extra=ex_x),
                                _dens(vy, s * P, extra=ex_y),
                                method=method, verbose=False)
         with pytest.MonkeyPatch.context() as mp:
             _forced(mp, "taugrid")
-            ref = cos_sim_exp_tens(_dens(vx, s * P, extra=ex_x),
+            ref = sim_maet(_dens(vx, s * P, extra=ex_x),
                                    _dens(vy, s * P, extra=ex_y),
                                    verbose=False)
         assert abs(got - ref) <= tol, f"sigma/P = {s:.4f}: {got} vs {ref}"
@@ -200,12 +200,12 @@ def test_single_image_below_the_threshold_admits_either_route(sop):
     assert _nested_admissible_routes(dx, dy, 0) == ["centres", "taugrid"]
     assert _nested_attr_route(dx, dy, 0) in ("centres", "taugrid")
 
-    auto = cos_sim_exp_tens(_dens(_VX, sop * P, wrap='single-image'),
+    auto = sim_maet(_dens(_VX, sop * P, wrap='single-image'),
                             _dens(_VY, sop * P, wrap='single-image'),
                             verbose=False)
     with pytest.MonkeyPatch.context() as mp:
         _forced(mp, "centres")
-        ref = cos_sim_exp_tens(_dens(_VX, sop * P, wrap='single-image'),
+        ref = sim_maet(_dens(_VX, sop * P, wrap='single-image'),
                                _dens(_VY, sop * P, wrap='single-image'),
                                verbose=False)
     assert abs(auto - ref) <= max(truncation_floor(None), 1e-9)
@@ -215,13 +215,13 @@ def test_forced_centres_above_the_threshold_raises():
     sop = 0.2
     assert sop > _orbit_sigma_over_p_threshold(6.0)
     with pytest.raises(ValueError, match="single-image"):
-        cos_sim_exp_tens(_dens(_VX, sop * P), _dens(_VY, sop * P),
+        sim_maet(_dens(_VX, sop * P), _dens(_VY, sop * P),
                          method='centres', verbose=False)
 
 
 def test_forced_centres_below_the_threshold_is_honoured():
     sop = 0.01
-    cos_sim_exp_tens(_dens(_VX, sop * P), _dens(_VY, sop * P),
+    sim_maet(_dens(_VX, sop * P), _dens(_VY, sop * P),
                      method='centres', verbose=False)
     assert _LAST_NESTED_ROUTES == ["centres"]
 
@@ -237,7 +237,7 @@ def test_centres_and_mobius_no_longer_fall_through_to_bulger(method, expect):
     """Both used to reach ``chosen = 'bulger'`` silently. They now name
     routes of the contraction plan, which the route hook records."""
     sop = 0.01
-    cos_sim_exp_tens(_dens(_VX, sop * P), _dens(_VY, sop * P),
+    sim_maet(_dens(_VX, sop * P), _dens(_VY, sop * P),
                      method=method, verbose=False)
     assert len(_LAST_NESTED_ROUTES) == 1
     if expect is not None:
@@ -246,15 +246,15 @@ def test_centres_and_mobius_no_longer_fall_through_to_bulger(method, expect):
 
 def test_the_nested_route_is_announced(capsys):
     mpt.set_default(show_hints=True)
-    cos_sim_exp_tens(_dens(_VX, 0.2 * P), _dens(_VY, 0.2 * P), verbose=False)
+    sim_maet(_dens(_VX, 0.2 * P), _dens(_VY, 0.2 * P), verbose=False)
     assert "chose 'contract' path" in capsys.readouterr().out
 
 
 def test_contract_is_rejected_on_a_flat_density():
-    d = build_exp_tens(np.array([0.0, 4.0, 7.0]), None, 1.0, 2, False, False,
+    d = build_maet(np.array([0.0, 4.0, 7.0]), None, 1.0, 2, False, False,
                        0.0, verbose=False)
     with pytest.raises(ValueError, match="nested"):
-        cos_sim_exp_tens(d, d, method='contract', verbose=False)
+        sim_maet(d, d, method='contract', verbose=False)
 
 
 # --- memoisation ------------------------------------------------------
@@ -271,13 +271,13 @@ def test_ma_nested_self_inner_products_are_memoised():
     dx = _dens(vx, 0.01 * P, extra=extra_x)
     dy = _dens(vy, 0.01 * P, extra=extra_y)
     assert not dx._self_ip_cache and not dy._self_ip_cache
-    first = cos_sim_exp_tens(dx, dy, verbose=False)
+    first = sim_maet(dx, dy, verbose=False)
     keys_x = [k for k in dx._self_ip_cache if k[0] == "contract_ma"]
     keys_y = [k for k in dy._self_ip_cache if k[0] == "contract_ma"]
     assert len(keys_x) == 1 and len(keys_y) == 1
     # The cached values are consumed, not merely stored: a second call with
     # the cache warm returns the same number.
-    assert cos_sim_exp_tens(dx, dy, verbose=False) == pytest.approx(first,
+    assert sim_maet(dx, dy, verbose=False) == pytest.approx(first,
                                                                    abs=0.0)
 
 
@@ -291,10 +291,10 @@ def test_ma_memo_key_separates_the_routes():
     dy = _dens(vy, 0.01 * P, extra=extra)
     with pytest.MonkeyPatch.context() as mp:
         _forced(mp, "centres")
-        cos_sim_exp_tens(dx, dy, verbose=False)
+        sim_maet(dx, dy, verbose=False)
     with pytest.MonkeyPatch.context() as mp:
         _forced(mp, "taugrid")
-        cos_sim_exp_tens(dx, dy, verbose=False)
+        sim_maet(dx, dy, verbose=False)
     routes = {k[3][0][2] for k in dx._self_ip_cache if k[0] == "contract_ma"}
     assert routes == {"centres", "taugrid"}
 
@@ -331,18 +331,18 @@ def test_bulger_agrees_with_the_contraction_on_an_ma_nested_density(
     v1y = v1x + 0.4
     v2x = rng.uniform(0.0, 5.0, (1, n))
     v2y = v2x + 0.3
-    specs = [dict(r=[2, 2], sym=[True, True],
+    specs = [dict(r=[2, 2], exch=[True, True],
                   tags=np.array([0, 0, 1, 1]), rel=[0, rel]),
-             dict(r=1, rel=False, sym=True)]
+             dict(r=1, rel=False, exch=True)]
     kw = dict(specs=specs, sigma=[sigma, 1.0], is_per=[is_per, False],
               period=[period, 0.0], verbose=False)
 
     def pair():
-        return (build_exp_tens([v1x, v2x], None, **kw),
-                build_exp_tens([v1y, v2y], None, **kw))
+        return (build_maet([v1x, v2x], None, **kw),
+                build_maet([v1y, v2y], None, **kw))
 
     dx, dy = pair()
-    contracted = cos_sim_exp_tens(dx, dy, verbose=False)
+    contracted = sim_maet(dx, dy, verbose=False)
     dx, dy = pair()
-    enumerated = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
+    enumerated = sim_maet(dx, dy, method='bulger', verbose=False)
     assert contracted == pytest.approx(enumerated, rel=1e-9, abs=1e-12)

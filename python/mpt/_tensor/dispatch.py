@@ -40,7 +40,7 @@ from .density import MaetDensity
 
 
 # -------------------------------------------------------------------
-#  Polymorphic-dispatch helpers for cos_sim_exp_tens
+#  Polymorphic-dispatch helpers for sim_maet
 # -------------------------------------------------------------------
 
 
@@ -170,7 +170,7 @@ def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
 # within ±5 % of each other). Fitted on a 328-cell wall-time benchmark
 # covering all four modes at A ∈ {1, 2}, r ∈ {2, 3, 4}, N ∈ {2, 4, 8,
 # 16}, K spanning each mode's feasible range; r ∈ {5, 6} extrapolated
-# from |Ω_r| growth (4, 10, 33, 92, 306, 948). Vectorised across event
+# from |Ω_r| growth (4, 10, 33, 91, 298, 910). Vectorised across event
 # pairs, so cost is roughly constant in N_x · N_y; linear in A at r = 2,
 # 3 and slightly sub-linear at r = 4. Per-r baseline at A = 1. Entries for r >= 7
 # extrapolated from the empirical 3× orbit-class count growth per r (anchored
@@ -469,7 +469,7 @@ def _select_ma_inner_product_method(
     guard_forced_bulger=True,
     wrap_vec=None,
     k_vec_y=None,
-    sym_vec=None,
+    exch_vec=None,
     truncation_sigmas=None,
     return_costs=False,
     skip_xx=False, skip_yy=False,
@@ -578,7 +578,7 @@ def _select_ma_inner_product_method(
             _guard_forced_bulger_feasible_ma(
                 k_vec, r_vec, rel_vec, N_x, N_y,
                 reason="r above the shipped orbit order",
-                k_vec_y=k_vec_y, sym_vec=sym_vec,
+                k_vec_y=k_vec_y, exch_vec=exch_vec,
             )
         return ('bulger', float('nan'), float('nan')) \
             if return_costs else 'bulger'
@@ -603,7 +603,7 @@ def _select_ma_inner_product_method(
                       and sigma_over_P_max
                       > _orbit_sigma_over_p_threshold(truncation_sigmas)):
         k_y = k_vec if k_vec_y is None else k_vec_y
-        sym = [True] * A if sym_vec is None else [bool(s) for s in sym_vec]
+        exch = [True] * A if exch_vec is None else [bool(s) for s in exch_vec]
         tuples_x = 1.0
         tuples_y = 1.0
         dim_sum = 0
@@ -611,7 +611,7 @@ def _select_ma_inner_product_method(
             r_a = int(r_vec[a])
             # Enumerated tuple count: r_a!·C on an unordered attribute,
             # C alone on an ordered one (perm side = comb side).
-            f_a = float(factorial(r_a)) if sym[a] else 1.0
+            f_a = float(factorial(r_a)) if exch[a] else 1.0
             tuples_x *= f_a * float(_math_comb(int(k_vec[a]), r_a))
             tuples_y *= f_a * float(_math_comb(int(k_y[a]), r_a))
             dim_sum += r_a
@@ -905,7 +905,7 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 #  (the v1 / v2.0 decomposition). See
 #  ``mpt/_mobius.py`` for the combinatorial details.
 #
-#  The user-facing ``cos_sim_exp_tens`` gains two keywords:
+#  The user-facing ``sim_maet`` gains two keywords:
 #
 #    method='auto'   : dispatcher chooses the Möbius method or Bulger's
 #                     method based on (r, n, mode, sigma/period).
@@ -1403,7 +1403,7 @@ _MA_MOBIUS_SAFETY_SMALL = 1.0
 
 
 def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
-                                     reason, k_vec_y=None, sym_vec=None):
+                                     reason, k_vec_y=None, exch_vec=None):
     """Raise if a *forced* multi-attribute Bulger inner product would be
     infeasible.
 
@@ -1423,12 +1423,12 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
 
     Each side is sized from its own density's per-attribute value counts,
     since the two need not agree; ``k_vec_y`` omitted means they do.
-    ``sym_vec`` omitted treats every attribute as unordered, the
+    ``exch_vec`` omitted treats every attribute as unordered, the
     conservative (larger) count.
     """
     A = len(r_vec)
     k_y = k_vec if k_vec_y is None else k_vec_y
-    sym = [True] * A if sym_vec is None else [bool(s) for s in sym_vec]
+    exch = [True] * A if exch_vec is None else [bool(s) for s in exch_vec]
 
     def _nj_side(N, k_side):
         n_j = float(N)
@@ -1438,7 +1438,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
             if K_a < r_a:
                 return 0.0
             fac = float(_math_comb(K_a, r_a))
-            if sym[a]:
+            if exch[a]:
                 fac *= float(factorial(r_a))
             n_j *= fac
             if n_j > 1e18:      # already hopeless; stop growing
@@ -1459,7 +1459,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
 
 
 def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel,
-                                         sym_vec=None) -> int:
+                                         exch_vec=None) -> int:
     """Estimate the multi-attribute joint-centres working set in bytes.
 
     The multi-attribute centres path materialises the *joint* tuple
@@ -1472,13 +1472,13 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel,
     length; a row factor of ``2 * D`` over-counts honestly for a memory
     guard. Used only to detect when a convention- or precision-forced
     centres pick would be infeasible, so an over-count is the right
-    bias. ``sym_vec`` omitted treats every attribute as unordered, the
+    bias. ``exch_vec`` omitted treats every attribute as unordered, the
     conservative (larger) count.
     """
     A = len(r_vec)
     n_joint = 1
     D = 0
-    sym = [True] * A if sym_vec is None else [bool(s) for s in sym_vec]
+    exch = [True] * A if exch_vec is None else [bool(s) for s in exch_vec]
     for a in range(A):
         r_a = int(r_vec[a])
         K_a = int(k_vec[a])
@@ -1487,7 +1487,7 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel,
         # enumerated tuple count: r_a! * C(K_a, r_a) unordered,
         # C(K_a, r_a) ordered (perm side = comb side)
         cnt = _math_comb(K_a, r_a)
-        if sym[a]:
+        if exch[a]:
             cnt *= factorial(r_a)
         n_joint *= max(cnt, 1)
         D += r_a - (1 if bool(is_rel[a]) else 0)
@@ -1889,7 +1889,7 @@ def _predict_ma_eval_cost_ms(dens, n_q, chosen):
 #:
 #: Fitted September 2026 by ``tools/fit_nested_eval_cost.py`` on the
 #: 3096-cell grid of ``tools/bench_nested_eval.py`` (two-level shapes of
-#: 2--4 groups of 3--5 values, r up to 2x4, every [sym] pattern, absolute
+#: 2--4 groups of 3--5 values, r up to 2x4, every [exch] pattern, absolute
 #: and both co-transposition units, periodic and not, N = 4 and 32, 1 to
 #: 200 queries), excluding the 138 non-periodic cells the bucket-cull
 #: guard of the same date removed from the centres route. Two laws per
@@ -1921,7 +1921,7 @@ _NESTED_COST_CENTRES_TUPLE_EXP = 0.9278
 _NESTED_COST_CENTRES_DIM_EXP = 0.7242
 
 
-def nested_tuple_count(tags, r_levels, sym_levels, weights=None):
+def nested_tuple_count(tags, r_levels, exch_levels, weights=None):
     """Ordered tuple centres a nested attribute enumerates per event.
 
     The centres route lists, at each symmetric level, every ordered
@@ -1939,7 +1939,7 @@ def nested_tuple_count(tags, r_levels, sym_levels, weights=None):
     K = int(tags.shape[0]) if tags.ndim else int(tags.size)
     tags2 = tags.reshape(K, -1) if tags.ndim == 2 else tags.reshape(K, 1)
     r_levels = [int(v) for v in np.atleast_1d(r_levels)]
-    sym_levels = [bool(v) for v in np.atleast_1d(sym_levels)]
+    exch_levels = [bool(v) for v in np.atleast_1d(exch_levels)]
     L = len(r_levels)
     wts = None if weights is None else np.asarray(weights, dtype=np.float64).ravel()
 
@@ -1966,7 +1966,7 @@ def nested_tuple_count(tags, r_levels, sym_levels, weights=None):
             if r > len(children):
                 return 0.0
             sel = esp(children, r)
-        return sel * (float(factorial(r)) if sym_levels[level] else 1.0)
+        return sel * (float(factorial(r)) if exch_levels[level] else 1.0)
 
     return count(L - 1, np.arange(K))
 
@@ -2017,7 +2017,7 @@ def _nested_eval_costs_ms(dens, n_q):
         for n in range(N):
             live = ~np.isnan(p_a[:, n]) if p_a.ndim == 2 else np.ones(p_a.size, bool)
             t_n = tags[live] if tags.ndim == 1 else tags[live, :]
-            T += nested_tuple_count(t_n, r_levels, spec["sym"])
+            T += nested_tuple_count(t_n, r_levels, spec["exch"])
             K_sum += float(live.sum())
         K = K_sum / max(N, 1)
         d_a = _nested_attr_dim(dens, a)
@@ -2068,24 +2068,24 @@ def _eval_costs_ms(dens, n_q):
 
 
 def _has_ordered_attr(dens) -> bool:
-    """True if any flat attribute is ordered (``[sym] = 0``) at ``r > 1``.
+    """True if any flat attribute is ordered (``[exch] = 0``) at ``r > 1``.
 
     Such an attribute carries no position-permutation symmetry, so the
     Möbius orbit decomposition does not apply to it: the partition sum
     realises the symmetrised tuple set, which is a *different* density
     rather than the same one computed faster. ``r = 1`` is exempt
-    ([sym] is vacuous at a single value), as are nested attributes, whose
+    ([exch] is vacuous at a single value), as are nested attributes, whose
     per-attribute density is built by contraction rather than by a
     single Möbius sum.
     """
     A = int(dens.n_attrs)
-    is_sym = np.atleast_1d(
-        getattr(dens, "is_sym", np.ones(A, dtype=bool))
+    is_exch = np.atleast_1d(
+        getattr(dens, "is_exch", np.ones(A, dtype=bool))
     )
     r_vec = np.atleast_1d(dens.r)
     nested = getattr(dens, "nested", [None] * A)
     for a in range(A):
-        if nested[a] is None and not bool(is_sym[a]) and int(r_vec[a]) > 1:
+        if nested[a] is None and not bool(is_exch[a]) and int(r_vec[a]) > 1:
             return True
     return False
 
@@ -2099,7 +2099,7 @@ def _reject_ordered_for_mobius(dens) -> None:
     """
     if _has_ordered_attr(dens):
         raise ValueError(
-            "method='mobius' is not available for an ordered ([sym]=0) "
+            "method='mobius' is not available for an ordered ([exch]=0) "
             "attribute at r > 1: the Möbius decomposition sums over set "
             "partitions of {1, ..., r}, which realises the "
             "symmetrised tuple set and so evaluates a different density. "
@@ -2108,9 +2108,9 @@ def _reject_ordered_for_mobius(dens) -> None:
 
 
 def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
-    """Cost-model path selection for multi-attribute ``eval_exp_tens``.
+    """Cost-model path selection for multi-attribute ``eval_maet``.
 
-    Chooses between the joint-centres path (``_eval_exp_tens_ma``, which
+    Chooses between the joint-centres path (``_eval_maet_ma``, which
     materialises the joint tuple set --- the product across attributes
     of each attribute's ordered-tuple set --- and sums a Gaussian per
     joint centre) and the factored Möbius evaluator
@@ -2144,7 +2144,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
 
     Hard rules first, in order: a user override is honoured
     (``'mobius'`` is refused on an ordered attribute); an ordered
-    (``[sym] = 0``) attribute at ``r > 1``, a nested attribute, or
+    (``[exch] = 0``) attribute at ``r > 1``, a nested attribute, or
     ``r <= 1`` on every attribute keeps the joint-centres path; an
     attribute whose ``r_a`` exceeds the feasible orbit bound forces the
     joint-centres path (guarded by ``_DISPATCH_MEM_BUDGET``, since no
@@ -2192,7 +2192,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
-    # ---- Hard rule: ordered ([sym] = 0) attributes at r > 1 have no
+    # ---- Hard rule: ordered ([exch] = 0) attributes at r > 1 have no
     # orbit. The Möbius decomposition sums over set partitions of
     # {1, ..., r}, which counts every ordering of each block and so
     # realises the symmetrised tuple set; on an ordered attribute that
@@ -2200,7 +2200,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # the joint-centres path, which enumerates the ordered tuple set as
     # given. ----
     if _has_ordered_attr(dens):
-        return "centres", "ordered ([sym]=0) attribute (no orbit to collapse)"
+        return "centres", "ordered ([exch]=0) attribute (no orbit to collapse)"
 
     # ---- Nested attributes: estimated by their own row (the per-level
     # Möbius evaluator against the tag-tree centres enumeration; see
@@ -2246,10 +2246,10 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
         # refused here), so raise rather than OOM.
         joint_ws = _estimate_ma_joint_working_set_bytes(
             r_vec, k_vec, is_rel,
-            sym_vec=getattr(dens, "is_sym", None))
+            exch_vec=getattr(dens, "is_exch", None))
         if joint_ws > _DISPATCH_MEM_BUDGET:
             raise SingleImageInfeasibleError(
-                f"eval_exp_tens requires the single-image centres route "
+                f"eval_maet requires the single-image centres route "
                 f"({force_centres_reason}, so the Möbius method is not "
                 f"available), but its joint tuple set would need "
                 f"~{joint_ws / 1024**3:.1f} GB. Reduce the tuple order r "
@@ -2291,7 +2291,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # a joint working set above the soft budget. Below it the comparison
     # is a pure time comparison and the cheaper estimate wins.
     joint_ws = _estimate_ma_joint_working_set_bytes(
-        r_vec, k_vec, is_rel, sym_vec=getattr(dens, "is_sym", None))
+        r_vec, k_vec, is_rel, exch_vec=getattr(dens, "is_exch", None))
     safety = (_MA_MOBIUS_SAFETY
               if joint_ws > _CENTRES_WORKING_SET_SOFT_BUDGET
               else _MA_MOBIUS_SAFETY_SMALL)

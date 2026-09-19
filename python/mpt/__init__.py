@@ -4,7 +4,7 @@ A Python package for computational music perception research, with a
 sibling MATLAB implementation maintained in parallel.
 
 Andrew J. Milne, MARCS Institute, Western Sydney University.
-David Bulger credited as co-author of the original ``cos_sim_exp_tens``
+David Bulger credited as co-author of the original ``sim_maet``
 and ``markov_s`` functions.
 """
 
@@ -21,13 +21,11 @@ from .score import read_score, pre_maet_from_score
 # --- Expectation tensors ---
 from .tensor import (
     MaetDensity,
-    batch_cos_sim_exp_tens,
-    build_exp_tens,
-    cos_sim_exp_tens,
-    cos_sim_exp_tens_raw,
-    sweep_cos_sim_exp_tens,
-    eval_exp_tens,
-    eval_exp_tens_raw,
+    build_maet,
+    maet_centres,
+    sim_maet,
+    sweep_sim_maet,
+    eval_maet,
     difference_events,
     bind_events,
     flat_specs,
@@ -57,7 +55,7 @@ from .circular import (
 )
 
 # --- Entropy ---
-from .entropy import entropy_exp_tens, n_tuple_entropy
+from .entropy import entropy_maet, n_tuple_entropy
 
 # --- Harmony / consonance ---
 from .harmony import (
@@ -81,7 +79,10 @@ from ._tensor.premaet_io import read_pre_maet, write_pre_maet
 from .audio import AudioPeaksDetail, audio_peaks
 
 # --- Serial / sequential analysis ---
-from .serial import continuity, interval_kernel_cov
+from .serial import continuity, kernel_cov
+
+# Plotting. matplotlib is imported when a plot is drawn, not here.
+from .plot3d import plot_maet_3d, plot_maet_3d_points
 
 # --- Global defaults ---
 from ._defaults import (
@@ -104,13 +105,13 @@ __all__ = [
     "add_spectra",
     # tensor
     "MaetDensity",
-    "build_exp_tens",
-    "eval_exp_tens",
-    "eval_exp_tens_raw",
-    "cos_sim_exp_tens",
-    "cos_sim_exp_tens_raw",
-    "batch_cos_sim_exp_tens",
-    "sweep_cos_sim_exp_tens",
+    "build_maet",
+    "maet_centres",
+    "plot_maet_3d",
+    "plot_maet_3d_points",
+    "eval_maet",
+    "sim_maet",
+    "sweep_sim_maet",
     "difference_events",
     "bind_events",
     "flat_specs",
@@ -138,7 +139,7 @@ __all__ = [
     "circ_apm",
     "markov_s",
     # entropy
-    "entropy_exp_tens",
+    "entropy_maet",
     "n_tuple_entropy",
     # harmony
     "spectral_entropy",
@@ -153,7 +154,7 @@ __all__ = [
     "AudioPeaksDetail",
     # serial
     "continuity",
-    "interval_kernel_cov",
+    "kernel_cov",
     # defaults
     "get_default",
     "get_defaults",

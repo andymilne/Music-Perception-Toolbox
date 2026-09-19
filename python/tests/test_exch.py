@@ -1,25 +1,25 @@
-"""Tests for the per-attribute ``[sym]`` (symmetrisation) flag.
+"""Tests for the per-attribute ``[exch]`` (symmetrisation) flag.
 
-Covers the predictions of the sym-flag specification §10:
+Covers the predictions of the exch-flag specification §10:
 
-* ``r = 1``: the flag is vacuous; ``[sym] = 0`` and ``[sym] = 1``
+* ``r = 1``: the flag is vacuous; ``[exch] = 0`` and ``[exch] = 1``
   coincide (single-multiset and multi-attribute paths).
-* ``r = K``: ``[sym] = 0`` deposits the single ordered tuple (one
-  kernel); ``[sym] = 1`` deposits the full ``S_K`` orbit (``K!``
+* ``r = K``: ``[exch] = 0`` deposits the single ordered tuple (one
+  kernel); ``[exch] = 1`` deposits the full ``S_K`` orbit (``K!``
   kernels).
-* ``1 < r < K``: ``[sym] = 0`` is the ``[sym] = 1`` density with the
+* ``1 < r < K``: ``[exch] = 0`` is the ``[exch] = 1`` density with the
   reflections removed (the de-reflected density). Verified through the
   exact orbit-sum relation between the two readings.
-* OPT-completeness: ``[sym] = 0`` with ``[rel] = 1`` reaches the
+* OPT-completeness: ``[exch] = 0`` with ``[rel] = 1`` reaches the
   ordered transposition-invariant spaces, distinguishing an ordered
-  interval from its inversion (which ``[sym] = 1`` cannot) --- both the
+  interval from its inversion (which ``[exch] = 1`` cannot) --- both the
   line ``R^{n-1}`` and, with ``[per] = 1``, the torus ``T^{n-1}``. The
   three Sym/Ord confirmations are also checked under ``[per] = 1``.
 * Cross-cardinality comparability at fixed ``r``: a triad and a seventh
   chord overlap is well posed, and a doubling reweights without
   equalising (anti-C).
 
-The default value of ``[sym]`` is ``1`` (legacy symmetric reading), so
+The default value of ``[exch]`` is ``1`` (legacy symmetric reading), so
 omitting the flag must reproduce the pre-flag behaviour; this is checked
 implicitly throughout the rest of the suite and explicitly here.
 """
@@ -27,7 +27,7 @@ implicitly throughout the rest of the suite and explicitly here.
 import numpy as np
 import pytest
 
-from mpt import build_exp_tens, eval_exp_tens, cos_sim_exp_tens
+from mpt import build_maet, eval_maet, sim_maet
 from mpt._tensor.density import single_multiset_view as _smv
 
 # A MaetDensity exposes per-attribute lists (u_perm[a], centres[a], ...).
@@ -43,26 +43,26 @@ class TestVacuousAtR1:
     def test_single_multiset_eval_coincides(self):
         p = [0.0, 4.0, 7.0, 11.0]
         x = np.linspace(-3, 14, 60)
-        d_sym = build_exp_tens(p, None, 1.0, 1, False, False, 0.0, True,
+        d_exch = build_maet(p, None, 1.0, 1, False, False, 0.0, True,
                                verbose=False)
-        d_ord = build_exp_tens(p, None, 1.0, 1, False, False, 0.0, False,
+        d_ord = build_maet(p, None, 1.0, 1, False, False, 0.0, False,
                                verbose=False)
         np.testing.assert_allclose(
-            eval_exp_tens(d_sym, x, verbose=False),
-            eval_exp_tens(d_ord, x, verbose=False),
+            eval_maet(d_exch, x, verbose=False),
+            eval_maet(d_ord, x, verbose=False),
             atol=1e-13,
         )
 
     def test_ma_eval_coincides(self):
         P = [np.array([[0.0, 4.0, 7.0]])]   # one attribute, K=1 value/event
         x = np.linspace(-3, 12, 50).reshape(1, -1)
-        d_sym = build_exp_tens(P, None, [1.0], [1], [False], [False], [0.0],
+        d_exch = build_maet(P, None, [1.0], [1], [False], [False], [0.0],
                                [True], verbose=False)
-        d_ord = build_exp_tens(P, None, [1.0], [1], [False], [False], [0.0],
+        d_ord = build_maet(P, None, [1.0], [1], [False], [False], [0.0],
                                [False], verbose=False)
         np.testing.assert_allclose(
-            eval_exp_tens(d_sym, x, verbose=False),
-            eval_exp_tens(d_ord, x, verbose=False),
+            eval_maet(d_exch, x, verbose=False),
+            eval_maet(d_ord, x, verbose=False),
             atol=1e-13,
         )
 
@@ -72,24 +72,24 @@ class TestVacuousAtR1:
 # ---------------------------------------------------------------------
 
 class TestCentreCounts:
-    @pytest.mark.parametrize("r,expect_ord,expect_sym", [
+    @pytest.mark.parametrize("r,expect_ord,expect_exch", [
         (1, 4, 4),     # C(4,1)=4; r! = 1
         (2, 6, 12),    # C(4,2)=6; x2!
         (3, 4, 24),    # C(4,3)=4; x3!
         (4, 1, 24),    # C(4,4)=1; x4!  (r=K: single tuple vs S_K orbit)
     ])
-    def test_single_multiset_u_perm_columns(self, r, expect_ord, expect_sym):
+    def test_single_multiset_u_perm_columns(self, r, expect_ord, expect_exch):
         p = [0.0, 4.0, 7.0, 11.0]   # K = 4
-        d_ord = build_exp_tens(p, None, 1.0, r, False, False, 0.0, False,
+        d_ord = build_maet(p, None, 1.0, r, False, False, 0.0, False,
                                verbose=False)
-        d_sym = build_exp_tens(p, None, 1.0, r, False, False, 0.0, True,
+        d_exch = build_maet(p, None, 1.0, r, False, False, 0.0, True,
                                verbose=False)
         assert _smv(d_ord).u_perm.shape[1] == expect_ord
-        assert _smv(d_sym).u_perm.shape[1] == expect_sym
+        assert _smv(d_exch).u_perm.shape[1] == expect_exch
 
     def test_r_eq_k_single_ordered_tuple(self):
         p = [3.0, 1.0, 8.0]   # K = 3, deliberately unsorted
-        d_ord = build_exp_tens(p, None, 1.0, 3, False, False, 0.0, False,
+        d_ord = build_maet(p, None, 1.0, 3, False, False, 0.0, False,
                                verbose=False)
         # Exactly one centre, the tuple in listed order.
         assert _smv(d_ord).u_perm.shape[1] == 1
@@ -97,12 +97,12 @@ class TestCentreCounts:
 
     def test_ma_u_perm_columns(self):
         P = [np.array([[0.0], [4.0], [7.0]])]   # one event, K=3 values
-        d_ord = build_exp_tens(P, None, [1.0], [2], [False], [False], [0.0],
+        d_ord = build_maet(P, None, [1.0], [2], [False], [False], [0.0],
                                [False], verbose=False)
-        d_sym = build_exp_tens(P, None, [1.0], [2], [False], [False], [0.0],
+        d_exch = build_maet(P, None, [1.0], [2], [False], [False], [0.0],
                                [True], verbose=False)
         assert d_ord.u_perm[0].shape[1] == 3    # C(3,2)
-        assert d_sym.u_perm[0].shape[1] == 6    # x2!
+        assert d_exch.u_perm[0].shape[1] == 6    # x2!
 
 
 # ---------------------------------------------------------------------
@@ -116,39 +116,39 @@ class TestDeReflection:
         point (qy, qx): the orbit is exactly {identity, transposition}.
         """
         p = [0.0, 4.0, 7.0]
-        d_ord = build_exp_tens(p, None, 1.3, 2, False, False, 0.0, False,
+        d_ord = build_maet(p, None, 1.3, 2, False, False, 0.0, False,
                                verbose=False)
-        d_sym = build_exp_tens(p, None, 1.3, 2, False, False, 0.0, True,
+        d_exch = build_maet(p, None, 1.3, 2, False, False, 0.0, True,
                                verbose=False)
         # A scatter of 2-D query points (r=2, absolute -> dim 2).
         rng = np.random.default_rng(0)
         q = rng.uniform(-2, 9, (2, 25))
         q_swap = q[::-1, :]
-        ev_sym = eval_exp_tens(d_sym, q, verbose=False)
-        ev_ord = eval_exp_tens(d_ord, q, verbose=False)
-        ev_ord_swap = eval_exp_tens(d_ord, q_swap, verbose=False)
-        np.testing.assert_allclose(ev_sym, ev_ord + ev_ord_swap, atol=1e-12)
+        ev_exch = eval_maet(d_exch, q, verbose=False)
+        ev_ord = eval_maet(d_ord, q, verbose=False)
+        ev_ord_swap = eval_maet(d_ord, q_swap, verbose=False)
+        np.testing.assert_allclose(ev_exch, ev_ord + ev_ord_swap, atol=1e-12)
 
     def test_ordered_distinguishes_order_symmetric_does_not(self):
-        """Ascending vs descending: identical under [sym]=1 (order
-        ignored), distinct under [sym]=0."""
+        """Ascending vs descending: identical under [exch]=1 (order
+        ignored), distinct under [exch]=0."""
         asc = [0.0, 4.0, 7.0]
         desc = [7.0, 3.0, 0.0]
-        s_sym = cos_sim_exp_tens(
-            build_exp_tens(asc, None, 50.0, 2, False, False, 0.0, True,
+        s_exch = sim_maet(
+            build_maet(asc, None, 50.0, 2, False, False, 0.0, True,
                            verbose=False),
-            build_exp_tens(desc, None, 50.0, 2, False, False, 0.0, True,
-                           verbose=False),
-            verbose=False,
-        )
-        s_ord = cos_sim_exp_tens(
-            build_exp_tens(asc, None, 50.0, 2, False, False, 0.0, False,
-                           verbose=False),
-            build_exp_tens(desc, None, 50.0, 2, False, False, 0.0, False,
+            build_maet(desc, None, 50.0, 2, False, False, 0.0, True,
                            verbose=False),
             verbose=False,
         )
-        assert s_ord < s_sym - 1e-4
+        s_ord = sim_maet(
+            build_maet(asc, None, 50.0, 2, False, False, 0.0, False,
+                           verbose=False),
+            build_maet(desc, None, 50.0, 2, False, False, 0.0, False,
+                           verbose=False),
+            verbose=False,
+        )
+        assert s_ord < s_exch - 1e-4
 
     def test_ordered_cosine_large_k_not_symmetrised(self):
         """At a cardinality large enough that the orbit (Möbius) path
@@ -157,21 +157,21 @@ class TestDeReflection:
         symmetric reading (regression for the orbit-symmetrises bug)."""
         asc = [float(x) for x in range(8)]
         desc = [float(x) for x in range(7, -1, -1)]
-        s_ord = cos_sim_exp_tens(
-            build_exp_tens(asc, None, 50.0, 2, False, False, 0.0, False,
+        s_ord = sim_maet(
+            build_maet(asc, None, 50.0, 2, False, False, 0.0, False,
                            verbose=False),
-            build_exp_tens(desc, None, 50.0, 2, False, False, 0.0, False,
-                           verbose=False),
-            verbose=False,
-        )
-        s_sym = cos_sim_exp_tens(
-            build_exp_tens(asc, None, 50.0, 2, False, False, 0.0, True,
-                           verbose=False),
-            build_exp_tens(desc, None, 50.0, 2, False, False, 0.0, True,
+            build_maet(desc, None, 50.0, 2, False, False, 0.0, False,
                            verbose=False),
             verbose=False,
         )
-        assert s_sym == pytest.approx(1.0, abs=1e-9)
+        s_exch = sim_maet(
+            build_maet(asc, None, 50.0, 2, False, False, 0.0, True,
+                           verbose=False),
+            build_maet(desc, None, 50.0, 2, False, False, 0.0, True,
+                           verbose=False),
+            verbose=False,
+        )
+        assert s_exch == pytest.approx(1.0, abs=1e-9)
         assert s_ord < 1.0 - 1e-4
 
     def test_ordered_cosine_large_k_ma(self):
@@ -179,11 +179,11 @@ class TestDeReflection:
         orbit path must still route to centres and stay distinct."""
         M = [np.array([[float(x)] for x in range(6)])]      # 6 values, 1 event
         Mr = [np.array([[float(x)] for x in range(5, -1, -1)])]
-        s_ord = cos_sim_exp_tens(M, None, Mr, None, [50.0], [2], [False],
+        s_ord = sim_maet(M, None, Mr, None, [50.0], [2], [False],
                                  [False], [0.0], [False], verbose=False)
-        s_sym = cos_sim_exp_tens(M, None, Mr, None, [50.0], [2], [False],
+        s_exch = sim_maet(M, None, Mr, None, [50.0], [2], [False],
                                  [False], [0.0], [True], verbose=False)
-        assert s_sym == pytest.approx(1.0, abs=1e-9)
+        assert s_exch == pytest.approx(1.0, abs=1e-9)
         assert s_ord < 1.0 - 1e-4
 
 
@@ -194,45 +194,45 @@ class TestDeReflection:
 class TestOrderedTranspositionInvariant:
     def test_rel_dim_drops_by_one(self):
         p = [0.0, 4.0, 7.0]
-        d = build_exp_tens(p, None, 1.0, 3, True, False, 0.0, False,
+        d = build_maet(p, None, 1.0, 3, True, False, 0.0, False,
                            verbose=False)
-        # [rel] removes one dimension regardless of [sym].
+        # [rel] removes one dimension regardless of [exch].
         assert d.dim == 2
 
     def test_ordered_interval_vs_inversion(self):
-        """[sym]=0 + [rel]=1 distinguishes an ascending interval from a
-        descending one (ordered, transposition-invariant); [sym]=1
+        """[exch]=0 + [rel]=1 distinguishes an ascending interval from a
+        descending one (ordered, transposition-invariant); [exch]=1
         cannot (it symmetrises the pair, so +d and -d coincide)."""
         up = [0.0, 4.0]      # ordered interval +4
         down = [0.0, -4.0]   # ordered interval -4
         kw = dict(verbose=False)
-        s_sym = cos_sim_exp_tens(
-            build_exp_tens(up, None, 1.0, 2, True, False, 0.0, True, **kw),
-            build_exp_tens(down, None, 1.0, 2, True, False, 0.0, True, **kw),
+        s_exch = sim_maet(
+            build_maet(up, None, 1.0, 2, True, False, 0.0, True, **kw),
+            build_maet(down, None, 1.0, 2, True, False, 0.0, True, **kw),
             **kw,
         )
-        s_ord = cos_sim_exp_tens(
-            build_exp_tens(up, None, 1.0, 2, True, False, 0.0, False, **kw),
-            build_exp_tens(down, None, 1.0, 2, True, False, 0.0, False, **kw),
+        s_ord = sim_maet(
+            build_maet(up, None, 1.0, 2, True, False, 0.0, False, **kw),
+            build_maet(down, None, 1.0, 2, True, False, 0.0, False, **kw),
             **kw,
         )
         # Symmetric: the two read identically (interval magnitude only).
-        assert s_sym == pytest.approx(1.0, abs=1e-9)
+        assert s_exch == pytest.approx(1.0, abs=1e-9)
         # Ordered: +4 and -4 are far apart at this sigma.
         assert s_ord < 0.5
 
 
 # ---------------------------------------------------------------------
-#  Periodic + ordered ([per] = 1 with [sym] = 0): the second of the two
+#  Periodic + ordered ([per] = 1 with [exch] = 0): the second of the two
 #  ordered transposition-invariant spaces (the torus T^{n-1}), and the
 #  [per] = 1 arm of the r-sweep confirmations.
 # ---------------------------------------------------------------------
 
 class TestPeriodicOrdered:
-    """``[sym] = 0`` with ``[per] = 1``. The three Sym/Ord confirmations
+    """``[exch] = 0`` with ``[per] = 1``. The three Sym/Ord confirmations
     are periodicity-independent in structure (wrapping is componentwise
     on the kernel, not on the orbit), so they must hold unchanged on the
-    torus; and ``[sym] = 0`` with ``[rel] = 1`` periodic reaches the
+    torus; and ``[exch] = 0`` with ``[rel] = 1`` periodic reaches the
     ordered transposition-invariant torus ``T^{n-1}``, distinguishing an
     ordered interval from its inversion that the symmetric reading
     conflates."""
@@ -242,30 +242,30 @@ class TestPeriodicOrdered:
     def test_periodic_rel_dim_drops_by_one(self):
         """[rel] = 1 drops one dimension on the torus too: ordered,
         relative, periodic at r = 2 has effective dimension 1 (T^{n-1})."""
-        d = build_exp_tens([0.0, 4.0, 7.0], None, 1.0, 2, True, True, self.P,
+        d = build_maet([0.0, 4.0, 7.0], None, 1.0, 2, True, True, self.P,
                            False, verbose=False)
         assert d.dim == 1
 
     def test_periodic_ordered_interval_vs_inversion(self):
-        """On a period-12 torus, [sym] = 0 + [rel] = 1 distinguishes the
+        """On a period-12 torus, [exch] = 0 + [rel] = 1 distinguishes the
         ascending interval +4 from the descending -4 (== +8 mod 12);
-        [sym] = 1 symmetrises the pair, so the two orbits {4, 8} coincide.
+        [exch] = 1 symmetrises the pair, so the two orbits {4, 8} coincide.
         This is the periodic twin of the R^{n-1} test above (T^{n-1})."""
         up = [0.0, 4.0]       # +4
         down = [0.0, -4.0]    # -4 == +8 (mod 12)
         kw = dict(verbose=False)
-        s_sym = cos_sim_exp_tens(
-            build_exp_tens(up, None, 0.5, 2, True, True, self.P, True, **kw),
-            build_exp_tens(down, None, 0.5, 2, True, True, self.P, True, **kw),
+        s_exch = sim_maet(
+            build_maet(up, None, 0.5, 2, True, True, self.P, True, **kw),
+            build_maet(down, None, 0.5, 2, True, True, self.P, True, **kw),
             **kw,
         )
-        s_ord = cos_sim_exp_tens(
-            build_exp_tens(up, None, 0.5, 2, True, True, self.P, False, **kw),
-            build_exp_tens(down, None, 0.5, 2, True, True, self.P, False, **kw),
+        s_ord = sim_maet(
+            build_maet(up, None, 0.5, 2, True, True, self.P, False, **kw),
+            build_maet(down, None, 0.5, 2, True, True, self.P, False, **kw),
             **kw,
         )
         # Symmetric: the two intervals read identically on the circle.
-        assert s_sym == pytest.approx(1.0, abs=1e-9)
+        assert s_exch == pytest.approx(1.0, abs=1e-9)
         # Ordered: +4 and +8 are distinct points on the period-12 circle.
         assert s_ord < 0.5
 
@@ -273,19 +273,19 @@ class TestPeriodicOrdered:
         """[per] = 1 wraps the value axis in the ordered path: an ordered
         absolute density of [0, 4] equals that of [0, 16] (16 == 4 mod 12),
         whereas without periodicity the two are distinct. Confirms the
-        flag is genuinely engaged for [sym] = 0, not bypassed."""
+        flag is genuinely engaged for [exch] = 0, not bypassed."""
         kw = dict(verbose=False)
-        s_wrap = cos_sim_exp_tens(
-            build_exp_tens([0.0, 4.0], None, 0.5, 2, False, True, self.P,
+        s_wrap = sim_maet(
+            build_maet([0.0, 4.0], None, 0.5, 2, False, True, self.P,
                            False, **kw),
-            build_exp_tens([0.0, 16.0], None, 0.5, 2, False, True, self.P,
+            build_maet([0.0, 16.0], None, 0.5, 2, False, True, self.P,
                            False, **kw),
             **kw,
         )
-        s_nowrap = cos_sim_exp_tens(
-            build_exp_tens([0.0, 4.0], None, 0.5, 2, False, False, 0.0,
+        s_nowrap = sim_maet(
+            build_maet([0.0, 4.0], None, 0.5, 2, False, False, 0.0,
                            False, **kw),
-            build_exp_tens([0.0, 16.0], None, 0.5, 2, False, False, 0.0,
+            build_maet([0.0, 16.0], None, 0.5, 2, False, False, 0.0,
                            False, **kw),
             **kw,
         )
@@ -297,31 +297,31 @@ class TestPeriodicOrdered:
         whole tuple (one kernel); symmetric deposits the full S_K orbit
         (K! = 6 kernels). Periodicity does not change the orbit count."""
         p = [0.0, 4.0, 7.0]
-        d_ord = build_exp_tens(p, None, 1.0, 3, False, True, self.P, False,
+        d_ord = build_maet(p, None, 1.0, 3, False, True, self.P, False,
                                verbose=False)
-        d_sym = build_exp_tens(p, None, 1.0, 3, False, True, self.P, True,
+        d_exch = build_maet(p, None, 1.0, 3, False, True, self.P, True,
                                verbose=False)
         assert _smv(d_ord).u_perm.shape[1] == 1
-        assert _smv(d_sym).u_perm.shape[1] == 6
+        assert _smv(d_exch).u_perm.shape[1] == 6
 
     def test_periodic_r1_coincides(self):
         """r = 1 confirmation under [per] = 1: the flag is vacuous, so the
         ordered and symmetric periodic densities are identical pointwise."""
         p = [0.0, 4.0, 7.0]
-        d_ord = build_exp_tens(p, None, 1.0, 1, False, True, self.P, False,
+        d_ord = build_maet(p, None, 1.0, 1, False, True, self.P, False,
                                verbose=False)
-        d_sym = build_exp_tens(p, None, 1.0, 1, False, True, self.P, True,
+        d_exch = build_maet(p, None, 1.0, 1, False, True, self.P, True,
                                verbose=False)
         x = np.array([[0.0, 1.0, 4.0, 7.0, 11.0]])
-        v_ord = eval_exp_tens(d_ord, x, verbose=False)
-        v_sym = eval_exp_tens(d_sym, x, verbose=False)
-        assert np.allclose(v_ord, v_sym, atol=1e-12)
+        v_ord = eval_maet(d_ord, x, verbose=False)
+        v_exch = eval_maet(d_exch, x, verbose=False)
+        assert np.allclose(v_ord, v_exch, atol=1e-12)
 
     def test_periodic_ordered_self_similarity_is_one(self):
         p = [0.0, 4.0, 7.0]
-        d = build_exp_tens(p, None, 30.0, 2, True, True, self.P, False,
+        d = build_maet(p, None, 30.0, 2, True, True, self.P, False,
                            verbose=False)
-        assert cos_sim_exp_tens(d, d, verbose=False) == pytest.approx(
+        assert sim_maet(d, d, verbose=False) == pytest.approx(
             1.0, abs=1e-9)
 
 
@@ -333,10 +333,10 @@ class TestCrossCardinality:
     def test_triad_vs_seventh_well_posed(self):
         triad = [0.0, 400.0, 700.0]
         seventh = [0.0, 400.0, 700.0, 1000.0]
-        s = cos_sim_exp_tens(
-            build_exp_tens(triad, None, 30.0, 2, False, False, 0.0, False,
+        s = sim_maet(
+            build_maet(triad, None, 30.0, 2, False, False, 0.0, False,
                            verbose=False),
-            build_exp_tens(seventh, None, 30.0, 2, False, False, 0.0, False,
+            build_maet(seventh, None, 30.0, 2, False, False, 0.0, False,
                            verbose=False),
             verbose=False,
         )
@@ -348,10 +348,10 @@ class TestCrossCardinality:
         its undoubled form under the ordered reading."""
         triad = [0.0, 400.0, 700.0]
         doubled = [0.0, 0.0, 400.0, 700.0]   # doubled root
-        s = cos_sim_exp_tens(
-            build_exp_tens(triad, None, 30.0, 2, False, False, 0.0, False,
+        s = sim_maet(
+            build_maet(triad, None, 30.0, 2, False, False, 0.0, False,
                            verbose=False),
-            build_exp_tens(doubled, None, 30.0, 2, False, False, 0.0, False,
+            build_maet(doubled, None, 30.0, 2, False, False, 0.0, False,
                            verbose=False),
             verbose=False,
         )
@@ -367,57 +367,57 @@ class TestCrossCardinality:
 class TestDefaultAndSelf:
     def test_default_is_symmetric(self):
         p = [0.0, 4.0, 7.0]
-        d_default = build_exp_tens(p, None, 1.0, 2, False, False, 0.0,
+        d_default = build_maet(p, None, 1.0, 2, False, False, 0.0,
                                    verbose=False)
-        d_sym = build_exp_tens(p, None, 1.0, 2, False, False, 0.0, True,
+        d_exch = build_maet(p, None, 1.0, 2, False, False, 0.0, True,
                                verbose=False)
-        assert _smv(d_default).u_perm.shape[1] == _smv(d_sym).u_perm.shape[1]
-        assert bool(np.all(d_default.is_sym))
+        assert _smv(d_default).u_perm.shape[1] == _smv(d_exch).u_perm.shape[1]
+        assert bool(np.all(d_default.is_exch))
 
     def test_ordered_self_similarity_is_one(self):
         p = [0.0, 4.0, 7.0]
-        d = build_exp_tens(p, None, 30.0, 2, False, False, 0.0, False,
+        d = build_maet(p, None, 30.0, 2, False, False, 0.0, False,
                            verbose=False)
-        assert cos_sim_exp_tens(d, d, verbose=False) == pytest.approx(1.0,
+        assert sim_maet(d, d, verbose=False) == pytest.approx(1.0,
                                                                       abs=1e-9)
 
 
 # ---------------------------------------------------------------------
-#  Ordered ([sym]=0) rejection on the batched / analytic paths
+#  Ordered ([exch]=0) rejection on the batched / analytic paths
 # ---------------------------------------------------------------------
 
 class TestOrderedRejections:
     """The batched dedup keys rows by a sorted multiset and would
     over-merge order-distinct rows, so the batched cosine/eval paths
-    reject [sym]=0 at r>1 rather than return a wrong answer. (Single-
+    reject [exch]=0 at r>1 rather than return a wrong answer. (Single-
     density ordered renyi2 is supported — see TestOrderedRenyi2.)"""
 
     def test_batched_cosine_rejects_ordered(self):
         P = np.array([[0.0, 4.0, 7.0], [7.0, 4.0, 0.0]])
         with pytest.raises(NotImplementedError):
-            cos_sim_exp_tens(P, None, P, None, 30.0, 2, False, False, 0.0,
+            sim_maet(P, None, P, None, 30.0, 2, False, False, 0.0,
                              False, verbose=False)
 
     def test_batched_eval_rejects_ordered(self):
-        from mpt import eval_exp_tens
+        from mpt import eval_maet
         P = np.array([[0.0, 4.0, 7.0], [7.0, 4.0, 0.0]])
         x = np.array([[0.0], [4.0]])
         with pytest.raises(NotImplementedError):
-            eval_exp_tens(P, None, 30.0, 2, False, False, 0.0, False, x,
+            eval_maet(P, None, 30.0, 2, False, False, 0.0, False, x,
                           verbose=False)
 
     def test_batched_entropy_rejects_ordered(self):
-        from mpt import entropy_exp_tens
+        from mpt import entropy_maet
         P = np.array([[0.0, 4.0, 7.0], [7.0, 4.0, 0.0]])
         with pytest.raises(NotImplementedError):
-            entropy_exp_tens(P, None, 1.0, 2, False, False, 0.0, False,
+            entropy_maet(P, None, 1.0, 2, False, False, 0.0, False,
                              method="shannon", n_points_per_dim=50,
                              x_min=-3, x_max=12)
 
 
 def _grid_renyi2(d, sig):
     """Brute-force grid estimate of -log integral p~^2 (natural log)."""
-    from mpt import eval_exp_tens
+    from mpt import eval_maet
     c = d.centres[0]
     dim = d.dim
     ng = 70 if dim == 1 else 45
@@ -425,64 +425,64 @@ def _grid_renyi2(d, sig):
             for k in range(dim)]
     mesh = np.meshgrid(*axes, indexing="ij")
     X = np.vstack([m.ravel() for m in mesh])
-    vals = eval_exp_tens(d, X, verbose=False)
+    vals = eval_maet(d, X, verbose=False)
     dv = float(np.prod([axes[k][1] - axes[k][0] for k in range(dim)]))
     z = vals.sum() * dv
     return -np.log(((vals / z) ** 2).sum() * dv)
 
 
 class TestOrderedRenyi2:
-    """Ordered ([sym]=0) renyi2 at r>1 is computed via the direct double
+    """Ordered ([exch]=0) renyi2 at r>1 is computed via the direct double
     sum of Gaussian overlaps (no orbit), matching a brute-force grid."""
 
     def test_renyi2_ordered_r1_allowed(self):
-        from mpt import entropy_exp_tens
-        # r=1: [sym] vacuous, so ordered must NOT raise.
-        val = entropy_exp_tens([0.0, 4.0, 7.0], None, 1.0, 1, False, False,
+        from mpt import entropy_maet
+        # r=1: [exch] vacuous, so ordered must NOT raise.
+        val = entropy_maet([0.0, 4.0, 7.0], None, 1.0, 1, False, False,
                                0.0, False, method="renyi2")
         assert np.isfinite(val)
 
     @pytest.mark.parametrize("r", [2, 3])
     @pytest.mark.parametrize("rel", [False, True])
     def test_renyi2_ordered_single_multiset_matches_grid(self, r, rel):
-        from mpt import entropy_exp_tens, build_exp_tens
+        from mpt import entropy_maet, build_maet
         P = np.array([0.0, 4.0, 7.0, 11.0])
         sig = 2.0
-        h = float(entropy_exp_tens(list(P), None, sig, r, rel, False, 0.0,
+        h = float(entropy_maet(list(P), None, sig, r, rel, False, 0.0,
                                    False, method="renyi2", base=np.e,
                                    verbose=False))
-        d = build_exp_tens([P[:, None]], None, [sig], [r], [rel], [False],
+        d = build_maet([P[:, None]], None, [sig], [r], [rel], [False],
                            [0.0], [False], verbose=False)
         assert h == pytest.approx(float(_grid_renyi2(d, sig)), abs=2e-2)
 
     def test_renyi2_ordered_ma_matches_grid(self):
-        from mpt import entropy_exp_tens, build_exp_tens
+        from mpt import entropy_maet, build_maet
         P = np.array([0.0, 4.0, 7.0, 11.0])
         sig = 2.0
-        d = build_exp_tens([P[:, None]], None, [sig], [2], [False], [False],
+        d = build_maet([P[:, None]], None, [sig], [2], [False], [False],
                            [0.0], [False], verbose=False)
-        h = float(entropy_exp_tens(d, method="renyi2", base=np.e,
+        h = float(entropy_maet(d, method="renyi2", base=np.e,
                                    verbose=False))
         assert h == pytest.approx(float(_grid_renyi2(d, sig)), abs=2e-2)
 
     def test_renyi2_ordered_differs_from_symmetric(self):
-        from mpt import entropy_exp_tens, build_exp_tens
+        from mpt import entropy_maet, build_maet
         # An order-bearing tuple set: ordered and symmetric readings give
         # genuinely different collision entropies.
         P = np.array([0.0, 3.0, 8.0])
         sig = 1.5
-        dO = build_exp_tens([P[:, None]], None, [sig], [2], [False], [False],
+        dO = build_maet([P[:, None]], None, [sig], [2], [False], [False],
                             [0.0], [False], verbose=False)
-        dS = build_exp_tens([P[:, None]], None, [sig], [2], [False], [False],
+        dS = build_maet([P[:, None]], None, [sig], [2], [False], [False],
                             [0.0], [True], verbose=False)
-        hO = float(entropy_exp_tens(dO, method="renyi2", verbose=False))
-        hS = float(entropy_exp_tens(dS, method="renyi2", verbose=False))
+        hO = float(entropy_maet(dO, method="renyi2", verbose=False))
+        hS = float(entropy_maet(dS, method="renyi2", verbose=False))
         assert np.isfinite(hO) and np.isfinite(hS)
         assert abs(hO - hS) > 1e-6
 
 
 class TestOrderedNotRoutedToMobius:
-    """Ordered ([sym]=0) attributes at r>1 have no orbit: the Möbius
+    """Ordered ([exch]=0) attributes at r>1 have no orbit: the Möbius
     partition sum realises the symmetrised tuple set, so it evaluates a
     different density. Auto must keep them on centres, and an explicit
     method='mobius' must be refused rather than silently return the
@@ -492,53 +492,53 @@ class TestOrderedNotRoutedToMobius:
     SIG = 2.0
 
     def _ordered(self, r):
-        from mpt import build_exp_tens
-        return build_exp_tens([self.P[:, None]], None, [self.SIG], [r],
+        from mpt import build_maet
+        return build_maet([self.P[:, None]], None, [self.SIG], [r],
                               [False], [False], [0.0], [False], verbose=False)
 
     @pytest.mark.parametrize("r", [2, 3])
     def test_auto_stays_asymmetric(self, r):
-        from mpt import eval_exp_tens
+        from mpt import eval_maet
         d = self._ordered(r)
         a = [0.0, 4.0, 7.0][:r]
         x = np.array([a, list(reversed(a))]).T
-        v = eval_exp_tens(d, x, verbose=False)
+        v = eval_maet(d, x, verbose=False)
         # The mirrored point is not in the ordered centre set.
         assert v[0] > 10.0 * v[1]
 
     @pytest.mark.parametrize("r", [2, 3])
     def test_auto_matches_forced_centres(self, r):
-        from mpt import eval_exp_tens
+        from mpt import eval_maet
         d = self._ordered(r)
         rng = np.random.default_rng(0)
         x = rng.uniform(-4, 15, (d.dim, 40))
-        v_auto = eval_exp_tens(d, x, verbose=False)
-        v_cent = eval_exp_tens(d, x, method="centres", verbose=False)
+        v_auto = eval_maet(d, x, verbose=False)
+        v_cent = eval_maet(d, x, method="centres", verbose=False)
         np.testing.assert_allclose(v_auto, v_cent, rtol=1e-12, atol=0.0)
 
     @pytest.mark.parametrize("r", [2, 3])
     def test_explicit_mobius_raises(self, r):
-        from mpt import eval_exp_tens
+        from mpt import eval_maet
         d = self._ordered(r)
         with pytest.raises(ValueError, match="ordered"):
-            eval_exp_tens(d, np.zeros((d.dim, 1)), method="mobius",
+            eval_maet(d, np.zeros((d.dim, 1)), method="mobius",
                           verbose=False)
 
     def test_r1_ordered_still_allows_mobius(self):
-        # [sym] is vacuous at a single value, so r = 1 is exempt.
-        from mpt import build_exp_tens, eval_exp_tens
-        d = build_exp_tens([self.P[:, None]], None, [self.SIG], [1],
+        # [exch] is vacuous at a single value, so r = 1 is exempt.
+        from mpt import build_maet, eval_maet
+        d = build_maet([self.P[:, None]], None, [self.SIG], [1],
                            [False], [False], [0.0], [False], verbose=False)
-        v = eval_exp_tens(d, np.zeros((d.dim, 1)), method="mobius",
+        v = eval_maet(d, np.zeros((d.dim, 1)), method="mobius",
                           verbose=False)
         assert np.isfinite(v).all()
 
     def test_symmetric_still_routes_to_mobius(self):
-        from mpt import build_exp_tens, eval_exp_tens
-        d = build_exp_tens([self.P[:, None]], None, [self.SIG], [2],
+        from mpt import build_maet, eval_maet
+        d = build_maet([self.P[:, None]], None, [self.SIG], [2],
                            [False], [False], [0.0], [True], verbose=False)
         rng = np.random.default_rng(1)
         x = rng.uniform(-4, 15, (d.dim, 40))
-        v_m = eval_exp_tens(d, x, method="mobius", verbose=False)
-        v_c = eval_exp_tens(d, x, method="centres", verbose=False)
+        v_m = eval_maet(d, x, method="mobius", verbose=False)
+        v_c = eval_maet(d, x, method="centres", verbose=False)
         np.testing.assert_allclose(v_m, v_c, rtol=1e-8, atol=1e-12)

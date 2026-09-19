@@ -1,7 +1,7 @@
 function varargout = nestedCost(cmd, varargin)
 %INTERNAL.NESTEDCOST  Cost model for the nested-attribute inner product.
 %
-%   The nested path of COSSIMEXPTENS chooses, per attribute, among routes
+%   The nested path of SIMMAET chooses, per attribute, among routes
 %   that all carry the attribute's *declared* measure, and then chooses,
 %   for the density as a whole, between the contraction plan and the
 %   joint-tuple enumeration. Until this file existed those choices were
@@ -453,11 +453,11 @@ function [chosen, planMs, enumMs, detail] = localSelect(laws, keys, budget, ...
         if a <= numel(admByAttr) && ~isempty(admByAttr{a})
             continue;
         end
-        isSymA = true;
-        if isfield(densX, 'isSym') && numel(densX.isSym) >= a
-            isSymA = logical(densX.isSym(a));
+        isExchA = true;
+        if isfield(densX, 'isExch') && numel(densX.isExch) >= a
+            isExchA = logical(densX.isExch(a));
         end
-        if ~isSymA && double(densX.r(a)) > 1
+        if ~isExchA && double(densX.r(a)) > 1
             orderedA(end + 1) = a; %#ok<AGROW>
         else
             flatA(end + 1) = a; %#ok<AGROW>

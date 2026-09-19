@@ -6,7 +6,7 @@ function hit = selfIpMemoised(cache)
 %   product: Bulger's enumeration, the tuple-centres enumeration, the
 %   per-attribute Möbius matrices, and the nested contraction's
 %   single-attribute and multi-attribute forms. The sweep path's own
-%   'sweep' memo (written by SWEEPCOSSIMEXPTENS's mixture route under
+%   'sweep' memo (written by SWEEPSIMMAET's mixture route under
 %   INTERNAL.SELFIPKEY('sweep', ...), as the Python sweep writes it) is
 %   deliberately not among them: it is produced by a different evaluator
 %   and consumed by neither route here, so it would spare neither of

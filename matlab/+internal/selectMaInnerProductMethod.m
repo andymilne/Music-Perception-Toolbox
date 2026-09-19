@@ -2,7 +2,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         rVec, kVec, A, Nx, Ny, ...
         anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
         verbose, relVec, nuVec, kVecY, wrapVec, truncationSigmas, ...
-        skipXX, skipYY, symVec, guardForcedBulger, perVec)
+        skipXX, skipYY, exchVec, guardForcedBulger, perVec)
 %   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
 %   wall times in milliseconds that the comparison rests on. They are
 %   NaN on the early returns that decide without cost estimation (an explicit
@@ -82,20 +82,20 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % flags are shared rather than per route: the memoised values are
     % route-keyed (the routes' scales are related in closed form but
     % their truncated numbers are not the same number --- see
-    % localSelfIpKey in cosSimExpTens), yet estimating each route against
+    % localSelfIpKey in simMaet), yet estimating each route against
     % its own memo would decide the comparison on which route ran first
     % rather than on what the routes cost, and would lock that first
     % choice in. Twin of the Python selector's skip_xx / skip_yy.
     % Defaults false reproduce the full-triple cost estimation exactly.
     if nargin < 17 || isempty(skipXX); skipXX = false; end
     if nargin < 18 || isempty(skipYY); skipYY = false; end
-    % Per-attribute [sym] flags for the forced-Bulger feasibility guard
+    % Per-attribute [exch] flags for the forced-Bulger feasibility guard
     % (empty -> every attribute treated as unordered, the conservative
     % count), and the guard flag itself (false for nested densities,
     % which route through the hierarchical contraction instead of the
     % flat Bulger pairwise path). Twins of the Python selector's
-    % sym_vec and guard_forced_bulger.
-    if nargin < 19 || isempty(symVec);            symVec = [];             end
+    % exch_vec and guard_forced_bulger.
+    if nargin < 19 || isempty(exchVec);            exchVec = [];             end
     if nargin < 20 || isempty(guardForcedBulger); guardForcedBulger = true; end
     % Per-attribute isPer flags for the wrap rule below: only a
     % relative-PERIODIC attribute's wrap declares a measure. Empty (older
@@ -125,7 +125,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         % the Python selector's forced-Bulger guard.
         if guardForcedBulger
             internal.guardForcedBulgerFeasible(kVec, rVec, Nx, Ny, ...
-                'r above the shipped orbit order', kVecY, symVec);
+                'r above the shipped orbit order', kVecY, exchVec);
         end
         chosen = 'bulger'; return;
     end
@@ -151,17 +151,17 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     CENTRES_WORKING_SET_SOFT_BUDGET = 256 * 1024^2;   % bytes; Python twin
     if A > 0 && ~(anyRelPer && sigmaOverPMax > ...
                   internal.relPerSigmaOverPThreshold(truncationSigmas))
-        if isempty(symVec)
-            symGuard = true(1, A);
+        if isempty(exchVec)
+            exchGuard = true(1, A);
         else
-            symGuard = logical(symVec(:).');
+            exchGuard = logical(exchVec(:).');
         end
         tuplesX = 1; tuplesY = 1; dimSum = 0;
         for a = 1:A
             ra = rVec(a);
             % Enumerated tuple count: r_a! * C on an unordered attribute,
             % C alone on an ordered one (perm side = comb side).
-            if symGuard(a)
+            if exchGuard(a)
                 fa = factorial(ra);
             else
                 fa = 1;

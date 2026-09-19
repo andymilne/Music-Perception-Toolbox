@@ -21,9 +21,9 @@ import time
 import numpy as np
 import warnings
 from mpt.tensor import (
-    build_exp_tens,
-    _cos_sim_exp_tens_ma_orbit,
-    _cos_sim_exp_tens_ma_pairwise,
+    build_maet,
+    _sim_maet_ma_orbit,
+    _sim_maet_ma_pairwise,
     _predict_orbit_cost_ms,
     _predict_pairwise_kernel_size,
     _pw_per_entry_ms,
@@ -80,11 +80,11 @@ def main():
                 p2 = rng.uniform(0, P, (K, N))
                 w2 = rng.uniform(0.1, 1.0, (K, N))
 
-                d1 = build_exp_tens(
+                d1 = build_maet(
                     [p1], [w1], [sigma], [r], 
                     [is_rel], [is_per], [P], verbose=False,
                 )
-                d2 = build_exp_tens(
+                d2 = build_maet(
                     [p2], [w2], [sigma], [r], 
                     [is_rel], [is_per], [P], verbose=False,
                 )
@@ -93,16 +93,16 @@ def main():
                 for _ in range(WARMUP):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
-                        _cos_sim_exp_tens_ma_orbit(d1, d2)
-                        _cos_sim_exp_tens_ma_pairwise(d1, d2, verbose=False)
+                        _sim_maet_ma_orbit(d1, d2)
+                        _sim_maet_ma_pairwise(d1, d2, verbose=False)
 
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     t_orbit = time_call(
-                        lambda: _cos_sim_exp_tens_ma_orbit(d1, d2), REPS,
+                        lambda: _sim_maet_ma_orbit(d1, d2), REPS,
                     )
                     t_pw = time_call(
-                        lambda: _cos_sim_exp_tens_ma_pairwise(
+                        lambda: _sim_maet_ma_pairwise(
                             d1, d2, verbose=False,
                         ), REPS,
                     )

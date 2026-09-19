@@ -259,7 +259,7 @@ end
 
 function [xtup, ytup] = localTupleSides(K, r)
 %LOCALTUPLESIDES  X side: permutations of each combination; Y side:
-%   the combinations. Twin of the Python _tuple_indices with sym = true.
+%   the combinations. Twin of the Python _tuple_indices with exch = true.
     ytup = nchoosek(1:K, r);
     permsR = perms(1:r);
     xtup = zeros(size(ytup, 1) * size(permsR, 1), r);

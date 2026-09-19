@@ -1,4 +1,4 @@
-function buildAndSavePrebuiltTables(maxR)
+function buildAndSavePrebuiltTables(maxR, overwrite)
 %MOBIUS.BUILDANDSAVEPREBUILTTABLES  Build and save shipped orbit tables.
 %
 %   MOBIUS.BUILDANDSAVEPREBUILTTABLES() builds orbit tables for r =
@@ -8,14 +8,15 @@ function buildAndSavePrebuiltTables(maxR)
 %
 %   MOBIUS.BUILDANDSAVEPREBUILTTABLES(MAXR) builds for r = 2..MAXR.
 %
-%   Existing files are not overwritten; delete them manually to force a
-%   rebuild. This function is intended for release preparation, not
+%   MOBIUS.BUILDANDSAVEPREBUILTTABLES(MAXR, true) rebuilds tables that
+%   already exist; by default existing files are skipped. This function is intended for release preparation, not
 %   runtime invocation; runtime callers should use MOBIUS.GETORBITTABLE.
 %
 %   See also MOBIUS.BUILDORBITTABLE, MOBIUS.GETORBITTABLE.
 
     arguments
         maxR (1,1) {mustBeInteger, mustBePositive} = 8
+        overwrite (1,1) logical = false
     end
 
     if maxR < 2
@@ -31,7 +32,7 @@ function buildAndSavePrebuiltTables(maxR)
 
     for r = 2:maxR
         out = fullfile(prebuiltDir, sprintf('orbit_r%d.mat', r));
-        if isfile(out)
+        if isfile(out) && ~overwrite
             fprintf('  r=%d: already present, skipping.\n', r);
             continue
         end

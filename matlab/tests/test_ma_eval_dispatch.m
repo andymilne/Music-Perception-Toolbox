@@ -1,6 +1,6 @@
-%% test_ma_eval_dispatch.m — MA eval dispatch through public evalExpTens
+%% test_ma_eval_dispatch.m — MA eval dispatch through public evalMaet
 %
-%  Verifies the wired dispatch (internal.selectMaEval routing evalExpTens's
+%  Verifies the wired dispatch (internal.selectMaEval routing evalMaet's
 %  MA path between the factored mobius.evalMaOrbit and the joint-centres
 %  accumulator):
 %    - method 'centres', 'mobius', 'auto' agree (raw and pdf-normalised);
@@ -37,14 +37,14 @@ for ci = 1:numel(cfgs)
     pas = cell(A, 1);
     for a = 1:A, pas{a} = 100 * rand(K, N); end
     wpas = repmat({[]}, A, 1);
-    dens = buildExpTens(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
+    dens = buildMaet(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
     xq = 100 * rand(dens.dim, 8);
 
     for nz = {'none', 'pdf'}
         nzs = nz{1};
-        vC = evalExpTens(dens, xq, nzs, 'method', 'centres', 'verbose', false);
-        vM = evalExpTens(dens, xq, nzs, 'method', 'mobius',  'verbose', false);
-        vA = evalExpTens(dens, xq, nzs, 'method', 'auto',    'verbose', false);
+        vC = evalMaet(dens, xq, nzs, 'method', 'centres', 'verbose', false);
+        vM = evalMaet(dens, xq, nzs, 'method', 'mobius',  'verbose', false);
+        vA = evalMaet(dens, xq, nzs, 'method', 'auto',    'verbose', false);
         denom = max(max(abs(vC)), 1e-12);
         okCM = max(abs(vC(:) - vM(:))) / denom < 1e-6;
         okA  = (max(abs(vA(:) - vM(:))) / denom < 1e-9) || ...
@@ -67,10 +67,10 @@ if exist(jsonPath, 'file')
             pas{a} = reshape(pa, cc.K, cc.N);
         end
         wpas = repmat({[]}, A, 1);
-        dens = buildExpTens(pas, wpas, cc.sig(:)', cc.r(:)', ...
+        dens = buildMaet(pas, wpas, cc.sig(:)', cc.r(:)', ...
             logical(cc.rel(:)'), logical(cc.per(:)'), cc.P(:)', 'verbose', false);
         xq = reshape(cc.x, dens.dim, []);
-        vA = evalExpTens(dens, xq, cc.norm, 'method', 'auto', 'verbose', false);
+        vA = evalMaet(dens, xq, cc.norm, 'method', 'auto', 'verbose', false);
         vRef = cc.v(:);
         denom = max(max(abs(vRef)), 1e-12);
         results{end+1, 1} = sprintf('MA dispatch %s: matches Python auto (1e-6)', cc.label);

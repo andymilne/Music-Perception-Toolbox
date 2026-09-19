@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import mpt
-from mpt import (build_exp_tens, cos_sim_exp_tens, pre_maet_from_score,
+from mpt import (build_maet, sim_maet, pre_maet_from_score,
                  read_score, unpack_pre_maet)
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
@@ -165,7 +165,7 @@ def test_pre_maet_feeds_the_pipeline():
     with itself, without any hand-built pre-MAET."""
     pm = pre_maet_from_score(os.path.join(DATA, "score_small.mid"), parts=2)
     pm["specs"][0]["r"] = 2
-    d = build_exp_tens(pm, sigma=[1.0, 0.2],
+    d = build_maet(pm, sigma=[1.0, 0.2],
                        is_per=[True, False], period=[12.0, 0.0],
                        verbose=False)
-    assert cos_sim_exp_tens(d, d, verbose=False) == pytest.approx(1.0)
+    assert sim_maet(d, d, verbose=False) == pytest.approx(1.0)

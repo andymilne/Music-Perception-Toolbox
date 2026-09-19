@@ -84,26 +84,26 @@ outSEBatch = evalc('spectralEntropy(P_se, [], 12, ''spectrum'', spec, ''verbose'
 results{end+1,1} = 'spectralEntropy batched: verbose=true silent for fast call';
 results{end,2}   = isempty(strtrim(outSEBatch));
 
-% --- entropyExpTens batched verbose (Bundle 2) ---
+% --- entropyMaet batched verbose (Bundle 2) ---
 P_ee = [0, 100, 200, 300; 0, 200, 400, 600; 0, 100, 200, 300];
-outEEBatch = evalc(['entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ' ...
+outEEBatch = evalc(['entropyMaet(P_ee, [], 12, 1, false, false, 1200, ' ...
     '''xMin'', 0, ''xMax'', 600, ''nPointsPerDim'', 1200, ''verbose'', true);']);
-results{end+1,1} = 'entropyExpTens batched: verbose=true silent for fast call';
+results{end+1,1} = 'entropyMaet batched: verbose=true silent for fast call';
 results{end,2}   = isempty(strtrim(outEEBatch));
 
-outEEBatchSilent = evalc(['entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ' ...
+outEEBatchSilent = evalc(['entropyMaet(P_ee, [], 12, 1, false, false, 1200, ' ...
     '''xMin'', 0, ''xMax'', 600, ''nPointsPerDim'', 1200, ''verbose'', false);']);
-results{end+1,1} = 'entropyExpTens batched: verbose=false silent';
+results{end+1,1} = 'entropyMaet batched: verbose=false silent';
 results{end,2}   = isempty(strtrim(outEEBatchSilent));
 
 mptDefaults(prevSH_harmony1);  % restore showHints
 
 % Numerical results unchanged by verbose flag
-H_ee_v = entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ...
+H_ee_v = entropyMaet(P_ee, [], 12, 1, false, false, 1200, ...
     'xMin', 0, 'xMax', 600, 'nPointsPerDim', 1200, 'verbose', true);
-H_ee_q = entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ...
+H_ee_q = entropyMaet(P_ee, [], 12, 1, false, false, 1200, ...
     'xMin', 0, 'xMax', 600, 'nPointsPerDim', 1200, 'verbose', false);
-results{end+1,1} = 'entropyExpTens batched: verbose flag does not affect outputs';
+results{end+1,1} = 'entropyMaet batched: verbose flag does not affect outputs';
 results{end,2}   = isequaln(H_ee_v, H_ee_q);
 
 [hMax, hEnt] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', false);
@@ -194,8 +194,8 @@ results{end+1,1} = 'tensorHarmonicity batched: insufficient pitches return NaN';
 results{end,2}   = ~isnan(h_th_short(1)) && isnan(h_th_short(2)) && isnan(h_th_short(3));
 
 % --- tensorHarmonicity verbose / estimateCompTime integration (v3+) ---
-% Scalar verbose=true forwards to buildExpTens, which prints its own estimate
-% (and the inner evalExpTens emits the dispatch announce). The announce is
+% Scalar verbose=true forwards to buildMaet, which prints its own estimate
+% (and the inner evalMaet emits the dispatch announce). The announce is
 % gated by mptDefaults('showHints'), which test_mpt.m silences at suite
 % level; enable it explicitly here so the assertion sees the announce.
 prevSH_thVerb = mptDefaults('showHints', true);

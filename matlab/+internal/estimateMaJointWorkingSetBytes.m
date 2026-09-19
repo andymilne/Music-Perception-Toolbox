@@ -1,4 +1,4 @@
-function bytes = estimateMaJointWorkingSetBytes(rVec, kVec, isRel, isSym)
+function bytes = estimateMaJointWorkingSetBytes(rVec, kVec, isRel, isExch)
 %ESTIMATEMAJOINTWORKINGSETBYTES  Multi-attribute joint-centres working set.
 %
 %   BYTES = INTERNAL.ESTIMATEMAJOINTWORKINGSETBYTES(RVEC, KVEC, ISREL,
@@ -7,7 +7,7 @@ function bytes = estimateMaJointWorkingSetBytes(rVec, kVec, isRel, isSym)
 %   across attributes of each attribute's enumerated tuple count ---
 %   r_a! * C(K_a, r_a) on an unordered attribute, C(K_a, r_a) on an
 %   ordered one (the perm side is the comb side; see the enumeration in
-%   buildExpTens). The stored joint centres array is (D, nJoint) with
+%   buildMaet). The stored joint centres array is (D, nJoint) with
 %   D = sum_a (r_a - isRel_a), plus per-attribute index bookkeeping of
 %   the same nJoint length; a row factor of 2*D over-counts honestly
 %   for a memory guard.
@@ -20,8 +20,8 @@ function bytes = estimateMaJointWorkingSetBytes(rVec, kVec, isRel, isSym)
 %   Twin of python _estimate_ma_joint_working_set_bytes.
 
     A = numel(rVec);
-    if nargin < 4 || isempty(isSym)
-        isSym = true(1, A);
+    if nargin < 4 || isempty(isExch)
+        isExch = true(1, A);
     end
     nJoint = 1;
     D = 0;
@@ -39,7 +39,7 @@ function bytes = estimateMaJointWorkingSetBytes(rVec, kVec, isRel, isSym)
         for k = (K_a - r_a + 1):K_a
             cnt = cnt * k;
         end
-        if ~isSym(a)
+        if ~isExch(a)
             cnt = cnt / factorial(r_a);
         end
         nJoint = nJoint * max(cnt, 1);

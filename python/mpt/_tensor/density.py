@@ -6,7 +6,7 @@ toolbox:
 * :class:`MaetDensity` --- multi-attribute expectation tensor density
 
 It also exposes the small set of multi-attribute input-coercion and
-weight-normalisation helpers consumed by ``build_exp_tens`` and by the
+weight-normalisation helpers consumed by ``build_maet`` and by the
 preprocessing utilities (``difference_events``). The helpers live here
 rather than in ``build.py`` because they are tied to the shape and
 field conventions of :class:`MaetDensity` itself, not to any specific
@@ -109,24 +109,24 @@ def _weight_is_live(w: np.ndarray) -> np.ndarray:
 class MaetDensity:
     """Precomputed multi-attribute expectation tensor density (MAET).
 
-    Returned by :func:`build_exp_tens` when called in multi-attribute
+    Returned by :func:`build_maet` when called in multi-attribute
     form (first argument a list/tuple of attribute matrices). The
     single-multiset densities are MaetDensity at A = N = 1.
 
     See the MAET specification (``multi_attribute_tensor_specification.md``)
-    §2 and §6, and :func:`build_exp_tens` for argument semantics.
+    §2 and §6, and :func:`build_maet` for argument semantics.
 
     Lazy materialisation
     --------------------
     The eager-stored fields (``p_attr``, ``w``, ``sigma``, ``r``,
-    ``k``, ``is_rel``, ``is_per``, ``period``, ``n_attrs``, ``n``,
+    ``k``, ``is_rel``, ``is_per``, ``is_exch``, ``period``, ``n_attrs``, ``n``,
     ``dim``, ``dim_per_attr``, ``tag``) are populated by
-    ``build_exp_tens``. Every attribute is self-contained, so the
-    geometry fields ``sigma``, ``is_rel``, ``is_per``, and ``period``
-    are per-attribute (length *A*). The per-tuple fields (``n_j``,
+    ``build_maet``. Every attribute is self-contained, so the
+    geometry fields ``sigma``, ``is_rel``, ``is_per``, ``is_exch``, and
+    ``period`` are per-attribute (length *A*). The per-tuple fields (``n_j``,
     ``n_k``, ``centres``, ``u_perm``, ``v_comb``, ``w_j``, ``wv_comb``,
     ``event_of_j``, ``event_of_k``) are constructed lazily on first
-    access and cached. This keeps ``build_exp_tens`` cheap and avoids
+    access and cached. This keeps ``build_maet`` cheap and avoids
     OOM at high cardinality when only the Möbius method is exercised
     (MA cosine ``method='mobius'``, MA Rényi-2 entropy). Use
     :attr:`materialised` to check the cache state without triggering a
@@ -144,7 +144,7 @@ class MaetDensity:
     """
 
     # Anisotropic kernel covariance metadata (set post-construction by
-    # build_exp_tens when any attribute's sigma is matrix-valued): a
+    # build_maet when any attribute's sigma is matrix-valued): a
     # length-A list with None for isotropic attributes and the
     # covariance / lower Cholesky factor for matrix-sigma attributes.
     # Matrix-sigma attributes store their p_attr values in whitened
@@ -168,7 +168,7 @@ class MaetDensity:
         period: np.ndarray,
         dim: int,
         dim_per_attr: np.ndarray,
-        is_sym: np.ndarray | None = None,
+        is_exch: np.ndarray | None = None,
         nested: list | None = None,
         names: list | None = None,
         wrap: np.ndarray | None = None,
@@ -205,11 +205,11 @@ class MaetDensity:
         # Per-attribute symmetrisation flag. Default all-True (legacy
         # symmetric reading) when a caller constructs the struct without
         # specifying it.
-        self.is_sym = (np.ones(n_attrs, dtype=bool) if is_sym is None
-                       else np.asarray(is_sym, dtype=bool).ravel())
+        self.is_exch = (np.ones(n_attrs, dtype=bool) if is_exch is None
+                       else np.asarray(is_exch, dtype=bool).ravel())
         # Per-attribute nesting spec (representation B): None per attribute
-        # for flat attributes, or a dict {tags, r, sym, rel, ...} (per-level
-        # r/sym vectors and the resolved [rel] projection) for a nested one.
+        # for flat attributes, or a dict {tags, r, exch, rel, ...} (per-level
+        # r/exch vectors and the resolved [rel] projection) for a nested one.
         # Per-value tags are row-indexed, so event (column) pruning leaves
         # them untouched.
         self.nested = ([None] * n_attrs if nested is None else list(nested))
@@ -293,9 +293,9 @@ class MaetDensity:
         to any per-attribute inner product or total mass, so dropping
         them leaves results unchanged while shrinking the O(n) / O(n^2)
         work and the per-tuple expansion. This value-/event-level split
-        mirrors the MATLAB ``prunedExpTens`` branches. Returns ``self``
+        mirrors the MATLAB ``prunedMaet`` branches. Returns ``self``
         when nothing is dead. The subset is rebuilt through the same
-        lazy machinery ``build_exp_tens`` uses, so the per-tuple fields
+        lazy machinery ``build_maet`` uses, so the per-tuple fields
         stay correct for any consumer that later materialises them.
 
         The result is memoised: the density's inputs never change, so
@@ -333,7 +333,7 @@ class MaetDensity:
         def _build_lazy():
             return _ma_build_perm_arrays(
                 p_attr=p_attr, w_list=w, r_vec=self.r,
-                is_rel_vec=self.is_rel, is_sym_vec=self.is_sym,
+                is_rel_vec=self.is_rel, is_exch_vec=self.is_exch,
                 N=n_k, A=self.n_attrs, nested=self.nested,
             )
 
@@ -342,7 +342,7 @@ class MaetDensity:
             n=n_k, r=self.r, k=self.k,
             p_attr=p_attr, w=w, sigma=self.sigma, is_rel=self.is_rel,
             is_per=self.is_per, period=self.period, dim=self.dim,
-            dim_per_attr=self.dim_per_attr, is_sym=self.is_sym,
+            dim_per_attr=self.dim_per_attr, is_exch=self.is_exch,
             nested=self.nested,
             names=self.names,
             _build_lazy=_build_lazy,
@@ -596,7 +596,7 @@ def is_single_multiset(dens):
 
     A single flat (non-nested) attribute whose values are one weighted
     multiset (the ET of Milne 2011). The ``A == 1, r == 1`` case with
-    ``N > 1`` never reaches here as such: :func:`_build_exp_tens_ma`
+    ``N > 1`` never reaches here as such: :func:`_build_maet_ma`
     collapses it into one pooled event at build (a tuple is a lone value
     at r = 1), so every downstream consumer only ever meets the
     canonical ``N == 1`` form. Evaluation strategy for this corner is
@@ -653,8 +653,8 @@ class _SingleMultisetView:
         return float(self._d.period[0])
 
     @property
-    def is_sym(self):
-        return bool(self._d.is_sym[0])
+    def is_exch(self):
+        return bool(self._d.is_exch[0])
 
     @property
     def dim(self):
@@ -727,10 +727,10 @@ class _SingleMultisetView:
             return self
         if self.kernel_cov is not None:
             return self
-        from .build import _build_exp_tens_single_multiset
-        out = _build_exp_tens_single_multiset(
+        from .build import _build_maet_single_multiset
+        out = _build_maet_single_multiset(
             self.p[live], self.w[live], self.sigma, self.r,
-            self.is_rel, self.is_per, self.period, self.is_sym,
+            self.is_rel, self.is_per, self.period, self.is_exch,
             verbose=False,
         )
         return single_multiset_view(out)
@@ -768,3 +768,43 @@ def single_multiset_view(dens):
         f"n_attrs={getattr(dens, 'n_attrs', '?')}, "
         f"n={getattr(dens, 'n', '?')}."
     )
+
+
+def maet_centres(dens):
+    """Tuple centres of an expectation tensor density.
+
+    The points at which the density places its Gaussians: a list of
+    length *A* whose entry *a* is an ``(r_a - is_rel_a) x n_j`` array of
+    tuple centres in that attribute's own coordinates, unwrapped on a
+    periodic attribute.
+
+    ``build_maet`` builds the per-tuple fields lazily, so this call
+    materialises them when they are not yet built.
+
+    Parameters
+    ----------
+    dens : MaetDensity
+        Density from :func:`~mpt.build_maet`.
+
+    Returns
+    -------
+    list of ndarray
+        One tuple-centre matrix per attribute.
+
+    Examples
+    --------
+    >>> dens = build_maet([0, 400, 700], None, 10, 2, False, False, 1200)
+    >>> maet_centres(dens)[0].shape        # doctest: +SKIP
+    (2, 6)
+
+    The MATLAB mirror is maetCentres.
+
+    See Also
+    --------
+    build_maet, eval_maet, sim_maet
+    """
+    if not isinstance(dens, MaetDensity):
+        raise TypeError(
+            "maet_centres: input must be a density from build_maet; got "
+            f"{type(dens).__name__}.")
+    return dens.centres

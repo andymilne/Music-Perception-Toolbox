@@ -1,6 +1,6 @@
 """Timing grid for estimating the cost of the per-level Möbius evaluator on nested densities.
 
-Twin of matlab/tools/benchNestedEval.m. ``eval_exp_tens`` on a nested
+Twin of matlab/tools/benchNestedEval.m. ``eval_maet`` on a nested
 density has two routes: the tuple-centres route (materialise every
 nested tuple, ``M_perm`` per event, and sum a Gaussian per centre) and
 the per-level Möbius evaluator (``_tensor/_nested_mobius_eval.py``), which
@@ -26,7 +26,7 @@ laws would use: ``m_perm`` (nested tuple centres per event), ``d``
 the level's r, the partition count the per-level sum forms),
 ``n_u`` (translation-grid nodes of the co-transposition unit, 1 for
 absolute), ``rel_unit`` (-1 absolute, else the 0-based level), ``per``,
-``sym`` (per-level flags as a string), and the two medians in ms.
+``exch`` (per-level flags as a string), and the two medians in ms.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ import time
 import numpy as np
 
 import mpt
-from mpt import build_exp_tens, eval_exp_tens
+from mpt import build_maet, eval_maet
 from mpt._mobius import get_set_partitions_with_mobius
 
 P = 12.0
@@ -71,20 +71,20 @@ def main():
     ts = mpt.get_default('truncation_sigmas')
     rng = np.random.default_rng(0)
     print("BEGIN_CSV")
-    print("groups,group_size,r_levels,sym,rel_unit,per,k,n,n_q,d,m_perm,"
+    print("groups,group_size,r_levels,exch,rel_unit,per,k,n,n_q,d,m_perm,"
           "bell_sum,n_u,centres_ms,mobius_ms")
     cells = []
     for groups, gsize in [(2, 3), (3, 3), (4, 3), (3, 4), (4, 4), (2, 5)]:
         for r_levels in [(1, 2), (2, 2), (2, 3), (3, 2), (3, 3), (1, 3), (2, 4)]:
             if r_levels[0] > gsize or r_levels[1] > groups:
                 continue
-            for sym in [(True, True), (True, False), (False, True)]:
+            for exch in [(True, True), (True, False), (False, True)]:
                 for rel_unit in [None, 1, 0]:
                     if rel_unit == 0 and r_levels[0] < 2:
                         continue
                     for per in [False, True]:
-                        cells.append((groups, gsize, r_levels, sym, rel_unit, per))
-    for groups, gsize, r_levels, sym, rel_unit, per in cells:
+                        cells.append((groups, gsize, r_levels, exch, rel_unit, per))
+    for groups, gsize, r_levels, exch, rel_unit, per in cells:
         K = groups * gsize
         tags = np.repeat(np.arange(groups), gsize)
         rel = [0, 0]
@@ -92,28 +92,28 @@ def main():
             rel[rel_unit] = 1
         for N in (4, 32):
             p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
-            spec = {"tags": tags, "r": list(r_levels), "sym": list(sym),
+            spec = {"tags": tags, "r": list(r_levels), "exch": list(exch),
                     "rel": rel}
             sigma = 0.6
-            d = build_exp_tens([p], None, specs=[spec], sigma=[sigma],
+            d = build_maet([p], None, specs=[spec], sigma=[sigma],
                                is_per=[per], period=[P], verbose=False)
             if d.dim == 0:
                 continue
             m_perm = int(d.n_j // N)
             bell_sum = sum(len(get_set_partitions_with_mobius(int(r)))
-                           for r, s in zip(r_levels, sym) if s and r >= 2)
+                           for r, s in zip(r_levels, exch) if s and r >= 2)
             n_u = _grid_nodes(d, rel_unit, r_levels, sigma, per, ts)
             for n_q in (1, 20, 200):
                 X = rng.uniform(0.0, P, size=(d.dim, n_q))
                 if m_perm * N * n_q > 4e7:
                     t_c = float('nan')
                 else:
-                    t_c = _median_ms(lambda: eval_exp_tens(
+                    t_c = _median_ms(lambda: eval_maet(
                         d, X, method="centres", verbose=False))
-                t_m = _median_ms(lambda: eval_exp_tens(
+                t_m = _median_ms(lambda: eval_maet(
                     d, X, method="mobius", verbose=False))
                 print(f"{groups},{gsize},{'x'.join(map(str, r_levels))},"
-                      f"{''.join('1' if s else '0' for s in sym)},"
+                      f"{''.join('1' if s else '0' for s in exch)},"
                       f"{-1 if rel_unit is None else rel_unit},{int(per)},"
                       f"{K},{N},{n_q},{d.dim},{m_perm},{bell_sum},{n_u},"
                       f"{t_c:.4f},{t_m:.4f}")

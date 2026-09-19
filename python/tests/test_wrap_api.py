@@ -28,7 +28,7 @@ PERIOD = 1200.0
 def test_default_wrap_is_full_image_scalar():
     p = np.array([[0.0, 100.0, 300.0, 700.0]]).T
     w = np.ones(4).reshape(-1, 1)
-    d = mpt.build_exp_tens(
+    d = mpt.build_maet(
         [p], [w], [60.0], [2], [False], [True], [PERIOD], verbose=False,
     )
     assert list(d.wrap) == ['full-image']
@@ -38,7 +38,7 @@ def test_default_wrap_is_full_image_multi_attr():
     p1 = np.array([[0.0, 100.0, 300.0]]).T
     p2 = np.array([[50.0, 200.0, 400.0]]).T
     w = np.ones(3).reshape(-1, 1)
-    d = mpt.build_exp_tens(
+    d = mpt.build_maet(
         [p1, p2], [w, w],
         [60.0, 60.0], [2, 2],
         [False, False], [True, True], [PERIOD, PERIOD],
@@ -51,7 +51,7 @@ def test_wrap_scalar_broadcast():
     p1 = np.array([[0.0, 100.0, 300.0]]).T
     p2 = np.array([[50.0, 200.0, 400.0]]).T
     w = np.ones(3).reshape(-1, 1)
-    d = mpt.build_exp_tens(
+    d = mpt.build_maet(
         [p1, p2], [w, w],
         [60.0, 60.0], [2, 2],
         [False, False], [True, True], [PERIOD, PERIOD],
@@ -64,7 +64,7 @@ def test_wrap_per_attribute():
     p1 = np.array([[0.0, 100.0, 300.0]]).T
     p2 = np.array([[50.0, 200.0, 400.0]]).T
     w = np.ones(3).reshape(-1, 1)
-    d = mpt.build_exp_tens(
+    d = mpt.build_maet(
         [p1, p2], [w, w],
         [60.0, 60.0], [2, 2],
         [False, False], [True, True], [PERIOD, PERIOD],
@@ -81,7 +81,7 @@ def test_wrap_unknown_string_raises():
     p = np.array([[0.0, 100.0, 300.0]]).T
     w = np.ones(3).reshape(-1, 1)
     with pytest.raises(ValueError):
-        mpt.build_exp_tens(
+        mpt.build_maet(
             [p], [w], [60.0], [2], [False], [True], [PERIOD],
             wrap='torus', verbose=False,
         )
@@ -92,7 +92,7 @@ def test_wrap_array_wrong_length_raises():
     p2 = np.array([[50.0, 200.0, 400.0]]).T
     w = np.ones(3).reshape(-1, 1)
     with pytest.raises(ValueError):
-        mpt.build_exp_tens(
+        mpt.build_maet(
             [p1, p2], [w, w],
             [60.0, 60.0], [2, 2],
             [False, False], [True, True], [PERIOD, PERIOD],
@@ -116,15 +116,15 @@ def test_full_image_cosine_bounded_at_high_sigma_over_p(sigma_over_P):
     p2 = np.array([[50.0, 250.0, 500.0, 900.0]]).T
     w = np.ones(4).reshape(-1, 1)
     sigma = sigma_over_P * PERIOD
-    d1 = mpt.build_exp_tens(
+    d1 = mpt.build_maet(
         [p1], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
-    d2 = mpt.build_exp_tens(
+    d2 = mpt.build_maet(
         [p2], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
-    c12 = mpt.cos_sim_exp_tens(d1, d2, verbose=False)
-    c11 = mpt.cos_sim_exp_tens(d1, d1, verbose=False)
-    c22 = mpt.cos_sim_exp_tens(d2, d2, verbose=False)
+    c12 = mpt.sim_maet(d1, d2, verbose=False)
+    c11 = mpt.sim_maet(d1, d1, verbose=False)
+    c22 = mpt.sim_maet(d2, d2, verbose=False)
     assert c12 <= 1.0 + 1e-10
     assert abs(c11 - 1.0) < 1e-10
     assert abs(c22 - 1.0) < 1e-10
@@ -142,24 +142,24 @@ def test_single_image_matches_below_threshold():
     p2 = np.array([[50.0, 250.0, 500.0, 900.0]]).T
     w = np.ones(4).reshape(-1, 1)
     sigma = 0.03 * PERIOD  # well below threshold
-    d_full = mpt.build_exp_tens(
+    d_full = mpt.build_maet(
         [p1], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
-    d_single = mpt.build_exp_tens(
+    d_single = mpt.build_maet(
         [p1], [w], [sigma], [2], [False], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
-    e_full = mpt.build_exp_tens(
+    e_full = mpt.build_maet(
         [p2], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
-    e_single = mpt.build_exp_tens(
+    e_single = mpt.build_maet(
         [p2], [w], [sigma], [2], [False], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
-    c_full = mpt.cos_sim_exp_tens(d_full, e_full, verbose=False)
+    c_full = mpt.sim_maet(d_full, e_full, verbose=False)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        c_single = mpt.cos_sim_exp_tens(d_single, e_single, verbose=False)
+        c_single = mpt.sim_maet(d_single, e_single, verbose=False)
     assert abs(c_full - c_single) < 1e-12
 
 
@@ -171,24 +171,24 @@ def test_single_image_differs_from_full_at_high_sigma():
     p2 = np.array([[50.0, 250.0, 500.0, 900.0]]).T
     w = np.ones(4).reshape(-1, 1)
     sigma = 0.20 * PERIOD  # well above threshold
-    d_full = mpt.build_exp_tens(
+    d_full = mpt.build_maet(
         [p1], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
-    d_single = mpt.build_exp_tens(
+    d_single = mpt.build_maet(
         [p1], [w], [sigma], [2], [False], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
-    e_full = mpt.build_exp_tens(
+    e_full = mpt.build_maet(
         [p2], [w], [sigma], [2], [False], [True], [PERIOD], verbose=False,
     )
-    e_single = mpt.build_exp_tens(
+    e_single = mpt.build_maet(
         [p2], [w], [sigma], [2], [False], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
-    c_full = mpt.cos_sim_exp_tens(d_full, e_full, verbose=False)
+    c_full = mpt.sim_maet(d_full, e_full, verbose=False)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        c_single = mpt.cos_sim_exp_tens(d_single, e_single, verbose=False)
+        c_single = mpt.sim_maet(d_single, e_single, verbose=False)
     # Genuinely different at high sigma/P
     assert abs(c_full - c_single) > 1e-6
 
@@ -203,15 +203,15 @@ def test_wrap_irrelevant_for_non_periodic():
     """
     p = np.array([[0.0, 100.0, 300.0, 700.0]]).T
     w = np.ones(4).reshape(-1, 1)
-    d_full = mpt.build_exp_tens(
+    d_full = mpt.build_maet(
         [p], [w], [50.0], [2], [False], [False], [0.0], verbose=False,
     )
-    d_single = mpt.build_exp_tens(
+    d_single = mpt.build_maet(
         [p], [w], [50.0], [2], [False], [False], [0.0],
         wrap='single-image', verbose=False,
     )
-    c_full = mpt.cos_sim_exp_tens(d_full, d_full, verbose=False)
-    c_single = mpt.cos_sim_exp_tens(d_single, d_single, verbose=False)
+    c_full = mpt.sim_maet(d_full, d_full, verbose=False)
+    c_single = mpt.sim_maet(d_single, d_single, verbose=False)
     assert abs(c_full - c_single) < 1e-12
     assert abs(c_full - 1.0) < 1e-12
 
@@ -225,24 +225,24 @@ def test_wrap_affects_rel_per_at_high_sigma():
     p2 = np.array([[50.0, 250.0, 500.0, 900.0]]).T
     w = np.ones(4).reshape(-1, 1)
     sigma = 0.20 * PERIOD
-    d1a = mpt.build_exp_tens(
+    d1a = mpt.build_maet(
         [p1], [w], [sigma], [2], [True], [True], [PERIOD], verbose=False,
     )
-    d1b = mpt.build_exp_tens(
+    d1b = mpt.build_maet(
         [p1], [w], [sigma], [2], [True], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
-    d2 = mpt.build_exp_tens(
+    d2 = mpt.build_maet(
         [p2], [w], [sigma], [2], [True], [True], [PERIOD], verbose=False,
     )
-    d2b = mpt.build_exp_tens(
+    d2b = mpt.build_maet(
         [p2], [w], [sigma], [2], [True], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        c_full = mpt.cos_sim_exp_tens(d1a, d2, verbose=False)
-        c_single = mpt.cos_sim_exp_tens(d1b, d2b, verbose=False)
+        c_full = mpt.sim_maet(d1a, d2, verbose=False)
+        c_single = mpt.sim_maet(d1b, d2b, verbose=False)
     # Full-image (C) and single-image (A) differ above the threshold.
     assert abs(c_full - c_single) > 1e-6
 
@@ -254,20 +254,20 @@ def test_wrap_matches_between_rel_per_measures_below_threshold():
     p2 = np.array([[50.0, 250.0, 500.0, 900.0]]).T
     w = np.ones(4).reshape(-1, 1)
     sigma = 0.02 * PERIOD  # well below threshold
-    d1a = mpt.build_exp_tens(
+    d1a = mpt.build_maet(
         [p1], [w], [sigma], [2], [True], [True], [PERIOD], verbose=False,
     )
-    d1b = mpt.build_exp_tens(
+    d1b = mpt.build_maet(
         [p1], [w], [sigma], [2], [True], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
-    d2 = mpt.build_exp_tens(
+    d2 = mpt.build_maet(
         [p2], [w], [sigma], [2], [True], [True], [PERIOD], verbose=False,
     )
-    d2b = mpt.build_exp_tens(
+    d2b = mpt.build_maet(
         [p2], [w], [sigma], [2], [True], [True], [PERIOD],
         wrap='single-image', verbose=False,
     )
-    c_full = mpt.cos_sim_exp_tens(d1a, d2, verbose=False)
-    c_single = mpt.cos_sim_exp_tens(d1b, d2b, verbose=False)
+    c_full = mpt.sim_maet(d1a, d2, verbose=False)
+    c_single = mpt.sim_maet(d1b, d2b, verbose=False)
     assert abs(c_full - c_single) < 1e-8

@@ -5,7 +5,7 @@ function [pm, sweep] = translateAttributes(varargin)
 %   PM = translateAttributes(pAttr, wAttr, offsets, ...) are per-attribute
 %   preprocessing on the pre-MAET. Selected attributes' positions are
 %   shifted by a chosen offset and the transformed pre-MAET feeds straight
-%   into buildExpTens (or a further pre-MAET step). Weights and specs pass
+%   into buildMaet (or a further pre-MAET step). Weights and specs pass
 %   through unchanged; only the values move.%
 %   The pre-MAET may be passed whole, as preMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
@@ -48,7 +48,7 @@ function [pm, sweep] = translateAttributes(varargin)
 %   (per-value) offset is NOT a no-op even on a relative attribute --- it
 %   shifts the within-tuple differences --- so it applies. is_per/period
 %   are not consulted here (translation emits unwrapped values; the
-%   periodic kernel in buildExpTens wraps downstream) and stay separate.
+%   periodic kernel in buildMaet wraps downstream) and stay separate.
 %
 %   Inputs
 %       pm      - Pre-MAET, in place of pAttr and wAttr.
@@ -66,7 +66,7 @@ function [pm, sweep] = translateAttributes(varargin)
 %               sweep (M > 1) a 1 x M cell of such cells; wAttr and specs
 %               are unchanged from input (or synthesised).
 %       sweep - Struct describing the sweep, for callers that go on to
-%               sweepCosSimExpTens: .offsets is an A x M matrix of the
+%               sweepSimMaet: .offsets is an A x M matrix of the
 %               per-attribute uniform translations, with NaN in any
 %               (attribute, sweep index) cell whose offset was not
 %               uniform across that attribute's positions, and .base is the
@@ -79,13 +79,13 @@ function [pm, sweep] = translateAttributes(varargin)
 %               toolbox parity floor.
 %
 %   Cross-language note. The Python translateAttributes attaches this
-%   information to its returned sweep list, so cosSimExpTens picks it up
+%   information to its returned sweep list, so simMaet picks it up
 %   with no change at the call site. MATLAB cell arrays cannot carry
 %   attached data, so here it is a fourth output the caller passes on
 %   explicitly.
 %
-%   See also DIFFERENCEEVENTS, BINDEVENTS, FLATSPECS, BUILDEXPTENS,
-%   SWEEPCOSSIMEXPTENS.
+%   See also DIFFERENCEEVENTS, BINDEVENTS, FLATSPECS, BUILDMAET,
+%   SWEEPSIMMAET.
 
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
 [pOut, w, specs, sweep] = localTranslateAttributes(pAttr, wAttr, specsPm, rest{:});

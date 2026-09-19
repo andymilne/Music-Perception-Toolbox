@@ -176,7 +176,7 @@ def test_image_count_degenerate_inputs_return_zero(sigma, period):
 # ---------------------------------------------------------------------
 #
 # The tests above compare inner products. Evaluation is the other half:
-# eval_exp_tens returns the density at a set of query points, and it must
+# eval_maet returns the density at a set of query points, and it must
 # return the full-image density, not the nearest-image approximation to
 # it. The two coincide as sigma/period tends to zero and part company as
 # it grows, so the cells below run from the musical range up to
@@ -222,7 +222,7 @@ def _eval_case(r, sigma_over_P, n_q=10, K=5):
     w = np.ones(K)
     x = rng.uniform(0, PERIOD, (r - 1, n_q))
     sigma = sigma_over_P * PERIOD
-    dens = mpt.build_exp_tens(p, w, sigma, r, True, True, PERIOD, verbose=False)
+    dens = mpt.build_maet(p, w, sigma, r, True, True, PERIOD, verbose=False)
     ref = _lattice_eval(p, w, x, sigma, r)
     return mpt, dens, x, ref
 
@@ -236,7 +236,7 @@ def test_eval_matches_lattice_untruncated(r, sigma_over_P):
     from mpt._defaults import accuracy_floor_context
     mpt, dens, x, ref = _eval_case(r, sigma_over_P)
     with accuracy_floor_context(1e-300):
-        got = mpt.eval_exp_tens(dens, x, truncation_sigmas=math.inf,
+        got = mpt.eval_maet(dens, x, truncation_sigmas=math.inf,
                                 verbose=False)
     err = np.max(np.abs(got - ref)) / ref.max()
     assert err < 1e-12, f"r={r}, sigma/P={sigma_over_P}: {err:.3e}"
@@ -250,7 +250,7 @@ def test_eval_matches_lattice_at_default_truncation(r, sigma_over_P):
     floor with an order of magnitude of headroom, since the discarded
     mass accumulates over tuples and images."""
     mpt, dens, x, ref = _eval_case(r, sigma_over_P)
-    got = mpt.eval_exp_tens(dens, x, verbose=False)
+    got = mpt.eval_maet(dens, x, verbose=False)
     err = np.max(np.abs(got - ref)) / ref.max()
     assert err < 1.5e-7, f"r={r}, sigma/P={sigma_over_P}: {err:.3e}"
 
@@ -293,7 +293,7 @@ def test_eval_departs_from_the_nearest_image_kernel_as_sigma_grows():
         p = np.sort(rng.uniform(0, PERIOD, 5))
         near = _nearest_image_eval(p, np.ones(5), x, sigma_over_P * PERIOD, r)
         with accuracy_floor_context(1e-300):
-            got = mpt.eval_exp_tens(dens, x, truncation_sigmas=math.inf,
+            got = mpt.eval_maet(dens, x, truncation_sigmas=math.inf,
                                     verbose=False)
         gaps[sigma_over_P] = float(np.max(np.abs(got - near)) / ref.max())
     assert gaps[0.02] < 1e-6, gaps
@@ -351,12 +351,12 @@ def test_nonper_dense_matches_direct_enumeration(K, r):
     import mpt
     import mpt._tensor._mobius_inner as _mi
     p, wp, q, wq = _nonper_case(K=K)
-    ref = mpt.cos_sim_exp_tens(p, wp, q, wq, 6.0, r, 1, 0, 0.0,
+    ref = mpt.sim_maet(p, wp, q, wq, 6.0, r, 1, 0, 0.0,
                                method="bulger", verbose=False)
     spectral_was = _mi._SPECTRAL_IP_ENABLED
     _mi._SPECTRAL_IP_ENABLED = False
     try:
-        got = mpt.cos_sim_exp_tens(p, wp, q, wq, 6.0, r, 1, 0, 0.0,
+        got = mpt.sim_maet(p, wp, q, wq, 6.0, r, 1, 0, 0.0,
                                    method="mobius", verbose=False)
     finally:
         _mi._SPECTRAL_IP_ENABLED = spectral_was

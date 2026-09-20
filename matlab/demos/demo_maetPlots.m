@@ -1,10 +1,12 @@
 %% demo_maetPlots.m
 %  Visualizes expectation tensor densities in 1 to 3 dimensions for
 %  user-specified combinations of r, isRel, isPer, and isExch, each
-%  configuration drawn both unordered and ordered.
+%  configuration drawn both unordered and ordered -- including r = 1,
+%  where the two are necessarily the same picture.
 %
 %  Uses buildMaet to precompute the density object once per configuration,
-%  then passes it to evalMaet.
+%  then passes it to evalMaet for one and two dimensions, and to
+%  plotMaet3d for three.
 %
 %  Each figure includes an interactive transform-mode selector (Off /
 %  Gamma / Saturation) for real-time adjustment of dynamic-range
@@ -23,13 +25,13 @@
 %  Toolbox).
 
 %% === User-editable parameters ===
-close
+close all
 % Pitch set and weights
 p = [0; 200; 400; 500; 700; 900; 1100];
 w = [];
 
 % Gaussian smoothing width
-sigma = 10;
+sigma = 15;
 
 % Normalization mode for density evaluation: 'none', 'gaussian', or 'pdf'
 %   'none'     — Raw weighted proximity scores (default). Only relative
@@ -73,11 +75,16 @@ period = 1200;
 % unordered one is its symmetrization.
 %
 % Add, remove, or reorder rows to control which plots are produced.
-% r = 1 has one slot, so ordering means nothing there and it appears
-% once only.
+%
+% r = 1 is drawn both ways too, though it has one slot and so nothing
+% to order: the two plots come out identical, which is the point of
+% including them. Exchangeability is a statement about the arrangement
+% of a tuple's elements, and a tuple of one has only the one.
 configs = [
 1,  0,  0,  1;
+1,  0,  0,  0;
 1,  0,  1,  1;
+1,  0,  1,  0;
 2,  0,  0,  1;
 2,  0,  0,  0;
 2,  0,  1,  1;
@@ -109,19 +116,37 @@ configs = [
 % The step that matters is the step measured against sigma, not against
 % the axis range: a blob is a few sigma across, so a grid coarser than
 % sigma steps straight over it and the density appears to have peaks
-% missing rather than blurred. At sigma = 10 a ten-cent step puts about
-% one sample per sigma, which is the least that shows the shape.
+% missing rather than blurred. A step of about sigma puts one sample
+% per sigma, which is the least that shows the shape.
 % 'ellipsoids' evaluates no grid and ignores step_3d entirely, so it is
 % the mode to check a blob count against.
 step_1d = 1;     % e.g., 1 cent per grid point
-step_2d = 5;     % e.g., 1 cent per dimension
-step_3d = 10;    % about one sample per sigma at sigma = 10
+step_2d = 5;     % 5 cents per dimension
+step_3d = 10;    % about one sample per sigma at the sigma set above
 
 % === Axis range for non-periodic configurations ===
 % For periodic configurations, the range is always [0, period].
-% For non-periodic configurations, set the range here.
-axMinNonPer = 0;
-axMaxNonPer = 2400;
+% For non-periodic configurations, set the range here. A range centred
+% on zero shows an interval and its inversion either side of the
+% unison, which is what a relative density is symmetric about; an
+% absolute density is drawn over the same range so that the two can be
+% read against each other.
+axMinNonPer = -1200;
+axMaxNonPer = 1200;
+
+% === Colour map ===
+% Brightening of parula for the two-dimensional surfaces, as MATLAB's
+% brighten: positive lifts its low end, which is where most of a
+% density's material sits. The three-dimensional plots are left to
+% plotMaet3d's own default, that being the function's to set.
+surfBrighten = 0.7;
+
+% === Figure window style ===
+% true docks every figure, so the configurations arrive as tabs of one
+% window rather than as a window each. Docked figures take their size
+% from the dock, so the widening the surface plots and the controls
+% would otherwise ask for is skipped.
+dockFigures = true;
 
 % === 3D visualization settings ===
 
@@ -138,12 +163,7 @@ axMaxNonPer = 2400;
 %   'slices'     — the volume as a stack of textured planes, a true
 %                  volume rendering: what a ray accumulates along its
 %                  length is what the picture shows.
-plot3Dmode = 'points';
-
-% Nodes below this fraction of the largest value are left undrawn in
-% 'points' mode, to reduce clutter and speed things up.
-scatterThreshFrac = 0.05;
-
+plot3Dmode = 'slices';
 
 %% === Estimate total runtime ===
 
@@ -181,21 +201,15 @@ for ci = 1:nConfigs
     end
     resC = max(2, round((axMaxC - axMinC) / stepC) + 1);
 
-    % Number of query points = res^dim (for dims 1-3)
-    % For dim >= 4, the 2D slice approach uses res^2 per slice
-    if dimC <= 3
-        nQc = double(resC)^dimC;
-    else
-        % Estimate number of slices (same logic as main loop)
-        if isRelC
-            nFixedVals = min(3, numel(unique(diff(sort(p)))));
-        else
-            nFixedVals = min(3, numel(p));
-        end
-        nExtra   = dimC - 2;
-        nSlices  = nFixedVals^nExtra;
-        nQc      = double(resC)^2 * nSlices;
+    % Only one to three dimensions are drawn, and the main loop stops
+    % on anything more, so a row that asks for more is reported here
+    % rather than costed.
+    if dimC > 3
+        fprintf(['  Config %d: r=%d, dim=%d -- not drawn, only one to ' ...
+                 'three dimensions are.\n'], ci, rc, dimC);
+        continue
     end
+    nQc = double(resC)^dimC;
 
     % Problem sizes
     nc      = numel(p);
@@ -238,6 +252,10 @@ end
 %% === Iterate through configurations ===
 
 for ci = 1:nConfigs
+    % Fresh for each configuration, so that no field set for one plot
+    % is left behind for the next.
+    info = struct();
+
     r      = configs(ci, 1);
     isRelR = logical(configs(ci, 2));
     isPerR = logical(configs(ci, 3));
@@ -322,15 +340,14 @@ for ci = 1:nConfigs
 
             vals = evalMaet(dens, X, normalize);
 
-            fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim));
+            fig = newDemoFigure(ci, r, dim, dockFigures);
             hLine = plot(x, applyTransform(vals, 'off', gamma, eta), 'LineWidth', 1.5);
             xlabel(sprintf('%s 1', axLabel));
             ylabel('Density');
             title(titleStr);
-            if isPerR
-                xlim([axMin axMax]);
-            end
-            grid on;
+            xlim([axMin axMax]);
+            set(gca, 'XGrid', 'on', 'YGrid', 'on');
+            setDemoTicks(gca, [axMin axMax], 1);
 
             % Store raw data and add slider
             info.mode    = 'line';
@@ -364,12 +381,15 @@ for ci = 1:nConfigs
 
             V = reshape(applyTransform(vals, 'off', gamma, eta), res, res);
 
-            fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim));
+            fig = newDemoFigure(ci, r, dim, dockFigures);
 
-            % Widen figure to accommodate plot + colorbar + controls
-            figPos = get(fig, 'Position');
-            set(fig, 'Position', [figPos(1), figPos(2), ...
-                max(figPos(3), 900), figPos(4)]);
+            % Widen figure to accommodate plot + colorbar + controls.
+            % A docked figure has no say in its size, so it is left be.
+            if strcmp(get(fig, 'WindowStyle'), 'normal')
+                figPos = get(fig, 'Position');
+                set(fig, 'Position', [figPos(1), figPos(2), ...
+                    max(figPos(3), 900), figPos(4)]);
+            end
 
             hSurf = surf(Ga, Gb, V, 'EdgeColor', 'none');
             hAx = gca;
@@ -385,6 +405,7 @@ for ci = 1:nConfigs
             ylabel(sprintf('%s 2', axLabel));
             zlabel('Density');
             title(titleStr);
+            colormap(hAx, brighten(parula(256), surfBrighten));
             colorbar;
             xlim([axMin axMax]);
             ylim([axMin axMax]);
@@ -394,6 +415,28 @@ for ci = 1:nConfigs
             end
             set(hAx, 'Projection', 'orthographic');
             view(0, 90);
+            setDemoTicks(hAx, [axMin axMax], 2);
+
+            % Opacity following the density, over dark panes, as the
+            % three-dimensional plots do. A surface painted opaque
+            % covers its whole plane in the map's low colour, so the
+            % ground a density is read against is that colour rather
+            % than the background, and brightening the map lifts it
+            % along with everything else. Let the low material fade
+            % out instead and the two kinds of picture agree.
+            % Texture mapping for both the colour and the opacity.
+            % FaceColor and FaceAlpha have to agree, and of the pairs
+            % that do, only this one renders: per-vertex opacity over
+            % a grid this size comes out blank. It is also what
+            % plotMaet3d's slices use, for the same reason.
+            set(hSurf, 'FaceColor', 'texturemap', ...
+                       'FaceAlpha', 'texturemap', ...
+                       'AlphaData', surfAlpha(V), ...
+                       'AlphaDataMapping', 'none');
+            set(hAx, 'ALim', [0 1], ...
+                     'Color', [0.06 0.06 0.06], ...
+                     'GridColor', [0.22 0.22 0.22], 'GridAlpha', 1, ...
+                     'XGrid', 'on', 'YGrid', 'on', 'ZGrid', 'on');
 
             % Store raw data and add controls
             info.mode    = 'surf';
@@ -408,22 +451,23 @@ for ci = 1:nConfigs
         %  dim = 3: drawn by the toolbox's own plotMaet3d
         % =============================================================
         case 3
-            fig = figure('Name', ...
-                sprintf('Config %d: r=%d dim=%d', ci, r, dim));
+            fig = newDemoFigure(ci, r, dim, dockFigures);
             h3 = plotMaet3d(dens, 'method', plot3Dmode, ...
                             'limits', [axMin axMax], 'step', stepSize, ...
-                            'colourGamma', 1, ...
-                            'threshFrac', scatterThreshFrac);
+                            'upsample', 2);
             xlabel(sprintf('%s 1', axLabel));
             ylabel(sprintf('%s 2', axLabel));
             zlabel(sprintf('%s 3', axLabel));
             title(sprintf('%s — %s', titleStr, plot3Dmode));
+            setDemoTicks(gca, [axMin axMax], 3);
 
-            % The transform controls drive the colour and the opacity of
-            % a mark, so they apply to 'points' alone: the ellipsoids
-            % carry their value in geometry that would have to be
-            % rebuilt, and a slice's opacity cannot be changed once its
-            % plane exists.
+            % These are meant to be turned, so the figure opens ready
+            % to. plotMaet3d leaves the interaction mode alone, that
+            % being the caller's to set rather than a plotting
+            % function's to impose.
+            rotate3d(fig, 'on');
+
+            % The transform controls apply to 'points' alone.
             if strcmp(plot3Dmode, 'points')
                 info.mode     = 'scatter3';
                 info.rawVals  = h3.AlphaData(:);
@@ -449,6 +493,105 @@ fprintf('All plots complete.\n');
 
 
 %% === Helper functions ===
+
+function setDemoTicks(ax, lims, dim)
+%SETDEMOTICKS Ticks at the smallest tidy interval that is not crowded.
+%
+%  The interval is one of 100, 200, 300, 400, or 600, so that the
+%  labels fall on musically legible values and every plot is read the
+%  same way. The smallest of those is taken that still leaves each
+%  label room, which depends on the axes as drawn rather than on the
+%  range alone: a docked tab is narrower than a window, and a
+%  three-dimensional cube gives each of its axes a fraction of the box.
+%
+%  One interval serves every drawn axis, the largest any of them needs.
+%  The axes cover the same range as each other, so ticking them
+%  differently would make a square plot read as though they did not.
+    wh = demoAxesPoints(ax);
+    span = diff(lims);
+
+    % A label such as -1200 is five characters wide, so tick labels
+    % along a horizontal axis need far more room than the stacked
+    % labels of a vertical one.
+    switch dim
+        case 1
+            avail = wh(1);
+            room  = 50;
+        case 2
+            avail = [wh(1), wh(2)];
+            room  = [50, 30];
+        otherwise
+            % No orientation projects the cube wider than its space
+            % diagonal, and all three axes share the box.
+            avail = [1 1 1] * min(wh) / sqrt(3);
+            room  = [50 50 50];
+    end
+
+    step = 0;
+    for k = 1:numel(avail)
+        step = max(step, tidyTickStep(avail(k), span, room(k)));
+    end
+    ticks = lims(1):step:lims(2);
+
+    names = {'XTick', 'YTick', 'ZTick'};
+    for k = 1:numel(avail)
+        set(ax, names{k}, ticks);
+    end
+end
+
+
+function a = surfAlpha(V)
+%SURFALPHA Opacity for a surface, the density against its own peak.
+%
+%  Proportional to the density, as a mark's is in plotMaet3d at its
+%  default alphaGamma of 1. Clamped at zero: evaluation can return
+%  values a billionth below it.
+    mx = max(V(:));
+    if mx > 0
+        a = max(V, 0) / mx;
+    else
+        a = ones(size(V));
+    end
+end
+
+
+function step = tidyTickStep(availPts, span, minPts)
+%TIDYTICKSTEP The smallest tidy interval whose labels still have room.
+    candidates = [100 200 300 400 600];
+    for k = 1:numel(candidates)
+        nLabels = span / candidates(k) + 1;
+        if availPts / nLabels >= minPts
+            step = candidates(k);
+            return
+        end
+    end
+    step = candidates(end);
+end
+
+
+function wh = demoAxesPoints(ax)
+%DEMOAXESPOINTS The axes box in points, whatever its Units are set to.
+    drawnow limitrate
+    px = getpixelposition(ax, true);
+    wh = px(3:4) * 72 / get(groot, 'ScreenPixelsPerInch');
+end
+
+
+function fig = newDemoFigure(ci, r, dim, docked)
+%NEWDEMOFIGURE One figure per configuration, docked or free.
+%
+%  Docking is set on every figure rather than left to MATLAB's own
+%  preference, so that the configurations arrive the same way whatever
+%  that preference is.
+    if docked
+        style = 'docked';
+    else
+        style = 'normal';
+    end
+    fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim), ...
+                 'WindowStyle', style);
+end
+
 
 function vt = applyTransform(vals, mode, gamma, eta)
 %APPLYTRANSFORM Dispatch on mode.
@@ -519,14 +662,13 @@ function addPlotControls(fig, info, gammaInit, etaInit)
 %  In perspective mode the colorbar and slider region shift right to
 %  clear the y-axis labels.
 %
-%  For non-surf modes (line, scatter3, slices), the controls are
-%  placed in a horizontal row at the bottom of the figure.
+%  For the other modes, the controls are placed in a horizontal row at
+%  the bottom of the figure.
 %
 %  Supported info.mode values:
 %    'line'     — updates YData of a line plot
 %    'surf'     — updates ZData/CData; includes projection + cmap controls
 %    'scatter3' — updates CData and AlphaData of a scatter3 plot
-%    'slices'   — updates CData of multiple imagesc subplots
 
     isSurf = strcmp(info.mode, 'surf');
 
@@ -699,65 +841,16 @@ function addPlotControls(fig, info, gammaInit, etaInit)
 
     else
         % === Non-surf modes: horizontal row at bottom ===
-        % For 'slices' mode, also include a cmap-shift slider, since
-        % the multi-panel grid benefits from clipping low values.
-        hasCmap = strcmp(info.mode, 'slices');
-
-        figPos = get(fig, 'Position');
-        extraH = 50;
-        if hasCmap
-            extraH = 80;        % add another row for the cmap slider
-        end
-        set(fig, 'Position', [figPos(1), figPos(2), figPos(3), ...
-                              figPos(4) + extraH]);
-
-        % In slices mode, do an explicit subplot layout so the
-        % subplots fill the figure efficiently, with a small bottom
-        % reserve for the controls and a small top reserve for the
-        % sgtitle. Subplots are placed in row-major order matching
-        % their creation by subplot(nRows, nCols, si).
-        %
-        % We use OuterPosition (which is the bounding rectangle
-        % including the axes' title, ticks, and labels) and lock
-        % PositionConstraint to 'outerposition'. This way 'axis
-        % equal' fits the inner axes inside the bounding box, all
-        % subplots align consistently regardless of whether their
-        % per-axes title or labels add extra padding, and the
-        % xlabels of the bottom row sit safely above the slider.
-        if hasCmap
-            bottomReserve = 0.14;        % space for control rows
-            topReserve    = 0.08;        % space for sgtitle
-            leftMargin    = 0.04;
-            rightMargin   = 0.02;
-            hGap          = 0.01;
-            vGap          = 0.02;
-
-            nR = info.nRows;
-            nC = info.nCols;
-
-            opW = (1 - leftMargin - rightMargin - (nC - 1) * hGap) / nC;
-            opH = (1 - bottomReserve - topReserve - (nR - 1) * vGap) / nR;
-
-            for si = 1:numel(info.hImages)
-                axK = get(info.hImages(si), 'Parent');
-                if isprop(axK, 'PositionConstraint')
-                    axK.PositionConstraint = 'outerposition';
-                end
-                % Convert linear si to (row, col) in row-major order
-                ri = ceil(si / nC) - 1;          % 0 = top row
-                ci = mod(si - 1, nC);            % 0 = left column
-                x  = leftMargin + ci * (opW + hGap);
-                y  = 1 - topReserve - (ri + 1) * opH - ri * vGap;
-                set(axK, 'OuterPosition', [x, y, opW, opH]);
-            end
+        % The controls sit in normalized units, so a docked figure
+        % needs no extra height and would ignore the request anyway.
+        if strcmp(get(fig, 'WindowStyle'), 'normal')
+            figPos = get(fig, 'Position');
+            set(fig, 'Position', [figPos(1), figPos(2), figPos(3), ...
+                                  figPos(4) + 50]);
         end
 
         rowH = 0.030;
-        y_xform = 0.060;        % bottom row reserved for transform UI
-        y_cmap  = 0.020;        % second row for cmap (slices only)
-        if ~hasCmap
-            y_xform = 0.015;
-        end
+        y_xform = 0.015;        % the one row, reserved for transform UI
 
         % Mode-selector buttongroup on the left, with full inline labels
         modeBgX = 0.04;
@@ -800,39 +893,6 @@ function addPlotControls(fig, info, gammaInit, etaInit)
             'HorizontalAlignment', 'left', ...
             'BackgroundColor', get(fig, 'Color'));
 
-        if hasCmap
-            % Per-mode cmap shift memory (was only set up in the surf 
-            % branch; needed here too)
-            info.cmapShiftOff   = 0;
-            info.cmapShiftGamma = 0;
-            info.cmapShiftSat   = 0;
-
-            % Cmap label (left-aligned, mirroring the radio column)
-            uicontrol(fig, 'Style', 'text', 'String', 'Cmap', ...
-                'Units', 'normalized', ...
-                'Position', [modeBgX, y_cmap - 0.002, modeBgW, rowH], ...
-                'FontSize', 8, 'HorizontalAlignment', 'center', ...
-                'Tag', 'cmapShiftLabel', ...
-                'BackgroundColor', get(fig, 'Color'));
-
-            % Cmap slider
-            uicontrol(fig, 'Style', 'slider', ...
-                'Min', 0, 'Max', 0.95, 'Value', 0, ...
-                'Units', 'normalized', ...
-                'Position', [modeBgX + modeBgW + 0.04, y_cmap, 0.50, rowH], ...
-                'Tag', 'cmapShiftSlider', ...
-                'SliderStep', [0.005, 0.03], ...
-                'Callback', @(src, ~) cmapShiftCallback(src, fig));
-
-            uicontrol(fig, 'Style', 'text', 'String', '0.00', ...
-                'Units', 'normalized', ...
-                'Position', [modeBgX + modeBgW + 0.55, y_cmap - 0.002, ...
-                             0.10, rowH], ...
-                'FontSize', 8, ...
-                'Tag', 'cmapShiftReadout', ...
-                'HorizontalAlignment', 'left', ...
-                'BackgroundColor', get(fig, 'Color'));
-        end
     end
 
     % Store the plot info in the figure's application data
@@ -942,7 +1002,8 @@ function addPlotControls(fig, info, gammaInit, etaInit)
             case 'surf'
                 Vt = reshape(applyTransform(pInfo.rawVals, m, g, e), ...
                     pInfo.res, pInfo.res);
-                set(pInfo.hSurf, 'ZData', Vt, 'CData', Vt);
+                set(pInfo.hSurf, 'ZData', Vt, 'CData', Vt, ...
+                    'AlphaData', surfAlpha(Vt));
                 maxVt = max(Vt(:));
                 if maxVt > 0
                     axR = pInfo.axRange;
@@ -968,16 +1029,6 @@ function addPlotControls(fig, info, gammaInit, etaInit)
                 set(pInfo.hScatter, 'CData', vT, ...
                     'SizeData', 10 * ones(size(vT)));
                 pInfo.hScatter.AlphaData = vT;
-            case 'slices'
-                for si = 1:numel(pInfo.rawVals)
-                    Vt = reshape(applyTransform(pInfo.rawVals{si}, m, g, e), ...
-                        pInfo.res, pInfo.res);
-                    set(pInfo.hImages(si), 'CData', Vt);
-                end
-                hShift = findobj(fig, 'Tag', 'cmapShiftSlider');
-                if ~isempty(hShift)
-                    cmapShiftCallback(hShift, fig);
-                end
         end
 
         drawnow;
@@ -996,27 +1047,12 @@ function addPlotControls(fig, info, gammaInit, etaInit)
         end
         setappdata(fig, 'plotInfo', pInfo);
 
-        if strcmp(pInfo.mode, 'slices')
-            % Apply the same shift fraction to each imagesc panel using
-            % its own (min, max) range.
-            for si = 1:numel(pInfo.hImages)
-                cdata = get(pInfo.hImages(si), 'CData');
-                minC  = min(cdata(:));
-                maxC  = max(cdata(:));
-                if maxC > minC
-                    newLow = minC + shiftFrac * (maxC - minC);
-                    set(get(pInfo.hImages(si), 'Parent'), ...
-                        'CLim', [newLow, maxC]);
-                end
-            end
-        else
-            cdata = get(pInfo.hSurf, 'CData');
-            minC  = min(cdata(:));
-            maxC  = max(cdata(:));
-            if maxC > minC
-                newLow = minC + shiftFrac * (maxC - minC);
-                set(pInfo.hAx, 'CLim', [newLow, maxC]);
-            end
+        cdata = get(pInfo.hSurf, 'CData');
+        minC  = min(cdata(:));
+        maxC  = max(cdata(:));
+        if maxC > minC
+            newLow = minC + shiftFrac * (maxC - minC);
+            set(pInfo.hAx, 'CLim', [newLow, maxC]);
         end
         drawnow;
     end

@@ -295,6 +295,57 @@ steps over it and the density appears to have peaks missing rather than
 blurred. `ellipsoids` evaluates no grid and is the method to check a
 blob count against.
 
+**`points` has a resolution budget, and it is the reason `slices`
+exists.** A mark carries a single depth across its whole face, so where
+two marks overlap the nearer hides the farther outright rather than
+blending with it. Every such contest reverses when the camera passes to
+the other side of the cloud, so the same density draws differently from
+opposite directions: blobs acquire haloes and hard edges from one of
+them and fade smoothly from the other. Marks that only meet cannot do
+it, and that is what the automatic marker size is for — it measures the
+grid's spacing on screen and sizes the marks to clear one another on it,
+refitting as the figure is resized or zoomed. The spacing it measures is
+for an assumed camera, not the one in front of you, so the size holds at
+every angle: were it fitted to the current view it would change as the
+axes turned, and with it the ink each mark lays down, so the cloud would
+brighten and dim as it rotated.
+
+The assumption scales with the step. Ink on screen goes as the assumed
+foreshortening squared over the step — the marks number `step`⁻³ and
+each covers `(fore × step)²` — so the assumption rises as the square
+root of the step, and a cloud drawn at a coarse step is about as bright
+as the same cloud drawn at a fine one. `markScale` scales the whole
+thing: larger marks and a brighter cloud, at the price of the marks
+overlapping over more of the sphere. The drawing warns once, as
+`mpt:markOverlap`, when they overlap at the view being drawn, and names
+the `markScale` that would have them clear.
+
+Overlap is what haloes need. Once the marks overlap they show at any
+elevation, and they are worse below the horizontal than above it;
+whether they also worsen as the view flattens towards an axis is
+unclear, and if so the effect is slight — a view looking nearly along an
+axis, where the marks overlap most, draws perfectly well. Why the sign
+of the elevation should matter at all is not established; depth sorting
+and the depth test are both symmetric under reversing the camera. The
+rule is empirical and is the one to go by: if a drawing looks haloed,
+lower `markScale` or turn above the horizontal, and if it must be
+trusted from any angle, use `slices`. The margin is
+generous, a mark rendering appreciably wider than its nominal size, so
+the marks read as dots with space between them rather than as a
+continuous cloud.
+
+The budget is about three points of screen per grid node, and it is a
+relation between the step and the size the axes is drawn at, not a
+property of the step alone. Left to choose its own step, `points` stays
+inside it. A step set by hand can ask for more than the figure affords,
+and the marks then overlap however they are sized; the drawing warns
+once — `mpt:markOverlap`, suppressible in the usual way — naming the
+smallest step that would draw cleanly at that size.
+Enlarging the figure, zooming in, or coarsening the step all buy the
+same thing. `slices` carries its depth per pixel rather than per mark
+and has no such budget, so a density too fine for `points` at a usable
+figure size is a density to draw with `slices`.
+
 Python's plotting needs `matplotlib`, which the toolbox does not
 require; it is imported when a plot is drawn, not when `mpt` is
 imported.

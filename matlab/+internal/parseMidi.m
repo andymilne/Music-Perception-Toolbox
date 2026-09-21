@@ -1,8 +1,8 @@
 function raw = parseMidi(path)
 %PARSEMIDI  Standard MIDI File (format 0 or 1) to note rows.
 %
-%   raw = internal.parseMidi(path) returns a struct with .rows (M x 13),
-%   .columns (1 x 13 cellstr naming them), .partNames (1 x P cell), and
+%   raw = internal.parseMidi(path) returns a struct with .rows, .columns
+%   (a cellstr naming them), .partNames (1 x P cell), and
 %   .source = 'midi'. Sustain and sostenuto are resolved into the
 %   sounding durations, pitch bend into pitch, and channel volume and
 %   expression into weight. Twin of the Python mpt.score._parse_midi; see
@@ -96,7 +96,7 @@ function raw = parseMidi(path)
         if ~isempty(channelOns{k}); channelOns{k} = sort(channelOns{k}); end
     end
 
-    rows = zeros(0, 13);
+    rows = zeros(0, numel(internal.midiColumns()));
     partNames = {};
     partIndex = 0;
     for t = 1:ntrk
@@ -147,11 +147,12 @@ function raw = parseMidi(path)
             bend = localBendSemitones(ch, t0, streams, channelOns{ch + 1});
             vol = localStateAt(streams.volume{ch + 1}, t0, 127);
             expr = localStateAt(streams.expression{ch + 1}, t0, 127);
+            program = localStateAt(streams.program{ch + 1}, t0, 0);
             rows(end + 1, :) = [t0 / tpq, s0, (t1 - t0) / tpq, s1 - s0, ...
                                 (tEnd - t0) / tpq, sEnd - s0, ...
                                 note + bend, note, vel, ...
                                 (vel / 127) * (vol / 127) ^ 2 * (expr / 127) ^ 2, ...
-                                partIndex, ch + 1, ...
+                                partIndex, ch + 1, program, ...
                                 localMeasureAt(t0, sigMap, tpq)]; %#ok<AGROW>
         end
     end
@@ -259,7 +260,7 @@ function [events, ctrl, tempos, sigs, name, endTick] = localTrackEvents(tdata)
         end
         if kind == 128 || kind == 144
             events(end + 1, :) = [tick, status, d1, d2]; %#ok<AGROW>
-        elseif kind == 176 || kind == 224
+        elseif kind == 176 || kind == 192 || kind == 224
             ctrl(end + 1, :) = [tick, bitand(status, 15), kind, d1, d2]; %#ok<AGROW>
         end
     end
@@ -271,7 +272,8 @@ function streams = localControllerStreams(ctrl)
     % Per-channel controller state, as step functions of tick. A value
     % holds until the next message on that channel, so each stream is an
     % n x 2 [tick value] list of changes read back by localStateAt.
-    names = {'volume', 'expression', 'sustain', 'sostenuto', 'bend'};
+    names = {'volume', 'expression', 'sustain', 'sostenuto', 'bend', ...
+             'program'};
     for i = 1:numel(names)
         streams.(names{i}) = repmat({zeros(0, 2)}, 1, 16);
     end
@@ -284,7 +286,9 @@ function streams = localControllerStreams(ctrl)
     for i = 1:size(ctrl, 1)
         tick = ctrl(i, 1); c = ctrl(i, 2) + 1;
         kind = ctrl(i, 3); d1 = ctrl(i, 4); d2 = ctrl(i, 5);
-        if kind == 224
+        if kind == 192
+            streams.program{c}(end + 1, :) = [tick, d1]; %#ok<AGROW>
+        elseif kind == 224
             streams.bend{c}(end + 1, :) = [tick, d2 * 128 + d1 - 8192]; %#ok<AGROW>
             sawBend = true;
         elseif d1 == 7

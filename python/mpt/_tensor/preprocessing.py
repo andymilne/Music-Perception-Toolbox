@@ -2229,3 +2229,105 @@ def simplex_vertices(N: int, edge_length: float = 1.0) -> np.ndarray:
     # N-1 columns, with pairwise row distance sqrt(2). Rescale to the
     # requested edge length.
     return (Vc @ H.T) * (edge_length / np.sqrt(2))
+
+
+def select_pre_maet(p_attr, w_attr=None, attributes=None, events=None, *,
+                    specs=None):
+    """Keep a selection of a pre-MAET's attributes and events.
+
+    Pre-MAET preprocessing that knows nothing of where the pre-MAET came
+    from: it reads the two levels every pre-MAET has, its attributes and
+    its events, and nothing else. That is the point of it — a filter on
+    the object itself, as against selecting rows of the table it may have
+    been built from, which is the host language's job.
+
+    Parameters
+    ----------
+    p_attr : list of array-like, or pre-MAET
+        A whole pre-MAET, or the per-attribute value matrices.
+    w_attr : list of array-like, optional
+        The per-attribute weight matrices, or ``None``.
+    attributes : sequence, optional
+        The attributes to keep: indices, names as the specs carry them,
+        or a boolean mask of length A. ``None`` keeps all.
+    events : sequence, optional
+        The events to keep: indices or a boolean mask of length N.
+        ``None`` keeps all. A predicate is applied by the caller, which
+        reads the values it wants from ``p_attr`` and passes the mask.
+    specs : list of dict, optional
+        The attribute specifications; ``None`` synthesises flat ones.
+
+    Returns
+    -------
+    dict
+        The pre-MAET, with the kept attributes in the order given and
+        the kept events in the order given. Attributes keep their tuple
+        sizes and flags, so a selection cannot change what an attribute
+        means; an attribute holding several coordinates of one value
+        moves whole, because it is one attribute and not several.
+
+    Notes
+    -----
+    Selecting events may leave an attribute with no value at some kept
+    event. That is allowed and means what it says: the event contributes
+    nothing on that attribute while keeping its place in the sequence.
+
+    See Also
+    --------
+    build_maet, bind_events, difference_events, weight_events
+    """
+    p_attr, w_attr, (attributes, events), specs = shift_lead(
+        p_attr, w_attr, [attributes, events], specs,
+        func="select_pre_maet")
+
+    p_attr = [np.asarray(M, dtype=np.float64) for M in p_attr]
+    A = len(p_attr)
+    if A == 0:
+        raise ValueError("p_attr must contain at least one attribute.")
+    n_events = p_attr[0].shape[1]
+    specs_out = list(flat_specs(p_attr) if specs is None else specs)
+    if len(specs_out) != A:
+        raise ValueError(
+            f"specs must be a length-A ({A}) list, one per attribute.")
+    w = None if w_attr is None else [np.asarray(W, dtype=np.float64)
+                                     for W in w_attr]
+
+    a_keep = _select_indices(attributes, A, "attribute",
+                             [s.get("name") for s in specs_out])
+    if len(a_keep) == 0:
+        raise ValueError(
+            "The selection keeps no attribute; a pre-MAET has at least one.")
+    n_keep = _select_indices(events, n_events, "event", None)
+
+    p_out = [p_attr[a][:, n_keep] for a in a_keep]
+    w_out = None if w is None else [w[a][:, n_keep] for a in a_keep]
+    return pre_maet(p_out, w_out, [specs_out[a] for a in a_keep])
+
+
+def _select_indices(selector, n, what, names):
+    """Resolve a selector to an index array over ``n`` positions."""
+    if selector is None:
+        return np.arange(n, dtype=np.intp)
+    selector = list(selector) if not isinstance(selector, np.ndarray) \
+        else selector
+    arr = np.asarray(selector)
+    if arr.dtype == bool:
+        if arr.size != n:
+            raise ValueError(
+                f"A boolean {what} mask must have length {n}; got "
+                f"{arr.size}.")
+        return np.nonzero(arr)[0].astype(np.intp)
+    out = []
+    for item in selector:
+        if isinstance(item, str):
+            if names is None or item not in names:
+                raise KeyError(f"No {what} is named {item!r}.")
+            out.append(names.index(item))
+        else:
+            index = int(item)
+            if not 0 <= index < n:
+                raise IndexError(
+                    f"{what.capitalize()} index {index} is out of range for "
+                    f"{n} {what}s.")
+            out.append(index)
+    return np.asarray(out, dtype=np.intp)

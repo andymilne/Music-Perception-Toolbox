@@ -49,7 +49,7 @@ import numpy as np
 import pandas as pd
 
 from ._tensor.premaet import pre_maet
-from ._tensor.preprocessing import flat_specs
+from ._tensor.preprocessing import flat_specs, simplex_vertices
 from ._tensor.transform import _convert_scale
 
 __all__ = ["read_score", "pre_maet_from_score"]
@@ -60,12 +60,21 @@ __all__ = ["read_score", "pre_maet_from_score"]
 _MIDI_COLUMNS = ("onset_beats", "onset_seconds", "duration_beats",
                  "duration_seconds", "sounding_duration_beats",
                  "sounding_duration_seconds", "pitch", "note_number",
-                 "velocity", "weight", "part", "channel", "measure")
+                 "velocity", "weight", "part", "channel", "program",
+                 "measure")
 _XML_COLUMNS = ("onset_beats", "onset_seconds", "duration_beats",
                 "duration_seconds", "pitch", "velocity", "part", "voice",
-                "measure", "fermata")
-_INT_COLUMNS = frozenset(("note_number", "channel", "voice", "measure"))
-_BOOL_COLUMNS = frozenset(("fermata",))
+                "staff", "measure", "fermata", "staccato", "accent",
+                "tenuto")
+_INT_COLUMNS = frozenset(("note_number", "channel", "voice", "staff",
+                          "measure", "program"))
+_BOOL_COLUMNS = frozenset(("fermata", "staccato", "accent", "tenuto"))
+
+#: Articulations read from a MusicXML note's <notations><articulations>.
+#: They are not mutually exclusive -- a note may be both staccato and
+#: accented -- so each is its own two-level column rather than one column
+#: with a level per marking.
+_XML_ARTICULATIONS = ("staccato", "accent", "tenuto")
 _STEP_TO_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
@@ -95,13 +104,22 @@ def read_score(path):
 
         A MIDI file adds ``channel`` (1-16), ``note_number`` (the note
         number as recorded, which is what note identity rests on),
-        ``weight``, and ``sounding_duration_beats`` /
-        ``sounding_duration_seconds``. A MusicXML score adds ``voice``
-        (1-based within its part) and ``fermata`` (boolean, a merged tied
-        note counting if any of its segments carries one). A column is
-        present only where the source carries it, so ``channel`` and
-        ``voice`` are never the same column and never stand in for one
-        another.
+        ``program`` (the program change in force on that channel at the
+        note's onset, 0 where none was sent, which selects the
+        instrument sound), ``weight``, and ``sounding_duration_beats`` /
+        ``sounding_duration_seconds``.
+
+        A MusicXML score adds ``voice`` (1-based within its part),
+        ``staff`` (1-based; a part written on more than one staff, as a
+        keyboard part is, says which each note belongs to), ``fermata``,
+        and the articulations ``staccato``, ``accent``, and ``tenuto``.
+        The boolean marks are not mutually exclusive -- a note may be
+        both staccato and accented -- so each is its own column, and a
+        merged tied note carries a mark any of its segments carries.
+
+        A column is present only where the source carries it, so
+        ``channel`` and ``voice`` are never the same column and never
+        stand in for one another.
 
         ``df.attrs['source']`` is ``'midi'`` or ``'musicxml'``.
 
@@ -363,6 +381,7 @@ def _parse_midi(data):
             bend = _bend_semitones(ch, t0, streams, note_ons[ch])
             volume = _state_at(streams["volume"][ch], t0, 127.0)
             express = _state_at(streams["expression"][ch], t0, 127.0)
+            program = _state_at(streams["program"][ch], t0, 0.0)
             rows.append((t0 / tpq, seconds_at(t0),
                          (t1 - t0) / tpq,
                          seconds_at(t1) - seconds_at(t0),
@@ -371,7 +390,7 @@ def _parse_midi(data):
                          float(pitch) + bend, float(pitch), float(vel),
                          (vel / 127.0) * (volume / 127.0) ** 2
                          * (express / 127.0) ** 2,
-                         part_index, ch + 1, measure_at(t0)))
+                         part_index, ch + 1, program, measure_at(t0)))
     return {"rows": rows, "columns": _MIDI_COLUMNS,
             "part_names": part_names, "source": "midi"}
 
@@ -393,7 +412,8 @@ def _controller_streams(ctrl_events):
     is a sorted list of (tick, value) changes read back by :func:`_state_at`.
     """
     streams = {name: defaultdict(list) for name in
-               ("volume", "expression", "sustain", "sostenuto", "bend")}
+               ("volume", "expression", "sustain", "sostenuto", "bend",
+                "program")}
     bend_range = {}
     rpn = defaultdict(lambda: (127, 127))     # channel -> selected RPN
     mpe_members = set()
@@ -404,6 +424,9 @@ def _controller_streams(ctrl_events):
         if kind == 0xE0:
             streams["bend"][ch].append((tick, ((d2 << 7) | d1) - 8192))
             saw_bend = True
+            continue
+        if kind == 0xC0:
+            streams["program"][ch].append((tick, float(d1)))
             continue
         if d1 == _CC_VOLUME:
             streams["volume"][ch].append((tick, float(d2)))
@@ -553,7 +576,7 @@ def _midi_track_events(tdata):
             pos += 2
         if kind in (0x80, 0x90):
             events.append((tick, status, d1, d2))
-        elif kind in (0xB0, 0xE0):
+        elif kind in (0xB0, 0xC0, 0xE0):
             ctrl.append((tick, status & 0x0F, kind, d1, d2))
     return events, ctrl, tempos, sigs, name, tick
 
@@ -638,13 +661,26 @@ def _parse_musicxml(data):
     for pi, part in enumerate(parts):
         notes, _ = _walk_part(part, collect_tempo=False)
         names.append(part_names.get(part.get("id"), "") or f"part {pi + 1}")
-        for onset_q, dur_q, pitch, vel, voice, measure, fermata in notes:
+        for (onset_q, dur_q, pitch, vel, voice, staff, measure,
+             marks) in notes:
             rows.append((onset_q, seconds_at(onset_q), dur_q,
                          seconds_at(onset_q + dur_q) - seconds_at(onset_q),
-                         float(pitch), float(vel), pi + 1, voice, measure,
-                         fermata))
+                         float(pitch), float(vel), pi + 1, voice, staff,
+                         measure) + marks)
     return {"rows": rows, "columns": _XML_COLUMNS, "part_names": names,
             "source": "musicxml"}
+
+
+def _xml_marks(notations):
+    """A note's fermata and articulations, as 0/1 in ``_XML_COLUMNS``
+    order. A merged tied note keeps a mark any of its segments carries,
+    so these are combined by ``max`` when a tie is closed."""
+    if notations is None:
+        return (0,) * (1 + len(_XML_ARTICULATIONS))
+    articulations = notations.find("articulations")
+    return (int(notations.find("fermata") is not None),) + tuple(
+        int(articulations is not None and articulations.find(a) is not None)
+        for a in _XML_ARTICULATIONS)
 
 
 def _walk_part(part, *, collect_tempo):
@@ -696,6 +732,7 @@ def _walk_part(part, *, collect_tempo):
                 dur_q = float(dur_div) / divisions if dur_div else 0.0
                 onset = last_onset if is_chord else pos
                 voice = int(_text(el, "voice", "1") or 1)
+                staff = int(_text(el, "staff", "1") or 1)
                 pitch_el = el.find("pitch")
                 is_rest = el.find("rest") is not None
                 if not is_grace and pitch_el is not None and not is_rest:
@@ -705,19 +742,19 @@ def _walk_part(part, *, collect_tempo):
                     vel = float(min(127.0, max(0.0, vel)))
                     ties = {t.get("type") for t in el.findall("tie")}
                     notations = el.find("notations")
-                    fermata = int(notations is not None
-                                  and notations.find("fermata") is not None)
+                    marks = _xml_marks(notations)
                     key = (voice, midi)
                     if "stop" in ties and key in open_ties:
                         idx = open_ties.pop(key)
-                        o, dq, p_, v_, vo, me, fe = notes[idx]
-                        notes[idx] = (o, dq + dur_q, p_, v_, vo, me,
-                                      max(fe, fermata))
+                        o, dq, p_, v_, vo, st, me, old = notes[idx]
+                        notes[idx] = (o, dq + dur_q, p_, v_, vo, st, me,
+                                      tuple(max(a, b)
+                                            for a, b in zip(old, marks)))
                         if "start" in ties:
                             open_ties[key] = idx
                     else:
-                        notes.append((onset, dur_q, midi, vel, voice,
-                                      measure_no, fermata))
+                        notes.append((onset, dur_q, midi, vel, voice, staff,
+                                      measure_no, marks))
                         if "start" in ties:
                             open_ties[key] = len(notes) - 1
                 if not is_chord and not is_grace:
@@ -763,10 +800,25 @@ def _timewise_to_partwise(root):
 #  pre_maet_from_score
 # ===================================================================
 
+#: How a categorical column reaches the pre-MAET. The first two are
+#: structural -- the level is realized as which attribute you are in, or
+#: as which position -- and aggregate a group's rows into one event. The
+#: third is a value, carried alongside the note's own attributes.
+_ROLES = ("separate_attributes", "ordered_multiset", "simplex", "drop")
+_STRUCTURAL_ROLES = ("separate_attributes", "ordered_multiset")
+
+#: Attributes belonging to the event rather than to the note, which a
+#: structural category therefore does not split: the notes gathered into
+#: one event share an onset and a bar, so splitting either by voice would
+#: give one attribute per voice carrying the same number, and since the
+#: attributes multiply, that factor would be raised to the fourth.
+_EVENT_LEVEL = ("onset", "measure")
+
+
 def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
                         pitch="midi", time="seconds", weights="velocity",
                         parts=None, chords="bind", chord_tolerance=0.0,
-                        names=True):
+                        roles=None, group_by=None, names=True):
     """Build the pre-MAET's parts from a score.
 
     Parameters
@@ -778,6 +830,8 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         'measure', 'fermata'}
         The attributes, in order (default pitch and onset). The last four
         need a column the source carries, and raise where it does not.
+        On a gridded table ``'onset'`` reads the grid's onset, the event
+        there being the grid point rather than any one note.
     pitch : {'midi', 'cents', 'hz', 'octave', ...}
         Pitch scale (any pitch scale of :func:`transform_attributes`).
     time : {'seconds', 'beats'}
@@ -796,6 +850,52 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         note (``K`` = largest chord size, NaN-padded), so that a pitch
         attribute at ``r = 2`` reads the chords' dyads; ``'separate'``
         makes every note its own event (``K = 1`` throughout).
+    roles : mapping, optional
+        How each categorical column reaches the pre-MAET: column name to
+        one of ``'separate_attributes'``, ``'ordered_multiset'``,
+        ``'simplex'``, or ``'drop'``. A column with no entry is not
+        encoded.
+
+        The first two are **structural**: the level is realized as which
+        attribute you are in, or as which position, so the binding of
+        value to level is carried by the layout. They gather an event's
+        rows into one event holding one slot per level, which needs
+        ``chords='bind'`` and an event that holds exactly one row per
+        level; events that do not are dropped, with a warning naming the
+        count. Only one category may be structural, since a structural
+        category individuates the values sounding together and two of
+        them give an attribute set that can never be fully populated.
+
+        A structural category splits every listed attribute except the
+        event-level ones (``onset``), whose value belongs to the event
+        rather than to the note.
+
+        ``'simplex'`` is a **value**: the level becomes the coordinates
+        of a vertex of a unit-edge regular simplex, carried as its own
+        attribute read whole, and the binding of value to level is the
+        tensor product of the two attributes at the event. Each
+        concurrently-sounding note is then its own event, so it needs
+        ``chords='separate'`` -- unless a structural category is also
+        given, in which case the simplex is tagged within each of its
+        slots.
+
+        A caution about the no-role reading. With ``chords='bind'`` and
+        no role, an event holds the chord as an unordered multiset on
+        every attribute. Where two attributes describe the *same* notes
+        -- a pitch-class attribute and a pitch-height one, say -- their
+        product then pairs every value of one with every value of the
+        other, including the soprano's pitch class with the bass's
+        height, and matching rewards combinations the chord does not
+        contain. Binding a note's attributes to each other needs one
+        event per note (``chords='separate'``), which is what the JMM
+        article's voice-agnostic encoding does.
+    group_by : str, optional
+        The column whose equal values in consecutive rows make one event.
+        An event is a contiguous run, not every row sharing a value, so a
+        bar number that comes round again after a repeat gives two events
+        rather than one.
+        The default is the grid position where the table has been
+        gridded, and otherwise the onset within ``chord_tolerance``.
     chord_tolerance : float
         Onset tolerance for binding, in the chosen time unit.
     names : bool
@@ -831,6 +931,50 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
     if chords not in ("bind", "separate"):
         raise ValueError("chords must be 'bind' or 'separate'.")
 
+    structural = None
+    simplex_columns = []
+    for column, role in dict(roles or {}).items():
+        role = str(role).lower()
+        if role not in _ROLES:
+            raise ValueError(
+                f"roles[{column!r}]: unknown role {role!r}; choose from "
+                f"{_ROLES}.")
+        if column not in table.columns:
+            raise KeyError(
+                f"roles names column {column!r}, which the table does not "
+                "have.")
+        if role == "drop":
+            continue
+        if not isinstance(table[column].dtype, pd.CategoricalDtype):
+            raise TypeError(
+                f"roles[{column!r}]: a role needs a categorical column, and "
+                f"{column} is {table[column].dtype}.")
+        if role == "simplex":
+            simplex_columns.append(column)
+            continue
+        if structural is not None:
+            raise ValueError(
+                f"roles[{column!r}]: only one category may be structural "
+                f"against a given value set, and {structural[0]!r} already "
+                "is. A structural category individuates the values sounding "
+                "together; two of them give an attribute set that can never "
+                "be fully populated. Either keep "
+                f"{structural[0]!r} structural and give {column!r} the "
+                "'simplex' role, which tags it within each slot, or give "
+                f"{structural[0]!r} the 'simplex' role too, which yields one "
+                "event per note and additive partial credit across levels.")
+        structural = (column, role)
+
+    if structural is not None and chords != "bind":
+        raise ValueError(
+            f"roles[{structural[0]!r}] is structural, which gathers the rows "
+            "of an event into one; that needs chords='bind'.")
+    if simplex_columns and structural is None and chords == "bind":
+        raise ValueError(
+            "The 'simplex' role carries the level as a value at each event, "
+            "so each concurrently-sounding note is its own event; that needs "
+            "chords='separate', or a structural category to tag within.")
+
     _NEEDS_COLUMN = {"sounding_duration": "sounding_duration_beats",
                      "weight": "weight", "note_number": "note_number",
                      "fermata": "fermata"}
@@ -865,7 +1009,19 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         return table[name].astype(float).to_numpy()[keep]
 
     unit = "seconds" if time == "seconds" else "beats"
-    onset = _col(f"onset_{unit}")
+    # On a gridded table the event is the grid point, so its onset is the
+    # grid's, not the onset of whichever note happens to be in the first
+    # slot. The note's own onset stays in the table for selection.
+    onset_column = f"onset_{unit}"
+    if f"grid_onset_{unit}" in table.columns:
+        onset_column = f"grid_onset_{unit}"
+    elif any(c.startswith("grid_onset_") for c in table.columns):
+        other = next(c for c in table.columns if c.startswith("grid_onset_"))
+        raise ValueError(
+            f"The table was gridded over {other.rsplit('_', 1)[1]}, so "
+            f"time={time!r} has no grid onset to read; grid over {time} or "
+            "convert with that unit.")
+    onset = _col(onset_column)
     dur = _col(f"duration_{unit}")
     midi = _col("pitch")
     vel = _col("velocity")
@@ -897,13 +1053,19 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
     else:
         w_note = None
 
-    # Group notes into events. A gridded table already says which rows
-    # share an event, so its grid position is the key and the onset
-    # tolerance does not apply.
+    # Group notes into events. An explicit key, or a gridded table's own
+    # grid position, already says which rows share an event, and the
+    # onset tolerance then does not apply.
+    if group_by is not None and group_by not in table.columns:
+        raise KeyError(
+            f"group_by names column {group_by!r}, which the table does not "
+            "have.")
+    key_column = group_by or ("grid_index" if "grid_index" in table.columns
+                              else None)
     if chords == "separate" or n_notes == 0:
         groups = [[i] for i in range(n_notes)]
-    elif "grid_index" in table.columns:
-        key = table["grid_index"].to_numpy(dtype=np.int64)[keep]
+    elif key_column is not None:
+        key = table[key_column].astype(object).to_numpy()[keep]
         groups = []
         for i in range(n_notes):
             if groups and key[i] == key[groups[-1][0]]:
@@ -918,37 +1080,126 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
                 groups[-1].append(int(i))
             else:
                 groups.append([int(i)])
+
+    def _codes(column):
+        return table[column].cat.codes.to_numpy()[keep]
+
+    # A structural category puts one of its levels in each slot of every
+    # event, so an event must hold exactly one row per level. One that
+    # does not is dropped, with a count: an analyst may well accept
+    # losing a few events to use the encoding.
+    slots = None
+    if structural is not None:
+        column, role = structural
+        levels = list(table[column].cat.categories)
+        codes = _codes(column)
+        slots, kept_groups, lost = [], [], 0
+        for g in groups:
+            row = [-1] * len(levels)
+            for i in g:
+                c = int(codes[i])
+                if c < 0 or row[c] >= 0:
+                    row = None
+                    break
+                row[c] = i
+            if row is None or any(r < 0 for r in row):
+                lost += 1
+                continue
+            slots.append(row)
+            kept_groups.append(g)
+        if lost:
+            gridded = "; on a gridded table that breaks the uniform time " \
+                      "index" if key_column == "grid_index" else ""
+            warnings.warn(
+                f"{lost} of {len(groups)} events do not hold exactly one "
+                f"{column} per level, so they are dropped{gridded}. A "
+                "structural category fills every slot of every event.",
+                UserWarning, stacklevel=2)
+        groups = kept_groups
+
     N = len(groups)
     K = max((len(g) for g in groups), default=1)
 
+    def _weight_at(i):
+        return 1.0 if w_note is None else float(w_note[i])
+
     p_attr, w_list = [], []
-    for a in attributes:
-        vals = per_note[a]
-        if a == "onset" or K == 1:
-            M = np.full((1, N), np.nan)
-            W = np.zeros((1, N))
-            for n, g in enumerate(groups):
-                M[0, n] = vals[g[0]] if a == "onset" else vals[g[0]]
-                if a == "onset":
-                    W[0, n] = 1.0
-                else:
-                    W[0, n] = 1.0 if w_note is None else w_note[g[0]]
-        else:
-            M = np.full((K, N), np.nan)
-            W = np.zeros((K, N))
-            for n, g in enumerate(groups):
-                M[:len(g), n] = vals[g]
-                W[:len(g), n] = 1.0 if w_note is None else w_note[g]
-        # A slot with no value carries no weight, whether it is padding
-        # or an empty grid point whose weight column is itself missing.
+    spec_r, spec_exch, spec_names = [], [], []
+
+    def _add(M, W, *, r=1, exch=True, name=None):
+        W = np.asarray(W, dtype=float)
+        M = np.asarray(M, dtype=float)
         W[np.isnan(M)] = 0.0
         p_attr.append(M)
         w_list.append(W)
-    if w_note is None:
-        w = None
-    else:
-        w = w_list
-    specs = flat_specs(p_attr, name=attributes if names else None)
+        spec_r.append(r)
+        spec_exch.append(exch)
+        spec_names.append(name)
+
+    for a in attributes:
+        vals = per_note[a]
+        if structural is None:
+            if a in _EVENT_LEVEL or K == 1:
+                M = np.full((1, N), np.nan)
+                W = np.zeros((1, N))
+                for n, g in enumerate(groups):
+                    M[0, n] = vals[g[0]]
+                    W[0, n] = 1.0 if a in _EVENT_LEVEL else _weight_at(g[0])
+            else:
+                M = np.full((K, N), np.nan)
+                W = np.zeros((K, N))
+                for n, g in enumerate(groups):
+                    M[:len(g), n] = vals[g]
+                    W[:len(g), n] = [_weight_at(i) for i in g]
+            _add(M, W, name=a)
+            continue
+
+        column, role = structural
+        if a in _EVENT_LEVEL:
+            M = np.array([[vals[row[0]] for row in slots]], dtype=float)
+            _add(M, np.ones((1, N)), name=a)
+        elif role == "separate_attributes":
+            for v, level in enumerate(levels):
+                M = np.array([[vals[row[v]] for row in slots]], dtype=float)
+                W = np.array([[_weight_at(row[v]) for row in slots]])
+                _add(M, W, name=f"{a}_{level}")
+        else:
+            V = len(levels)
+            M = np.empty((V, N))
+            W = np.empty((V, N))
+            for n, row in enumerate(slots):
+                for v in range(V):
+                    M[v, n] = vals[row[v]]
+                    W[v, n] = _weight_at(row[v])
+            _add(M, W, r=V, exch=False, name=a)
+
+    # Simplex-coded categories. The coordinates of one level form one
+    # ordered value read whole, so the attribute's tuple size is their
+    # number and its weights are one: the note's own weight is carried by
+    # its other attributes, and the attributes multiply.
+    for column in simplex_columns:
+        vertices = simplex_vertices(len(table[column].cat.categories))
+        d = vertices.shape[1]
+        codes = _codes(column)
+
+        def _coords(i):
+            c = int(codes[i])
+            return vertices[c] if c >= 0 else np.full(d, np.nan)
+
+        if structural is None:
+            M = np.column_stack([_coords(g[0]) for g in groups]) if N \
+                else np.zeros((d, 0))
+            _add(M, np.ones((d, N)), r=d, exch=False, name=column)
+        else:
+            for v, level in enumerate(levels):
+                M = np.column_stack([_coords(row[v]) for row in slots]) \
+                    if N else np.zeros((d, 0))
+                _add(M, np.ones((d, N)), r=d, exch=False,
+                     name=f"{column}_{level}")
+
+    w = None if w_note is None else w_list
+    specs = flat_specs(p_attr, r=spec_r, exch=spec_exch,
+                       name=spec_names if names else None)
     # A score determines the periodicity of its attributes and not their
     # kernel widths. Pitches, onsets, durations, velocities, parts, bars
     # and fermatas are all read as they are written --- absolute, on an

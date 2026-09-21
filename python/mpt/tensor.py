@@ -25,6 +25,7 @@ from ._tensor.preprocessing import (
     flat_specs,
     simplex_vertices,
     translate_attributes,
+    select_pre_maet,
     weight_events,
 )
 from ._tensor.transform import transform_attributes

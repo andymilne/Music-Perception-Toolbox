@@ -23,6 +23,10 @@ function notes = readScore(path)
 %       channel                         MIDI channel (1-16)
 %       noteNumber                      the note number as recorded, which
 %                                       is what note identity rests on
+%       program                         the program change in force on that
+%                                       channel at the note's onset, 0
+%                                       where none was sent, which selects
+%                                       the instrument sound
 %       weight                          velocity with the loudness
 %                                       controllers folded in
 %       soundingDurationBeats,          duration with the pedals resolved
@@ -30,8 +34,15 @@ function notes = readScore(path)
 %
 %   A MusicXML score adds
 %       voice                           1-based voice within its part
-%       fermata                         logical; a merged tied note counts
-%                                       if any of its segments carries one
+%       staff                           1-based; a part written on more
+%                                       than one staff, as a keyboard part
+%                                       is, says which each note is on
+%       fermata                         logical
+%       staccato, accent, tenuto        logical articulations
+%
+%   The boolean marks are not mutually exclusive -- a note may be both
+%   staccato and accented -- so each is its own column, and a merged tied
+%   note carries a mark any of its segments carries.
 %
 %   A column is present only where the source carries the information, so
 %   channel and voice are never the same column and never stand in for one
@@ -145,14 +156,17 @@ function notes = localFinishTable(raw)
     partNames = localPartCategories(raw.partNames, rows(:, iPart));
     notes = array2table(rows, 'VariableNames', cols);
     notes.part = localPartColumn(rows(:, iPart), partNames);
-    counts = {'noteNumber', 'channel', 'voice', 'measure'};
+    counts = {'noteNumber', 'channel', 'program', 'voice', 'staff', 'measure'};
     for i = 1:numel(counts)
         if any(strcmp(cols, counts{i}))
             notes.(counts{i}) = round(notes.(counts{i}));
         end
     end
-    if any(strcmp(cols, 'fermata'))
-        notes.fermata = logical(notes.fermata);
+    flags = {'fermata', 'staccato', 'accent', 'tenuto'};
+    for i = 1:numel(flags)
+        if any(strcmp(cols, flags{i}))
+            notes.(flags{i}) = logical(notes.(flags{i}));
+        end
     end
     notes.Properties.Description = raw.source;
 end

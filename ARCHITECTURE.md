@@ -109,7 +109,7 @@ The consumer wrappers compose the tier-2 primitives into measures with musical i
 
 - **Sequential utilities**: `continuity` (smoothed direction-continuity). `serial.py` also holds `kernel_cov`, which belongs to the tensor stack rather than to these: it constructs the matrix-valued `sigma` an ordered difference attribute is built with, giving graded control over the position, interval, and shift variances that `is_rel` fixes at their limiting values. Serial-position weight profiles are `weight_events`' named and callable shapes, applied over any attribute.
 
-- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `sim_maet` recognizes and reduces to a sweep.
+- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `select_pre_maet`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `sim_maet` recognizes and reduces to a sweep.
 
 - **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `pre_maet_from_score` (MIDI and MusicXML input, the first returning an event table -- a MATLAB `table`, a pandas `DataFrame` -- and the second a pre-MAET), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
 
@@ -138,7 +138,8 @@ mpt/
 │   │                      object, and the argument front end the operators share
 │   ├── transform.py       transform_attributes (scale conversions, log and other elementwise maps)
 │   ├── preprocessing.py   difference_events, bind_events, translate_attributes,
-│   │                      weight_events, flat_specs, simplex_vertices
+│   │                      weight_events, select_pre_maet, flat_specs,
+│   │                      simplex_vertices
 │   ├── aniso.py           Anisotropic (matrix-valued) kernel covariance support
 │   ├── canonical.py       Canonical-form key helpers for batched dedup
 │   ├── dispatch.py        Cost models and selectors: the flat inner-product

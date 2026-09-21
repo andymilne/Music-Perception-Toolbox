@@ -1,9 +1,11 @@
 # The event table, the grid, and categorical encoding — design
 
-Status: steps 1 to 4 of Section 11 are implemented (the readers return a
+Status: all eight steps of Section 11 are implemented (the readers return a
 table; sustain, sostenuto, pitch bend, and the loudness controllers are
 resolved at read; `buildMaet` admits an event empty on an attribute;
-`gridEvents` samples a table on a grid). The rest is proposal. Supersedes the note table of
+`gridEvents` samples a table on a grid; the conversion carries the three
+categorical roles; `selectPreMaet` filters a pre-MAET; the readers carry more of what a
+score holds; the documentation follows the code). Supersedes the note table of
 `readScore` / `read_score` and the score path of `preMaetFromScore` /
 `pre_maet_from_score` if accepted.
 

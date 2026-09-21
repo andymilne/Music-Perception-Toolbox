@@ -3,7 +3,8 @@ function raw = parseMusicXml(txt)
 %
 %   raw = internal.parseMusicXml(txt) returns a struct with .rows (M x 10:
 %   onsetBeats onsetSeconds durationBeats durationSeconds pitch velocity
-%   part voice measure fermata), .partNames (1 x P cell), .source = 'musicxml'.
+%   part voice staff measure fermata staccato accent tenuto),
+%   .columns, .partNames (1 x P cell), .source = 'musicxml'.
 %   Twin of the Python mpt.score._parse_musicxml; see readScore for the
 %   conventions.
 
@@ -38,10 +39,10 @@ function raw = parseMusicXml(txt)
         tempoChanges = [0 120; tempoChanges];
     end
 
-    rows = zeros(0, 10);
+    rows = zeros(0, numel(internal.xmlColumns()));
     partNames = cell(1, numel(parts));
     for p = 1:numel(parts)
-        notes = localWalkPart(parts{p});    % onset dur midi vel voice measure fermata
+        notes = localWalkPart(parts{p});    % onset dur midi vel voice staff measure fermata staccato accent tenuto
         pid = localAttr(parts{p}, 'id', '');
         k = find(strcmp(ids, pid), 1);
         nm = '';
@@ -57,7 +58,7 @@ function raw = parseMusicXml(txt)
             s0 = localSecondsAt(o, tempoChanges);
             s1 = localSecondsAt(o + dq, tempoChanges);
             rows(end + 1, :) = [o, s0, dq, s1 - s0, notes(i, 3), notes(i, 4), ...
-                                p, notes(i, 5), notes(i, 6), notes(i, 7)]; %#ok<AGROW>
+                                p, notes(i, 5:end)]; %#ok<AGROW>
         end
     end
     raw = struct('rows', rows, 'columns', {internal.xmlColumns()}, ...
@@ -122,12 +123,13 @@ end
 % ---------------------------------------------------------------------
 
 function [notes, tempos] = localWalkPart(part)
-    % notes: M x 7 (onsetQ durQ midi velocity voice measure fermata);
+    % notes: M x 11 (onsetQ durQ midi velocity voice staff measure
+    % fermata staccato accent tenuto);
     % tempos: T x 2
     % (posQ bpm). Positions in quarter notes.
     divisions = 1;
     pos = 0;
-    notes = zeros(0, 7);
+    notes = zeros(0, 11);
     tempos = zeros(0, 2);
     tieKeys = zeros(0, 2);        % voice, midi
     tieIdx = zeros(0, 1);
@@ -177,6 +179,8 @@ function [notes, tempos] = localWalkPart(part)
                     if isChord, onset = lastOnset; else, onset = pos; end
                     voice = str2double(localText(localChild(el, 'voice'), '1'));
                     if isnan(voice), voice = 1; end
+                    staff = str2double(localText(localChild(el, 'staff'), '1'));
+                    if isnan(staff), staff = 1; end
                     pitchEl = localChild(el, 'pitch');
                     isRest = ~isempty(localChild(el, 'rest'));
                     if ~isGrace && ~isempty(pitchEl) && ~isRest
@@ -191,19 +195,17 @@ function [notes, tempos] = localWalkPart(part)
                             tieStart = tieStart || strcmp(tt, 'start');
                             tieStop = tieStop || strcmp(tt, 'stop');
                         end
-                        notations = localChild(el, 'notations');
-                        fermata = double(~isempty(notations) && ...
-                                         ~isempty(localChild(notations, 'fermata')));
+                        marks = localMarks(localChild(el, 'notations'));
                         k = find(tieKeys(:, 1) == voice & tieKeys(:, 2) == midi, 1);
                         if tieStop && ~isempty(k)
                             idx = tieIdx(k);
                             notes(idx, 2) = notes(idx, 2) + durQ;
-                            notes(idx, 7) = max(notes(idx, 7), fermata);
+                            notes(idx, 8:end) = max(notes(idx, 8:end), marks);
                             if ~tieStart
                                 tieKeys(k, :) = []; tieIdx(k, :) = [];
                             end
                         else
-                            notes(end + 1, :) = [onset, durQ, midi, vel, voice, measureNo, fermata]; %#ok<AGROW>
+                            notes(end + 1, :) = [onset, durQ, midi, vel, voice, staff, measureNo, marks]; %#ok<AGROW>
                             if tieStart
                                 tieKeys(end + 1, :) = [voice, midi]; %#ok<AGROW>
                                 tieIdx(end + 1, 1) = size(notes, 1); %#ok<AGROW>
@@ -284,4 +286,25 @@ function new = localTimewiseToPartwise(root)
         end
     end
     new.children = [new.children, partNodes];
+end
+
+
+function marks = localMarks(notations)
+    % A note's fermata and articulations, as 0/1 in internal.xmlColumns
+    % order. The articulations are not mutually exclusive -- a note may
+    % be both staccato and accented -- so each is its own flag, and a
+    % merged tied note keeps a mark any of its segments carries.
+    names = {'staccato', 'accent', 'tenuto'};
+    marks = zeros(1, 1 + numel(names));
+    if isempty(notations)
+        return;
+    end
+    marks(1) = double(~isempty(localChild(notations, 'fermata')));
+    articulations = localChild(notations, 'articulations');
+    if isempty(articulations)
+        return;
+    end
+    for i = 1:numel(names)
+        marks(1 + i) = double(~isempty(localChild(articulations, names{i})));
+    end
 end

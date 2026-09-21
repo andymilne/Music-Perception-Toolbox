@@ -251,3 +251,39 @@ def test_weight_is_velocity_alone_where_no_controller_is_sent(tmp_path):
 
 def _rpn_events(ch, msb, lsb, data, tick=0):
     return [(tick, payload) for payload in _rpn(ch, msb, lsb, data)]
+
+
+# --- program change ------------------------------------------------------
+
+
+def test_the_program_in_force_at_the_onset(tmp_path):
+    """Program change selects the instrument sound on a channel; the
+    column carries whichever is in force when the note starts."""
+    t = _read(tmp_path, [_track([
+        (0, bytes([0xC0, 40])),              # violin, channel 1
+        (0, _note_on(0, 60)),
+        (TPQ, _note_off(0, 60)),
+        (TPQ, bytes([0xC0, 73])),            # flute from here
+        (2 * TPQ, _note_on(0, 62)),
+        (3 * TPQ, _note_off(0, 62)),
+    ], end_tick=3 * TPQ)])
+    assert t["program"].tolist() == [40, 73]
+
+
+def test_no_program_change_reads_as_zero(tmp_path):
+    t = _read(tmp_path, [_track([
+        (0, _note_on(0, 60)), (TPQ, _note_off(0, 60)),
+    ], end_tick=TPQ)])
+    assert t["program"].tolist() == [0]
+
+
+def test_program_is_per_channel(tmp_path):
+    t = _read(tmp_path, [_track([
+        (0, bytes([0xC0, 40])),
+        (0, bytes([0xC1, 73])),
+        (0, _note_on(0, 60)),
+        (0, _note_on(1, 72)),
+        (TPQ, _note_off(0, 60)),
+        (TPQ, _note_off(1, 72)),
+    ], end_tick=TPQ)])
+    assert dict(zip(t["channel"], t["program"])) == {1: 40, 2: 73}

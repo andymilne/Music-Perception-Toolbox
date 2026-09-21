@@ -199,3 +199,47 @@ def test_pre_maet_feeds_the_pipeline():
                        is_per=[True, False], period=[12.0, 0.0],
                        verbose=False)
     assert sim_maet(d, d, verbose=False) == pytest.approx(1.0)
+
+
+# --- the columns a MusicXML score adds -----------------------------------
+
+
+def test_musicxml_staff_and_articulations(tmp_path):
+    """staff says which staff of a multi-staff part a note is on; the
+    articulations are separate columns because a note may carry more
+    than one, and a merged tied note keeps a mark from any segment."""
+    xml = (
+        '<?xml version="1.0"?><score-partwise version="3.1">'
+        '<part-list><score-part id="P1"><part-name>P</part-name>'
+        '</score-part></part-list><part id="P1">'
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        '<staves>2</staves></attributes>'
+        '<note><pitch><step>C</step><octave>4</octave></pitch>'
+        '<duration>1</duration><staff>1</staff>'
+        '<notations><articulations><staccato/><accent/></articulations>'
+        '</notations></note>'
+        '<note><pitch><step>D</step><octave>4</octave></pitch>'
+        '<duration>1</duration><staff>2</staff>'
+        '<notations><articulations><tenuto/></articulations></notations>'
+        '</note>'
+        '<note><pitch><step>E</step><octave>4</octave></pitch>'
+        '<duration>1</duration><staff>1</staff><tie type="start"/></note>'
+        '<note><pitch><step>E</step><octave>4</octave></pitch>'
+        '<duration>1</duration><staff>1</staff><tie type="stop"/>'
+        '<notations><articulations><staccato/></articulations></notations>'
+        '</note>'
+        '</measure></part></score-partwise>')
+    path = tmp_path / "marks.musicxml"
+    path.write_text(xml)
+    t = read_score(str(path)).sort_values("onset_beats").reset_index(drop=True)
+    assert t["staff"].tolist() == [1, 2, 1]
+    assert t["staccato"].tolist() == [True, False, True]
+    assert t["accent"].tolist() == [True, False, False]
+    assert t["tenuto"].tolist() == [False, True, False]
+    # the tied E lasts two beats and keeps the mark from its stop segment
+    assert t["duration_beats"].tolist() == [1.0, 1.0, 2.0]
+
+
+def test_staff_defaults_to_one(tmp_path):
+    t = read_score(os.path.join(DATA, "score_small.musicxml"))
+    assert set(t["staff"].unique()) == {1}

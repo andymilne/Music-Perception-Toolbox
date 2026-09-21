@@ -1,495 +1,437 @@
 """demo_maet_plots.py
 
-Visualise expectation tensor densities in 1 to 4 dimensions for
-user-specified combinations of r, is_rel, and is_per.
+Draws the same seven pitches as a MAET under every combination of the
+four parameters that define one, and as each of the methods plot_maet
+offers for drawing it.
 
-Each figure includes an interactive transform-mode selector
-(Off / Gamma / Saturation) and an adaptive slider:
+=== The four parameters ===
 
-  - 'gamma' applies v -> v.^gamma in [0.01, 1] (linear scale)
-  - 'sat'   applies v -> 1 - exp(-v / eta) with eta in [0.001, 5]
-            (log10 scale; data normalised to [0, 1] then rescaled)
+The ``configs`` table below sets out the combinations. What each
+parameter does, and where it shows in the pictures:
 
-Both gamma and eta have per-mode memory. Surface plots (dim = 2)
-additionally include a colormap shift slider, also with per-mode
-memory.
+  r        raises the dimensionality, since dim = r - is_rel. Going
+           from r = 2 to r = 3 turns a plane into a cube. The density
+           places one kernel per r-tuple, so the number of blobs goes
+           as the number of tuples.
+  is_rel   absolute against relative. An absolute density lives at the
+           pitches themselves; a relative one lives at the intervals
+           between them, is transposition-invariant, and costs a
+           dimension. Its kernels are elongated along the all-ones
+           diagonal, which the 'kernels' method shows directly.
+  is_per   whether the space wraps. A periodic density is drawn over
+           one period, and a kernel crossing a face reappears on the
+           other side; a non-periodic one runs off into silence.
+  is_exch  unordered against ordered. An ordered density counts each
+           arrangement of a tuple separately and is unsymmetric in its
+           arguments; the unordered one is its symmetrization and so is
+           mirror-symmetric about the diagonal. Each configuration is
+           drawn both ways, adjacent, so the symmetrization is a
+           difference between neighbouring figures.
 
-Port of demo_maetPlots.m from the MATLAB Music Perception
-Toolbox v3.
+=== The drawing ===
 
-Requires: matplotlib (pip install matplotlib)
+Every plot is drawn by plot_maet, which dispatches on the density's
+drawn dimensionality and offers three methods -- 'kernels', 'points',
+and 'density' -- described at PLOT_METHOD below. This script makes no
+picture of its own: it builds the densities, sets the options, and
+frames the result.
+
+Each parameter block below states the choice made and what the
+alternatives do.
+
+The MATLAB mirror is demo_maetPlots. It draws 'density' at three
+dimensions as well, which rests on texture-mapped surfaces that
+matplotlib has no counterpart for; 'points' stands in for it here.
+
+Uses: build_maet, plot_maet.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, RadioButtons
+import sys
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import numpy as np
+
+import matplotlib.pyplot as plt
+
 import mpt
+
 
 # ===================================================================
 #  User-editable parameters
 # ===================================================================
 
-p = [0, 200, 400, 500, 700, 900, 1100]
-w = None
+# The multiset to draw, and its weights. The diatonic scale in cents:
+# seven pitches keeps the structure legible and r = 4 quick. None
+# means all weights equal; a weight vector scales each pitch's
+# contribution and shows as differing blob heights.
+P = [0, 200, 400, 500, 700, 900, 1100]
+W = None
 
-sigma = 10
-normalize = 'none'
+# Kernel width, in the same units as P. At 15 cents the semitone
+# spacings of this scale are about seven sigma apart and the blobs
+# resolve separately; at 50 they merge into ridges, which shows what a
+# listener might confuse rather than where the tuples are.
+SIGMA = 15.0
 
-mode_init = 'off'
-gamma_init = 1.0
-eta_init = 5.0
-period = 1200
+# The period for the periodic configurations, in the same units as P.
+PERIOD = 1200.0
 
-# Each entry is (r, is_rel, is_per, is_exch), and every configuration
-# appears twice, unordered and then ordered. An ordered density counts
-# each arrangement of a tuple separately, so it is unsymmetric in its
-# arguments; the unordered one is its symmetrization. r = 1 has one
-# slot, so ordering means nothing there and it appears once only.
+# One row per plot: (r, is_rel, is_per, is_exch). What each does is set
+# out in the header; the table is ordered so that the differences are
+# adjacent.
 #
-# Only one to three dimensions are drawn, dim = r - is_rel: a
-# four-dimensional density has no honest picture, and the grid of
-# two-dimensional slices this demo used to draw for it showed three
-# arbitrary cuts rather than the density.
-configs = [
-    (1, False, False, True),
-    (1, False, True, True),
-    (2, False, False, True),
-    (2, False, False, False),
-    (2, False, True, True),
-    (2, False, True, False),
-    (2, True, False, True),
-    (2, True, False, False),
-    (2, True, True, True),
-    (2, True, True, False),
-    (3, False, False, True),
-    (3, False, False, False),
-    (3, False, True, True),
-    (3, False, True, False),
-    (3, True, False, True),
-    (3, True, False, False),
-    (3, True, True, True),
-    (3, True, True, False),
-    (4, True, False, True),
-    (4, True, False, False),
-    (4, True, True, True),
-    (4, True, True, False),
+# Only one to three drawn dimensions can be drawn, dim = r - is_rel, so
+# r runs to 3 absolute and 4 relative.
+#
+# Each configuration appears twice, unordered then ordered, so that the
+# symmetrization is a difference between neighbouring figures. r = 1 is
+# included both ways although it has one slot and so nothing to order:
+# the two come out identical. Exchangeability is a statement about the
+# arrangement of a tuple's elements, and a tuple of one has only the
+# one.
+CONFIGS = [
+    (1, False, False, True), (1, False, False, False),
+    (1, False, True,  True), (1, False, True,  False),
+    (2, False, False, True), (2, False, False, False),
+    (2, False, True,  True), (2, False, True,  False),
+    (2, True,  False, True), (2, True,  False, False),
+    (2, True,  True,  True), (2, True,  True,  False),
+    (3, False, False, True), (3, False, False, False),
+    (3, False, True,  True), (3, False, True,  False),
+    (3, True,  False, True), (3, True,  False, False),
+    (3, True,  True,  True), (3, True,  True,  False),
+    (4, True,  False, True), (4, True,  False, False),
+    (4, True,  True,  True), (4, True,  True,  False),
 ]
 
-# How the three-dimensional plots are drawn, passed to the toolbox's
-# own plotting function as its method:
-#   'ellipsoids' - one ellipsoid per tuple centre, shaped by the
-#                  kernel's covariance. No grid is evaluated, so it
-#                  ignores step_3d and shows every centre whatever the
-#                  sampling; it draws the kernels rather than the sum
-#                  they make.
-#   'points'     - one translucent mark per grid node above a
-#                  threshold. Shows what lies between the peaks, and is
-#                  the only mode the transform controls can drive.
-# MATLAB's plotMaet3d offers a third, 'slices', a true volume
-# rendering by texture-mapped surfaces; matplotlib has no counterpart.
-plot_3d_mode = 'points'
+# The grid plot_maet evaluates. It takes either nodes, a count of steps
+# across whatever range is drawn, or step, a spacing in the units of P
+# -- the same request said two ways.
+#
+# The number that matters is the grid measured against sigma rather
+# than against the range: a blob is a few sigma across, so a grid
+# coarser than sigma steps straight over it and the density looks as
+# though it has peaks missing rather than blurred. Roughly one sample
+# per sigma is the least that shows the shape.
+#
+# Cost goes as the count to the power of the dimensionality. The
+# 'kernels' method evaluates no grid and ignores all of this. None
+# leaves the choice to plot_maet, which asks for 1200 steps at one and
+# two dimensions and 120 at three.
+NODES_1D = 1200    # steps across the range, so periodic and
+NODES_2D = 1200    # non-periodic are sampled alike
+STEP_3D = 10.0     # cents per step, so the wider non-periodic cube
+                   # is not left at 20 cents and blocky
 
-# The step that matters is the step measured against sigma, not against
-# the axis range: a blob is a few sigma across, so a grid coarser than
-# sigma steps straight over it and the density appears to have peaks
-# missing rather than blurred. At sigma = 10 a ten-cent step puts about
-# one sample per sigma, which is the least that shows the shape.
-step_1d = 1
-step_2d = 5
-step_3d = 10
+# Periodic configurations are always drawn over [0, PERIOD]. The rest
+# are drawn over the range set here, rather than over the extent
+# plot_maet would choose from the data, so that every configuration
+# shares one frame and can be read against the others. Centred on zero
+# because a relative density is symmetric about the unison and this
+# shows an interval beside its inversion; absolute densities take the
+# same range so the two kinds are comparable.
+AX_MIN_NONPER = -1200.0
+AX_MAX_NONPER = 1200.0
 
-ax_min_nonper = 0
-ax_max_nonper = 2400
+# Where the opacity curve starts, at zero density, for the
+# two-dimensional images. At 0 the empty parts are fully transparent,
+# which reads well against a plain background; 1 turns the fading off
+# and draws the image opaque, which is matplotlib's own look.
+ALPHA_FLOOR_2D = 0.0
 
-scatter_thresh_frac = 0.05
+# Passed straight to plot_maet.
+#   'kernels' - the model rather than the density: one object per tuple
+#               centre, an ellipsoid, an ellipse, or a curve. Shows
+#               where the kernels are and what shape they have, which
+#               is where the elongation of a relative kernel becomes
+#               visible. Evaluates no grid.
+#
+#               At one dimension each curve is one tuple's own term,
+#               its width the kernel's and its height that tuple's
+#               weight, so the curves sum to the density. Colour is the
+#               density at that centre -- the total, neighbours
+#               included -- so two curves of equal height differ in
+#               colour where kernels crowd, and a peak can be seen to
+#               be one kernel or several.
+#   'points'  - the density sampled: one translucent mark per grid node
+#               above a threshold. Three dimensions only.
+#   'density' - the density itself: a line at one dimension and a
+#               translucent image at two. Not available at three,
+#               where MATLAB's mirror draws a stack of textured planes
+#               and matplotlib has no counterpart.
+#
+# 'density' is the default here because the demo is about what the four
+# parameters do to the density, and the kernels are a step behind that.
+# It falls back to 'points' at three dimensions, that being the only
+# method matplotlib can show a volume's interior with.
+PLOT_METHOD = 'density'
+
+# Draw the two-dimensional density as a surface in relief rather than
+# as an image. An image is read from directly above and cannot be
+# tilted; a surface can, and the height says what the opacity says from
+# above -- so ALPHA_FLOOR_2D above zero usually suits it, keeping the
+# sheet visible so the blobs rise from it rather than floating.
+#
+# A surface is drawn as one quad per grid cell, in Python, where an
+# image is one array handed to the renderer. NODES_2D_RELIEF is
+# therefore coarser than NODES_2D: at 1200 it would be 1.4 million
+# quads and some forty seconds a frame. At 240 the spacing is 5 cents
+# against a sigma of 15, which resolves the blobs, and a frame costs
+# about 1.5 seconds -- slow to turn, but the surface opens face on and
+# is tilted from there rather than turned freely.
+RELIEF_2D = False
+NODES_2D_RELIEF = 240
+
+# Collect the figures as tabs of one window rather than opening a
+# window each, as the MATLAB mirror's docked figures do, so that one
+# close ends the run. It needs a Qt binding (pip install PyQt5, or
+# PySide6); without one the figures open separately and a note says so.
+TAB_FIGURES = True
+
+# Ticks fall on one of these intervals, the smallest that is not
+# crowded, so that every figure is read the same way.
+TICK_STEPS = (100, 200, 300, 400, 600)
 
 
 # ===================================================================
-#  Transform helper
+#  Helpers
 # ===================================================================
 
+def tick_step(avail_pts, span, min_pts):
+    """The smallest tidy interval whose labels still have room."""
+    for candidate in TICK_STEPS:
+        if avail_pts / (span / candidate + 1) >= min_pts:
+            return candidate
+    return TICK_STEPS[-1]
 
-def apply_transform(vals, mode, gamma, eta):
-    """Dispatch on mode.
 
-    'off'   identity; output range = input range.
-    'gamma' power compression: data normalised by the empirical
-            (min, max), then raised to gamma. Output is in [0, 1].
-            Gamma is a display-cosmetic knob, so anchoring at the
-            empirical min keeps the slider responsive.
-    'sat'   saturation: anchored at 0 (a meaningful baseline of "no
-            density"). For tensor density, which is always non-
-            negative, vn = vals / max. The saturation curve
-            (1 - exp(-vn/eta)) / (1 - exp(-1/eta)) is then applied.
-            Output is in [0, 1].
+def set_demo_ticks(ax, lims, dim):
+    """Ticks at the smallest tidy interval that is not crowded.
+
+    One interval serves every drawn axis, the largest any of them
+    needs. The axes cover the same range as each other, so ticking them
+    differently would make a square plot read as though they did not.
     """
-    if mode == 'off':
-        return vals
-
-    mn = np.nanmin(vals)
-    mx = np.nanmax(vals)
-
-    if mode == 'gamma':
-        if mx > mn:
-            vn = (vals - mn) / (mx - mn)
-            return vn ** gamma
-        return vals.copy() if hasattr(vals, 'copy') else vals
-
-    if mode == 'sat':
-        if mn >= 0 and mx > 0:
-            vn = vals / mx
-        elif mx <= 0 and mn < 0:
-            vn = (vals - mn) / (-mn)
-        elif mx > mn:
-            vn = (vals - mn) / (mx - mn)
-        else:
-            return vals.copy() if hasattr(vals, 'copy') else vals
-        num = 1.0 - np.exp(-vn / eta)
-        den = 1.0 - np.exp(-1.0 / eta)
-        if den > 0:
-            return num / den
-        return vn
-
-    return vals
-
-
-# ===================================================================
-#  Generic UI helper: add Off/Gamma/Sat toggle + slider to a figure
-# ===================================================================
-
-
-def add_transform_controls(fig, redraw_callback,
-                           include_cmap=False,
-                           cmap_callback=None,
-                           mode_init='off',
-                           gamma_init=1.0,
-                           eta_init=5.0):
-    """Add the radio + adaptive slider UI to a figure.
-
-    `redraw_callback(mode, gamma, eta)` is called whenever mode or
-    transform-slider value changes, with the resolved (mode, gamma,
-    eta) values.
-
-    If `include_cmap` is True, also adds a cmap-shift slider whose
-    changes are reported via `cmap_callback(shift_frac)`. The cmap
-    shift value is itself remembered per mode.
-
-    Returns a `state` dict containing widgets and per-mode memory.
-    """
-    state = {
-        'mode': mode_init,
-        'gamma': gamma_init,
-        'eta': eta_init,
-        'cmap_shift_off': 0.0,
-        'cmap_shift_gamma': 0.0,
-        'cmap_shift_sat': 0.0,
-    }
-
-    # Make room at the bottom for the controls
-    if include_cmap:
-        plt.subplots_adjust(bottom=0.22)
-        radio_y = 0.04
-        radio_h = 0.13
-        xform_y = 0.13
-        cmap_y = 0.08
-    else:
-        plt.subplots_adjust(bottom=0.16)
-        radio_y = 0.02
-        radio_h = 0.11
-        xform_y = 0.075
-        cmap_y = None
-
-    ax_radio = fig.add_axes([0.04, radio_y, 0.10, radio_h], frameon=False)
-    radios = RadioButtons(ax_radio, ('Off', 'Gamma', 'Sat'),
-                           active={'off': 0, 'gamma': 1, 'sat': 2}[mode_init])
-    state['radios'] = radios
-
-    ax_xform = fig.add_axes([0.22, xform_y, 0.55, 0.025])
-    # Slider is internally 0..1; the meaning depends on mode:
-    #   gamma: 0 -> gamma=0.01, 1 -> gamma=1
-    #   sat:   0 -> eta=0.001, 1 -> eta=5  (log10 mapped)
-    s_xform = Slider(ax_xform, '', 0.0, 1.0, valinit=1.0)
-    s_xform.valtext.set_text('')
-    state['s_xform'] = s_xform
-    state['ax_xform'] = ax_xform
-
-    GAMMA_LO, GAMMA_HI = 0.01, 1.0
-    SAT_LOG_LO, SAT_LOG_HI = float(np.log10(0.002)), float(np.log10(5))
-
-    def gamma_to_pos(g):
-        return (g - GAMMA_LO) / (GAMMA_HI - GAMMA_LO)
-
-    def pos_to_gamma(p_):
-        return GAMMA_LO + p_ * (GAMMA_HI - GAMMA_LO)
-
-    def eta_to_pos(e):
-        return (np.log10(e) - SAT_LOG_LO) / (SAT_LOG_HI - SAT_LOG_LO)
-
-    def pos_to_eta(p_):
-        return 10 ** (SAT_LOG_LO + p_ * (SAT_LOG_HI - SAT_LOG_LO))
-
-    if include_cmap:
-        ax_cmap = fig.add_axes([0.22, cmap_y, 0.55, 0.025])
-        s_cmap = Slider(ax_cmap, 'Cmap', 0.0, 0.95, valinit=0.0)
-        state['s_cmap'] = s_cmap
-    else:
-        s_cmap = None
-
-    if mode_init == 'off':
-        ax_xform.set_visible(False)
-
-    def do_redraw():
-        m = state['mode']
-        redraw_callback(m, state['gamma'], state['eta'])
-        if include_cmap and cmap_callback is not None:
-            cmap_callback(state[f'cmap_shift_{m}'])
-        fig.canvas.draw_idle()
-
-    def on_mode(label):
-        new_mode = {'Off': 'off', 'Gamma': 'gamma', 'Sat': 'sat'}[label]
-        old_mode = state['mode']
-        if old_mode == 'gamma':
-            state['gamma'] = pos_to_gamma(s_xform.val)
-        elif old_mode == 'sat':
-            state['eta'] = pos_to_eta(s_xform.val)
-        if include_cmap:
-            state[f'cmap_shift_{old_mode}'] = s_cmap.val
-
-        state['mode'] = new_mode
-        if new_mode == 'off':
-            ax_xform.set_visible(False)
-            s_xform.valtext.set_text('')
-        else:
-            ax_xform.set_visible(True)
-            if new_mode == 'gamma':
-                ax_xform.set_xlabel('Gamma')
-                s_xform.set_val(gamma_to_pos(state['gamma']))
-                s_xform.valtext.set_text(f'{state["gamma"]:.2f}')
-            elif new_mode == 'sat':
-                ax_xform.set_xlabel('Saturation (η)')
-                s_xform.set_val(eta_to_pos(state['eta']))
-                s_xform.valtext.set_text(f'{state["eta"]:.3f}')
-
-        if include_cmap:
-            s_cmap.set_val(state[f'cmap_shift_{new_mode}'])
-        do_redraw()
-
-    def on_xform(val):
-        m = state['mode']
-        if m == 'gamma':
-            state['gamma'] = pos_to_gamma(val)
-            s_xform.valtext.set_text(f'{state["gamma"]:.2f}')
-        elif m == 'sat':
-            state['eta'] = pos_to_eta(val)
-            s_xform.valtext.set_text(f'{state["eta"]:.3f}')
-        else:
-            return
-        do_redraw()
-
-    def on_cmap(val):
-        m = state['mode']
-        state[f'cmap_shift_{m}'] = val
-        do_redraw()
-
-    radios.on_clicked(on_mode)
-    s_xform.on_changed(on_xform)
-    if include_cmap:
-        s_cmap.on_changed(on_cmap)
-
-    state['on_mode'] = on_mode
-    state['on_xform'] = on_xform
-    if include_cmap:
-        state['on_cmap'] = on_cmap
-
-    return state
-
-
-# ===================================================================
-#  Per-config plotting
-# ===================================================================
-
-
-def make_figure_for_config(p_arr, w, sigma, r, is_rel, is_per, period,
-                            normalize, ax_min, ax_max, dim, res, ci,
-                            ax_label, mode_str, per_str, title_str,
-                            mode_init='off', gamma_init=1.0, eta_init=5.0,
-                            scatter_thresh_frac=0.05, is_exch=True,
-                            plot_3d_mode='points'):
-    """Build the figure for one config and return (fig, state)."""
-    dens = mpt.build_maet(p_arr, w, sigma, r, is_rel, is_per, period,
-                              is_exch, verbose=False)
-    figs_state = {}
-
+    fig = ax.get_figure()
+    box = ax.get_window_extent()
+    scale = 72.0 / fig.dpi
+    span = lims[1] - lims[0]
     if dim == 1:
-        x = np.linspace(ax_min, ax_max, res)
-        vals = mpt.eval_maet(dens, x, normalize, verbose=False)
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-        line, = ax.plot(x, apply_transform(vals, mode_init, gamma_init, eta_init),
-                         linewidth=1.5)
-        ax.set_xlabel(f'{ax_label} 1')
-        ax.set_ylabel('Density')
-        ax.set_title(title_str)
-        if is_per:
-            ax.set_xlim(ax_min, ax_max)
-        ax.grid(True, alpha=0.3)
-
-        def redraw(m, g, e, _line=line, _vals=vals, _ax=ax):
-            _line.set_ydata(apply_transform(_vals, m, g, e))
-            _ax.relim()
-            _ax.autoscale_view()
-
-        state = add_transform_controls(fig, redraw, include_cmap=False,
-                                        mode_init=mode_init,
-                                        gamma_init=gamma_init,
-                                        eta_init=eta_init)
-        figs_state[fig] = state
-
+        avail, room = (box.width * scale,), (50.0,)
     elif dim == 2:
-        x = np.linspace(ax_min, ax_max, res)
-        Ga, Gb = np.meshgrid(x, x)
-
-        # An exchangeable density is symmetric in its arguments, so
-        # half the grid can be evaluated and mirrored. An ordered one is
-        # not -- being unsymmetric is the whole of what distinguishes it
-        # -- so it is evaluated whole.
-        if is_exch:
-            upper_mask = np.triu(np.ones((res, res), dtype=bool))
-            Xu = np.vstack([Ga[upper_mask], Gb[upper_mask]])
-            vals_u = mpt.eval_maet(dens, Xu, normalize, verbose=False)
-            V_raw = np.zeros((res, res))
-            V_raw[upper_mask] = vals_u
-            V_raw = V_raw + V_raw.T - np.diag(np.diag(V_raw))
-            vals = V_raw
-        else:
-            X2 = np.vstack([Ga.ravel(), Gb.ravel()])
-            vals = np.asarray(mpt.eval_maet(dens, X2, normalize,
-                                            verbose=False)
-                              ).reshape(res, res)
-
-        fig, ax = plt.subplots(figsize=(9, 7))
-        plt.subplots_adjust(right=0.82)
-
-        V0 = apply_transform(vals, mode_init, gamma_init, eta_init)
-        im = ax.imshow(
-            V0, extent=[ax_min, ax_max, ax_min, ax_max],
-            origin='lower', aspect='equal', cmap='viridis'
-        )
-        ax.set_xlabel(f'{ax_label} 1')
-        ax.set_ylabel(f'{ax_label} 2')
-        ax.set_title(title_str)
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-        def redraw(m, g, e, _im=im, _vals=vals):
-            V = apply_transform(_vals, m, g, e)
-            _im.set_data(V)
-
-        def cmap_redraw(shift, _im=im):
-            cdata = _im.get_array()
-            v_min = float(np.nanmin(cdata))
-            v_max = float(np.nanmax(cdata))
-            if v_max > v_min:
-                _im.set_clim(v_min + shift * (v_max - v_min), v_max)
-            else:
-                _im.set_clim(v_min, v_max)
-
-        state = add_transform_controls(fig, redraw, include_cmap=True,
-                                        cmap_callback=cmap_redraw,
-                                        mode_init=mode_init,
-                                        gamma_init=gamma_init,
-                                        eta_init=eta_init)
-        figs_state[fig] = state
-
-    elif dim == 3:
-        # Drawn by the toolbox's own plotting function, so that the
-        # demo and the toolbox agree on what a density looks like.
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        if plot_3d_mode == 'ellipsoids':
-            mpt.plot_maet_3d(dens, ax=ax, colour_gamma=1.0)
-        else:
-            mpt.plot_maet_3d_points(
-                dens, ax=ax, step=(ax_max - ax_min) / (res - 1),
-                thresh_frac=scatter_thresh_frac, colour_gamma=1.0)
-        ax.set_xlim(ax_min, ax_max)
-        ax.set_ylim(ax_min, ax_max)
-        ax.set_zlim(ax_min, ax_max)
-        ax.set_xlabel(f'{ax_label} 1')
-        ax.set_ylabel(f'{ax_label} 2')
-        ax.set_zlabel(f'{ax_label} 3')
-        ax.set_title(f'{title_str} \u2014 {plot_3d_mode}')
-        # The transform controls drive the colour and the opacity of a
-        # mark, so they are not offered here: the ellipsoids carry their
-        # value in geometry that would have to be rebuilt, and the
-        # points are drawn by the toolbox rather than by this demo.
-        figs_state[ci] = {'fig': fig, 'ax': ax}
-
+        avail, room = (box.width * scale, box.height * scale), (50.0, 30.0)
     else:
-        raise ValueError(
-            f'Config {ci} has dim = {dim}. Only one to three '
-            'dimensions are drawn: a four-dimensional density has no '
-            'honest picture.')
+        # No orientation projects the cube wider than its space
+        # diagonal, and all three axes share the box.
+        side = min(box.width, box.height) * scale / np.sqrt(3.0)
+        avail, room = (side, side, side), (50.0, 50.0, 50.0)
 
-    return figs_state
+    step = max(tick_step(a, span, r) for a, r in zip(avail, room))
+    ticks = np.arange(lims[0], lims[1] + step / 2.0, step)
+    setters = [ax.set_xticks, ax.set_yticks]
+    if dim == 3:
+        setters.append(ax.set_zticks)
+    for setter in setters[:max(1, min(dim, 3))]:
+        setter(ticks)
+
+
+class Figures:
+    """Where the figures go: tabs of one window, or a window each.
+
+    matplotlib has no tabbed figure manager of its own. With a Qt
+    binding installed this builds one, owning the figures outright
+    rather than taking them from pyplot -- a canvas reparented out of
+    pyplot leaves pyplot holding a figure it can no longer show, so
+    plt.close would empty the tabs without closing the window. Without
+    Qt the figures are pyplot's, one window each, which is
+    matplotlib's own behaviour.
+
+    Either way, closing the window or windows ends the run, and escape
+    closes the lot from any figure.
+    """
+
+    def __init__(self, tabbed):
+        self.qt = None
+        if not tabbed:
+            print('Figures: separate windows (TAB_FIGURES is False).')
+            return
+        try:
+            self.qt = self._find_qt()
+            print('Figures: tabs of one window.')
+        except Exception as exc:
+            # Say which import failed, and how: 'Qt is missing' and
+            # 'Qt is there but this matplotlib names it differently'
+            # want different fixes.
+            print(f'Figures: separate windows -- tabs need Qt, and '
+                  f'importing it raised {type(exc).__name__}: {exc}. '
+                  f'pip install PyQt5 into {sys.executable} if it is '
+                  'not there.')
+            return
+        if self.qt is not None:
+            QtWidgets = self.qt[1]
+            self.app = (QtWidgets.QApplication.instance()
+                        or QtWidgets.QApplication([]))
+            self.window = QtWidgets.QMainWindow()
+            self.window.setWindowTitle('demo_maet_plots')
+            self.tabs = QtWidgets.QTabWidget()
+            self.window.setCentralWidget(self.tabs)
+            self.window.resize(900, 780)
+
+    @staticmethod
+    def _find_qt():
+        """The Qt widgets and matplotlib's Qt canvas, however they are
+        named here.
+
+        matplotlib's qt_compat picks a binding for itself and raises
+        when it finds none; a binding imported directly is the fallback
+        for the case where it looks in the wrong place.
+        """
+        try:
+            from matplotlib.backends.qt_compat import QtCore, QtWidgets
+        except Exception:
+            from PyQt5 import QtCore, QtWidgets          # noqa: F401
+        try:
+            from matplotlib.backends.backend_qtagg import (
+                FigureCanvasQTAgg, NavigationToolbar2QT)
+        except ImportError:
+            from matplotlib.backends.backend_qt5agg import (
+                FigureCanvasQTAgg, NavigationToolbar2QT)
+        return QtCore, QtWidgets, FigureCanvasQTAgg, NavigationToolbar2QT
+
+    def new(self, label, three_d, figsize=(7.5, 6.0)):
+        """A figure and its axes, added to the window as it is made."""
+        if self.qt is None:
+            fig = plt.figure(figsize=figsize)
+        else:
+            from matplotlib.figure import Figure
+            QtCore, QtWidgets, FigureCanvas, NavToolbar = self.qt
+            fig = Figure(figsize=figsize)
+            canvas = FigureCanvas(fig)
+            page = QtWidgets.QWidget()
+            box = QtWidgets.QVBoxLayout(page)
+            box.setContentsMargins(0, 0, 0, 0)
+            toolbar = NavToolbar(canvas, page)
+            # On a high-resolution display the toolbar sizes itself to
+            # the raw pixmap rather than to the pixmap's device ratio,
+            # so the icons come out at twice their intended size unless
+            # the size is set.
+            toolbar.setIconSize(QtCore.QSize(20, 20))
+            box.addWidget(toolbar)
+            box.addWidget(canvas)
+            self.tabs.addTab(page, label)
+        ax = (fig.add_subplot(projection='3d') if three_d
+              else fig.add_subplot())
+        # Escape closes everything from any figure. A script blocked in
+        # show() leaves no prompt to close from, and matplotlib's own
+        # 'q' closes one figure at a time.
+        fig.canvas.mpl_connect(
+            'key_press_event',
+            lambda evt: self.close_all() if evt.key == 'escape' else None)
+        return fig, ax
+
+    def close_all(self):
+        """Close every figure, however they are held."""
+        if self.qt is None:
+            plt.close('all')
+        else:
+            self.window.close()
+
+    def run(self):
+        if self.qt is None:
+            plt.show()
+        else:
+            self.window.show()
+            self.app.exec() if hasattr(self.app, 'exec') else self.app.exec_()
+
+
+def method_for(dim):
+    """The method to draw this dimensionality with.
+
+    'density' has no three-dimensional form here, so the default falls
+    back to 'points', which is what matplotlib can show a volume's
+    interior with.
+    """
+    if PLOT_METHOD == 'density' and dim == 3:
+        return 'points'
+    return PLOT_METHOD
+
+
+def grid_args(dim, lims, relief=False):
+    """The grid request, and the node count it comes to."""
+    if dim == 1:
+        nodes = NODES_1D
+    elif dim == 2:
+        nodes = NODES_2D_RELIEF if relief else NODES_2D
+    else:
+        nodes = None
+    if dim == 3:
+        if STEP_3D is None:
+            return {}, 120
+        return {'step': STEP_3D}, int(round((lims[1] - lims[0]) / STEP_3D))
+    if nodes is None:
+        return {}, 1200
+    return {'nodes': nodes}, int(nodes)
 
 
 # ===================================================================
-#  Main loop (executed when run as script)
+#  Main loop
 # ===================================================================
+
+def main():
+    # Anything left over from a previous run, as the MATLAB mirror's
+    # close all does.
+    plt.close('all')
+
+    labels = {True: ('relative', 'Interval'), False: ('absolute', 'Pitch')}
+    figures = Figures(TAB_FIGURES)
+
+    print('\n--- Plot summary ---')
+    for ci, (r, is_rel, is_per, is_exch) in enumerate(CONFIGS, start=1):
+        dim = r - int(is_rel)
+        if r > len(P) or (is_rel and r < 2) or dim > 3:
+            print(f'  Config {ci}: r={r}, dim={dim} -- not drawn')
+            continue
+
+        lims = ((0.0, PERIOD) if is_per
+                else (AX_MIN_NONPER, AX_MAX_NONPER))
+        method = method_for(dim)
+        relief = RELIEF_2D and dim == 2 and method == 'density'
+        args, nodes = grid_args(dim, lims, relief)
+        mode_str, ax_label = labels[bool(is_rel)]
+        per_str = 'periodic' if is_per else 'non-periodic'
+        ord_str = 'unordered' if is_exch else 'ordered'
+        print(f'  Config {ci}: r={r}, {mode_str}, {per_str}, {ord_str}, '
+              f'dim={dim}, nodes={nodes}, method={method}')
+
+        dens = mpt.build_maet(P, W, SIGMA, r, is_rel, is_per, PERIOD,
+                              is_exch, verbose=False)
+
+        fig, ax = figures.new(f'{ci}: r={r} dim={dim}',
+                              three_d=(dim == 3 or relief))
+        extra = ({'alpha_floor': ALPHA_FLOOR_2D, 'relief': relief}
+                 if dim == 2 and method == 'density' else {})
+        mpt.plot_maet(dens, method=method, ax=ax, limits=lims,
+                      **args, **extra)
+
+        ax.set_xlabel(f'{ax_label} 1')
+        if dim == 1:
+            ax.set_ylabel('Density')
+        else:
+            ax.set_ylabel(f'{ax_label} 2')
+        if dim == 3:
+            ax.set_zlabel(f'{ax_label} 3')
+        elif relief:
+            ax.set_zlabel('Density')
+        ax.set_title(f'r = {r}, {mode_str}, {per_str}, {ord_str}, '
+                     f'$\\sigma$ = {SIGMA:g} — {method}')
+        fig.canvas.draw()
+        # Two axes to tick even in relief: the height is the
+        # density's own scale, and ticking it over the drawn range
+        # would stretch the surface flat.
+        set_demo_ticks(ax, lims, dim)
+
+    print('All plots complete. Close the window to finish.')
+    figures.run()
+
 
 if __name__ == '__main__':
-    p_arr = np.array(p, dtype=float)
-
-    all_states = {}
-
-    for ci, (r, is_rel, is_per, is_exch) in enumerate(configs, start=1):
-        if r > len(p_arr):
-            continue
-        if is_rel and r < 2:
-            continue
-
-        dim = r - int(is_rel)
-
-        if is_per:
-            ax_min, ax_max = 0, period
-        else:
-            ax_min, ax_max = ax_min_nonper, ax_max_nonper
-
-        if dim == 1:
-            step_size = step_1d
-        elif dim == 2:
-            step_size = step_2d
-        else:
-            step_size = step_3d
-
-        res = max(2, int(round((ax_max - ax_min) / step_size)) + 1)
-
-        mode_str = 'rel' if is_rel else 'abs'
-        per_str = 'per' if is_per else 'non-per'
-        ord_str = 'unordered' if is_exch else 'ordered'
-        ax_label = 'Interval' if is_rel else 'Pitch'
-        title_str = (f'Config {ci}: r={r}, {mode_str}, {per_str}, '
-                     f'{ord_str}, dim={dim}, res={res}')
-
-        print(f"Config {ci}: r = {r} ({mode_str}, {per_str}, {ord_str}, "
-              f"dim = {dim}, res = {res}): ", end='', flush=True)
-
-        figs_state = make_figure_for_config(
-            p_arr, w, sigma, r, is_rel, is_per, period,
-            normalize, ax_min, ax_max, dim, res, ci,
-            ax_label, mode_str, per_str, title_str,
-            mode_init=mode_init,
-            gamma_init=gamma_init,
-            eta_init=eta_init,
-            scatter_thresh_frac=scatter_thresh_frac,
-            is_exch=is_exch,
-            plot_3d_mode=plot_3d_mode,
-        )
-        all_states.update(figs_state)
-        print("done.")
-
-    print("\nAll plots complete. Close windows to exit.")
-    plt.show()
+    main()

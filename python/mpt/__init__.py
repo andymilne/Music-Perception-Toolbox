@@ -82,7 +82,7 @@ from .audio import AudioPeaksDetail, audio_peaks
 from .serial import continuity, kernel_cov
 
 # Plotting. matplotlib is imported when a plot is drawn, not here.
-from .plot3d import plot_maet_3d, plot_maet_3d_points
+from .plot import plot_maet
 
 # --- Global defaults ---
 from ._defaults import (
@@ -107,8 +107,7 @@ __all__ = [
     "MaetDensity",
     "build_maet",
     "maet_centres",
-    "plot_maet_3d",
-    "plot_maet_3d_points",
+    "plot_maet",
     "eval_maet",
     "sim_maet",
     "sweep_sim_maet",

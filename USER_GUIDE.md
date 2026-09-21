@@ -249,35 +249,69 @@ plt.title('Spectral pitch class density of a major triad')
 plt.show()
 ```
 
-### Drawing a three-dimensional density
+### Drawing a density
 
-A density of three drawn dimensions has no natural picture, so
-`plotMaet3d` / `mpt.plot_maet_3d` offers more than one, each answering a
-different question.
+`plotMaet` / `mpt.plot_maet` draws a density of one, two, or three
+drawn dimensions, dispatching on the dimensionality the density carries
+— `dim = r - isRel`. Four or more cannot be drawn and is refused.
 
-**`ellipsoids`** draws the kernels: one ellipsoid per tuple centre,
-shaped by the kernel's covariance and coloured by the density there. No
-grid is evaluated, so the cost is the number of centres rather than the
-volume, and every centre is drawn whatever the sampling. Where kernels
-overlap it shows the kernels and not the sum they make.
+It offers three methods, each named for what it shows rather than for
+the geometry it uses, since the geometry is what changes with the
+dimensionality.
+
+**`kernels`** draws the model rather than the density: one object per
+tuple centre, an ellipsoid at three dimensions, an ellipse at two, a
+curve at one, coloured by the density at that centre. No grid is
+evaluated, so the cost is the number of centres rather than the volume,
+and every centre is drawn whatever the sampling. It is where the shape
+of a relative kernel becomes visible — the covariance is `I + J`, so
+the kernel is elongated by `sqrt(r)` along the all-ones diagonal and
+circular across it, which the sum hides. Where kernels overlap it shows
+the kernels and not the sum they make.
+
+At one dimension it shows more than that. Each curve is one tuple's own
+term — its width the kernel's, its height that tuple's weight — so the
+curves *sum* to the line `density` draws, and a peak can be seen to be
+one kernel or several. Colour there is the density at the curve's
+centre, the total with every neighbour counted, so two curves of equal
+height differ in colour exactly where kernels crowd.
 
 **`points`** draws the density sampled: one translucent mark per grid
-node above a threshold. It shows the material between the peaks, which
-the kernels cannot.
+node above a threshold. Three drawn dimensions only — below that it
+samples what `density` already draws whole, a surface carrying every
+node at once and a line likewise. At a fine grid it is much the same
+picture as `density`; what differs is that the samples stay discrete,
+so the grid is visible rather than interpolated away.
 
-**`slices`** draws the density integrated: the volume as a stack of
-textured planes, so that what a ray accumulates along its length is
-what the picture shows. This is a true volume rendering, and it is
-**MATLAB only** — it rests on texture-mapped surfaces, which matplotlib
-has no counterpart for. Python offers the first two.
+It is not the cheap option its simplicity suggests. It evaluates the
+same grid as `density` — the evaluation is around 85 per cent of the
+cost of either — and its marks go as the cube of the nodes per axis
+where a stack's planes go as the first power. Measured on a 121-node
+grid it gave 20 frames a second against 67, and on a 241-node grid 4
+against 51.
+
+**`density`** draws the density itself: a line at one dimension, a
+textured translucent surface at two, and at three a stack of textured
+planes square to whichever axis is most nearly square to the view. A
+stack is built for each of the three axes and shown one at a time, so
+the picture changes as a rotation crosses the diagonal rather than when
+it ends. At three dimensions this is a true volume rendering: the value
+is read as an extinction per unit of path, so what a ray accumulates
+follows the distance it travels through the material rather than the
+number of planes that distance is cut into.
+
+The three-dimensional `density` is **MATLAB only** — it rests on
+texture-mapped surfaces, which matplotlib has no counterpart for, and
+Python raises an error there naming `points`. Every other combination
+is in both languages.
 
 ```matlab
 pAttr = {[0 200 400 500 700 900 1100].'};
 specs = flatSpecs(pAttr, 'r', 4, 'rel', true, 'exch', true);
 dens  = buildMaet(pAttr, [], 'specs', specs, 'sigma', 15, ...
                   'isPer', true, 'period', 1200);
-plotMaet3d(dens);                                % the kernels
-figure; plotMaet3d(dens, 'method', 'slices');    % the density
+plotMaet(dens);                                 % the kernels
+figure; plotMaet(dens, 'method', 'density');    % the density
 ```
 
 ```python
@@ -285,30 +319,49 @@ p_attr = [np.array([0, 200, 400, 500, 700, 900, 1100.])[:, None]]
 specs = mpt.flat_specs(p_attr, r=4, rel=True, exch=True)
 dens = mpt.build_maet(p_attr, None, specs=specs, sigma=[15.0],
                       is_per=[True], period=[1200.0])
-mpt.plot_maet_3d(dens)                           # the kernels
-mpt.plot_maet_3d_points(dens)                    # the density sampled
+mpt.plot_maet(dens)                              # the kernels
+mpt.plot_maet(dens, method='points')             # the density sampled
 ```
 
-The grid-based methods need a step fine relative to sigma, not to the
-axis range: a blob is a few sigma across, so a grid coarser than sigma
-steps over it and the density appears to have peaks missing rather than
-blurred. `ellipsoids` evaluates no grid and is the method to check a
-blob count against.
+#### The grid
 
-**`points` has a resolution budget, and it is the reason `slices`
-exists.** A mark carries a single depth across its whole face, so where
-two marks overlap the nearer hides the farther outright rather than
-blending with it. Every such contest reverses when the camera passes to
-the other side of the cloud, so the same density draws differently from
-opposite directions: blobs acquire haloes and hard edges from one of
-them and fade smoothly from the other. Marks that only meet cannot do
-it, and that is what the automatic marker size is for — it measures the
-grid's spacing on screen and sizes the marks to clear one another on it,
-refitting as the figure is resized or zoomed. The spacing it measures is
-for an assumed camera, not the one in front of you, so the size holds at
-every angle: were it fitted to the current view it would change as the
-axes turned, and with it the ink each mark lays down, so the cloud would
-brighten and dim as it rotated.
+`points` and `density` evaluate a grid, which can be asked for either
+way: `'step'` is a spacing in the density's own units, `'nodes'` a
+count of steps across whatever range is drawn — the same request said
+two ways, so give one or the other. The grid has one more point than
+`nodes` along each axis.
+
+What matters is the grid measured against sigma, not against the axis
+range: a blob is a few sigma across, so a grid coarser than sigma steps
+over it and the density appears to have peaks missing rather than
+blurred. Roughly one sample per sigma is the least that shows the
+shape. Cost goes as the count to the power of the dimensionality, which
+is why the default is 1200 steps at one and two dimensions and 120 at
+three. `kernels` evaluates no grid and is the method to check a blob
+count against.
+
+Cutting more finely than the volume was evaluated does not help the
+three-dimensional `density`: opacity reaches the renderer as eight
+bits, so a plane fainter than 1/255 rounds away, and material too faint
+to clear that in one plane is lost rather than accumulated over many.
+There is one plane per plane of the volume for that reason, and the
+grid is what cuts it more finely.
+
+#### `points` has a resolution budget
+
+A mark carries a single depth across its whole face, so where two marks
+overlap the nearer hides the farther outright rather than blending with
+it. Every such contest reverses when the camera passes to the other
+side of the cloud, so the same density draws differently from opposite
+directions: blobs acquire haloes and hard edges from one of them and
+fade smoothly from the other. Marks that only meet cannot do it, and
+the automatic marker size keeps them apart — it measures the grid's
+spacing on screen and sizes the marks to clear one another on it,
+refitting as the figure is resized or zoomed. The spacing it measures
+is for an assumed camera, not the one in front of you, so the size
+holds at every angle: were it fitted to the current view it would
+change as the axes turned, and with it the ink each mark lays down, so
+the cloud would brighten and dim as it rotated.
 
 The assumption scales with the step. Ink on screen goes as the assumed
 foreshortening squared over the step — the marks number `step`⁻³ and
@@ -323,16 +376,15 @@ the `markScale` that would have them clear.
 Overlap is what haloes need. Once the marks overlap they show at any
 elevation, and they are worse below the horizontal than above it;
 whether they also worsen as the view flattens towards an axis is
-unclear, and if so the effect is slight — a view looking nearly along an
-axis, where the marks overlap most, draws perfectly well. Why the sign
-of the elevation should matter at all is not established; depth sorting
-and the depth test are both symmetric under reversing the camera. The
-rule is empirical and is the one to go by: if a drawing looks haloed,
-lower `markScale` or turn above the horizontal, and if it must be
-trusted from any angle, use `slices`. The margin is
-generous, a mark rendering appreciably wider than its nominal size, so
-the marks read as dots with space between them rather than as a
-continuous cloud.
+unclear, and if so the effect is slight — a view looking nearly along
+an axis, where the marks overlap most, draws perfectly well. Why the
+sign of the elevation should matter at all is not established; depth
+sorting and the depth test are both symmetric under reversing the
+camera. The rule is empirical and is the one to go by: if a drawing
+looks haloed, lower `markScale` or turn above the horizontal, and if it
+must be trusted from any angle, use `density`. The margin is generous,
+a mark rendering appreciably wider than its nominal size, so the marks
+read as dots with space between them rather than as a continuous cloud.
 
 The budget is about three points of screen per grid node, and it is a
 relation between the step and the size the axes is drawn at, not a
@@ -340,11 +392,33 @@ property of the step alone. Left to choose its own step, `points` stays
 inside it. A step set by hand can ask for more than the figure affords,
 and the marks then overlap however they are sized; the drawing warns
 once — `mpt:markOverlap`, suppressible in the usual way — naming the
-smallest step that would draw cleanly at that size.
-Enlarging the figure, zooming in, or coarsening the step all buy the
-same thing. `slices` carries its depth per pixel rather than per mark
-and has no such budget, so a density too fine for `points` at a usable
-figure size is a density to draw with `slices`.
+smallest step that would draw cleanly at that size. Enlarging the
+figure, zooming in, or coarsening the step all buy the same thing.
+`density` carries its depth per pixel rather than per mark and has no
+such budget, so a density too fine for `points` at a usable figure size
+is a density to draw with `density`.
+
+The budget is a MATLAB matter. matplotlib depth-sorts and blends the
+marks, so `mpt.plot_maet` has no automatic sizing and no warning:
+`marker_size` is whatever is asked for.
+
+#### Appearance
+
+`'alphaPeak'` and `'alphaFloor'` set the opacity at the density's own
+peak and where there is no density, with `'alphaGamma'` the curve
+between them; a floor of 1 turns the fading off and draws the picture
+opaque. `'colourGamma'` is the same curve on the colour. Low material
+fading to dark panes is what keeps the colour map's low colour from
+becoming the ground the density is read against — which is why
+`'dark'` defaults to true in MATLAB, at every dimensionality: the map
+runs dark to bright, so anything coloured for a low density is nearly
+black and would be invisible on white.
+
+Python follows matplotlib's defaults instead: no colour-map
+brightening, light panes, and matplotlib's own camera until a view is
+given. `'brighten'` has no Python counterpart, and `view` takes
+matplotlib's `(elev, azim)` where MATLAB's takes `[azimuth elevation]`
+— each language following its own plotting library.
 
 Python's plotting needs `matplotlib`, which the toolbox does not
 require; it is imported when a plot is drawn, not when `mpt` is
@@ -859,7 +933,7 @@ The functions below group into four layers: *core* (constructs, evaluates, or co
 | `sweepSimMaet` | `sweep_sim_maet` | *Core:* similarity against uniformly translated copies of a density, as one reduced sweep |
 | `entropyMaet` | `entropy_maet` | *Core:* Shannon, normalized, differential, or Rényi-2 entropy of an expectation tensor |
 | `maetCentres` | `maet_centres` | *Core:* the points at which a density places its Gaussians, materialised on demand |
-| `plotMaet3d` | `plot_maet_3d`, `plot_maet_3d_points` | *Plotting:* a density of three drawn dimensions, as its kernels (`ellipsoids`), as its sampled values (`points`), or as a volume rendering (`slices`, MATLAB only) |
+| `plotMaet` | `plot_maet` | *Plotting:* a density of one, two, or three drawn dimensions, as its kernels (`kernels`), as its sampled values (`points`, three dimensions only), or as the density itself (`density`; at three dimensions a volume rendering, MATLAB only) |
 | `preMaet` | `pre_maet` | *Constructor:* hold a pre-MAET's three parts in one object (§7.4.5) |
 | `unpackPreMaet` | `unpack_pre_maet` | *Constructor:* split a pre-MAET back into `pAttr`, `wAttr`, and `specs` (§7.4.5) |
 | `flatSpecs` | `flat_specs` | *Constructor:* synthesize the canonical flat `specs` for bare attributes |

@@ -1,85 +1,82 @@
 %% demo_maetPlots.m
-%  Visualizes expectation tensor densities in 1 to 3 dimensions for
-%  user-specified combinations of r, isRel, isPer, and isExch, each
-%  configuration drawn both unordered and ordered -- including r = 1,
-%  where the two are necessarily the same picture.
+%  Draws the same seven pitches as a MAET under every combination of
+%  the four parameters that define one, and as each of the three
+%  methods plotMaet offers for drawing it.
 %
-%  Uses buildMaet to precompute the density object once per configuration,
-%  then passes it to evalMaet for one and two dimensions, and to
-%  plotMaet3d for three.
+%  === The four parameters ===
 %
-%  Each figure includes an interactive transform-mode selector (Off /
-%  Gamma / Saturation) for real-time adjustment of dynamic-range
-%  compression: gamma applies v -> v.^gamma, saturation applies
-%  v -> 1 - exp(-v / eta), both with per-plot normalisation. Surface
-%  plots (dim = 2) additionally include a colormap shift slider and a
-%  perspective/orthographic projection toggle.
+%  The `configs` table below sets out the combinations. What each
+%  parameter does, and where it shows in the pictures:
 %
-%  Edit the parameters below to experiment with different multisets,
-%  smoothing widths, plot configurations, and visualization modes.
+%    r       raises the dimensionality, since dim = r - isRel. Going
+%            from r = 2 to r = 3 turns a plane into a cube. The
+%            density places one kernel per r-tuple, so the number of
+%            blobs goes as the number of tuples.
+%    isRel   absolute against relative. An absolute density lives at
+%            the pitches themselves; a relative one lives at the
+%            intervals between them, is transposition-invariant, and
+%            costs a dimension. Its kernels are elongated along the
+%            all-ones diagonal, which the 'kernels' method shows
+%            directly.
+%    isPer   whether the space wraps. A periodic density is drawn over
+%            one period, and a kernel crossing a face reappears on the
+%            other side; a non-periodic one runs off into silence.
+%    isExch  unordered against ordered. An ordered density counts each
+%            arrangement of a tuple separately and is unsymmetric in
+%            its arguments; the unordered one is its symmetrization
+%            and so is mirror-symmetric about the diagonal. Each
+%            configuration is drawn both ways, adjacent, so the
+%            symmetrization is a difference between neighbouring tabs.
 %
-%  The three-dimensional plots are drawn by the toolbox's own
-%  plotMaet3d, whose method is chosen by plot3Dmode below.
+%  === The drawing ===
 %
-%  Uses: buildMaet, evalMaet, plotMaet3d (from the Music Perception
-%  Toolbox).
+%  Every plot is drawn by plotMaet, which dispatches on the density's
+%  drawn dimensionality and offers three methods -- 'kernels',
+%  'points', and 'density' -- described at plotMethod below. This
+%  script makes no picture of its own: it builds the densities, sets
+%  the options, and frames the result.
+%
+%  Each parameter block below states the choice made and what the
+%  alternatives do.
+%
+%  Uses: buildMaet, plotMaet (from the Music Perception Toolbox).
 
 %% === User-editable parameters ===
 close all
-% Pitch set and weights
+% The multiset to draw, and its weights. The diatonic scale in cents:
+% seven pitches keeps the structure legible and r = 4 quick. Empty
+% weights means all equal; a weight vector scales each pitch's
+% contribution and shows as differing blob heights.
 p = [0; 200; 400; 500; 700; 900; 1100];
 w = [];
 
-% Gaussian smoothing width
+% Kernel width, in the same units as p. At 15 cents the semitone
+% spacings of this scale are about seven sigma apart and the blobs
+% resolve separately; at 50 they merge into ridges, which shows what
+% a listener might confuse rather than where the tuples are.
 sigma = 15;
 
-% Normalization mode for density evaluation: 'none', 'gaussian', or 'pdf'
-%   'none'     — Raw weighted proximity scores (default). Only relative
-%                values across query points are meaningful.
-%   'gaussian' — Each Gaussian component integrates to 1. Useful for
-%                comparing densities computed with different sigma values.
-%   'pdf'      — Full probability density (integrates to 1 over the domain).
-%                Useful for comparing across multisets of different sizes.
-normalize = 'none';
-
-% Default transform-mode and parameter values for visualization.
-%   - 'off'  : no transform; data shown as-is
-%   - 'gamma': power compression  v -> v.^gamma  (gamma in [0.01, 1])
-%   - 'sat'  : saturation         v -> 1 - exp(-v / eta)  (eta log-scale 
-%              in [0.001, 5], applied to data normalised to [0, 1] then 
-%              rescaled back to the original range)
-% Both gamma and eta have per-mode memory inside each figure: switching 
-% between modes via the radio selector restores each mode's last 
-% slider value.
-gamma = 1;
-eta   = 5;
-
-% Period for periodic configurations (in the same units as p)
+% The period for the periodic configurations, in the same units as p.
 period = 1200;
 
 % === Plot configurations ===
-% Each row specifies one plot: [r, isRel, isPer, isExch]
-%   r      — tuple size
-%   isRel  — 0 = absolute, 1 = relative (transposition-invariant)
-%   isPer  — 0 = non-periodic, 1 = periodic
-%   isExch — 1 = unordered (exchangeable tuples), 0 = ordered
+% One row per plot: [r, isRel, isPer, isExch], with isRel, isPer, and
+% isExch as 0 or 1. What each does is set out in the header; the table
+% is ordered so that the differences are adjacent.
 %
-% The effective query dimensionality is dim = r - isRel, and only one
-% to three dimensions are drawn: a four-dimensional density has no
-% honest picture, and the grid of two-dimensional slices this demo used
-% to draw for it showed three arbitrary cuts rather than the density.
+% Only one to three drawn dimensions can be drawn, dim = r - isRel, so
+% r runs to 3 absolute and 4 relative. A four-dimensional density has
+% no honest picture: the grid of two-dimensional slices this demo once
+% drew for it showed three arbitrary cuts rather than the density.
 %
-% Every configuration appears twice, unordered and then ordered. An
-% ordered density counts each arrangement of a tuple separately, so it
-% is unsymmetric in its arguments and has the fuller support; the
-% unordered one is its symmetrization.
+% Each configuration appears twice, unordered then ordered, so that
+% the symmetrization is a difference between neighbouring tabs. r = 1
+% is included both ways although it has one slot and so nothing to
+% order: the two come out identical. Exchangeability is a statement
+% about the arrangement of a tuple's elements, and a tuple of one has
+% only the one.
 %
 % Add, remove, or reorder rows to control which plots are produced.
-%
-% r = 1 is drawn both ways too, though it has one slot and so nothing
-% to order: the two plots come out identical, which is the point of
-% including them. Exchangeability is a statement about the arrangement
-% of a tuple's elements, and a tuple of one has only the one.
 configs = [
 1,  0,  0,  1;
 1,  0,  0,  0;
@@ -107,63 +104,100 @@ configs = [
 4,  1,  1,  0;
 ];
 
-% === Grid resolution as step size ===
-% Specify the grid spacing (in the same units as p and period) for each
-% effective dimensionality. The number of grid points per axis is computed
-% automatically from the axis range and step size.
-% Smaller step = finer grid = slower computation (scales as step^(-dim)).
+% === Grid resolution ===
+% The grid plotMaet evaluates. It takes either 'nodes', a count of
+% steps across whatever range is drawn, or 'step', a spacing in the
+% units of p -- the same request said two ways.
 %
-% The step that matters is the step measured against sigma, not against
-% the axis range: a blob is a few sigma across, so a grid coarser than
-% sigma steps straight over it and the density appears to have peaks
-% missing rather than blurred. A step of about sigma puts one sample
-% per sigma, which is the least that shows the shape.
-% 'ellipsoids' evaluates no grid and ignores step_3d entirely, so it is
-% the mode to check a blob count against.
-step_1d = 1;     % e.g., 1 cent per grid point
-step_2d = 5;     % 5 cents per dimension
-step_3d = 10;    % about one sample per sigma at the sigma set above
+% The number that matters is the grid measured against sigma rather
+% than against the range: a blob is a few sigma across, so a grid
+% coarser than sigma steps straight over it and the density looks as
+% though it has peaks missing rather than blurred. Roughly one sample
+% per sigma is the least that shows the shape.
+%
+% Cost goes as the count to the power of the dimensionality. The
+% 'kernels' method evaluates no grid and ignores all of this. Empty
+% leaves the choice to plotMaet, which asks for 1200 steps at one and
+% two dimensions and 120 at three.
+nodes_1d = 1200;   % steps across the range, so periodic and
+nodes_2d = 1200;   % non-periodic are sampled alike
+step_3d  = 10;     % cents per step, so the wider non-periodic cube
+                   % is not left at 20 cents and blocky
 
 % === Axis range for non-periodic configurations ===
-% For periodic configurations, the range is always [0, period].
-% For non-periodic configurations, set the range here. A range centred
-% on zero shows an interval and its inversion either side of the
-% unison, which is what a relative density is symmetric about; an
-% absolute density is drawn over the same range so that the two can be
-% read against each other.
+% Periodic configurations are always drawn over [0, period]. The rest
+% are drawn over the range set here, rather than over the extent
+% plotMaet would choose from the data, so that every configuration
+% shares one frame and can be read against the others. Centred on zero
+% because a relative density is symmetric about the unison and this
+% shows an interval beside its inversion; absolute densities take the
+% same range so the two kinds are comparable.
 axMinNonPer = -1200;
 axMaxNonPer = 1200;
 
-% === Colour map ===
-% Brightening of parula for the two-dimensional surfaces, as MATLAB's
-% brighten: positive lifts its low end, which is where most of a
-% density's material sits. The three-dimensional plots are left to
-% plotMaet3d's own default, that being the function's to set.
-surfBrighten = 0.7;
+% === Colour and opacity ===
+% plotMaet draws against dark panes, brightens the colour map, and
+% fades the low material out. The two settings here control the last
+% two of those.
+%
+% brightenMap is parula's brightening, as MATLAB's brighten: positive
+% lifts its low end, which is where most of a density's material sits.
+% Two values, [one and two dimensions, three dimensions], because a
+% volume rendering accumulates along every ray while a line or a
+% surface shows each value once, so the same brightening looks washed
+% at three dimensions. Empty takes plotMaet's own default.
+%
+% alphaFloor2d is where the opacity curve starts, at zero density, for
+% the two-dimensional surfaces. At 0 the empty parts of the surface
+% are fully transparent, which reads well from directly above; tilted,
+% the surface loses its shape there and the blobs float unsupported.
+% 1 turns the fading off and draws the surface opaque.
+%
+% Together they set how far the picture departs from an ordinary
+% MATLAB surface. brightenMap = 0 with alphaFloor2d = 1 gives
+% unbrightened parula on a solid surface -- MATLAB's own look, and
+% probably the more natural one for a two-dimensional density examined
+% as a surface under rotation, where relief does the work that opacity
+% does from above. The panes stay dark either way; that is plotMaet's
+% 'dark', which this script leaves at its default.
+brightenMap  = [0.7 0.5];
+alphaFloor2d = 0;
 
 % === Figure window style ===
 % true docks every figure, so the configurations arrive as tabs of one
-% window rather than as a window each. Docked figures take their size
-% from the dock, so the widening the surface plots and the controls
-% would otherwise ask for is skipped.
+% window and can be stepped through; false gives a window each, which
+% suits comparing two side by side. Set explicitly rather than left to
+% MATLAB's preference, so the demo behaves the same on any machine.
 dockFigures = true;
 
-% === 3D visualization settings ===
-
-% 3D plot mode, passed straight to plotMaet3d as its 'method':
-%   'ellipsoids' — one ellipsoid per tuple centre, shaped by the
-%                  kernel's covariance and coloured by the density
-%                  there. No grid is evaluated, so it is by far the
-%                  cheapest, and it shows the kernels rather than the
-%                  sum they make.
-%   'points'     — one translucent mark per grid node above a
-%                  threshold, coloured and made translucent by the
-%                  value. Shows what lies between the peaks, and is the
-%                  only mode the transform controls can drive.
-%   'slices'     — the volume as a stack of textured planes, a true
-%                  volume rendering: what a ray accumulates along its
-%                  length is what the picture shows.
-plot3Dmode = 'slices';
+% === Plot method ===
+% Passed straight to plotMaet.
+%   'kernels' — the model rather than the density: one object per
+%               tuple centre, an ellipsoid, an ellipse, or a curve.
+%               Shows where the kernels are and what shape they have,
+%               which is where the elongation of a relative kernel
+%               becomes visible. Evaluates no grid.
+%
+%               At one dimension each curve is one tuple's own term,
+%               its width the kernel's and its height that tuple's
+%               weight, so the curves sum to the density. Colour is
+%               the density at that centre -- the total, neighbours
+%               included -- so two curves of equal height differ in
+%               colour where kernels crowd, and a peak can be seen to
+%               be one kernel or several.
+%   'points'  — the density sampled: one translucent mark per grid
+%               node above a threshold. Three dimensions only. At a
+%               fine grid it is much the same picture as 'density'
+%               and costs more to draw; what differs is that the
+%               samples stay discrete, so the grid is visible rather
+%               than interpolated away.
+%   'density' — the density itself: a line, a translucent surface, or
+%               a stack of textured planes.
+%
+% 'density' is the default here because the demo is about what the
+% four parameters do to the density, and the kernels are a step behind
+% that. Switch to 'kernels' to see the tuples themselves.
+plotMethod = 'density';
 
 %% === Estimate total runtime ===
 
@@ -193,13 +227,18 @@ for ci = 1:nConfigs
         axMaxC = axMaxNonPer;
     end
 
-    % Grid resolution from step size
-    switch dimC
-        case 1, stepC = step_1d;
-        case 2, stepC = step_2d;
-        otherwise, stepC = step_3d;
+    % A count at one and two dimensions, a spacing at three.
+    if dimC < 3
+        if dimC == 1, nodesC = nodes_1d; else, nodesC = nodes_2d; end
+        if isempty(nodesC)
+            nodesC = localDefaultNodes(dimC);
+        end
+    elseif isempty(step_3d)
+        nodesC = localDefaultNodes(dimC);
+    else
+        nodesC = round((axMaxC - axMinC) / step_3d);
     end
-    resC = max(2, round((axMaxC - axMinC) / stepC) + 1);
+    resC = max(2, round(nodesC) + 1);
 
     % Only one to three dimensions are drawn, and the main loop stops
     % on anything more, so a row that asks for more is reported here
@@ -252,10 +291,6 @@ end
 %% === Iterate through configurations ===
 
 for ci = 1:nConfigs
-    % Fresh for each configuration, so that no field set for one plot
-    % is left behind for the next.
-    info = struct();
-
     r      = configs(ci, 1);
     isRelR = logical(configs(ci, 2));
     isPerR = logical(configs(ci, 3));
@@ -285,13 +320,33 @@ for ci = 1:nConfigs
     % --- Effective dimensionality ---
     dim = r - isRelR;
 
-    % --- Grid resolution from step size ---
-    switch dim
-        case 1, stepSize = step_1d;
-        case 2, stepSize = step_2d;
-        otherwise, stepSize = step_3d;
+    % Empty leaves plotMaet's own colour map alone.
+    if isempty(brightenMap)
+        mapArgs = {};
+    elseif dim < 3
+        mapArgs = {'brighten', brightenMap(1)};
+    else
+        mapArgs = {'brighten', brightenMap(end)};
     end
-    res = max(2, round((axMax - axMin) / stepSize) + 1);
+
+    % --- The grid: a count at one and two dimensions, a spacing at
+    %     three. Empty either way leaves the choice to plotMaet. ---
+    if dim < 3
+        if dim == 1, nodes = nodes_1d; else, nodes = nodes_2d; end
+        if isempty(nodes)
+            gridArgs = {};
+            res = localDefaultNodes(dim) + 1;
+        else
+            gridArgs = {'nodes', nodes};
+            res = round(nodes) + 1;
+        end
+    elseif isempty(step_3d)
+        gridArgs = {};
+        res = localDefaultNodes(dim) + 1;
+    else
+        gridArgs = {'step', step_3d};
+        res = max(2, round((axMax - axMin) / step_3d) + 1);
+    end
 
     % --- Labels for plot titles ---
     if isRelR
@@ -332,148 +387,62 @@ for ci = 1:nConfigs
     switch dim
 
         % =============================================================
-        %  dim = 1: line plot with power slider
+        %  dim = 1: a line, or the kernels that sum to it
         % =============================================================
         case 1
-            x = linspace(axMin, axMax, res);
-            X = x;  % 1 x res
-
-            vals = evalMaet(dens, X, normalize);
-
             fig = newDemoFigure(ci, r, dim, dockFigures);
-            hLine = plot(x, applyTransform(vals, 'off', gamma, eta), 'LineWidth', 1.5);
+            h1 = plotMaet(dens, 'method', plotMethod, ...
+                          'limits', [axMin axMax], gridArgs{:}, ...
+                          mapArgs{:});
             xlabel(sprintf('%s 1', axLabel));
             ylabel('Density');
             title(titleStr);
-            xlim([axMin axMax]);
-            set(gca, 'XGrid', 'on', 'YGrid', 'on');
             setDemoTicks(gca, [axMin axMax], 1);
 
-            % Store raw data and add slider
-            info.mode    = 'line';
-            info.rawVals = vals;
-            info.hLine   = hLine;
-            addPlotControls(fig, info, gamma, eta);
-
         % =============================================================
-        %  dim = 2: surface plot (top-down X-Y view) with controls
+        %  dim = 2: a surface, or the kernels' outlines
         % =============================================================
         case 2
-            x = linspace(axMin, axMax, res);
-            [Ga, Gb] = meshgrid(x, x);
-
-            % An exchangeable density is symmetric in its arguments,
-            % so half the grid can be evaluated and mirrored. An
-            % ordered one is not -- being unsymmetric is the whole of
-            % what distinguishes it -- so it is evaluated whole.
-            if isExchR
-                upperMask = triu(true(res));
-                Xu = [Ga(upperMask)'; Gb(upperMask)'];
-                valsU = evalMaet(dens, Xu, normalize);
-                Vraw = zeros(res, res);
-                Vraw(upperMask) = valsU;
-                Vraw = Vraw + Vraw.' - diag(diag(Vraw));
-                vals = Vraw(:).';
-            else
-                vals = evalMaet(dens, [Ga(:)'; Gb(:)'], normalize);
-                vals = vals(:).';
-            end
-
-            V = reshape(applyTransform(vals, 'off', gamma, eta), res, res);
-
             fig = newDemoFigure(ci, r, dim, dockFigures);
-
-            % Widen figure to accommodate plot + colorbar + controls.
-            % A docked figure has no say in its size, so it is left be.
-            if strcmp(get(fig, 'WindowStyle'), 'normal')
-                figPos = get(fig, 'Position');
-                set(fig, 'Position', [figPos(1), figPos(2), ...
-                    max(figPos(3), 900), figPos(4)]);
-            end
-
-            hSurf = surf(Ga, Gb, V, 'EdgeColor', 'none');
-            hAx = gca;
-
-            % Shrink axes to leave room for 3D labels, colorbar, and controls.
-            % The right margin (~50% of figure width) accommodates:
-            %   - 3D axis tick labels in perspective view
-            %   - Colorbar + its tick labels
-            %   - Power and Cmap sliders
-            %   - Projection toggle
-            set(hAx, 'Position', [0.08 0.12 0.48 0.78]);
+            h2 = plotMaet(dens, 'method', plotMethod, ...
+                          'limits', [axMin axMax], gridArgs{:}, ...
+                          'alphaFloor', alphaFloor2d, mapArgs{:});
             xlabel(sprintf('%s 1', axLabel));
             ylabel(sprintf('%s 2', axLabel));
-            zlabel('Density');
             title(titleStr);
-            colormap(hAx, brighten(parula(256), surfBrighten));
-            colorbar;
-            xlim([axMin axMax]);
-            ylim([axMin axMax]);
-            maxV = max(applyTransform(vals, 'off', gamma, eta));
-            if maxV > 0
-                daspect([1 1 maxV / (axMax - axMin)]);
-            end
-            set(hAx, 'Projection', 'orthographic');
-            view(0, 90);
-            setDemoTicks(hAx, [axMin axMax], 2);
+            setDemoTicks(gca, [axMin axMax], 2);
 
-            % Opacity following the density, over dark panes, as the
-            % three-dimensional plots do. A surface painted opaque
-            % covers its whole plane in the map's low colour, so the
-            % ground a density is read against is that colour rather
-            % than the background, and brightening the map lifts it
-            % along with everything else. Let the low material fade
-            % out instead and the two kinds of picture agree.
-            % Texture mapping for both the colour and the opacity.
-            % FaceColor and FaceAlpha have to agree, and of the pairs
-            % that do, only this one renders: per-vertex opacity over
-            % a grid this size comes out blank. It is also what
-            % plotMaet3d's slices use, for the same reason.
-            set(hSurf, 'FaceColor', 'texturemap', ...
-                       'FaceAlpha', 'texturemap', ...
-                       'AlphaData', surfAlpha(V), ...
-                       'AlphaDataMapping', 'none');
-            set(hAx, 'ALim', [0 1], ...
-                     'Color', [0.06 0.06 0.06], ...
-                     'GridColor', [0.22 0.22 0.22], 'GridAlpha', 1, ...
-                     'XGrid', 'on', 'YGrid', 'on', 'ZGrid', 'on');
+            % A two-dimensional density is a surface seen from
+            % directly above. Tilting it shows as relief what the
+            % colour and opacity show only by comparison.
+            rotate3d(fig, 'on');
 
-            % Store raw data and add controls
-            info.mode    = 'surf';
-            info.rawVals = vals;
-            info.hSurf   = hSurf;
-            info.hAx     = hAx;
-            info.res     = res;
-            info.axRange = [axMin axMax];
-            addPlotControls(fig, info, gamma, eta);
+            % A colourbar as a key to the map. plotMaet draws none,
+            % and for the density method it is a key to the map alone:
+            % a colourbar knows nothing of opacity, so with the
+            % surface fading to the panes its low end shows colours
+            % the picture never paints.
+            colorbar(ancestor(h2, 'axes'));
 
         % =============================================================
-        %  dim = 3: drawn by the toolbox's own plotMaet3d
+        %  dim = 3: a stack of planes, marks, or ellipsoids
         % =============================================================
         case 3
             fig = newDemoFigure(ci, r, dim, dockFigures);
-            h3 = plotMaet3d(dens, 'method', plot3Dmode, ...
-                            'limits', [axMin axMax], 'step', stepSize, ...
-                            'upsample', 2);
+            h3 = plotMaet(dens, 'method', plotMethod, ...
+                          'limits', [axMin axMax], gridArgs{:}, ...
+                          'upsample', 2, mapArgs{:});
             xlabel(sprintf('%s 1', axLabel));
             ylabel(sprintf('%s 2', axLabel));
             zlabel(sprintf('%s 3', axLabel));
-            title(sprintf('%s — %s', titleStr, plot3Dmode));
+            title(sprintf('%s — %s', titleStr, plotMethod));
             setDemoTicks(gca, [axMin axMax], 3);
 
             % These are meant to be turned, so the figure opens ready
-            % to. plotMaet3d leaves the interaction mode alone, that
+            % to. plotMaet leaves the interaction mode alone, that
             % being the caller's to set rather than a plotting
             % function's to impose.
             rotate3d(fig, 'on');
-
-            % The transform controls apply to 'points' alone.
-            if strcmp(plot3Dmode, 'points')
-                info.mode     = 'scatter3';
-                info.rawVals  = h3.AlphaData(:);
-                info.hScatter = h3;
-                addPlotControls(fig, info, gamma, eta);
-            end
 
         % =============================================================
         %  dim >= 4: not drawn
@@ -540,21 +509,6 @@ function setDemoTicks(ax, lims, dim)
 end
 
 
-function a = surfAlpha(V)
-%SURFALPHA Opacity for a surface, the density against its own peak.
-%
-%  Proportional to the density, as a mark's is in plotMaet3d at its
-%  default alphaGamma of 1. Clamped at zero: evaluation can return
-%  values a billionth below it.
-    mx = max(V(:));
-    if mx > 0
-        a = max(V, 0) / mx;
-    else
-        a = ones(size(V));
-    end
-end
-
-
 function step = tidyTickStep(availPts, span, minPts)
 %TIDYTICKSTEP The smallest tidy interval whose labels still have room.
     candidates = [100 200 300 400 600];
@@ -577,6 +531,18 @@ function wh = demoAxesPoints(ax)
 end
 
 
+function n = localDefaultNodes(dim)
+%LOCALDEFAULTNODES  The nodes per axis plotMaet asks for when the step
+%   is left to it. Kept here only so that the runtime estimate can
+%   report the grid that will actually be evaluated.
+    if dim < 3
+        n = 1200;
+    else
+        n = 120;
+    end
+end
+
+
 function fig = newDemoFigure(ci, r, dim, docked)
 %NEWDEMOFIGURE One figure per configuration, docked or free.
 %
@@ -590,505 +556,4 @@ function fig = newDemoFigure(ci, r, dim, docked)
     end
     fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim), ...
                  'WindowStyle', style);
-end
-
-
-function vt = applyTransform(vals, mode, gamma, eta)
-%APPLYTRANSFORM Dispatch on mode.
-%
-%  'off'   identity; output range = input range.
-%  'gamma' power compression: data normalised by the empirical
-%          (min, max), then raised to gamma. Output is in [0, 1].
-%          Gamma is a display-cosmetic knob, so anchoring at the
-%          empirical min keeps the slider responsive regardless of
-%          where the data sits.
-%  'sat'   saturation: anchored at 0 (a meaningful baseline of "no
-%          density"). For tensor density, which is always non-
-%          negative, vn = vals / max. The saturation curve
-%          (1 - exp(-vn/eta)) / (1 - exp(-1/eta)) is then applied.
-%          Output is in [0, 1].
-    if strcmp(mode, 'off')
-        vt = vals;
-        return;
-    end
-
-    mn = min(vals(:));
-    mx = max(vals(:));
-
-    switch mode
-        case 'gamma'
-            if mx > mn
-                vn = (vals - mn) / (mx - mn);
-                vt = vn .^ gamma;
-            else
-                vt = vals;
-            end
-        case 'sat'
-            if mn >= 0 && mx > 0
-                vn = vals / mx;
-            elseif mx <= 0 && mn < 0
-                vn = (vals - mn) / (-mn);
-            elseif mx > mn
-                vn = (vals - mn) / (mx - mn);
-            else
-                vt = vals;
-                return;
-            end
-            num = 1 - exp(-vn / eta);
-            den = 1 - exp(-1 / eta);
-            if den > 0
-                vt = num / den;
-            else
-                vt = vn;
-            end
-        otherwise
-            vt = vals;
-    end
-end
-
-function addPlotControls(fig, info, gammaInit, etaInit)
-%ADDPLOTCONTROLS Add interactive controls to a figure.
-%
-%  All plot modes get a transform-mode selector (radio buttons:
-%  Off / Gamma / Saturation) and an adaptive slider whose meaning
-%  depends on the chosen mode. 'gamma' applies v -> v.^gamma in
-%  [0.01, 1]; 'sat' applies v -> 1 - exp(-v / eta) with eta on a
-%  log10 scale in [0.001, 5]. Both gamma and eta have per-mode
-%  memory.
-%
-%  For 'surf' mode, the controls are placed vertically to the right
-%  of the colorbar. There is also a colormap shift slider (with
-%  per-mode memory) and a perspective/orthographic projection toggle.
-%  In perspective mode the colorbar and slider region shift right to
-%  clear the y-axis labels.
-%
-%  For the other modes, the controls are placed in a horizontal row at
-%  the bottom of the figure.
-%
-%  Supported info.mode values:
-%    'line'     — updates YData of a line plot
-%    'surf'     — updates ZData/CData; includes projection + cmap controls
-%    'scatter3' — updates CData and AlphaData of a scatter3 plot
-
-    isSurf = strcmp(info.mode, 'surf');
-
-    info.mode_xform = 'off';        % active transform mode
-    info.gamma      = gammaInit;    % per-mode memory
-    info.eta        = etaInit;      % per-mode memory
-
-    if isSurf
-        % === Surf mode: vertical layout to the right of the colorbar ===
-
-        drawnow;
-
-        % Position the colorbar narrowly so perspective mode has room
-        hCB = findobj(fig, 'Type', 'ColorBar');
-        if ~isempty(hCB)
-            axPos = get(info.hAx, 'Position');
-            cbLeft   = axPos(1) + axPos(3) + 0.14;
-            cbBottom = axPos(2);
-            cbWidth  = 0.018;
-            cbHeight = axPos(4);
-            hCB(1).Location = 'manual';
-            hCB(1).Position = [cbLeft, cbBottom, cbWidth, cbHeight];
-            cbPos = hCB(1).Position;
-        else
-            cbPos = [0.72, 0.12, 0.018, 0.78];
-        end
-
-        sliderW    = 0.025;
-        labelH     = 0.025;
-        readoutH   = 0.025;
-        cbGap      = 0.055;
-        sliderGap  = 0.015;
-        modeGroupH = 0.025;
-        labelTopH  = 0.020;
-        labelBotH  = 0.020;
-        modeBlockH = labelTopH + modeGroupH + labelBotH + 0.005;
-
-        % Slider region anchored to the colorbar
-        sliderH    = cbPos(4) - modeBlockH - 0.005;
-        sliderBot  = cbPos(2);
-        xformX     = cbPos(1) + cbPos(3) + cbGap;
-        modeBgW    = 2 * sliderW + sliderGap + 0.01;
-        modeBlockY = sliderBot + sliderH + labelH + 0.005;
-
-        % Per-mode cmap shift memory
-        info.cmapShiftOff   = 0;
-        info.cmapShiftGamma = 0;
-        info.cmapShiftSat   = 0;
-
-        % Top labels: "Off" above column 1, "Saturation" above column 3
-        topLabelY = modeBlockY + modeGroupH + labelBotH - 0.005;
-        uicontrol(fig, 'Style', 'text', 'String', 'Off', ...
-            'Units', 'normalized', ...
-            'Position', [xformX - 0.020, topLabelY, 0.040, labelTopH], ...
-            'FontSize', 8, 'HorizontalAlignment', 'center', ...
-            'Tag', 'modeOff_label', ...
-            'BackgroundColor', get(fig, 'Color'));
-        uicontrol(fig, 'Style', 'text', 'String', 'Saturation', ...
-            'Units', 'normalized', ...
-            'Position', [xformX + modeBgW - 0.045, topLabelY, ...
-                         0.060, labelTopH], ...
-            'FontSize', 8, 'HorizontalAlignment', 'center', ...
-            'Tag', 'modeSat_label', ...
-            'BackgroundColor', get(fig, 'Color'));
-
-        % Radio row
-        radioY = modeBlockY + labelBotH;
-        modeGroup = uibuttongroup(fig, ...
-            'Units', 'normalized', ...
-            'Position', [xformX - 0.005, radioY, modeBgW, modeGroupH], ...
-            'BorderType', 'none', ...
-            'BackgroundColor', get(fig, 'Color'), ...
-            'Tag', 'modeGroup', ...
-            'SelectionChangedFcn', @(src, evt) modeChangedCallback(src, evt, fig));
-        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', '', ...
-            'Units', 'normalized', 'Position', [0.05, 0, 0.28, 1], ...
-            'Tag', 'modeOff', 'BackgroundColor', get(fig, 'Color'), ...
-            'Value', 1);
-        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', '', ...
-            'Units', 'normalized', 'Position', [0.39, 0, 0.28, 1], ...
-            'Tag', 'modeGamma', 'BackgroundColor', get(fig, 'Color'), ...
-            'Value', 0);
-        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', '', ...
-            'Units', 'normalized', 'Position', [0.72, 0, 0.28, 1], ...
-            'Tag', 'modeSat', 'BackgroundColor', get(fig, 'Color'), ...
-            'Value', 0);
-
-        % "Gamma" label below column 2
-        botLabelY = modeBlockY;
-        uicontrol(fig, 'Style', 'text', 'String', 'Gamma', ...
-            'Units', 'normalized', ...
-            'Position', [xformX + modeBgW/2 - 0.026, botLabelY, ...
-                         0.040, labelBotH], ...
-            'FontSize', 8, 'HorizontalAlignment', 'center', ...
-            'Tag', 'modeGamma_label', ...
-            'BackgroundColor', get(fig, 'Color'));
-
-        % Transform slider (initial: 'off' -> disabled)
-        uicontrol(fig, 'Style', 'slider', ...
-            'Min', 0.01, 'Max', 1, 'Value', gammaInit, ...
-            'Units', 'normalized', ...
-            'Position', [xformX, sliderBot, sliderW, sliderH], ...
-            'Tag', 'xformSlider', 'Enable', 'off', ...
-            'SliderStep', [0.005, 0.03], ...
-            'Callback', @(src, ~) xformSliderCallback(src, fig));
-        uicontrol(fig, 'Style', 'text', 'String', '', ...
-            'Units', 'normalized', ...
-            'Position', [xformX - 0.005, sliderBot - readoutH - 0.002, ...
-                sliderW + 0.01, readoutH], ...
-            'FontSize', 8, ...
-            'Tag', 'xformReadout', ...
-            'HorizontalAlignment', 'center', ...
-            'BackgroundColor', get(fig, 'Color'));
-
-        % Cmap slider
-        cmapX = xformX + sliderW + sliderGap;
-        uicontrol(fig, 'Style', 'slider', ...
-            'Min', 0, 'Max', 0.95, 'Value', 0, ...
-            'Units', 'normalized', ...
-            'Position', [cmapX, sliderBot, sliderW, sliderH], ...
-            'Tag', 'cmapShiftSlider', ...
-            'SliderStep', [0.005, 0.03], ...
-            'Callback', @(src, ~) cmapShiftCallback(src, fig));
-        uicontrol(fig, 'Style', 'text', 'String', 'Cmap', ...
-            'Units', 'normalized', ...
-            'Position', [cmapX - 0.01, sliderBot + sliderH + 0.002, ...
-                sliderW + 0.02, labelH], ...
-            'FontSize', 8, 'HorizontalAlignment', 'center', ...
-            'Tag', 'cmapShiftLabel', ...
-            'BackgroundColor', get(fig, 'Color'));
-        uicontrol(fig, 'Style', 'text', 'String', '0.00', ...
-            'Units', 'normalized', ...
-            'Position', [cmapX - 0.005, sliderBot - readoutH - 0.002, ...
-                sliderW + 0.01, readoutH], ...
-            'FontSize', 8, ...
-            'Tag', 'cmapShiftReadout', ...
-            'HorizontalAlignment', 'center', ...
-            'BackgroundColor', get(fig, 'Color'));
-
-        % Projection toggle
-        toggleW = cmapX + sliderW - xformX;
-        toggleH = 0.035;
-        toggleY = sliderBot - readoutH - toggleH - 0.01;
-        uicontrol(fig, 'Style', 'togglebutton', 'String', 'Perspective', ...
-            'Units', 'normalized', ...
-            'Position', [xformX, toggleY, toggleW, toggleH], ...
-            'FontSize', 8, ...
-            'Tag', 'projToggle', 'Value', 0, ...
-            'Callback', @(src, ~) projCallback(src, fig));
-
-        % Save initial colorbar position and slider-region X positions
-        % so projCallback can shift them in perspective mode.
-        info.hCbar = hCB(1);
-        info.cbarPosOrtho = hCB(1).Position;
-        sliderTags = {'modeGroup', 'modeOff_label', 'modeSat_label', ...
-                       'modeGamma_label', 'xformSlider', 'xformReadout', ...
-                       'cmapShiftSlider', 'cmapShiftLabel', ...
-                       'cmapShiftReadout', 'projToggle'};
-        info.sliderTags    = sliderTags;
-        info.sliderXOrtho  = cell(1, numel(sliderTags));
-        for ti = 1:numel(sliderTags)
-            h = findobj(fig, 'Tag', sliderTags{ti});
-            xs = zeros(numel(h), 1);
-            for hi = 1:numel(h)
-                p = get(h(hi), 'Position');
-                xs(hi) = p(1);
-            end
-            info.sliderXOrtho{ti} = xs;
-        end
-
-    else
-        % === Non-surf modes: horizontal row at bottom ===
-        % The controls sit in normalized units, so a docked figure
-        % needs no extra height and would ignore the request anyway.
-        if strcmp(get(fig, 'WindowStyle'), 'normal')
-            figPos = get(fig, 'Position');
-            set(fig, 'Position', [figPos(1), figPos(2), figPos(3), ...
-                                  figPos(4) + 50]);
-        end
-
-        rowH = 0.030;
-        y_xform = 0.015;        % the one row, reserved for transform UI
-
-        % Mode-selector buttongroup on the left, with full inline labels
-        modeBgX = 0.04;
-        modeBgW = 0.28;
-        modeGroup = uibuttongroup(fig, ...
-            'Units', 'normalized', ...
-            'Position', [modeBgX, y_xform, modeBgW, rowH], ...
-            'BorderType', 'none', ...
-            'BackgroundColor', get(fig, 'Color'), ...
-            'Tag', 'modeGroup', ...
-            'SelectionChangedFcn', @(src, evt) modeChangedCallback(src, evt, fig));
-        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', 'Off', ...
-            'Units', 'normalized', 'Position', [0, 0, 1/3, 1], ...
-            'Tag', 'modeOff', 'BackgroundColor', get(fig, 'Color'), ...
-            'FontSize', 8, 'Value', 1);
-        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', 'Gamma', ...
-            'Units', 'normalized', 'Position', [1/3, 0, 1/3, 1], ...
-            'Tag', 'modeGamma', 'BackgroundColor', get(fig, 'Color'), ...
-            'FontSize', 8, 'Value', 0);
-        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', 'Sat', ...
-            'Units', 'normalized', 'Position', [2/3, 0, 1/3, 1], ...
-            'Tag', 'modeSat', 'BackgroundColor', get(fig, 'Color'), ...
-            'FontSize', 8, 'Value', 0);
-
-        % Transform slider (initially disabled)
-        uicontrol(fig, 'Style', 'slider', ...
-            'Min', 0.01, 'Max', 1, 'Value', gammaInit, ...
-            'Units', 'normalized', ...
-            'Position', [modeBgX + modeBgW + 0.04, y_xform, 0.50, rowH], ...
-            'Tag', 'xformSlider', 'Enable', 'off', ...
-            'SliderStep', [0.005, 0.03], ...
-            'Callback', @(src, ~) xformSliderCallback(src, fig));
-
-        uicontrol(fig, 'Style', 'text', 'String', '', ...
-            'Units', 'normalized', ...
-            'Position', [modeBgX + modeBgW + 0.55, y_xform - 0.002, ...
-                         0.10, rowH], ...
-            'FontSize', 8, ...
-            'Tag', 'xformReadout', ...
-            'HorizontalAlignment', 'left', ...
-            'BackgroundColor', get(fig, 'Color'));
-
-    end
-
-    % Store the plot info in the figure's application data
-    setappdata(fig, 'plotInfo', info);
-
-    % === Callbacks (nested) ===
-
-    function modeChangedCallback(~, evt, fig)
-        pInfo = getappdata(fig, 'plotInfo');
-        hSlider     = findobj(fig, 'Tag', 'xformSlider');
-        hReadout    = findobj(fig, 'Tag', 'xformReadout');
-        hCmap       = findobj(fig, 'Tag', 'cmapShiftSlider');
-        hCmapRdout  = findobj(fig, 'Tag', 'cmapShiftReadout');
-
-        % Save outgoing slider value (and cmap shift, if in surf mode)
-        switch pInfo.mode_xform
-            case 'gamma'
-                pInfo.gamma = get(hSlider, 'Value');
-                if ~isempty(hCmap)
-                    pInfo.cmapShiftGamma = get(hCmap, 'Value');
-                end
-            case 'sat'
-                pInfo.eta = 10 ^ get(hSlider, 'Value');
-                if ~isempty(hCmap)
-                    pInfo.cmapShiftSat = get(hCmap, 'Value');
-                end
-            case 'off'
-                if ~isempty(hCmap)
-                    pInfo.cmapShiftOff = get(hCmap, 'Value');
-                end
-        end
-
-        switch evt.NewValue.Tag
-            case 'modeOff',   newMode = 'off';
-            case 'modeGamma', newMode = 'gamma';
-            case 'modeSat',   newMode = 'sat';
-            otherwise,        newMode = 'off';
-        end
-        pInfo.mode_xform = newMode;
-
-        switch newMode
-            case 'off'
-                set(hSlider, 'Enable', 'off');
-                set(hReadout, 'String', '');
-            case 'gamma'
-                newMin = 0.01; newMax = 1.0;
-                cur = get(hSlider, 'Value');
-                set(hSlider, 'Value', max(min(cur, newMax), newMin));
-                set(hSlider, 'Min', newMin, 'Max', newMax);
-                set(hSlider, 'Value', pInfo.gamma);
-                set(hSlider, 'Enable', 'on');
-                set(hReadout, 'String', sprintf('%.2f', pInfo.gamma));
-            case 'sat'
-                newMin = log10(0.002); newMax = log10(5);
-                cur = get(hSlider, 'Value');
-                set(hSlider, 'Value', max(min(cur, newMax), newMin));
-                set(hSlider, 'Min', newMin, 'Max', newMax);
-                set(hSlider, 'Value', log10(pInfo.eta));
-                set(hSlider, 'Enable', 'on');
-                set(hReadout, 'String', sprintf('%.3f', pInfo.eta));
-        end
-
-        % Restore incoming mode's cmap shift (surf only)
-        if ~isempty(hCmap)
-            switch newMode
-                case 'off',   newCmap = pInfo.cmapShiftOff;
-                case 'gamma', newCmap = pInfo.cmapShiftGamma;
-                case 'sat',   newCmap = pInfo.cmapShiftSat;
-            end
-            set(hCmap, 'Value', newCmap);
-            set(hCmapRdout, 'String', sprintf('%.2f', newCmap));
-        end
-
-        setappdata(fig, 'plotInfo', pInfo);
-        applyTransformToPlot(fig);
-    end
-
-    function xformSliderCallback(src, fig)
-        pInfo = getappdata(fig, 'plotInfo');
-        hReadout = findobj(fig, 'Tag', 'xformReadout');
-
-        switch pInfo.mode_xform
-            case 'gamma'
-                pInfo.gamma = get(src, 'Value');
-                set(hReadout, 'String', sprintf('%.2f', pInfo.gamma));
-            case 'sat'
-                pInfo.eta = 10 ^ get(src, 'Value');
-                set(hReadout, 'String', sprintf('%.3f', pInfo.eta));
-            otherwise
-                return;
-        end
-
-        setappdata(fig, 'plotInfo', pInfo);
-        applyTransformToPlot(fig);
-    end
-
-    function applyTransformToPlot(fig)
-    %APPLYTRANSFORMTOPLOT Apply the current transform to all plot elements.
-        pInfo = getappdata(fig, 'plotInfo');
-        m = pInfo.mode_xform;
-        g = pInfo.gamma;
-        e = pInfo.eta;
-
-        switch pInfo.mode
-            case 'line'
-                set(pInfo.hLine, 'YData', applyTransform(pInfo.rawVals, m, g, e));
-            case 'surf'
-                Vt = reshape(applyTransform(pInfo.rawVals, m, g, e), ...
-                    pInfo.res, pInfo.res);
-                set(pInfo.hSurf, 'ZData', Vt, 'CData', Vt, ...
-                    'AlphaData', surfAlpha(Vt));
-                maxVt = max(Vt(:));
-                if maxVt > 0
-                    axR = pInfo.axRange;
-                    daspect(pInfo.hAx, [1 1 maxVt / (axR(2) - axR(1))]);
-                end
-                hShift = findobj(fig, 'Tag', 'cmapShiftSlider');
-                if ~isempty(hShift)
-                    cmapShiftCallback(hShift, fig);
-                end
-            case 'scatter3'
-                vT = applyTransform(pInfo.rawVals, m, g, e);
-                % In 'off' mode, vT is in the input's native range;
-                % normalise to [0, 1] for color/alpha. In 'gamma'/'sat'
-                % modes vT is already in [0, 1] so use directly.
-                if strcmp(m, 'off')
-                    M = max(pInfo.rawVals(:));
-                    if M > 0
-                        vT = pInfo.rawVals / M;
-                    else
-                        vT = pInfo.rawVals;
-                    end
-                end
-                set(pInfo.hScatter, 'CData', vT, ...
-                    'SizeData', 10 * ones(size(vT)));
-                pInfo.hScatter.AlphaData = vT;
-        end
-
-        drawnow;
-    end
-
-    function cmapShiftCallback(src, fig)
-        shiftFrac = get(src, 'Value');
-        hReadout = findobj(fig, 'Tag', 'cmapShiftReadout');
-        set(hReadout, 'String', sprintf('%.2f', shiftFrac));
-
-        pInfo = getappdata(fig, 'plotInfo');
-        switch pInfo.mode_xform
-            case 'off',   pInfo.cmapShiftOff   = shiftFrac;
-            case 'gamma', pInfo.cmapShiftGamma = shiftFrac;
-            case 'sat',   pInfo.cmapShiftSat   = shiftFrac;
-        end
-        setappdata(fig, 'plotInfo', pInfo);
-
-        cdata = get(pInfo.hSurf, 'CData');
-        minC  = min(cdata(:));
-        maxC  = max(cdata(:));
-        if maxC > minC
-            newLow = minC + shiftFrac * (maxC - minC);
-            set(pInfo.hAx, 'CLim', [newLow, maxC]);
-        end
-        drawnow;
-    end
-
-    function projCallback(src, fig)
-        pInfo = getappdata(fig, 'plotInfo');
-
-        if get(src, 'Value') == 1
-            proj = 'perspective';
-            label = 'Orthographic';
-            cbarShift   = 0.030;
-            sliderShift = cbarShift;
-        else
-            proj = 'orthographic';
-            label = 'Perspective';
-            cbarShift   = 0;
-            sliderShift = 0;
-        end
-        set(src, 'String', label);
-
-        set(pInfo.hAx, 'Projection', proj);
-        cbPos = pInfo.cbarPosOrtho;
-        cbPos(1) = cbPos(1) + cbarShift;
-        set(pInfo.hCbar, 'Position', cbPos);
-
-        % Shift slider region
-        for ti = 1:numel(pInfo.sliderTags)
-            h = findobj(fig, 'Tag', pInfo.sliderTags{ti});
-            for hi = 1:numel(h)
-                p = get(h(hi), 'Position');
-                p(1) = pInfo.sliderXOrtho{ti}(hi) + sliderShift;
-                set(h(hi), 'Position', p);
-            end
-        end
-
-        drawnow;
-    end
-
 end

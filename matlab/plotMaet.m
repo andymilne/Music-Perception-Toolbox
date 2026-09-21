@@ -1,134 +1,189 @@
-function h = plotMaet3d(dens, varargin)
-%PLOTMAET3D Draw a three-dimensional expectation tensor density.
+function h = plotMaet(dens, varargin)
+%PLOTMAET Draw a one-, two-, or three-dimensional expectation tensor density.
 %
-%   plotMaet3d(dens) draws the density as its kernels: one ellipsoid per
-%   tuple centre, shaped by the kernel's covariance and coloured by the
-%   density there. No grid is evaluated, so the cost is the number of
-%   centres rather than the volume, and the result is ordinary geometry
-%   that rotates and occludes correctly.
+%   plotMaet(dens) draws a density of one, two, or three drawn
+%   dimensions, dispatching on the dimensionality the density carries:
+%   dim = r - isRel. Four or more cannot be drawn and is refused.
 %
-%   plotMaet3d(dens, 'method', 'points') draws the density sampled:
-%   one mark per grid node above a threshold, coloured and made
-%   translucent by the value there. It shows the material between the
-%   peaks, which the kernels cannot, and costs only the evaluation and
-%   the marks. The opacity is the value itself rather than an
-%   extinction, so this is a translucent cloud and not a volume
-%   rendering: what a ray accumulates along its length is not what the
-%   picture shows.
+%   Three methods, each named for what it shows rather than for the
+%   geometry it uses, since the geometry is what changes with the
+%   dimensionality:
 %
-%   The points method has a resolution budget. A mark carries one depth
-%   across its whole face, so where two marks overlap the nearer hides
-%   the farther outright instead of blending with it, and every such
-%   contest reverses when the camera passes to the other side: the same
-%   cloud then draws differently from opposite directions, blobs
-%   gaining haloes and hard edges from one of them. Marks that only
-%   meet cannot do it, which is what the automatic size and step are
-%   for. They hold as long as the grid is no finer than the axes can
-%   separate, about three points of screen per node, and that depends
-%   on the figure's size and on any zoom as much as on the step. A step
-%   set by hand can ask for more than the budget allows; the drawing
-%   then says so once and is camera-dependent until the figure is
-%   enlarged, zoomed, or the step coarsened. The slices method carries
-%   its depth per pixel rather than per mark and has no such budget,
-%   which is the reason to reach for it rather than a matter of taste.
+%   'kernels' (default) draws where the kernels are and what shape they
+%   have: an ellipsoid per tuple centre at three dimensions, an ellipse
+%   at two, a curve at one, coloured by the density at the centre. No
+%   grid is evaluated, so the cost is the number of centres rather than
+%   the volume, and the result is ordinary geometry that rotates and
+%   occludes correctly. Where kernels overlap it shows the kernels and
+%   not the sum they make -- except at one dimension, where each curve
+%   is one tuple's own term, its width the kernel's and its height
+%   that tuple's weight, so the curves do sum to the density. Colour
+%   there is the density at the curve's centre, the total with every
+%   neighbour counted, so two curves of equal height differ in colour
+%   where kernels crowd.
 %
-%   plotMaet3d(dens, 'method', 'slices') draws the density itself,
-%   as a stack of textured planes square to whichever axis is most
-%   nearly square to the view, each carrying the density as its colour
-%   and its opacity. A stack is built for each of the three axes and
-%   shown one at a time, so the picture changes as a rotation crosses
-%   the diagonal rather than when it ends. This is a volume rendering:
-%   the value is read as an extinction per unit of path, so what a ray
-%   accumulates follows the distance it travels through the material
-%   rather than the number of planes that distance is cut into. Not
-%   quite: opacity reaches the renderer as eight bits, so a plane
-%   fainter than 1/255 rounds away, and material too faint to clear
-%   that in one plane is lost rather than accumulated over many. There
-%   is one plane per plane of the volume for that reason, and 'step'
-%   is what cuts it more finely.
+%   'points' draws the density sampled: one translucent mark per grid
+%   node above a threshold, coloured and made translucent by the value
+%   there. Three drawn dimensions only: below that it samples what
+%   'density' already draws whole, a surface carrying every node at
+%   once and a line likewise. It shows the material between the peaks,
+%   which the kernels cannot.
 %
-%   The three answer different questions. The ellipsoids show where the
-%   kernels are and what shape they have, but where kernels overlap
-%   they show the kernels and not the sum they make; the points show
-%   the density sampled; the slices show the density itself, including
-%   everything between the peaks.
+%   At a fine grid it is much the same picture as 'density'. What
+%   differs is that the samples stay discrete, so the grid is visible
+%   rather than interpolated away, and that a mark's opacity is the
+%   value at its own node rather than an extinction accumulated along
+%   the ray -- though marks reject one another by depth rather than
+%   blending, so what reaches a pixel is the nearest mark and not a
+%   sum either.
+%
+%   It is dearer than 'density', not cheaper. It evaluates the same
+%   grid -- the evaluation is around 85 per cent of the cost of either
+%   -- and its marks go as the cube of the nodes per axis where a
+%   stack's planes go as the first power. Measured on a 121-node grid
+%   it gave 20 frames a second against 67, and on a 241-node grid 4
+%   against 51.
+%
+%   At three dimensions 'points' has a resolution budget. A mark
+%   carries one depth across its whole face, so where two marks
+%   overlap the nearer hides the farther outright instead of blending
+%   with it, and every such contest reverses when the camera passes to
+%   the other side: the same cloud then draws differently from opposite
+%   directions, blobs gaining haloes and hard edges from one of them.
+%   Marks that only meet cannot do it, and the automatic size and step
+%   keep them apart. They hold as long as the grid is no finer than
+%   the axes can separate, about three points of screen per node,
+%   which depends on the figure's size and on any zoom as much as on
+%   the step. A step set by hand can ask for more than that; the
+%   drawing then warns once and is camera-dependent until the figure
+%   is enlarged, zoomed, or the step coarsened. Below three
+%   dimensions there is no depth for one mark to reject another by, so
+%   overlapping marks blend as their opacities describe and there is no
+%   budget to keep.
+%
+%   'density' draws the density itself: a line at one dimension, a
+%   textured translucent surface at two, and at three a stack of
+%   textured planes square to whichever axis is most nearly square to
+%   the view. A stack is built for each of the three axes and shown one
+%   at a time, so the picture changes as a rotation crosses the
+%   diagonal rather than when it ends. At three dimensions this is a
+%   volume rendering: the value is read as an extinction per unit of
+%   path, so what a ray accumulates follows the distance it travels
+%   through the material rather than the number of planes that distance
+%   is cut into -- with one qualification. Opacity reaches the
+%   renderer as eight bits, so a plane fainter than 1/255 rounds away,
+%   and material too faint to clear that in one plane is lost rather
+%   than accumulated over many. There is one plane per plane of the
+%   volume for that reason, and 'step' is what cuts it more finely.
+%
+%   The kernels show the model; the points and the density both show
+%   the density, the first as discrete samples and the second as a
+%   continuous field.
 %
 %   Inputs
 %       dens - Density struct from buildMaet (tag 'MaetDensity'), of
-%              one attribute and three drawn dimensions.
+%              one attribute and one to three drawn dimensions.
 %
 %   Name-value pairs
-%       'method'        'ellipsoids' (default), 'points', or 'slices'.
+%       'method'        'kernels' (default), 'points', or 'density'.
+%                       'points' needs two or three drawn dimensions.
 %       'axes'          Target axes. Default: the current axes.
-%       'limits'        [lo hi] for all three axes. Default: one
+%       'limits'        [lo hi] for every drawn axis. Default: one
 %                       period for a periodic attribute, and otherwise
 %                       the centres' own extent with room for the
 %                       kernels around them.
-%       'kSigma'        Ellipsoids: the level surface drawn, in
-%                       standard deviations. Default 1. Larger shows
-%                       more of each kernel and hides more behind it.
-%       'step'          Points and slices: spacing of the evaluated
-%                       volume, in the density's own units. Memory goes
-%                       as its cube. Default: the range over 120 for
-%                       slices; for points, the spacing that puts the
-%                       grid about three points apart on screen, since
-%                       a grid finer than the marks drawn on it can
-%                       only be shown by marks that overlap, which is
-%                       reported once ('mpt:markOverlap').
+%       'kSigma'        Kernels: the level surface drawn, in standard
+%                       deviations. Default 1. Larger shows more of
+%                       each kernel and hides more behind it. It sets
+%                       the outline at two and three dimensions; at one
+%                       the curve is drawn whole and this sets only how
+%                       far a periodic kernel has to reach to be drawn
+%                       again across a face.
+%       'step'          Points and density: spacing of the evaluated
+%                       grid, in the density's own units. Memory goes
+%                       as its dim-th power. Default for density: the
+%                       range over 1200 at one and two dimensions and
+%                       over 120 at three, the grid being
+%                       dim-dimensional so that the same count per axis
+%                       costs wildly different amounts. For points, the
+%                       spacing that
+%                       puts the grid about three points apart on
+%                       screen, since a grid finer than the marks drawn
+%                       on it can only be shown by marks that overlap,
+%                       which is reported once ('mpt:markOverlap').
+%       'nodes'         Points and density: the step named as a count
+%                       of steps across the range rather than as a
+%                       spacing, the two being the same request --
+%                       'nodes', 1200 over a range of 1200 is 'step',
+%                       1. The grid then has one more point than this
+%                       along each axis, both ends being on it. Give
+%                       one or the other, not both.
 %       'threshFrac'    Points: nodes below this fraction of the
 %                       largest value are left undrawn. Default 0.001.
 %       'markerSize'    Points: the mark's area in square points, or
 %                       'auto', the default, for marks just wide enough
-%                       to meet their neighbours on the grid. Marks
-%                       wider than that overlap, and overlapping marks
-%                       are what makes the drawing depend on which side
-%                       it is seen from. An automatic size is fitted for
-%                       an assumed camera rather than the current one,
-%                       so that turning the axes changes neither the
-%                       marks nor the ink they lay down; it is refitted
-%                       when the figure is resized or zoomed.
-%       'markScale'     Scales the automatic size. Default 1, which
-%                       holds the cloud's brightness roughly steady as
-%                       the step changes: ink goes as the assumed
-%                       foreshortening squared over the step, so the
-%                       assumption rises as its square root. Raising it
-%                       gives larger marks and a brighter cloud, and
-%                       past the point where the marks meet they
-%                       overlap, which shows as haloes on the blobs at
-%                       any elevation, worse below the horizontal than
+%                       to meet their neighbours on the grid. At three
+%                       dimensions an automatic size is fitted for an
+%                       assumed camera rather than the current one, so
+%                       that turning the axes changes neither the marks
+%                       nor the ink they lay down; it is refitted when
+%                       the figure is resized or zoomed.
+%       'markScale'     Points: scales the automatic size. Default 1,
+%                       which at three dimensions holds the cloud's
+%                       brightness roughly steady as the step changes:
+%                       ink goes as the assumed foreshortening squared
+%                       over the step, so the assumption rises as its
+%                       square root. Raising it gives larger marks and
+%                       a brighter cloud, and past the point where the
+%                       marks meet they overlap, which at three
+%                       dimensions shows as haloes on the blobs at any
+%                       elevation, worse below the horizontal than
 %                       above it. The drawing warns once
 %                       ('mpt:markOverlap') when they overlap at the
 %                       view being drawn.
-%       'upsample'      Slices: resampling within a plane, which sets
-%                       how sharp it looks and costs as the square.
-%                       Default 1, which leaves the plane at the
-%                       volume's own resolution. What it buys is the
-%                       resolution a texel is drawn at, so it shows
-%                       where a texel covers several pixels -- a large
-%                       'step', or a close zoom. At a step of 5 it is
-%                       not distinguishable from 1; at 10 it is.
-%                       Raising it is expensive in a figure meant to
-%                       be turned: at 4, a frame of a rotation costs
-%                       about eight times as much and changing stack
-%                       about twelve.
-%       'alphaPeak'     Points and slices: the opacity the density's
+%       'upsample'      Density at two and three dimensions: resampling
+%                       within a plane, which sets how sharp it looks
+%                       and costs as the square. Default 1, which
+%                       leaves the plane at the volume's own
+%                       resolution. What it buys is the resolution a
+%                       texel is drawn at, so it shows where a texel
+%                       covers several pixels -- a large 'step', or a
+%                       close zoom. At a step of 5 it is not
+%                       distinguishable from 1; at 10 it is. Raising it
+%                       is expensive in a figure meant to be turned: at
+%                       4, a frame of a rotation costs about eight
+%                       times as much and changing stack about twelve.
+%       'alphaPeak'     Points and density: the opacity the density's
 %                       peak reaches -- for points the opacity of the
-%                       brightest mark, for slices what a ray through
-%                       the tallest blob's centre reaches. Default 1.
-%                       For slices this is not the opacity of the
-%                       picture, a ray crossing several blobs on its
-%                       way across; lower it to see into the cloud.
-%       'alphaGamma'    Points and slices: the display curve on the
+%                       brightest mark, for the density what a ray
+%                       through the tallest blob's centre reaches.
+%                       Default 1. At three dimensions this is not the
+%                       opacity of the picture, a ray crossing several
+%                       blobs on its way across; lower it to see into
+%                       the cloud.
+%       'alphaFloor'    Points, and density at two dimensions: the
+%                       opacity where there is no density, the curve
+%                       running from here to 'alphaPeak'. Default 0,
+%                       so that empty space is empty. Set it to 1 to
+%                       turn the fading off and draw the picture
+%                       opaque. A three-dimensional density ignores
+%                       it: there the value is read as an extinction
+%                       per unit of path, and a floor would be a fog
+%                       filling the whole cube.
+%       'alphaGamma'    Points and density: the display curve on the
 %                       opacity, as 'colourGamma' is the curve on the
 %                       colour. 1 is opacity proportional to density
-%                       (for slices, extinction proportional to it);
-%                       above that thins the skirts and suppresses the
-%                       low blobs, one of a quarter the height going
-%                       as (1/4)^gamma. Default 1 for points and 1.75
-%                       for slices, the two reading the same number
-%                       differently: for points it shapes a mark's own
-%                       opacity, for slices an extinction that then
-%                       accumulates along a ray.
+%                       (for a three-dimensional density, extinction
+%                       proportional to it); above that thins the
+%                       skirts and suppresses the low blobs, one of a
+%                       quarter the height going as (1/4)^gamma.
+%                       Default 1, except for 'density' at three
+%                       dimensions, where it is 1.75. The two read the
+%                       same number differently: a mark or a surface is
+%                       a single layer, so the opacity computed is the
+%                       opacity seen, while a stack shapes an
+%                       extinction that compounds over every plane a
+%                       ray crosses.
 %       'colourGamma'   All three methods: the display curve on the
 %                       colour, below 1 lifting the low material and
 %                       above 1 suppressing it. Default 1. The opacity
@@ -140,51 +195,68 @@ function h = plotMaet3d(dens, varargin)
 %                       deepens it. In (-1, 1), default 0.5. It
 %                       reshapes the map itself, where 'colourGamma'
 %                       reshapes the density's reading of it.
-%       'view'          [azimuth elevation] in degrees, as MATLAB's
-%                       view: the pair a rotated figure reports, so a
-%                       view found with the mouse can be read off and
-%                       typed back in. Default [20 20].
-%       'dark'          Dark panes for the cube, the ground a glow is
-%                       read against. Default true.
+%       'view'          Three dimensions: [azimuth elevation] in
+%                       degrees, as MATLAB's view, so a view found with
+%                       the mouse can be read off and typed back in.
+%                       Default [20 20].
+%       'view2d'        Two dimensions: the same, default [0 90], which
+%                       reads the surface as a map.
+%       'dark'          Dark panes, the ground a glow is read against.
+%                       Default true, at every dimensionality: the
+%                       colour map runs from dark to bright, so
+%                       anything coloured for a low density is nearly
+%                       black and would be invisible on white.
 %
 %   Output
-%       h    - The graphics object drawn: a patch for 'ellipsoids', a
-%              scatter for 'points', or the array of surfaces making
-%              up the stack in view for 'slices'. A rotation may bring
-%              another stack into view, after which the handles
-%              returned are no longer the ones drawn.
+%       h    - The graphics object drawn: a patch for 'kernels' at two
+%              and three dimensions and an array of lines at one, a
+%              scatter for 'points', and for 'density' a line, a
+%              surface, or the array of surfaces making up the stack in
+%              view. A rotation may bring another stack into view,
+%              after which the handles returned are no longer the ones
+%              drawn.
 %
 %   Example
 %       pAttr = {[0 200 400 500 700 900 1100].'};
 %       specs = flatSpecs(pAttr, 'r', 4, 'rel', true, 'exch', true);
 %       dens  = buildMaet(pAttr, [], 'specs', specs, 'sigma', 15, ...
 %                         'isPer', true, 'period', 1200);
-%       plotMaet3d(dens);                        % the kernels
-%       figure; plotMaet3d(dens, 'method', 'slices');   % the density
+%       plotMaet(dens);                                  % the kernels
+%       figure; plotMaet(dens, 'method', 'density');     % the density
 %
-%   The Python mirror is mpt.plot_maet_3d, which offers 'ellipsoids'
-%   alone: 'slices' rests on texture-mapped surfaces, which matplotlib
-%   has no counterpart for.
+%   The Python mirror is mpt.plot_maet. Its 'density' method covers one
+%   and two dimensions alone: the three-dimensional one rests on
+%   texture-mapped surfaces, which matplotlib has no counterpart for.
 %
 %   See also BUILDMAET, EVALMAET, MAETCENTRES.
 
 if ~isstruct(dens) || ~isfield(dens, 'tag') ...
         || ~strcmp(dens.tag, 'MaetDensity')
-    error('plotMaet3d:badInput', ...
+    error('plotMaet:badInput', ...
           'Input must be a density struct from buildMaet.');
 end
 
 opt = localOptions(varargin{:});
 
 dim = dens.dim;
-if dim ~= 3
-    error('plotMaet3d:notThreeDimensional', ...
-          ['A three-dimensional plot needs a density of three drawn ' ...
-           'dimensions; this one has %d.'], dim);
+% alphaGamma reads differently in the one place where opacity
+% accumulates. At one and two dimensions a mark or a surface is a
+% single layer, so the opacity computed is the opacity seen; at three
+% the 'density' method reads the value as an extinction that compounds
+% over every plane a ray crosses, and wants a stiffer curve. A value
+% the caller gives is used as given.
+if strcmpi(opt.method, 'density') && dim == 3 ...
+        && any(strcmp('alphaGamma', opt.usedDefaults))
+    opt.alphaGamma = 1.75;
+end
+if dim < 1 || dim > 3
+    error('plotMaet:tooManyDimensions', ...
+          ['One to three drawn dimensions can be drawn; this density ' ...
+           'has %d.'], dim);
 end
 if dens.nAttrs ~= 1
-    error('plotMaet3d:multiAttribute', ...
-          ['plotMaet3d draws one attribute; this density has %d. ' ...
+    error('plotMaet:multiAttribute', ...
+          ['plotMaet draws one attribute; this density has %d. ' ...
            'Draw one at a time.'], dens.nAttrs);
 end
 
@@ -203,8 +275,20 @@ else
     lims = sort(opt.limits(:).');
 end
 
-% The current axes when none is named, as a plotting function should:
-% newplot honours hold and makes a figure if there is none.
+% 'nodes' is the same request as 'step' in the units a grid is usually
+% thought about, so it is turned into a step here and nothing further
+% down has to know about it.
+if ~isempty(opt.nodes)
+    if ~isempty(opt.step)
+        error('plotMaet:stepAndNodes', ...
+              ['''step'' and ''nodes'' say the same thing two ways, ' ...
+               'so only one of them can be given.']);
+    end
+    opt.step = diff(lims) / round(opt.nodes);
+end
+
+% The current axes when none is named: newplot honours hold and makes
+% a figure if there is none.
 if isempty(opt.axes)
     opt.axes = gca;
 end
@@ -216,22 +300,29 @@ ax = newplot(opt.axes);
 % to favour, and is then seen edge-on and draws nothing. It is applied
 % again afterwards because scatter3, being a high-level call, resets the
 % axes' aspect on its way in.
-localFrame(ax, lims, opt);
+localFrame(ax, lims, dim, opt);
 
 switch opt.method
-    case 'ellipsoids'
-        h = localDrawEllipsoids(ax, dens, C, covK, isPer, period, opt);
+    case 'kernels'
+        h = localDrawKernels(ax, dens, C, covK, isPer, period, dim, opt);
     case 'points'
+        if dim ~= 3
+            error('plotMaet:pointsNeedsThreeDimensions', ...
+                  ['''points'' exists because a three-dimensional ' ...
+                   'density is hard to draw whole. Below that it only ' ...
+                   'samples what ''density'' already draws: at two ' ...
+                   'dimensions a surface carries every node at once, ' ...
+                   'and at one a line does. This density has %d.'], dim);
+        end
         h = localDrawPoints(ax, dens, lims, opt);
-    case 'slices'
-        h = localDrawSlices(ax, dens, lims, sigma, opt);
+    case 'density'
+        h = localDrawDensity(ax, dens, lims, sigma, dim, opt);
     otherwise
-        error('plotMaet3d:badMethod', ...
-              ['method must be ''ellipsoids'', ''points'', or ' ...
-               '''slices''.']);
+        error('plotMaet:badMethod', ...
+              'method must be ''kernels'', ''points'', or ''density''.');
 end
 
-localFrame(ax, lims, opt);
+localFrame(ax, lims, dim, opt);
 
 end
 
@@ -240,12 +331,13 @@ end
 function opt = localOptions(varargin)
 %LOCALOPTIONS  The name-value pairs, with their defaults.
     p = inputParser;
-    p.FunctionName = 'plotMaet3d';
-    addParameter(p, 'method', 'ellipsoids', @(s) ischar(s) || isstring(s));
+    p.FunctionName = 'plotMaet';
+    addParameter(p, 'method', 'kernels', @(s) ischar(s) || isstring(s));
     addParameter(p, 'axes', [], @(a) isempty(a) || isgraphics(a, 'axes'));
     addParameter(p, 'limits', [], @(v) isempty(v) || numel(v) == 2);
     addParameter(p, 'kSigma', 1, @(v) isscalar(v) && v > 0);
     addParameter(p, 'step', [], @(v) isempty(v) || (isscalar(v) && v > 0));
+    addParameter(p, 'nodes', [], @(v) isempty(v) || (isscalar(v) && v >= 1));
     addParameter(p, 'threshFrac', 0.001, @(v) isscalar(v) && v >= 0);
     addParameter(p, 'markerSize', 'auto', ...
                  @(v) localIsAuto(v) || (isscalar(v) && v > 0));
@@ -253,25 +345,22 @@ function opt = localOptions(varargin)
                  @(v) isnumeric(v) && isscalar(v) && v > 0);
     addParameter(p, 'upsample', 1, @(v) isscalar(v) && v >= 1);
     addParameter(p, 'alphaPeak', 1, @(v) isscalar(v) && v > 0 && v <= 1);
+    addParameter(p, 'alphaFloor', 0, @(v) isscalar(v) && v >= 0 && v <= 1);
     addParameter(p, 'alphaGamma', 1, @(v) isscalar(v) && v > 0);
     addParameter(p, 'colourGamma', 1, @(v) isscalar(v) && v > 0);
     addParameter(p, 'colormap', parula(256), @(m) size(m, 2) == 3);
     addParameter(p, 'brighten', 0.5, ...
                  @(v) isnumeric(v) && isscalar(v) && v > -1 && v < 1);
     addParameter(p, 'view', [20 20], @(v) numel(v) == 2);
+    addParameter(p, 'view2d', [0 90], @(v) numel(v) == 2);
     addParameter(p, 'dark', true, @(v) islogical(v) || isnumeric(v));
     parse(p, varargin{:});
     opt = p.Results;
     opt.method = char(opt.method);
-    % alphaGamma reads differently for the two methods that take it.
-    % For points it shapes a mark's own opacity; for slices it shapes
-    % an extinction that then accumulates along a ray, so the same
-    % number does not make the same picture. Each method therefore has
-    % its own default, while a value the caller gives is used as given.
-    if strcmpi(opt.method, 'slices') ...
-            && any(strcmp('alphaGamma', p.UsingDefaults))
-        opt.alphaGamma = 1.75;
-    end
+    % Which options were left to their defaults, for the few whose
+    % default depends on what is being drawn. Resolved by the caller,
+    % the drawn dimensionality not being known here.
+    opt.usedDefaults = p.UsingDefaults;
     opt.upsample = round(opt.upsample);
     % Applied here, so that every method reads one already-brightened
     % map rather than each brightening its own copy.
@@ -293,10 +382,10 @@ function covK = localKernelCov(dens, dim)
             covK = kc;
             return
         end
-        error('plotMaet3d:unsupportedKernelCov', ...
+        error('plotMaet:unsupportedKernelCov', ...
               ['This density carries an anisotropic kernel covariance ' ...
-               'plotMaet3d cannot read; draw it with ''slices'', which ' ...
-               'takes the density as evaluated.']);
+               'plotMaet cannot read; draw it with ''method'', ' ...
+               '''density'', which takes the density as evaluated.']);
     end
     sigma = dens.sigma(1);
     if dens.isRel(1)
@@ -320,12 +409,30 @@ function lims = localLimits(C, covK, isPer, period, kSigma)
 end
 
 
-function h = localDrawEllipsoids(ax, dens, C, covK, isPer, period, opt)
-%LOCALDRAWELLIPSOIDS  One mesh per centre, all in a single patch.
+function h = localDrawKernels(ax, dens, C, covK, isPer, period, dim, opt)
+%LOCALDRAWKERNELS  The kernels themselves, one per tuple centre.
 %
-%   A centre whose kernel crosses a face of a periodic cube is drawn
+%   An ellipsoid at three dimensions, an ellipse at two, a curve at
+%   one. No grid is evaluated in any of them, so the cost is the number
+%   of centres rather than the volume.
+%
+%   A centre whose kernel crosses a face of a periodic box is drawn
 %   again on the other side, so that the wrap is cut by the face rather
 %   than missing from it; the axes clips what falls outside.
+    switch dim
+        case 1
+            h = localKernelCurves(ax, dens, C, covK, isPer, period, opt);
+        case 2
+            h = localKernelOutlines(ax, dens, C, covK, isPer, period, ...
+                                    localUnitCircle(96), opt);
+        otherwise
+            h = localKernelEllipsoids(ax, dens, C, covK, isPer, period, opt);
+    end
+end
+
+
+function h = localKernelEllipsoids(ax, dens, C, covK, isPer, period, opt)
+%LOCALKERNELELLIPSOIDS  One mesh per centre, all in a single patch.
     dim = size(C, 1);
     pv = evalMaet(dens, C, 'none', 'verbose', false);
     pv = pv(:);
@@ -339,15 +446,7 @@ function h = localDrawEllipsoids(ax, dens, C, covK, isPer, period, opt)
     vals = cell(1, 0);
     nSoFar = 0;
     for j = 1:size(C, 2)
-        shifts = cell(1, dim);
-        for i = 1:dim
-            s = 0;
-            if isPer
-                if C(i, j) + reach(i) > period, s = [s, -period]; end %#ok<AGROW>
-                if C(i, j) - reach(i) < 0,      s = [s,  period]; end %#ok<AGROW>
-            end
-            shifts{i} = s;
-        end
+        shifts = localWrapShifts(C(:, j), reach, isPer, period, dim);
         [S1, S2, S3] = ndgrid(shifts{1}, shifts{2}, shifts{3});
         for k = 1:numel(S1)
             c = C(:, j).' + [S1(k) S2(k) S3(k)];
@@ -373,8 +472,114 @@ function h = localDrawEllipsoids(ax, dens, C, covK, isPer, period, opt)
 end
 
 
+function V = localUnitCircle(n)
+%LOCALUNITCIRCLE  Points on the unit circle, built here rather than
+%   taken from the plotting library so that the two languages draw the
+%   same outline.
+    t = (0:(n - 1)).' * 2 * pi / n;
+    V = [cos(t), sin(t)];
+end
+
+
+function h = localKernelOutlines(ax, dens, C, covK, isPer, period, unitV, opt)
+%LOCALKERNELOUTLINES  One ellipse per centre, all in a single patch.
+%
+%   The same construction as the ellipsoids, a dimension down: the unit
+%   circle carried through the kernel's Cholesky factor, filled and
+%   coloured by the density at the centre.
+    dim = size(C, 1);
+    pv = evalMaet(dens, C, 'none', 'verbose', false);
+    pv = pv(:);
+    L = chol(covK, 'lower') * opt.kSigma;
+    nVert = size(unitV, 1);
+    reach = opt.kSigma * sqrt(diag(covK)).';
+
+    verts = cell(1, 0);
+    faces = cell(1, 0);
+    vals = cell(1, 0);
+    nSoFar = 0;
+    for j = 1:size(C, 2)
+        shifts = localWrapShifts(C(:, j), reach, isPer, period, dim);
+        [S1, S2] = ndgrid(shifts{1}, shifts{2});
+        for k = 1:numel(S1)
+            c = C(:, j).' + [S1(k) S2(k)];
+            verts{end+1} = unitV * L.' + c;                    %#ok<AGROW>
+            faces{end+1} = (1:nVert) + nSoFar;                 %#ok<AGROW>
+            vals{end+1} = repmat(pv(j), nVert, 1);             %#ok<AGROW>
+            nSoFar = nSoFar + nVert;
+        end
+    end
+
+    shade = (vertcat(vals{:}) / max(pv)) .^ opt.colourGamma;
+    nMap = size(opt.colormap, 1);
+    rgbV = opt.colormap(min(nMap, max(1, round(shade * (nMap - 1)) + 1)), :);
+    h = patch('Parent', ax, 'Vertices', vertcat(verts{:}), ...
+              'Faces', vertcat(faces{:}), 'FaceVertexCData', rgbV, ...
+              'FaceColor', 'interp', 'EdgeColor', 'none');
+end
+
+
+function h = localKernelCurves(ax, dens, C, covK, isPer, period, opt)
+%LOCALKERNELCURVES  One curve per centre, summing to the density.
+%
+%   At one dimension the kernels can be shown as what they are rather
+%   than as an outline of where they reach: the density under
+%   'normalize', 'none' is sum_j wJ(j) exp(-Q(c_j - x) / 2 sigma^2),
+%   so each tuple's own term is a Gaussian of the kernel's width scaled
+%   by that tuple's weight, and the curves drawn here add up to the
+%   line the 'density' method draws.
+    sd = sqrt(covK);
+    reach = 4 * sd;
+    % wJ is one of the expensive fields, which a lazily built density
+    % does not yet carry.
+    dens = internal.ensureMaetExpensive(dens);
+    wJ = dens.wJ(:);
+    pv = evalMaet(dens, C, 'none', 'verbose', false);
+    pv = pv(:);
+    nMap = size(opt.colormap, 1);
+    shade = (pv / max(pv)) .^ opt.colourGamma;
+    idx = min(nMap, max(1, round(shade * (nMap - 1)) + 1));
+
+    t = linspace(-reach, reach, 129);
+    h = gobjects(0);
+    for j = 1:size(C, 2)
+        shifts = localWrapShifts(C(:, j), reach, isPer, period, 1);
+        for sh = shifts{1}
+            x = C(1, j) + sh + t;
+            y = wJ(j) * exp(-(t .^ 2) / (2 * covK));
+            h(end + 1) = line('Parent', ax, 'XData', x, 'YData', y, ...
+                              'Color', opt.colormap(idx(j), :), ...
+                              'LineWidth', 1); %#ok<AGROW>
+        end
+    end
+    colormap(ax, opt.colormap);
+end
+
+
+function shifts = localWrapShifts(c, reach, isPer, period, dim)
+%LOCALWRAPSHIFTS  The copies of a centre a periodic box calls for.
+%
+%   Zero always, and one period either way for each coordinate whose
+%   kernel reaches past a face.
+    shifts = cell(1, dim);
+    for i = 1:dim
+        sVals = 0;
+        if isPer
+            if c(i) + reach(min(i, numel(reach))) > period
+                sVals = [sVals, -period]; %#ok<AGROW>
+            end
+            if c(i) - reach(min(i, numel(reach))) < 0
+                sVals = [sVals, period];  %#ok<AGROW>
+            end
+        end
+        shifts{i} = sVals;
+    end
+end
+
+
 function h = localDrawPoints(ax, dens, lims, opt)
-%LOCALDRAWPOINTS  One translucent mark per grid node worth drawing.
+%LOCALDRAWPOINTS  One translucent mark per grid node above the
+%   threshold.
 %
 %   The colour is mapped rather than given, and the opacity is left to
 %   the figure's alphamap rather than taken as it stands. That is how
@@ -386,7 +591,7 @@ function h = localDrawPoints(ax, dens, lims, opt)
     if isempty(step)
         step = localFitStep(ax);
     end
-    [V, g] = localVolume(dens, lims, step);
+    [V, g] = localVolume(dens, lims, step, 3);
     [Ga, Gb, Gc] = ndgrid(g, g, g);
     keep = V > opt.threshFrac * max(V(:));
     vals = V(keep);
@@ -396,7 +601,7 @@ function h = localDrawPoints(ax, dens, lims, opt)
     % Opacity read from its own curve rather than from the colour's, so
     % that the low material can be lifted or suppressed without
     % flattening the colours along with it.
-    faceAlpha = opt.alphaPeak * rel .^ opt.alphaGamma;
+    faceAlpha = localAlphaCurve(rel, opt);
     if localIsAuto(opt.markerSize)
         [markerSize, overlap] = localFitMarkerSize(ax, step, opt.markScale);
         % A new drawing is a new thing to warn about.
@@ -462,7 +667,7 @@ function localWarnOverlap(markScale, maxScale, overlapping)
          'haloes on the blobs at any elevation, worse below the ' ...
          'horizontal than above it. ''markScale'' is %g here, where ' ...
          'about %.2f would have them clear. Lower it, or draw the ' ...
-         'density with ''method'', ''slices'', which composites per ' ...
+         'density with ''method'', ''density'', which composites per ' ...
          'pixel and has no such limit.'], markScale, maxScale);
 end
 
@@ -576,11 +781,11 @@ function k = localPointsPerUnit(ax, assumedFore)
     if nargin < 2
         assumedFore = [];
     end
+    box = localAxesPoints(ax);
     ranges = [diff(xlim(ax)), diff(ylim(ax)), diff(zlim(ax))];
     ranges = max(ranges(:).', eps);
 
     if ~isempty(assumedFore)
-        box = localAxesPoints(ax);
         % The widest range gives the closest the grid comes on screen,
         % a data unit spanning less of the box the more of it the axis
         % has to cover.
@@ -606,7 +811,6 @@ function k = localPointsPerUnit(ax, assumedFore)
     projW = max(corners * right) - min(corners * right);
     projH = max(corners * up) - min(corners * up);
 
-    box = localAxesPoints(ax);
     scale = min(box(1) / projW, box(2) / projH);   % points per box unit
 
     % A data axis spans scale * fore / range points, and what the marks
@@ -638,7 +842,7 @@ function localRegisterRefit(ax, h, step, markScale)
 %   any camera, so turning the axes cannot unfit it.
 %
 %   Only the size is refitted. The step would mean evaluating the volume
-%   again, which is not something to do during a drag.
+%   again, which would stall a drag.
     % Every property a moving camera touches, not just 'View': dragging
     % the axes sets CameraPosition and CameraUpVector, and 'View' is
     % derived from them, so a listener on 'View' alone can sit through a
@@ -659,8 +863,8 @@ function localRegisterRefit(ax, h, step, markScale)
     if isempty(fig)
         return
     end
-    if ~isappdata(fig, 'plotMaet3dPrevSizeFcn')
-        setappdata(fig, 'plotMaet3dPrevSizeFcn', get(fig, 'SizeChangedFcn'));
+    if ~isappdata(fig, 'plotMaetPrevSizeFcn')
+        setappdata(fig, 'plotMaetPrevSizeFcn', get(fig, 'SizeChangedFcn'));
         set(fig, 'SizeChangedFcn', @localOnResize);
     end
 end
@@ -686,7 +890,7 @@ function localOnResize(fig, evt)
         localRefit(a);
     end
     % Whatever the figure had before is still the caller's to run.
-    prev = getappdata(fig, 'plotMaet3dPrevSizeFcn');
+    prev = getappdata(fig, 'plotMaetPrevSizeFcn');
     if isa(prev, 'function_handle')
         prev(fig, evt);
     elseif iscell(prev) && ~isempty(prev)
@@ -697,13 +901,81 @@ function localOnResize(fig, evt)
 end
 
 
-function h = localDrawSlices(ax, dens, lims, sigma, opt)
-%LOCALDRAWSLICES  The volume as a stack of textured planes.
+function h = localDrawDensity(ax, dens, lims, sigma, dim, opt)
+%LOCALDRAWDENSITY  The density itself: a line, a surface, or a stack.
+%
+%   At one dimension the density is a curve and there is nothing to see
+%   through. At two it is a surface, and at three a stack of planes,
+%   both of them taking their opacity from the value so that the low
+%   material fades to the panes rather than flooring at the colour
+%   map's low colour -- which, painted opaque, would become the ground
+%   the density is read against.
     step = opt.step;
     if isempty(step)
-        step = diff(lims) / 120;
+        % A node count, not a spacing: the grid is dim-dimensional, so
+        % the same count per axis costs wildly different amounts at one
+        % and at three. 1200 nodes is a fine grid at one and two
+        % dimensions and cheap at both; at three the same would be
+        % 1200^3 points, so the count drops to what a cube can carry.
+        if dim < 3
+            step = diff(lims) / 1200;
+        else
+            step = diff(lims) / 120;
+        end
     end
-    [V, g] = localVolume(dens, lims, step);
+    switch dim
+        case 1
+            h = localDensityLine(ax, dens, lims, step, opt);
+        case 2
+            h = localDensitySurface(ax, dens, lims, step, opt);
+        otherwise
+            h = localDensityStack(ax, dens, lims, sigma, step, opt);
+    end
+end
+
+
+function a = localAlphaCurve(rel, opt)
+%LOCALALPHACURVE  Opacity from the density, between floor and peak.
+%
+%   The curve runs from alphaFloor at nothing to alphaPeak at the
+%   density's own peak, so a floor of 1 turns the scaling off and
+%   leaves the picture opaque.
+    a = opt.alphaFloor + (opt.alphaPeak - opt.alphaFloor) ...
+        * rel .^ opt.alphaGamma;
+end
+
+
+function h = localDensityLine(ax, dens, lims, step, opt)
+%LOCALDENSITYLINE  The density over its grid.
+    [V, g] = localVolume(dens, lims, step, 1);
+    h = line('Parent', ax, 'XData', g, 'YData', V, 'LineWidth', 1.5, ...
+             'Color', opt.colormap(round(0.75 * size(opt.colormap, 1)), :));
+end
+
+
+function h = localDensitySurface(ax, dens, lims, step, opt)
+%LOCALDENSITYSURFACE  The density as one textured, translucent sheet.
+%
+%   Texture mapping for both the colour and the opacity. FaceColor and
+%   FaceAlpha have to agree, and of the pairs that do, only this one
+%   renders: per-vertex opacity over a grid this size comes out blank.
+    [V, g] = localVolume(dens, lims, step, 2);
+    [Ga, Gb] = ndgrid(g, g);
+    rel = max(V, 0) / max(max(V(:)), eps);
+    h = surface(ax, Ga, Gb, V, ...
+                'FaceColor', 'texturemap', 'FaceAlpha', 'texturemap', ...
+                'CData', V, ...
+                'AlphaData', localAlphaCurve(rel, opt), ...
+                'AlphaDataMapping', 'none', 'EdgeColor', 'none');
+    set(ax, 'ALim', [0 1]);
+    colormap(ax, opt.colormap);
+end
+
+
+function h = localDensityStack(ax, dens, lims, sigma, step, opt)
+%LOCALDENSITYSTACK  The volume as a stack of textured planes.
+    dim = 3;
+    [V, g] = localVolume(dens, lims, step, dim);
     % Extinction per unit of path, fixed so that a ray through the
     % tallest blob's centre reaches alphaPeak: the path integral of
     % (v/vMax)^gamma along the axis of a Gaussian blob of that height is
@@ -733,9 +1005,9 @@ function h = localDrawSlices(ax, dens, lims, sigma, opt)
     % when the mouse is released. The volume is passed in rather than
     % kept: once the planes carry it, nothing reads it again.
     [stacks, groups] = localBuildAll(ax, V, g, lims, stack);
-    groups(1).DeleteFcn = @(~, ~) localSlicesGone(ax, prevSort);
+    groups(1).DeleteFcn = @(~, ~) localDensityGone(ax, prevSort);
 
-    localSetState(ax, 'Slices', ...
+    localSetState(ax, 'Density', ...
                   struct('stacks', {stacks}, 'groups', groups, ...
                          'axis', 0, 'handles', gobjects(0)));
     localPickStack(ax);
@@ -746,22 +1018,22 @@ function h = localDrawSlices(ax, dens, lims, sigma, opt)
     % CameraPosition and leaves View derived from it, while view() sets
     % View and leaves CameraPosition derived, and a derived property
     % raises nothing. Both are watched for that reason.
-    d = localGetState(ax, 'Slices');
+    d = localGetState(ax, 'Density');
     d.listener = addlistener(ax, ...
         {'View', 'CameraPosition', 'CameraTarget', 'CameraUpVector'}, ...
         'PostSet', @(~, ~) localPickStack(ax));
-    localSetState(ax, 'Slices', d);
+    localSetState(ax, 'Density', d);
     h = d.handles;
 end
 
 
-function localSlicesGone(ax, prevSort)
-%LOCALSLICESGONE  Put the axes back as the stack found it.
+function localDensityGone(ax, prevSort)
+%LOCALDENSITYGONE  Put the axes back as the stack found it.
     if ~isgraphics(ax, 'axes')
         return
     end
     ax.SortMethod = prevSort;
-    localClearState(ax, 'Slices');
+    localClearState(ax, 'Density');
 end
 
 
@@ -781,9 +1053,8 @@ function [stacks, groups] = localBuildAll(ax, V, g, lims, opt)
 end
 
 
-function [V, g] = localVolume(dens, lims, step)
-%LOCALVOLUME  The density on a cubic grid, a slab of planes at a time,
-%   the whole cube of query points being a large array to hold at once.
+function [V, g] = localVolume(dens, lims, step, dim)
+%LOCALVOLUME  The density on a grid of DIM dimensions.
     % The dispatch messages are throttled per top-level call, and a slab
     % is one, so routing the same way for every slab would announce
     % itself once per slab. Which path the evaluation takes is the
@@ -796,14 +1067,25 @@ function [V, g] = localVolume(dens, lims, step)
     n = max(1, round(diff(lims) / step));
     g = linspace(lims(1), lims(2), n + 1);
     nG = numel(g);
-    V = zeros(nG, nG, nG);
-    slabPlanes = 8;
-    for first = 1:slabPlanes:nG
-        last = min(first + slabPlanes - 1, nG);
-        [Ga, Gb, Gc] = ndgrid(g(first:last), g, g);
-        v = evalMaet(dens, [Ga(:).'; Gb(:).'; Gc(:).'], 'none', ...
-                     'verbose', false);
-        V(first:last, :, :) = reshape(v, last - first + 1, nG, nG);
+    switch dim
+        case 1
+            V = reshape(evalMaet(dens, g, 'none', 'verbose', false), 1, nG);
+        case 2
+            [Ga, Gb] = ndgrid(g, g);
+            v = evalMaet(dens, [Ga(:).'; Gb(:).'], 'none', 'verbose', false);
+            V = reshape(v, nG, nG);
+        otherwise
+            % A slab at a time: the whole cube of query points is a
+            % large array to hold at once.
+            V = zeros(nG, nG, nG);
+            slabPlanes = 8;
+            for first = 1:slabPlanes:nG
+                last = min(first + slabPlanes - 1, nG);
+                [Ga, Gb, Gc] = ndgrid(g(first:last), g, g);
+                v = evalMaet(dens, [Ga(:).'; Gb(:).'; Gc(:).'], 'none', ...
+                             'verbose', false);
+                V(first:last, :, :) = reshape(v, last - first + 1, nG, nG);
+            end
     end
 end
 
@@ -827,7 +1109,7 @@ function localPickStack(ax)
     if ~isgraphics(ax, 'axes')
         return
     end
-    d = localGetState(ax, 'Slices');
+    d = localGetState(ax, 'Density');
     if isempty(d), return, end
     w = ax.CameraPosition - ax.CameraTarget;
     w = w / norm(w);
@@ -838,7 +1120,7 @@ function localPickStack(ax)
     end
     d.axis = a;
     d.handles = d.stacks{a};
-    localSetState(ax, 'Slices', d);
+    localSetState(ax, 'Density', d);
 end
 
 
@@ -848,14 +1130,14 @@ function localSetState(ax, which, state)
 %   Each method has a key of its own, so that drawing one into an axes
 %   that already holds another does not overwrite its state and leave
 %   the earlier drawing's listener stranded. Application data rather
-%   than UserData, that being the caller's property to use.
-    setappdata(ax, ['plotMaet3d' which], state);
+%   than UserData, which is the caller's to use.
+    setappdata(ax, ['plotMaet' which], state);
 end
 
 
 function state = localGetState(ax, which)
 %LOCALGETSTATE  A method's state, or empty if the axes holds none.
-    key = ['plotMaet3d' which];
+    key = ['plotMaet' which];
     if isappdata(ax, key)
         state = getappdata(ax, key);
     else
@@ -866,7 +1148,7 @@ end
 
 function localClearState(ax, which)
 %LOCALCLEARSTATE  Forget a method's state.
-    key = ['plotMaet3d' which];
+    key = ['plotMaet' which];
     if isappdata(ax, key)
         rmappdata(ax, key);
     end
@@ -906,9 +1188,8 @@ function hs = localBuildStack(parent, ax, V, g, lims, opt, a)
     % planes are created starting from the side away from the camera the
     % stack is built for. A later turn to the other side reverses that,
     % which weights the far material rather than the near in the colour
-    % a ray ends up with; the accumulated opacity is a product and so is
-    % the same either way, and the difference measures 0.4%, which is
-    % not worth reordering the planes for.
+    % a ray ends up with; the accumulated opacity is a product and so
+    % is the same either way, and the difference measures 0.4%.
     v = ax.CameraPosition - ax.CameraTarget;
     order = 1:n;
     if v(a) < 0
@@ -998,15 +1279,41 @@ function [V, F] = localUnitSphere(nLon, nLat)
 end
 
 
-function localFrame(ax, lims, opt)
-%LOCALFRAME  The cube the density is drawn in.
-    view(ax, opt.view);
+function localFrame(ax, lims, dim, opt)
+%LOCALFRAME  The box the density is drawn in.
+%
+%   Square at two and three dimensions, the drawn coordinates covering
+%   the same range as each other; at one the vertical axis is the
+%   density's own and is left to the axes.
+%
+%   Dark panes at every dimensionality, including one: the colour map
+%   runs from dark to bright, so a curve coloured for a low density is
+%   nearly black and would be invisible against a white ground.
     set(ax, 'Projection', 'orthographic');
-    xlim(ax, lims); ylim(ax, lims); zlim(ax, lims);
-    pbaspect(ax, [1 1 1]);
+    xlim(ax, lims);
+    switch dim
+        case 1
+            localDarkPanes(ax, opt);
+        case 2
+            ylim(ax, lims);
+            pbaspect(ax, [1 1 1]);
+            view(ax, opt.view2d);
+            localDarkPanes(ax, opt);
+        otherwise
+            ylim(ax, lims);
+            zlim(ax, lims);
+            pbaspect(ax, [1 1 1]);
+            view(ax, opt.view);
+            localDarkPanes(ax, opt);
+    end
+end
+
+
+function localDarkPanes(ax, opt)
+%LOCALDARKPANES  Dark panes and a dim grid, or the axes' own.
     if opt.dark
         set(ax, 'Color', [0.06 0.06 0.06], ...
                 'GridColor', [0.22 0.22 0.22], 'GridAlpha', 1);
     end
-    grid(ax, 'on');
+    set(ax, 'XGrid', 'on', 'YGrid', 'on', 'ZGrid', 'on');
 end

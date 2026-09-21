@@ -52,27 +52,26 @@ def bwv347_grid(grid_step=GRID_STEP_QN):
         default step).
     pitches_satb : (N, 4) ndarray
         MIDI pitch sounding in soprano, alto, tenor, bass at each grid
-        point (NaN where a voice rests; BWV 347 has no rests).
+        point (NaN where a voice rests; BWV 347 has no rests). Built
+        with :func:`mpt.grid_events` and spread one column per part.
     bars : (N,) int ndarray
         Played-through bar number: 0 for the one-quarter pickup, then
         1–17.
     """
     t = bwv347_notes()
-    parts = list(t["part"].cat.categories)
-    n_parts = len(parts)
-    t_end = float(np.max(t["onset_beats"] + t["duration_beats"]))
-    times = np.arange(0.0, t_end, grid_step)
-    pitches = np.full((times.size, n_parts), np.nan)
-    for index, name in enumerate(parts):
-        part = index + 1
-        m = (t["part"] == name).to_numpy()
-        on = t["onset_beats"].to_numpy()[m]
-        off = on + t["duration_beats"].to_numpy()[m]
-        pit = t["pitch"].to_numpy()[m]
-        for i, g in enumerate(times):
-            k = np.nonzero((on <= g + 1e-9) & (g < off - 1e-9))[0]
-            if k.size:
-                pitches[i, part - 1] = pit[k[0]]
+    n_parts = len(t["part"].cat.categories)
+    grid = mpt.grid_events(t, grid_step)
+
+    # One column per part: the gridded table is long (one row per note
+    # per point), and the analyses want it wide.
+    n_points = int(grid["grid_index"].max()) + 1
+    times = np.arange(n_points) * grid_step
+    pitches = np.full((n_points, n_parts), np.nan)
+    live = grid["note_id"].notna().to_numpy()
+    pitches[grid.loc[live, "grid_index"].to_numpy(dtype=int),
+            grid.loc[live, "part"].cat.codes.to_numpy()] = \
+        grid.loc[live, "pitch"].to_numpy()
+
     bars = np.array([bwv347_bar(g) for g in times], dtype=int)
     return times, pitches, bars
 

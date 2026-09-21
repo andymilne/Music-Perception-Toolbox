@@ -13,7 +13,8 @@ function [times, pitchesSatb, bars] = bwv347Grid(gridStep)
 %                    points at the default step of jmm.gridStepQn()).
 %     pitchesSatb  - N x 4 MIDI pitch sounding in soprano, alto, tenor,
 %                    bass at each grid point (NaN where a voice rests;
-%                    BWV 347 has no rests).
+%                    BWV 347 has no rests). Built with gridEvents and
+%                    spread one column per part.
 %     bars         - 1 x N played-through bar number: 0 for the
 %                    one-quarter pickup, then 1--17.
 %
@@ -24,25 +25,16 @@ function [times, pitchesSatb, bars] = bwv347Grid(gridStep)
         gridStep = jmm.gridStepQn();
     end
     t = jmm.bwv347Notes();
-    partNames = categories(t.part);
-    nParts = numel(partNames);
-    tEnd = max(t.onsetBeats + t.durationBeats);
-    % The half-open range [0, tEnd) stepped at gridStep (numpy arange).
-    times = (0:(ceil(tEnd / gridStep) - 1)) * gridStep;
-    N = numel(times);
+    nParts = numel(categories(t.part));
+    grid = gridEvents(t, gridStep);
+
+    % One column per part: the gridded table is long (one row per note
+    % per point), and the analyses want it wide.
+    N = max(grid.gridIndex);
+    times = (0:N - 1) * gridStep;
     pitchesSatb = nan(N, nParts);
-    for part = 1:nParts
-        m = t.part == partNames{part};
-        on = t.onsetBeats(m);
-        off = on + t.durationBeats(m);
-        pit = t.pitch(m);
-        for i = 1:N
-            g = times(i);
-            k = find((on <= g + 1e-9) & (g < off - 1e-9), 1);
-            if ~isempty(k)
-                pitchesSatb(i, part) = pit(k);
-            end
-        end
-    end
+    live = ~isnan(grid.noteId);
+    pitchesSatb(sub2ind([N, nParts], grid.gridIndex(live), ...
+                        double(grid.part(live)))) = grid.pitch(live);
     bars = jmm.bwv347Bar(times);
 end

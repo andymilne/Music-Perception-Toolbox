@@ -53,16 +53,13 @@ function S = bwvWindowState()
 %                      all pitches sounding during the eighth --- a voice
 %                      moving at the sixteenth level contributes both of
 %                      its pitches, each at the event's weight.
-%     .notes         - M x 3 [pitch, start, end]: the score's notes,
-%                      recovered from the sampled grid. One note per
-%                      (pitch, contiguous sounding span): within each
-%                      part's stream a run of equal pitches across
-%                      consecutive grid points is one note (the grid
-%                      cannot see a re-articulation, and the merging rule
-%                      treats a pitch persisting across consecutive events
-%                      as one entry in any case). Simultaneous notes of
-%                      the same pitch are distinct notes --- a doubling
-%                      stays doubled.
+%     .e8Events      - 1 x M cell, one entry per eighth-note event: an
+%                      n x 3 matrix [note id, pitch, sounding fraction]
+%                      of the notes sounding during that eighth, from
+%                      gridEvents at the eighth grain under the coverage
+%                      weighting. Simultaneous notes of the same pitch
+%                      stay distinct --- a doubling stays doubled ---
+%                      because each row carries its own note id.
 %     .dyadChords    - the minimal cadential prototype (dyad skeleton):
 %                      {[59 65], [60 64]}, B-F -> C-E.
 %
@@ -108,22 +105,23 @@ function S = localBuild()
     end
     S.e8W(under) = S.e8W(under) * 1.5;
 
-    % --- the score's notes, recovered from the sampled grid -----------------
-    notes = zeros(0, 3);
-    nGrid = size(S.satb, 1);
-    for v = 1:size(S.satb, 2)
-        stream = S.satb(:, v);
-        start = 1;
-        for i = 2:(nGrid + 1)
-            if i == nGrid + 1 || stream(i) ~= stream(start)
-                notes(end + 1, :) = [stream(start), ...
-                                     S.T0 + (start - 1) * S.gridStep, ...
-                                     S.T0 + (i - 1) * S.gridStep]; %#ok<AGROW>
-                start = i;
-            end
-        end
+    % --- the notes sounding in each eighth, with their sounding fractions ---
+    % gridEvents on the eighth grain does this directly: the coverage
+    % weighting is the article's 'fraction of the eighth each note sounds',
+    % 1 for a note sounding through the eighth and 0.5 for one sounding a
+    % single sixteenth.
+    gridE8 = gridEvents(jmm.bwv347Notes(), S.eighth, ...
+                        'weights', 'coverage', 'limits', [S.T0, S.T1]);
+    live = ~isnan(gridE8.noteId);
+    gIdx = gridE8.gridIndex(live);
+    gNid = gridE8.noteId(live);
+    gPit = gridE8.pitch(live);
+    gFrac = gridE8.weight(live);
+    S.e8Events = cell(1, numel(S.e8Times));
+    for i = 1:numel(S.e8Times)
+        m = gIdx == i;
+        S.e8Events{i} = [gNid(m), gPit(m), gFrac(m)];
     end
-    S.notes = notes;
 
     % --- the minimal cadential prototype (dyad skeleton) --------------------
     S.dyadChords = {[59 65], [60 64]};     % B-F -> C-E

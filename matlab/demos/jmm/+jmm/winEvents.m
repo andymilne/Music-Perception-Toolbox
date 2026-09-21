@@ -20,20 +20,7 @@ function win = winEvents(a, b)
     win.times = S.e8Times(m);
     win.chords = cell(1, numel(win.times));
     for i = 1:numel(win.times)
-        win.chords{i} = localEventNoteFracs(S, win.times(i));
+        win.chords{i} = S.e8Events{round((win.times(i) - S.T0) / S.eighth) + 1};
     end
     win.w = S.e8W(m);
-end
-
-
-function out = localEventNoteFracs(S, t)
-    % Notes sounding during the eighth-note event at t: [note id, pitch,
-    % sounding fraction], one row per note that sounds at all.
-    a = S.notes(:, 2); b = S.notes(:, 3);
-    frac = zeros(size(a));
-    for g = [t, t + S.gridStep]
-        frac = frac + 0.5 * ((a - 1e-9 <= g) & (g < b - 1e-9));
-    end
-    nid = find(frac > 0);
-    out = [nid, S.notes(nid, 1), frac(nid)];
 end

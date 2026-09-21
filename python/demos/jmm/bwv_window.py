@@ -34,9 +34,10 @@ import mpt
 from mpt import unpack_pre_maet
 mpt.set_default(show_hints=False)
 from mpt import (bind_events, flat_specs, build_maet,  # noqa: F401
-                 sim_maet, show_pre_maet)
+                 grid_events, sim_maet, show_pre_maet)
 
-from jmm_data import bwv347_grid, bwv347_fermata_spans, GRID_STEP_QN
+from jmm_data import (bwv347_grid, bwv347_notes, bwv347_fermata_spans,
+                      GRID_STEP_QN)
 
 # --- kernel parameters (the article's) ---------------------------------------
 SIGMA_PITCH = 0.15      # semitones
@@ -74,42 +75,31 @@ def son_at(t: float) -> np.ndarray:
     return _SATB[int(round((t - T0) / GRID_STEP_QN))].copy()
 
 
-# --- the score's notes, recovered from the sampled grid ----------------------
-# One note per (pitch, contiguous sounding span): within each part's stream a
-# run of equal pitches across consecutive grid points is one note (the grid
-# cannot see a re-articulation, and the merging rule treats a pitch persisting
-# across consecutive events as one entry in any case). Simultaneous notes of
-# the same pitch are distinct notes — a doubling stays doubled.
-def _extract_notes():
-    notes = []
-    n_grid = len(_SATB)
-    for stream in _SATB.T:
-        start = 0
-        for i in range(1, n_grid + 1):
-            if i == n_grid or stream[i] != stream[start]:
-                notes.append((float(stream[start]),
-                              T0 + start * GRID_STEP_QN,
-                              T0 + i * GRID_STEP_QN))
-                start = i
-    return notes
+# --- the notes sounding in each eighth, with their sounding fractions --------
+# grid_events on the eighth grain does this directly: the coverage weighting
+# is the article's "fraction of the eighth each note sounds", 1 for a note
+# sounding through the eighth and 0.5 for one sounding a single sixteenth.
+# Simultaneous notes of the same pitch stay distinct — a doubling stays
+# doubled — because each row carries its own note id.
+def _eighth_events():
+    grid = grid_events(bwv347_notes(), EIGHTH, weights="coverage",
+                       limits=(T0, T1))
+    events = [[] for _ in _E8_TIMES]
+    live = grid["note_id"].notna()
+    for index, note_id, pitch, frac in zip(
+            grid.loc[live, "grid_index"], grid.loc[live, "note_id"],
+            grid.loc[live, "pitch"], grid.loc[live, "weight"]):
+        events[int(index)].append((int(note_id), float(pitch), float(frac)))
+    return events
 
 
-_NOTES = _extract_notes()
+_E8_EVENTS = _eighth_events()
 
 
 def _event_note_fracs(t: float):
     """Notes sounding during the eighth-note event at t, as a list of
-    (note id, pitch, sounding fraction): fraction 1 when the note sounds
-    through the eighth, 0.5 when it sounds for a single sixteenth."""
-    out = []
-    for nid, (p, a, b) in enumerate(_NOTES):
-        frac = 0.0
-        for g in (t, t + GRID_STEP_QN):
-            if a - 1e-9 <= g < b - 1e-9:
-                frac += 0.5
-        if frac > 0.0:
-            out.append((nid, p, frac))
-    return out
+    (note id, pitch, sounding fraction)."""
+    return _E8_EVENTS[int(round((t - T0) / EIGHTH))]
 
 
 def win_events(a: float, b: float):

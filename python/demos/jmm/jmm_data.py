@@ -38,7 +38,7 @@ GRID_STEP_QN = 0.25          # sixteenth note: the smallest value in BWV 347
 # ---------------------------------------------------------------------------
 
 def bwv347_notes():
-    """The note table of the played-through chorale (``mpt.read_score``)."""
+    """The event table of the played-through chorale (``mpt.read_score``)."""
     return mpt.read_score(os.path.join(DATA_DIR, "bwv347.musicxml"))
 
 
@@ -58,15 +58,17 @@ def bwv347_grid(grid_step=GRID_STEP_QN):
         1–17.
     """
     t = bwv347_notes()
-    n_parts = len(t["part_names"])
+    parts = list(t["part"].cat.categories)
+    n_parts = len(parts)
     t_end = float(np.max(t["onset_beats"] + t["duration_beats"]))
     times = np.arange(0.0, t_end, grid_step)
     pitches = np.full((times.size, n_parts), np.nan)
-    for part in range(1, n_parts + 1):
-        m = t["part"] == part
-        on = t["onset_beats"][m]
-        off = on + t["duration_beats"][m]
-        pit = t["pitch"][m]
+    for index, name in enumerate(parts):
+        part = index + 1
+        m = (t["part"] == name).to_numpy()
+        on = t["onset_beats"].to_numpy()[m]
+        off = on + t["duration_beats"].to_numpy()[m]
+        pit = t["pitch"].to_numpy()[m]
         for i, g in enumerate(times):
             k = np.nonzero((on <= g + 1e-9) & (g < off - 1e-9))[0]
             if k.size:
@@ -85,13 +87,14 @@ def bwv347_bar(t):
 
 def bwv347_fermata_spans():
     """``(start, end)`` quarter-note spans of the fermata-bearing notes of
-    the played-through chorale, from the ``fermata`` column of the note
+    the played-through chorale, from the ``fermata`` column of the event
     table. Analysis 1.4 raises the weight of every eighth-note event under
     a fermata by half."""
     t = bwv347_notes()
-    f = t["fermata"] == 1
-    return sorted({(float(a), float(a + d))
-                   for a, d in zip(t["onset_beats"][f], t["duration_beats"][f])})
+    f = t["fermata"].to_numpy()
+    on = t["onset_beats"].to_numpy()[f]
+    dur = t["duration_beats"].to_numpy()[f]
+    return sorted({(float(a), float(a + d)) for a, d in zip(on, dur)})
 
 
 # ---------------------------------------------------------------------------
@@ -109,5 +112,6 @@ def acknowledgement(path=None):
             f"not distributed with the toolbox; place a monophonic MIDI "
             f"transcription of Theme 2 at that path (or pass its path).")
     t = mpt.read_score(path)
-    order = np.argsort(t["onset_beats"], kind="stable")
-    return t["pitch"][order], t["onset_beats"][order]
+    onset = t["onset_beats"].to_numpy()
+    order = np.argsort(onset, kind="stable")
+    return t["pitch"].to_numpy()[order], onset[order]

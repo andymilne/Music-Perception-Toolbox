@@ -934,7 +934,14 @@ def _build_maet_ma(
         N = 1
         K_a = np.array([p_attr[0].shape[0]], dtype=np.intp)
 
-    # Eager per-event / per-attribute non-NaN value count check. The
+    # Eager per-event / per-attribute non-NaN value count check. An
+    # event must have either enough values for its tuple size or none at
+    # all: an event with no value on an attribute -- a grid slice with
+    # nothing sounding, say -- admits no tuple there, so it contributes
+    # nothing to the density, the inner product, or any entropy taken
+    # from them, while keeping its place in the event sequence for
+    # binding and differencing. An event with some but too few values is
+    # a mistake and is refused. The
     # heavy r-ad enumeration is deferred to first access of a lazy
     # field, but this validation is cheap (one NaN scan per (a, n))
     # and users reasonably expect malformed inputs to fail fast at the
@@ -950,8 +957,11 @@ def _build_maet_ma(
                 if tags.ndim == 1:
                     tags = tags.reshape(-1, 1)
                 valid_idx = np.nonzero(valid)[0].astype(np.intp)
-                if not _nested_feasible(valid_idx, tags, r_levels,
-                                        len(r_levels) - 1):
+                # An event with no value at all on this attribute admits
+                # no tuple and contributes nothing; only a partly filled
+                # one is an error.
+                if valid_idx.size and not _nested_feasible(
+                        valid_idx, tags, r_levels, len(r_levels) - 1):
                     raise ValueError(
                         f"Event {n}, nested attribute {a}: the non-NaN values "
                         f"do not admit a full nested r-tuple for "
@@ -961,7 +971,7 @@ def _build_maet_ma(
                 continue
             r_a = int(r_vec[a])
             valid_count = int(np.sum(valid))
-            if valid_count < r_a:
+            if 0 < valid_count < r_a:
                 raise ValueError(
                     f"Event {n}, attribute {a} has {valid_count} non-NaN "
                     f"value(s) but r_a = {r_a}."
@@ -1218,7 +1228,9 @@ def _enum_flat_attr(val_col, valid, r_a, is_exch, w_col_orig):
     Applies the r = 1 equal-value collapse (summing weights). Shared by
     the general per-(n, a) fill loop and the A = N = 1 fast path so both
     produce byte-identical tuples. Caller guarantees ``valid.size >=
-    r_a`` (checked eagerly at build).
+    r_a``, or ``valid.size == 0`` for an event with no value at all on
+    this attribute, which admits no tuple and so contributes nothing
+    (checked eagerly at build).
     """
     collapsed = False
     if r_a == 1 and valid.size > 1:
@@ -1236,6 +1248,8 @@ def _enum_flat_attr(val_col, valid, r_a, is_exch, w_col_orig):
 
     comb_list = list(combinations(valid.tolist(), r_a))
     comb_mat = np.array(comb_list, dtype=np.intp).T  # r_a x C
+    if comb_mat.size == 0:
+        comb_mat = np.empty((r_a, 0), dtype=np.intp)
 
     if r_a == 1 or not is_exch:
         perm_mat = comb_mat.copy()
@@ -1342,7 +1356,7 @@ def _ma_build_perm_arrays(
         if N == 1:
             val_col = P[:, 0]
             valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
-            if valid.size < r_a:
+            if 0 < valid.size < r_a:
                 raise ValueError(
                     f"Event 0, attribute 0 has {valid.size} non-NaN "
                     f"value(s) but r_a = {r_a}."
@@ -1392,7 +1406,7 @@ def _ma_build_perm_arrays(
                 for n in range(N):
                     val = P[:, n]
                     valid = np.nonzero(~np.isnan(val))[0].astype(np.intp)
-                    if valid.size < r_a:
+                    if 0 < valid.size < r_a:
                         raise ValueError(
                             f"Event {n}, attribute 0 has {valid.size} "
                             f"non-NaN value(s) but r_a = {r_a}."
@@ -1456,7 +1470,7 @@ def _ma_build_perm_arrays(
                 continue
 
             r_a = int(r_vec[a])
-            if K_na < r_a:
+            if 0 < K_na < r_a:
                 raise ValueError(
                     f"Event {n}, attribute {a} has {K_na} non-NaN "
                     f"value(s) but r_a = {r_a}."
@@ -1607,10 +1621,11 @@ def _build_maet_single_multiset(
         # Degenerate empty collection (e.g. an all-dead pruning or a
         # window that captures nothing): a valid zero-mass density
         # with no tuples, matching the historical vector-build
-        # behaviour. Constructed directly because the general
-        # multi-attribute event validation (each event needs at least
-        # r_a valid values) correctly rejects empty events in the
-        # multi-event setting.
+        # behaviour. Constructed directly here. The multi-attribute
+        # path reaches the same reading by its own route: an event
+        # with no value at all on an attribute admits no tuple there
+        # and so contributes nothing, while a partly filled one is
+        # still an error.
         dim = int(r) - (1 if is_rel else 0)
         empty = {
             'n_j': 0, 'n_k': 0,

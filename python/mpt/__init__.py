@@ -17,6 +17,7 @@ from .spectra import add_spectra
 
 # --- Symbolic scores (MIDI, MusicXML) ---
 from .score import read_score, pre_maet_from_score
+from .grid import grid_events
 
 # --- Expectation tensors ---
 from .tensor import (
@@ -118,6 +119,7 @@ __all__ = [
     "transform_attributes",
     # score
     "read_score",
+    "grid_events",
     "pre_maet_from_score",
     "translate_attributes",
     "TranslatedSweep",

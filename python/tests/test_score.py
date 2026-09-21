@@ -1,7 +1,7 @@
 """``read_score`` and ``pre_maet_from_score`` on the shared fixtures in
 tests/data (a format-1 MIDI file and a MusicXML score, plain and
 compressed). Mirror of MATLAB tests/test_score.m; both suites assert
-the same note tables.
+the same event tables.
 """
 import os
 
@@ -28,11 +28,11 @@ MIDI_TABLE = {
     "duration_seconds": [0.5, 1, 1, 1, 0.25, 1, 1, 1, 1],
     "pitch":            [60, 48, 52, 55, 64, 67, 53, 57, 72],
     "velocity":         [96, 100, 100, 100, 80, 112, 100, 100, 64],
-    "part":             [1, 2, 2, 2, 1, 1, 2, 2, 1],
     "channel":          [1, 2, 2, 2, 1, 1, 2, 2, 1],
     "measure":          [1, 1, 1, 1, 1, 1, 1, 1, 2],
-    "fermata":          [0, 0, 0, 0, 0, 0, 0, 0, 0],
 }
+MIDI_PARTS = ["Melody", "Chords", "Chords", "Chords", "Melody", "Melody",
+              "Chords", "Chords", "Melody"]
 XML_TABLE = {
     "onset_beats":      [0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 4],
     "onset_seconds":    [0, 0, 0, 0, 0, 0.5, 0.5, 1, 1, 1.5, 2.5],
@@ -40,13 +40,14 @@ XML_TABLE = {
     "duration_seconds": [0.5, 0.5, 1, 1, 1, 0.25, 0.5, 1.5, 0.5, 3, 2],
     "pitch":            [60, 36, 48, 52, 55, 64, 43, 67, 41, 53, 70],
     "velocity":         [90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 54],
-    "part":             [1, 2, 2, 2, 2, 1, 2, 1, 2, 2, 1],
-    "channel":          [1, 2, 1, 1, 1, 1, 2, 1, 2, 1, 1],
+    "voice":            [1, 2, 1, 1, 1, 1, 2, 1, 2, 1, 1],
     "measure":          [1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2],
     # The tied G4 carries its fermata on the tie's stop segment; the merged
     # note keeps it. The final B-flat carries one directly.
     "fermata":          [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
 }
+XML_PARTS = ["Soprano", "Piano", "Piano", "Piano", "Piano", "Soprano",
+             "Piano", "Soprano", "Piano", "Piano", "Soprano"]
 
 
 def _check_table(table, expect):
@@ -57,17 +58,46 @@ def _check_table(table, expect):
 
 def test_midi_table():
     t = read_score(os.path.join(DATA, "score_small.mid"))
-    assert t["source"] == "midi"
-    assert t["part_names"] == ["Melody", "Chords"]
+    assert t.attrs["source"] == "midi"
+    assert list(t["part"].cat.categories) == ["Melody", "Chords"]
+    assert list(t["part"]) == MIDI_PARTS
     _check_table(t, MIDI_TABLE)
+
+
+def test_midi_has_a_channel_and_no_voice_or_fermata():
+    """channel and voice are different quantities, so a source that does
+    not carry one does not get a column for it."""
+    t = read_score(os.path.join(DATA, "score_small.mid"))
+    assert "channel" in t.columns
+    assert "voice" not in t.columns
+    assert "fermata" not in t.columns
 
 
 @pytest.mark.parametrize("name", ["score_small.musicxml", "score_small.mxl"])
 def test_musicxml_table(name):
     t = read_score(os.path.join(DATA, name))
-    assert t["source"] == "musicxml"
-    assert t["part_names"] == ["Soprano", "Piano"]
+    assert t.attrs["source"] == "musicxml"
+    assert list(t["part"].cat.categories) == ["Soprano", "Piano"]
+    assert list(t["part"]) == XML_PARTS
+    assert "channel" not in t.columns
+    assert t["fermata"].dtype == bool
     _check_table(t, XML_TABLE)
+
+
+def test_a_fermata_attribute_needs_a_fermata_column():
+    with pytest.raises(ValueError, match="fermata"):
+        pre_maet_from_score(os.path.join(DATA, "score_small.mid"),
+                            attributes=("pitch", "fermata"))
+
+
+def test_parts_may_be_named():
+    by_index = pre_maet_from_score(
+        os.path.join(DATA, "score_small.mid"), parts=1, chords="separate")
+    by_name = pre_maet_from_score(
+        os.path.join(DATA, "score_small.mid"), parts=["Melody"],
+        chords="separate")
+    np.testing.assert_array_equal(unpack_pre_maet(by_index)[0][0],
+                                  unpack_pre_maet(by_name)[0][0])
 
 
 def test_fermata_attribute():

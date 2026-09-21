@@ -23,7 +23,7 @@ useful headless.
   read with `mpt.read_score` and sampled on the sixteenth-note grid
   (`bwv347_grid`). The encoding is note-for-note the one the article
   used from music21. `bwv347_fermata_spans` gives the spans the cadence
-  analysis weights, from the note table's `fermata` column.
+  analysis weights, from the event table's `fermata` column.
 * **Reich, *Piano Phase*** (`piano_phase.py`): both voices rendered from
   the article's constants (the twelve-note cell, base inter-onset
   interval, peak tempo deviation, smoothstep accelerandi).

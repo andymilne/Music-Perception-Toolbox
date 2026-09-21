@@ -1,0 +1,11 @@
+function names = midiColumns()
+%MIDICOLUMNS  The columns internal.parseMidi produces, in order.
+%
+%   A column is present only where its source carries the information, so
+%   channel and voice are never the same column and never stand in for
+%   one another. Twin of the Python mpt.score._MIDI_COLUMNS.
+    names = {'onsetBeats', 'onsetSeconds', 'durationBeats', ...
+             'durationSeconds', 'soundingDurationBeats', ...
+             'soundingDurationSeconds', 'pitch', 'noteNumber', ...
+             'velocity', 'weight', 'part', 'channel', 'measure'};
+end

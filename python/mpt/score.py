@@ -2,9 +2,11 @@
 
 Two functions. :func:`read_score` parses a Standard MIDI File (format 0
 or 1) or a MusicXML file (``.musicxml``, ``.xml``, or compressed
-``.mxl``) into a *note table*: one row per sounding note with its onset
-and duration in beats and in seconds, its MIDI pitch, its velocity, and
-its part. :func:`pre_maet_from_score` turns a note table (or a path) into
+``.mxl``) into an *event table* -- a :class:`pandas.DataFrame` with one
+row per sounding note, carrying its onset and duration in beats and in
+seconds, its MIDI pitch, its velocity, and its part, plus whatever else
+its source records. :func:`pre_maet_from_score` turns an event table (or
+a path) into
 the ``(p_attr, w_attr, specs)`` that :func:`build_maet` and the
 pre-MAET preprocessors consume, choosing the attributes, their units,
 the weights, and whether simultaneous notes are bound into one
@@ -37,10 +39,14 @@ from __future__ import annotations
 import io
 import os
 import struct
+import warnings
+from bisect import bisect_right
+from collections import defaultdict
 import zipfile
 import xml.etree.ElementTree as ET
 
 import numpy as np
+import pandas as pd
 
 from ._tensor.premaet import pre_maet
 from ._tensor.preprocessing import flat_specs
@@ -48,9 +54,18 @@ from ._tensor.transform import _convert_scale
 
 __all__ = ["read_score", "pre_maet_from_score"]
 
-_NOTE_FIELDS = ("onset_beats", "onset_seconds", "duration_beats",
-                "duration_seconds", "pitch", "velocity", "part", "channel",
+# The columns each source produces, in order. A column is present only
+# where its source carries the information, so channel and voice are
+# never the same column and never stand in for one another.
+_MIDI_COLUMNS = ("onset_beats", "onset_seconds", "duration_beats",
+                 "duration_seconds", "sounding_duration_beats",
+                 "sounding_duration_seconds", "pitch", "note_number",
+                 "velocity", "weight", "part", "channel", "measure")
+_XML_COLUMNS = ("onset_beats", "onset_seconds", "duration_beats",
+                "duration_seconds", "pitch", "velocity", "part", "voice",
                 "measure", "fermata")
+_INT_COLUMNS = frozenset(("note_number", "channel", "voice", "measure"))
+_BOOL_COLUMNS = frozenset(("fermata",))
 _STEP_TO_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
@@ -59,7 +74,7 @@ _STEP_TO_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 # ===================================================================
 
 def read_score(path):
-    """Parse a MIDI or MusicXML file into a note table.
+    """Parse a MIDI or MusicXML file into an event table.
 
     Parameters
     ----------
@@ -69,18 +84,86 @@ def read_score(path):
 
     Returns
     -------
-    dict
-        ``{'onset_beats', 'onset_seconds', 'duration_beats',
-        'duration_seconds', 'pitch', 'velocity', 'part', 'channel',
-        'measure', 'fermata', 'part_names', 'source'}``: one float
-        array per note field (``part``, ``channel``, and ``measure``
-        are 1-based ints; ``channel`` is 0 for MusicXML, where it
-        carries the voice number instead; ``fermata`` is 1 for a
-        MusicXML note carrying a fermata, a merged tied note counting
-        if any of its segments does, and 0 otherwise, MIDI having no
-        fermatas), ``part_names`` a list of the parts' names,
-        ``source`` ``'midi'`` or ``'musicxml'``. Rows are sorted by
-        onset, then part, then pitch.
+    DataFrame
+        One row per sounding note, sorted by onset, then part, then
+        pitch. Columns common to both sources: ``onset_beats``,
+        ``onset_seconds``, ``duration_beats``, ``duration_seconds``,
+        ``pitch`` (in MIDI note numbers, and not an integer where the
+        file bends or writes a microtone), ``velocity`` (0-127), ``part``
+        (categorical, the part names as its categories), and ``measure``
+        (1-based).
+
+        A MIDI file adds ``channel`` (1-16), ``note_number`` (the note
+        number as recorded, which is what note identity rests on),
+        ``weight``, and ``sounding_duration_beats`` /
+        ``sounding_duration_seconds``. A MusicXML score adds ``voice``
+        (1-based within its part) and ``fermata`` (boolean, a merged tied
+        note counting if any of its segments carries one). A column is
+        present only where the source carries it, so ``channel`` and
+        ``voice`` are never the same column and never stand in for one
+        another.
+
+        ``df.attrs['source']`` is ``'midi'`` or ``'musicxml'``.
+
+    Warns
+    -----
+    UserWarning
+        Where a MIDI file bends pitch but declares no bend range.
+
+    Notes
+    -----
+    A beat is a quarter note, whatever the time signature. Seconds
+    follow the file's tempo map, at 120 quarter notes per minute where a
+    file gives none. A MusicXML tie is merged into one note, a grace note
+    is skipped, and a rest or unpitched note is not a note.
+
+    **MIDI controller streams.** The three that change a note's own
+    columns are resolved at read; every other controller is out of scope,
+    since a value sampled at the onset would misrepresent a ramp inside a
+    held note.
+
+    *Sustain and sostenuto* give ``sounding_duration_*`` beside the
+    recorded ``duration_*``, so either can feed an analysis. A note whose
+    note-off falls while sustain (CC64, at or above 64) is down sounds
+    until the pedal comes up, or to the end of the file where it never
+    does; sostenuto (CC66) holds only what was already down when it was
+    pressed; and the same note number struck again on the same channel
+    damps what is left of the first, while the same pitch on another
+    channel does not, since two channels may be two instruments. Pedal
+    state and the damping rule are both per channel, and a channel
+    belongs to the file rather than to a track.
+
+    *Pitch bend* is resolved into ``pitch``, which is therefore not an
+    integer: bend is how microtonal music is carried in MIDI, in the
+    one-channel-per-note idiom and under MPE alike. The range is 2
+    semitones unless RPN 0 sets it, or an MPE Configuration Message
+    (RPN 6 on channel 1 or 16) opens a zone, whose member channels take
+    the 48-semitone MPE default. A note takes the last bend at or before
+    its onset tick, so a bend sent immediately before a note-on, or at
+    the same tick in either file order, tunes it; where a channel has no
+    earlier bend at all, the first bend after that note is used provided
+    no further note-on intervenes. Under MPE the bend continues through
+    the note as a slide, and the resolved value is the pitch at onset.
+
+    *Channel volume (CC7) and expression (CC11)* fold into ``weight``::
+
+        weight = (velocity / 127) * (cc7 / 127) ** 2 * (cc11 / 127) ** 2
+
+    so that a passage played down by expression is not weighted as though
+    it were at full strength. ``velocity`` keeps the value as recorded.
+
+    The two factors rest on different grounds, and the formula is a
+    hybrid. The squares are MIDI's specified default response for both
+    controllers, an attenuation of ``40 * log10(cc / 127)`` dB; the two
+    are cascaded gain stages, so in dB they add and in amplitude they
+    multiply. The velocity factor is linear because MIDI specifies no
+    velocity-to-amplitude curve -- it is instrument-dependent -- and
+    because taking it linearly makes ``weight`` equal to the toolbox's
+    ``weights='velocity'`` weighting on any file that sends no
+    controller, which is nearly all of them. So ``weight`` is that
+    weighting corrected by the channel's specified gain, and not an
+    estimate of sounding amplitude. A different velocity curve is one
+    transformation of the column away.
     """
     ext = os.path.splitext(str(path))[1].lower()
     if ext in (".mid", ".midi", ".smf", ".kar"):
@@ -99,22 +182,57 @@ def read_score(path):
 
 
 def _finish_table(notes):
+    columns = notes["columns"]
     rows = notes["rows"]
-    table = {}
+    index = {name: i for i, name in enumerate(columns)}
     if rows:
-        order = sorted(range(len(rows)),
-                       key=lambda i: (rows[i][0], rows[i][6], rows[i][4]))
-        cols = list(zip(*[rows[i] for i in order]))
+        key = (index["onset_beats"], index["part"], index["pitch"])
+        ordered = sorted(rows, key=lambda r: (r[key[0]], r[key[1]], r[key[2]]))
+        cols = list(zip(*ordered))
     else:
-        cols = [[] for _ in _NOTE_FIELDS]
-    for name, col in zip(_NOTE_FIELDS, cols):
-        if name in ("part", "channel", "measure", "fermata"):
-            table[name] = np.asarray(col, dtype=np.intp)
+        cols = [() for _ in columns]
+    raw = {name: np.asarray(col, dtype=np.float64)
+           for name, col in zip(columns, cols)}
+    part_names = _part_categories(notes["part_names"],
+                                  raw["part"].astype(np.intp))
+
+    data = {}
+    for name in columns:
+        if name == "part":
+            data[name] = pd.Categorical.from_codes(
+                raw[name].astype(np.intp) - 1, categories=part_names)
+        elif name in _INT_COLUMNS:
+            data[name] = raw[name].astype(np.intp)
+        elif name in _BOOL_COLUMNS:
+            data[name] = raw[name].astype(bool)
         else:
-            table[name] = np.asarray(col, dtype=np.float64)
-    table["part_names"] = list(notes["part_names"])
-    table["source"] = notes["source"]
+            data[name] = raw[name]
+
+    table = pd.DataFrame(data, columns=list(columns))
+    table.attrs["source"] = notes["source"]
     return table
+
+
+def _part_categories(names, part_index):
+    """Part names as a unique, non-empty category list, one per part.
+
+    The parser supplies one name per part, but a score may leave a part
+    unnamed or repeat a name, and categories have to be distinct.
+    """
+    n_parts = max(int(part_index.max()) if part_index.size else 0,
+                  len(names))
+    out, seen = [], {}
+    for i in range(n_parts):
+        name = str(names[i]).strip() if i < len(names) else ""
+        if not name:
+            name = f"Part {i + 1}"
+        if name in seen:
+            seen[name] += 1
+            name = f"{name} ({seen[name]})"
+        else:
+            seen[name] = 1
+        out.append(name)
+    return out
 
 
 # -------------------------------------------------------------------
@@ -157,12 +275,20 @@ def _parse_midi(data):
     timesig_map = []        # (tick, quarter notes per bar)
     track_events = []       # per track: list of (tick, status, d1, d2)
     track_names = []
+    ctrl_events = []        # (tick, channel, kind, d1, d2), all tracks
+    file_end = 0
     for tdata in tracks:
-        events, tempos, sigs, name, end_tick = _midi_track_events(tdata)
+        events, ctrl, tempos, sigs, name, end_tick = _midi_track_events(tdata)
         track_events.append((events, end_tick))
         tempo_map.extend(tempos)
         timesig_map.extend(sigs)
         track_names.append(name)
+        ctrl_events.extend(ctrl)
+        file_end = max(file_end, end_tick)
+    # A channel is a property of the file, not of a track, so controller
+    # state is gathered across tracks and read per channel.
+    ctrl_events.sort(key=lambda e: e[0])
+    streams = _controller_streams(ctrl_events)
     tempo_map.sort()
     timesig_map.sort()
     if not tempo_map or tempo_map[0][0] > 0:
@@ -189,6 +315,20 @@ def _parse_midi(data):
             m += int((tk - prev_tick) / tpq // prev_q)
             prev_tick, prev_q = tk, q
         return m + int((tick - prev_tick) / tpq // prev_q)
+
+    # Every note-on tick per (channel, note number), for the re-strike rule
+    # that truncates a pedal-sustained tail.
+    strikes = defaultdict(list)
+    note_ons = defaultdict(list)
+    for events, _ in track_events:
+        for tick, status, d1, d2 in events:
+            if status & 0xF0 == 0x90 and d2 > 0:
+                strikes[(status & 0x0F, d1)].append(tick)
+                note_ons[status & 0x0F].append(tick)
+    for key in strikes:
+        strikes[key].sort()
+    for ch in note_ons:
+        note_ons[ch].sort()
 
     rows = []
     part_names = []
@@ -218,17 +358,162 @@ def _parse_midi(data):
         name = track_names[ti] or f"track {ti + 1}"
         part_names.append(name)
         for t0, t1, pitch, vel, ch in track_rows:
-            rows.append((t0 / tpq, seconds_at(t0), (t1 - t0) / tpq,
-                         seconds_at(t1) - seconds_at(t0), float(pitch),
-                         float(vel), part_index, ch + 1, measure_at(t0), 0))
-    return {"rows": rows, "part_names": part_names, "source": "midi"}
+            t_end = _sounding_end(t0, t1, ch, pitch, streams, strikes,
+                                  file_end)
+            bend = _bend_semitones(ch, t0, streams, note_ons[ch])
+            volume = _state_at(streams["volume"][ch], t0, 127.0)
+            express = _state_at(streams["expression"][ch], t0, 127.0)
+            rows.append((t0 / tpq, seconds_at(t0),
+                         (t1 - t0) / tpq,
+                         seconds_at(t1) - seconds_at(t0),
+                         (t_end - t0) / tpq,
+                         seconds_at(t_end) - seconds_at(t0),
+                         float(pitch) + bend, float(pitch), float(vel),
+                         (vel / 127.0) * (volume / 127.0) ** 2
+                         * (express / 127.0) ** 2,
+                         part_index, ch + 1, measure_at(t0)))
+    return {"rows": rows, "columns": _MIDI_COLUMNS,
+            "part_names": part_names, "source": "midi"}
+
+
+# --- controller streams ---------------------------------------------
+
+_CC_VOLUME, _CC_EXPRESSION = 7, 11
+_CC_SUSTAIN, _CC_SOSTENUTO = 64, 66
+_CC_DATA_MSB, _CC_DATA_LSB, _CC_RPN_LSB, _CC_RPN_MSB = 6, 38, 100, 101
+_RPN_BEND_RANGE, _RPN_MPE_CONFIG = (0, 0), (0, 6)
+_DEFAULT_BEND_RANGE = 2.0
+_MPE_BEND_RANGE = 48.0
+
+
+def _controller_streams(ctrl_events):
+    """Per-channel controller state, as step functions of tick.
+
+    A value holds until the next message on that channel, so each stream
+    is a sorted list of (tick, value) changes read back by :func:`_state_at`.
+    """
+    streams = {name: defaultdict(list) for name in
+               ("volume", "expression", "sustain", "sostenuto", "bend")}
+    bend_range = {}
+    rpn = defaultdict(lambda: (127, 127))     # channel -> selected RPN
+    mpe_members = set()
+    saw_bend = False
+    saw_range = False
+
+    for tick, ch, kind, d1, d2 in ctrl_events:
+        if kind == 0xE0:
+            streams["bend"][ch].append((tick, ((d2 << 7) | d1) - 8192))
+            saw_bend = True
+            continue
+        if d1 == _CC_VOLUME:
+            streams["volume"][ch].append((tick, float(d2)))
+        elif d1 == _CC_EXPRESSION:
+            streams["expression"][ch].append((tick, float(d2)))
+        elif d1 == _CC_SUSTAIN:
+            streams["sustain"][ch].append((tick, d2 >= 64))
+        elif d1 == _CC_SOSTENUTO:
+            streams["sostenuto"][ch].append((tick, d2 >= 64))
+        elif d1 == _CC_RPN_MSB:
+            rpn[ch] = (d2, rpn[ch][1])
+        elif d1 == _CC_RPN_LSB:
+            rpn[ch] = (rpn[ch][0], d2)
+        elif d1 == _CC_DATA_MSB:
+            if rpn[ch] == _RPN_BEND_RANGE:
+                bend_range[ch] = float(d2)
+                saw_range = True
+            elif rpn[ch] == _RPN_MPE_CONFIG and ch in (0, 15) and d2 > 0:
+                # An MPE Configuration Message: channel 1 opens a lower
+                # zone, channel 16 an upper zone, over d2 member channels.
+                members = (range(1, d2 + 1) if ch == 0
+                           else range(15 - d2, 15))
+                mpe_members.update(members)
+                saw_range = True
+        elif d1 == _CC_DATA_LSB and rpn[ch] == _RPN_BEND_RANGE:
+            bend_range[ch] = bend_range.get(ch, 0.0) + d2 / 100.0
+
+    if saw_bend and not saw_range:
+        warnings.warn(
+            "This file bends pitch but never sets a pitch-bend range "
+            "(RPN 0) or an MPE zone, so the 2-semitone default is "
+            "assumed; a file tuned for the 48-semitone MPE range will "
+            "read 24 times too flat or sharp.", UserWarning, stacklevel=3)
+
+    ranges = {}
+    for ch in range(16):
+        ranges[ch] = bend_range.get(
+            ch, _MPE_BEND_RANGE if ch in mpe_members else _DEFAULT_BEND_RANGE)
+    streams["bend_range"] = ranges
+    return streams
+
+
+def _state_at(changes, tick, default):
+    """The value in force at ``tick``: the last change at or before it."""
+    if not changes:
+        return default
+    i = bisect_right([c[0] for c in changes], tick)
+    return changes[i - 1][1] if i else default
+
+
+def _next_release(changes, tick, end_tick):
+    """The first tick at or after ``tick`` where the pedal comes up."""
+    for t, down in changes:
+        if t >= tick and not down:
+            return t
+    return end_tick
+
+
+def _sounding_end(t0, t1, ch, note, streams, strikes, end_tick):
+    """When the note stops sounding, given the pedals and the re-strikes."""
+    end = t1
+    sustain = streams["sustain"][ch]
+    if _state_at(sustain, t1, False):
+        end = max(end, _next_release(sustain, t1, end_tick))
+    # Sostenuto holds only what was already down when it was pressed.
+    sostenuto = streams["sostenuto"][ch]
+    for tp, down in sostenuto:
+        if down and t0 <= tp < t1 and _state_at(sostenuto, t1, False):
+            end = max(end, _next_release(sostenuto, t1, end_tick))
+            break
+    # The same pitch struck again on the same channel damps what is left
+    # of this one; a different channel may be a different instrument, so
+    # it does not.
+    for t in strikes.get((ch, note), ()):
+        if t >= t1:
+            if t < end:
+                end = t
+            break
+    return end
+
+
+def _bend_semitones(ch, t0, streams, channel_note_ons):
+    """The bend in force at a note's onset, in semitones.
+
+    An exporter may send a note's bend just before its note-on, or at the
+    same tick, and within a tick the ordering carries no meaning; both are
+    covered by reading the last bend at or before the onset tick. Where a
+    channel has no bend before its first note, the first bend after that
+    note is used, provided no further note-on intervenes.
+    """
+    changes = streams["bend"][ch]
+    if not changes:
+        return 0.0
+    ticks = [c[0] for c in changes]
+    i = bisect_right(ticks, t0)
+    if i:
+        raw = changes[i - 1][1]
+    else:
+        nxt = next((t for t in channel_note_ons if t > t0), None)
+        if nxt is not None and ticks[0] >= nxt:
+            return 0.0
+        raw = changes[0][1]
+    return raw / 8192.0 * streams["bend_range"][ch]
 
 
 def _midi_track_events(tdata):
     pos = 0
     tick = 0
     status = None
-    events, tempos, sigs = [], [], []
+    events, ctrl, tempos, sigs = [], [], [], []
     name = ""
     n = len(tdata)
     while pos < n:
@@ -248,7 +533,7 @@ def _midi_track_events(tdata):
             elif mtype == 0x03 and not name:
                 name = payload.decode("latin-1", errors="replace").strip("\x00 ")
             elif mtype == 0x2F:
-                return events, tempos, sigs, name, tick
+                return events, ctrl, tempos, sigs, name, tick
             continue
         if b in (0xF0, 0xF7):                           # sysex
             length, pos2 = _read_varlen(tdata, pos + 1)
@@ -268,7 +553,9 @@ def _midi_track_events(tdata):
             pos += 2
         if kind in (0x80, 0x90):
             events.append((tick, status, d1, d2))
-    return events, tempos, sigs, name, tick
+        elif kind in (0xB0, 0xE0):
+            ctrl.append((tick, status & 0x0F, kind, d1, d2))
+    return events, ctrl, tempos, sigs, name, tick
 
 
 # -------------------------------------------------------------------
@@ -356,7 +643,8 @@ def _parse_musicxml(data):
                          seconds_at(onset_q + dur_q) - seconds_at(onset_q),
                          float(pitch), float(vel), pi + 1, voice, measure,
                          fermata))
-    return {"rows": rows, "part_names": names, "source": "musicxml"}
+    return {"rows": rows, "columns": _XML_COLUMNS, "part_names": names,
+            "source": "musicxml"}
 
 
 def _walk_part(part, *, collect_tempo):
@@ -483,20 +771,24 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
 
     Parameters
     ----------
-    source : str or dict
-        A file path (parsed with :func:`read_score`) or a note table.
-    attributes : sequence of {'pitch', 'onset', 'duration', 'velocity',
-        'part', 'measure', 'fermata'}
-        The attributes, in order (default pitch and onset).
+    source : str or DataFrame
+        A file path (parsed with :func:`read_score`) or an event table.
+    attributes : sequence of {'pitch', 'onset', 'duration',
+        'sounding_duration', 'velocity', 'weight', 'note_number', 'part',
+        'measure', 'fermata'}
+        The attributes, in order (default pitch and onset). The last four
+        need a column the source carries, and raise where it does not.
     pitch : {'midi', 'cents', 'hz', 'octave', ...}
         Pitch scale (any pitch scale of :func:`transform_attributes`).
     time : {'seconds', 'beats'}
         Unit of onsets and durations.
-    weights : {'velocity', 'ones', 'duration'}
-        Per-note weight: velocity / 127, one, or the duration in the
-        chosen time unit.
-    parts : None, int, or sequence of int
-        Parts to keep (1-based, as in the table); ``None`` keeps all.
+    weights : {'velocity', 'ones', 'duration', 'weight'}
+        Per-note weight: velocity / 127, one, the duration in the chosen
+        time unit, or the table's ``weight`` column, which folds channel
+        volume and expression into the velocity.
+    parts : None, int, sequence of int, or sequence of str
+        Parts to keep, either 1-based positions in the table's part
+        categories or the part names themselves; ``None`` keeps all.
     chords : {'bind', 'separate'}
         ``'bind'`` gathers notes that start together (within
         ``chord_tolerance``, in the chosen time unit) into one event whose
@@ -520,50 +812,104 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
     """
     table = read_score(source) if isinstance(source, (str, os.PathLike)) \
         else source
+    if not isinstance(table, pd.DataFrame):
+        raise TypeError(
+            "source must be a file path or an event table from "
+            f"read_score; got {type(table).__name__}.")
     attributes = [str(a).lower() for a in attributes]
-    allowed = ("pitch", "onset", "duration", "velocity", "part", "measure",
-               "fermata")
+    allowed = ("pitch", "onset", "duration", "sounding_duration", "velocity",
+               "weight", "note_number", "part", "measure", "fermata")
     for a in attributes:
         if a not in allowed:
             raise ValueError(
                 f"Unknown attribute {a!r}; choose from {allowed}.")
     if time not in ("seconds", "beats"):
         raise ValueError("time must be 'seconds' or 'beats'.")
-    if weights not in ("velocity", "ones", "duration"):
-        raise ValueError("weights must be 'velocity', 'ones', or 'duration'.")
+    if weights not in ("velocity", "ones", "duration", "weight"):
+        raise ValueError(
+            "weights must be 'velocity', 'ones', 'duration', or 'weight'.")
     if chords not in ("bind", "separate"):
         raise ValueError("chords must be 'bind' or 'separate'.")
 
-    keep = np.ones(table["pitch"].size, dtype=bool)
+    _NEEDS_COLUMN = {"sounding_duration": "sounding_duration_beats",
+                     "weight": "weight", "note_number": "note_number",
+                     "fermata": "fermata"}
+    for name in attributes:
+        column = _NEEDS_COLUMN.get(name)
+        if column is not None and column not in table.columns:
+            raise ValueError(
+                f"The table has no {column!r} column, so {name!r} cannot be "
+                "an attribute; this source does not carry it.")
+    if weights == "weight" and "weight" not in table.columns:
+        raise ValueError(
+            "weights='weight' needs a 'weight' column, which this source "
+            "does not carry.")
+
+    part_codes = table["part"].cat.codes.to_numpy() + 1
+    keep = np.ones(len(table), dtype=bool)
     if parts is not None:
-        parts_v = np.atleast_1d(np.asarray(parts, dtype=np.intp))
-        keep &= np.isin(table["part"], parts_v)
-    onset = (table["onset_seconds"] if time == "seconds"
-             else table["onset_beats"])[keep]
-    dur = (table["duration_seconds"] if time == "seconds"
-           else table["duration_beats"])[keep]
-    midi = table["pitch"][keep]
-    vel = table["velocity"][keep]
-    part = table["part"][keep].astype(np.float64)
-    measure = table["measure"][keep].astype(np.float64)
-    fermata = table.get("fermata", np.zeros(len(table["pitch"]), dtype=np.intp))[keep].astype(np.float64)
+        wanted = np.atleast_1d(np.asarray(parts, dtype=object))
+        numeric = all(isinstance(v, (int, np.integer))
+                      or (isinstance(v, float) and float(v).is_integer())
+                      for v in wanted)
+        if numeric:
+            keep &= np.isin(part_codes, wanted.astype(np.intp))
+        else:
+            keep &= np.isin(table["part"].astype(object).to_numpy(),
+                            wanted.astype(str))
+
+    def _col(name):
+        # astype first, so that a nullable column a gridded table may
+        # carry (an empty grid point has no measure, no voice) reads back
+        # as NaN rather than raising.
+        return table[name].astype(float).to_numpy()[keep]
+
+    unit = "seconds" if time == "seconds" else "beats"
+    onset = _col(f"onset_{unit}")
+    dur = _col(f"duration_{unit}")
+    midi = _col("pitch")
+    vel = _col("velocity")
+    part = part_codes.astype(np.float64)[keep]
+    measure = _col("measure")
+    n_kept = int(keep.sum())
+
+    def _optional(name):
+        return _col(name) if name in table.columns else np.zeros(n_kept)
+
+    sounding = _optional(f"sounding_duration_{unit}")
+    note_number = _optional("note_number")
+    weight_col = _optional("weight")
+    fermata = _optional("fermata")
     n_notes = int(midi.size)
 
     pitch_vals = (midi if pitch.lower() == "midi"
                   else _convert_scale(midi, "midi", pitch))
     per_note = {"pitch": pitch_vals, "onset": onset, "duration": dur,
-                "velocity": vel, "part": part, "measure": measure,
-                "fermata": fermata}
+                "sounding_duration": sounding, "velocity": vel,
+                "weight": weight_col, "note_number": note_number,
+                "part": part, "measure": measure, "fermata": fermata}
     if weights == "velocity":
         w_note = vel / 127.0
     elif weights == "duration":
         w_note = dur.copy()
+    elif weights == "weight":
+        w_note = weight_col.copy()
     else:
         w_note = None
 
-    # Group notes into events.
+    # Group notes into events. A gridded table already says which rows
+    # share an event, so its grid position is the key and the onset
+    # tolerance does not apply.
     if chords == "separate" or n_notes == 0:
         groups = [[i] for i in range(n_notes)]
+    elif "grid_index" in table.columns:
+        key = table["grid_index"].to_numpy(dtype=np.int64)[keep]
+        groups = []
+        for i in range(n_notes):
+            if groups and key[i] == key[groups[-1][0]]:
+                groups[-1].append(i)
+            else:
+                groups.append([i])
     else:
         order = np.argsort(onset, kind="stable")
         groups = []
@@ -593,6 +939,9 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
             for n, g in enumerate(groups):
                 M[:len(g), n] = vals[g]
                 W[:len(g), n] = 1.0 if w_note is None else w_note[g]
+        # A slot with no value carries no weight, whether it is padding
+        # or an empty grid point whose weight column is itself missing.
+        W[np.isnan(M)] = 0.0
         p_attr.append(M)
         w_list.append(W)
     if w_note is None:

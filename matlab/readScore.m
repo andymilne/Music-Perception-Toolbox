@@ -1,31 +1,48 @@
 function notes = readScore(path)
-%READSCORE  Parse a MIDI or MusicXML file into a note table.
+%READSCORE  Parse a MIDI or MusicXML file into an event table.
 %
 %   notes = readScore(path)
 %
 %   Parses a Standard MIDI File (format 0 or 1; .mid, .midi) or a MusicXML
-%   score (.musicxml, .xml, partwise or timewise; compressed .mxl) into a
-%   NOTE TABLE: a struct of N x 1 column vectors, one row per sounding
-%   note, sorted by onset, then part, then pitch:
+%   score (.musicxml, .xml, partwise or timewise; compressed .mxl) into an
+%   EVENT TABLE: a MATLAB table with one row per sounding note, sorted by
+%   onset, then part, then pitch.
 %
-%       .onsetBeats, .onsetSeconds        onset in quarter notes / seconds
-%       .durationBeats, .durationSeconds  duration in quarter notes / seconds
-%       .pitch                            MIDI note number (A4 = 69)
-%       .velocity                         MIDI velocity (0-127)
-%       .part                             1-based part (MIDI: track with notes)
-%       .channel                          MIDI channel (1-16); MusicXML voice
-%       .measure                          1-based bar number
-%       .fermata                          1 where a MusicXML note carries a
-%                                         fermata (a merged tied note counts
-%                                         if any segment does), else 0; MIDI
-%                                         has no fermatas, so always 0
-%       .partNames                        1 x P cell of part names
-%       .source                           'midi' or 'musicxml'
+%   Columns carried by both sources
+%       onsetBeats, onsetSeconds        onset in quarter notes / seconds
+%       durationBeats, durationSeconds  duration in quarter notes / seconds
+%       pitch                           in MIDI note numbers (A4 = 69), and
+%                                       not an integer where the file bends
+%                                       or writes a microtone
+%       velocity                        MIDI velocity (0-127)
+%       part                            categorical; the part names are its
+%                                       categories, in part order
+%       measure                         1-based bar number
 %
-%   preMaetFromScore turns the table into the (pAttr, wAttr, specs) of
-%   buildMaet. Both parsers are self-contained (no toolbox or Java
-%   dependency) and mirror the Python mpt.read_score, which reads the same
-%   files to the same table.
+%   A MIDI file adds
+%       channel                         MIDI channel (1-16)
+%       noteNumber                      the note number as recorded, which
+%                                       is what note identity rests on
+%       weight                          velocity with the loudness
+%                                       controllers folded in
+%       soundingDurationBeats,          duration with the pedals resolved
+%       soundingDurationSeconds
+%
+%   A MusicXML score adds
+%       voice                           1-based voice within its part
+%       fermata                         logical; a merged tied note counts
+%                                       if any of its segments carries one
+%
+%   A column is present only where the source carries the information, so
+%   channel and voice are never the same column and never stand in for one
+%   another. notes.Properties.Description is 'midi' or 'musicxml'.
+%
+%   The table is an ordinary MATLAB table, so rows are selected with
+%   MATLAB's own indexing -- notes(notes.part == "Soprano", :) -- and no
+%   toolbox function is needed to read or filter it. preMaetFromScore turns
+%   it into the (pAttr, wAttr, specs) of buildMaet. Both parsers are
+%   self-contained (no toolbox or Java dependency) and mirror the Python
+%   mpt.read_score, which reads the same files to the same table.
 %
 %   Conventions
 %     - A beat is a quarter note (MIDI ticks per quarter note; MusicXML
@@ -42,6 +59,55 @@ function notes = readScore(path)
 %       <chord/> notes share the preceding note's onset.
 %     - MusicXML velocity is the note's dynamics attribute (a percentage of
 %       forte, forte being 90), 90 where absent.
+%
+%   MIDI controller streams
+%     The three that change a note's own columns are resolved at read;
+%     every other controller is out of scope, since a value sampled at the
+%     onset would misrepresent a ramp inside a held note.
+%
+%     - Sustain and sostenuto give soundingDuration beside the recorded
+%       duration, so either can feed an analysis. A note whose note-off
+%       falls while sustain (CC64, at or above 64) is down sounds until the
+%       pedal comes up, or to the end of the file where it never does;
+%       sostenuto (CC66) holds only what was already down when it was
+%       pressed; and the same note number struck again on the same channel
+%       damps what is left of the first, while the same pitch on another
+%       channel does not, since two channels may be two instruments. Pedal
+%       state and the damping rule are both per channel, and a channel
+%       belongs to the file rather than to a track.
+%     - Pitch bend is resolved into pitch, which is therefore not an
+%       integer: bend is how microtonal music is carried in MIDI, in the
+%       one-channel-per-note idiom and under MPE alike. The range is 2
+%       semitones unless RPN 0 sets it, or an MPE Configuration Message
+%       (RPN 6 on channel 1 or 16) opens a zone, whose member channels take
+%       the 48-semitone MPE default; a file that bends without declaring a
+%       range raises readScore:bendRange. A note takes the last bend at or
+%       before its onset tick, so a bend sent immediately before a note-on,
+%       or at the same tick in either file order, tunes it; where a channel
+%       has no earlier bend at all, the first bend after that note is used
+%       provided no further note-on intervenes. Under MPE the bend
+%       continues through the note as a slide, and the resolved value is
+%       the pitch at onset.
+%     - Channel volume (CC7) and expression (CC11) fold into weight:
+%
+%           weight = (velocity / 127) * (cc7 / 127)^2 * (cc11 / 127)^2
+%
+%       so that a passage played down by expression is not weighted as
+%       though it were at full strength. velocity keeps the value as
+%       recorded.
+%
+%       The two factors rest on different grounds, and the formula is a
+%       hybrid. The squares are MIDI's specified default response for both
+%       controllers, an attenuation of 40*log10(cc/127) dB; the two are
+%       cascaded gain stages, so in dB they add and in amplitude they
+%       multiply. The velocity factor is linear because MIDI specifies no
+%       velocity-to-amplitude curve -- it is instrument-dependent -- and
+%       because taking it linearly makes weight equal to the toolbox's
+%       'weights', 'velocity' weighting on any file that sends no
+%       controller, which is nearly all of them. So weight is that
+%       weighting corrected by the channel's specified gain, and not an
+%       estimate of sounding amplitude. A different velocity curve is one
+%       transformation of the column away.
 %
 %   See also PREMAETFROMSCORE, BUILDMAET, TRANSFORMATTRIBUTES.
 
@@ -65,27 +131,68 @@ end
 
 
 function notes = localFinishTable(raw)
-    % raw.rows is M x 10: onsetBeats onsetSeconds durationBeats
-    % durationSeconds pitch velocity part channel measure fermata.
+    cols = raw.columns;
     rows = raw.rows;
     if isempty(rows)
-        rows = zeros(0, 10);
+        rows = zeros(0, numel(cols));
     end
-    [~, order] = sortrows(rows(:, [1 7 5]));
+    iOnset = find(strcmp(cols, 'onsetBeats'), 1);
+    iPart  = find(strcmp(cols, 'part'), 1);
+    iPitch = find(strcmp(cols, 'pitch'), 1);
+    [~, order] = sortrows(rows(:, [iOnset iPart iPitch]));
     rows = rows(order, :);
-    notes = struct();
-    notes.onsetBeats      = rows(:, 1);
-    notes.onsetSeconds    = rows(:, 2);
-    notes.durationBeats   = rows(:, 3);
-    notes.durationSeconds = rows(:, 4);
-    notes.pitch           = rows(:, 5);
-    notes.velocity        = rows(:, 6);
-    notes.part            = rows(:, 7);
-    notes.channel         = rows(:, 8);
-    notes.measure         = rows(:, 9);
-    notes.fermata         = rows(:, 10);
-    notes.partNames       = raw.partNames;
-    notes.source          = raw.source;
+
+    partNames = localPartCategories(raw.partNames, rows(:, iPart));
+    notes = array2table(rows, 'VariableNames', cols);
+    notes.part = localPartColumn(rows(:, iPart), partNames);
+    counts = {'noteNumber', 'channel', 'voice', 'measure'};
+    for i = 1:numel(counts)
+        if any(strcmp(cols, counts{i}))
+            notes.(counts{i}) = round(notes.(counts{i}));
+        end
+    end
+    if any(strcmp(cols, 'fermata'))
+        notes.fermata = logical(notes.fermata);
+    end
+    notes.Properties.Description = raw.source;
+end
+
+
+function col = localPartColumn(partIndex, partNames)
+    if isempty(partNames)
+        col = categorical(partIndex);
+    else
+        col = categorical(partIndex, 1:numel(partNames), partNames);
+    end
+end
+
+
+function names = localPartCategories(partNames, partIndex)
+    % Part names as a unique, non-empty category list, one per part. The
+    % parser supplies one name per part, but a score may leave a part
+    % unnamed or repeat a name, and categories have to be distinct.
+    nParts = numel(partNames);
+    if ~isempty(partIndex)
+        nParts = max(nParts, max(partIndex));
+    end
+    names = cell(1, nParts);
+    for i = 1:nParts
+        if i <= numel(partNames)
+            nm = strtrim(char(partNames{i}));
+        else
+            nm = '';
+        end
+        if isempty(nm)
+            nm = sprintf('Part %d', i);
+        end
+        base = nm;
+        k = 1;
+        while any(strcmp(nm, names(1:i-1)))
+            k = k + 1;
+            nm = sprintf('%s (%d)', base, k);
+        end
+        names{i} = nm;
+    end
 end
 
 

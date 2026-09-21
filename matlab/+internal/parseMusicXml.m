@@ -60,7 +60,8 @@ function raw = parseMusicXml(txt)
                                 p, notes(i, 5), notes(i, 6), notes(i, 7)]; %#ok<AGROW>
         end
     end
-    raw = struct('rows', rows, 'partNames', {partNames}, 'source', 'musicxml');
+    raw = struct('rows', rows, 'columns', {internal.xmlColumns()}, ...
+                 'partNames', {partNames}, 'source', 'musicxml');
 end
 
 

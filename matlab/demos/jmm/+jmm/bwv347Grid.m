@@ -24,14 +24,15 @@ function [times, pitchesSatb, bars] = bwv347Grid(gridStep)
         gridStep = jmm.gridStepQn();
     end
     t = jmm.bwv347Notes();
-    nParts = numel(t.partNames);
+    partNames = categories(t.part);
+    nParts = numel(partNames);
     tEnd = max(t.onsetBeats + t.durationBeats);
     % The half-open range [0, tEnd) stepped at gridStep (numpy arange).
     times = (0:(ceil(tEnd / gridStep) - 1)) * gridStep;
     N = numel(times);
     pitchesSatb = nan(N, nParts);
     for part = 1:nParts
-        m = t.part == part;
+        m = t.part == partNames{part};
         on = t.onsetBeats(m);
         off = on + t.durationBeats(m);
         pit = t.pitch(m);

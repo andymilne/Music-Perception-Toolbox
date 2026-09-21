@@ -22,6 +22,88 @@ v3.0.0 is a major release relative to the last public line (2.0.x). At the v2.0 
 
 Everything else — multi-attribute expectation tensors, the pre-MAET preprocessing primitives, unified dispatch and batching, the Möbius method and its dispatcher, the kernel-evaluation controls, Rényi-2 and differential entropy, anisotropic kernels, and translation sweeps — is new surface that v2.0 code does not touch.
 
+### MIDI sustain, pitch bend, and the loudness controllers are resolved at read
+
+`readScore` / `read_score` now reads three MIDI controller streams and
+resolves each into a note's own columns. Two consequences are worth
+knowing before upgrading:
+
+- **`pitch` is no longer an integer** for a file that bends. Bend is how
+  microtonal music is carried in MIDI -- in the one-channel-per-note idiom
+  and under MPE alike -- so a reader that returned note numbers returned
+  the wrong notes. The number as recorded is kept in `noteNumber`, and it
+  is what the note-off matching and re-strike rules use, so note identity
+  is unchanged.
+- **A file that bends without declaring a range warns**
+  (`readScore:bendRange`). The range is 2 semitones unless RPN 0 sets it,
+  or an MPE Configuration Message opens a zone, whose member channels take
+  the 48-semitone MPE default. Reading a file tuned for one at the other is
+  wrong by a factor of 24, so the warning is worth attending to rather
+  than suppressing.
+
+Everything else is additive. `soundingDurationBeats` /
+`soundingDurationSeconds` sit beside the recorded `duration*`, with sustain
+(CC64) and sostenuto (CC66) resolved and a re-strike on the same channel
+damping the tail, so either duration can feed an analysis -- the choice the
+manuscript already makes between notated and sustained fermata chords.
+`weight` folds channel volume (CC7) and expression (CC11) into the
+velocity, under each controller's squared amplitude curve; `velocity` keeps
+the value as recorded.
+
+`preMaetFromScore` / `pre_maet_from_score` gains `'soundingDuration'`,
+`'weight'`, and `'noteNumber'` as attributes and `'weight'` as a `'weights'`
+choice. All four raise where the source does not carry the column.
+
+No other controller is read. A column holding a controller's value at a
+note's onset would look as though it carried the information and would not:
+a ramp inside a held note is invisible in it.
+
+### `readScore` / `read_score` return a table (breaking)
+
+The score readers previously returned a bespoke container: a MATLAB struct
+of N x 1 numeric columns, a Python dict of arrays, with two fields
+(`partNames`, `source`) that were not per note bolted on. They now return
+an ordinary **MATLAB `table`** and an ordinary **pandas `DataFrame`**.
+
+What changes at the call site:
+
+| before | now |
+| --- | --- |
+| `t.partNames` | `categories(t.part)` / `t["part"].cat.categories` |
+| `t.source` | `t.Properties.Description` / `t.attrs["source"]` |
+| `t.part` (1-based integer) | categorical; `double(t.part)` / `t["part"].cat.codes + 1` for the old numbering |
+| `t.channel` (MIDI channel *or* MusicXML voice) | `t.channel` on a MIDI file, `t.voice` on a MusicXML score |
+| `t.fermata` (0 or 1, always 0 for MIDI) | logical, and present only on a MusicXML score |
+| `isfield(t, 'fermata')` | `any(strcmp(t.Properties.VariableNames, 'fermata'))` |
+| `numel(t.pitch)` | `height(t)` / `len(t)` |
+| `t.pitch(mask)` | unchanged in MATLAB; `t["pitch"].to_numpy()[mask]` in Python |
+
+Three of these are corrections rather than repackaging:
+
+- **`channel` no longer carries two different quantities.** It held a MIDI
+  channel from one reader and a MusicXML voice from the other, so any code
+  reading it read a different thing depending on the file. Each now has its
+  own column, and a column appears only where its source carries the
+  information.
+- **`fermata` is absent from a MIDI table** rather than present and always
+  zero. Asking for it as an attribute of a pre-MAET built from a MIDI file
+  now raises `preMaetFromScore:noFermata` instead of silently contributing
+  a column of zeros.
+- **The part names have somewhere to live.** They are the categories of the
+  `part` column, so a part is selected by name -- `t(t.part == "Soprano",
+  :)`, `df[df.part == "Soprano"]` -- and `partNames` is gone.
+
+`preMaetFromScore` / `pre_maet_from_score` is unchanged in its options and
+its output, except that `'parts'` now accepts part names as well as 1-based
+positions, and that passing anything other than a path or a table raises.
+Anyone who only ever passed a path to it is unaffected.
+
+Python gains a **hard dependency on pandas** (>= 2.0).
+
+Selection needs no toolbox function: a table is filtered with the host
+language's own indexing, which is better documented than anything the
+toolbox would supply.
+
 ### `entropyMaet` / `entropy_maet` four-method API and `n_points_per_dim` default (breaking)
 
 The entropy API has been refactored into four distinct methods — `'shannon'` (raw discrete), `'normalized'` / `'normalised'` (the explicit name for $H / \log_b N$), `'differential'` (adaptive continuous $\hat h$), `'renyi2'` (analytical Rényi-2) — and the toolbox-wide default of `n_points_per_dim=1200` for `entropyMaet` has been dropped. Two breaking elements:

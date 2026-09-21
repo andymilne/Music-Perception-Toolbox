@@ -4,20 +4,26 @@ function pm = preMaetFromScore(source, nvArgs)
 %   PM = preMaetFromScore(source, ...)
 %
 %   source is a file path (parsed with readScore: MIDI, MusicXML, or .mxl)
-%   or a note table from readScore. The output is the pre-MAET that
+%   or an event table from readScore. The output is the pre-MAET that
 %   buildMaet and the pre-MAET preprocessors consume.
 %
 %   Name-value pairs
 %       'attributes'     - cell of names from {'pitch', 'onset', 'duration',
-%                          'velocity', 'part', 'measure', 'fermata'}, in order
-%                          (default {'pitch', 'onset'}).
+%                          'soundingDuration', 'velocity', 'weight',
+%                          'noteNumber', 'part', 'measure', 'fermata'}, in
+%                          order (default {'pitch', 'onset'}). The last four
+%                          need a column the source carries, and raise where
+%                          it does not.
 %       'pitch'          - pitch scale: 'midi' (default), 'cents', 'hz',
 %                          'octave', or any pitch scale of transformAttributes.
 %       'time'           - 'seconds' (default) or 'beats' (quarter notes)
 %                          for onsets and durations.
-%       'weights'        - 'velocity' (default; velocity / 127), 'ones', or
-%                          'duration' (in the chosen time unit).
-%       'parts'          - [] (all) or the 1-based parts to keep.
+%       'weights'        - 'velocity' (default; velocity / 127), 'ones',
+%                          'duration' (in the chosen time unit), or 'weight'
+%                          (the table's weight column, which folds channel
+%                          volume and expression into the velocity).
+%       'parts'          - [] (all), the 1-based parts to keep, or a cell
+%                          or string array of part names.
 %       'chords'         - 'bind' (default) gathers notes that start together
 %                          (within 'chordTolerance', in the chosen time unit)
 %                          into one event whose pitch, duration, velocity,
@@ -56,7 +62,8 @@ function pm = preMaetFromScore(source, nvArgs)
         notes = source;
     end
     attributes = cellfun(@(a) lower(char(a)), cellstr(nvArgs.attributes), 'UniformOutput', false);
-    allowed = {'pitch', 'onset', 'duration', 'velocity', 'part', 'measure', 'fermata'};
+    allowed = {'pitch', 'onset', 'duration', 'soundingDuration', 'velocity', ...
+               'weight', 'noteNumber', 'part', 'measure', 'fermata'};
     for i = 1:numel(attributes)
         if ~any(strcmp(attributes{i}, allowed))
             error('preMaetFromScore:attribute', ...
@@ -66,31 +73,64 @@ function pm = preMaetFromScore(source, nvArgs)
     if ~any(strcmp(nvArgs.time, {'seconds', 'beats'}))
         error('preMaetFromScore:time', 'time must be ''seconds'' or ''beats''.');
     end
-    if ~any(strcmp(nvArgs.weights, {'velocity', 'ones', 'duration'}))
-        error('preMaetFromScore:weights', 'weights must be ''velocity'', ''ones'', or ''duration''.');
+    if ~any(strcmp(nvArgs.weights, {'velocity', 'ones', 'duration', 'weight'}))
+        error('preMaetFromScore:weights', ...
+              'weights must be ''velocity'', ''ones'', ''duration'', or ''weight''.');
     end
     if ~any(strcmp(nvArgs.chords, {'bind', 'separate'}))
         error('preMaetFromScore:chords', 'chords must be ''bind'' or ''separate''.');
     end
 
-    keep = true(numel(notes.pitch), 1);
+    if ~istable(notes)
+        error('preMaetFromScore:source', ...
+              ['source must be a file path or an event table from ' ...
+               'readScore; got %s.'], class(notes));
+    end
+    vars = notes.Properties.VariableNames;
+    needs = {'soundingDuration', 'soundingDurationBeats'; ...
+             'weight',           'weight'; ...
+             'noteNumber',       'noteNumber'; ...
+             'fermata',          'fermata'};
+    for i = 1:size(needs, 1)
+        if any(strcmp(needs{i, 1}, attributes)) && ~any(strcmp(vars, needs{i, 2}))
+            error('preMaetFromScore:missingColumn', ...
+                  ['The table has no ''%s'' column, so ''%s'' cannot be an ' ...
+                   'attribute; this source does not carry it.'], ...
+                  needs{i, 2}, needs{i, 1});
+        end
+    end
+    if strcmp(nvArgs.weights, 'weight') && ~any(strcmp(vars, 'weight'))
+        error('preMaetFromScore:noWeight', ...
+              ['weights ''weight'' needs a ''weight'' column, which this ' ...
+               'source does not carry.']);
+    end
+
+    partCodes = double(notes.part);
+    keep = true(height(notes), 1);
     if ~isempty(nvArgs.parts)
-        keep = keep & ismember(notes.part(:), nvArgs.parts(:));
+        wanted = nvArgs.parts;
+        if isnumeric(wanted)
+            keep = keep & ismember(partCodes, wanted(:));
+        else
+            keep = keep & ismember(cellstr(notes.part), cellstr(wanted));
+        end
     end
     if strcmp(nvArgs.time, 'seconds')
         onset = notes.onsetSeconds(keep); dur = notes.durationSeconds(keep);
+        soundingName = 'soundingDurationSeconds';
     else
         onset = notes.onsetBeats(keep); dur = notes.durationBeats(keep);
+        soundingName = 'soundingDurationBeats';
     end
     midi = notes.pitch(keep);
     vel = notes.velocity(keep);
-    part = notes.part(keep);
-    measure = notes.measure(keep);
-    if isfield(notes, 'fermata')
-        fermata = notes.fermata(keep);
-    else
-        fermata = zeros(size(measure));
-    end
+    part = partCodes(keep);
+    measure = double(notes.measure(keep));
+    optional = @(name) localOptional(notes, name, keep);
+    sounding = optional(soundingName);
+    noteNumber = optional('noteNumber');
+    weightCol = optional('weight');
+    fermata = optional('fermata');
     nNotes = numel(midi);
 
     if strcmpi(nvArgs.pitch, 'midi')
@@ -99,17 +139,31 @@ function pm = preMaetFromScore(source, nvArgs)
         pitchVals = transformAttributes(midi, [], {'midi', nvArgs.pitch});
     end
     perNote = struct('pitch', pitchVals, 'onset', onset, 'duration', dur, ...
-                     'velocity', vel, 'part', part, 'measure', measure, ...
-                     'fermata', fermata);
+                     'soundingDuration', sounding, 'velocity', vel, ...
+                     'weight', weightCol, 'noteNumber', noteNumber, ...
+                     'part', part, 'measure', measure, 'fermata', fermata);
     switch nvArgs.weights
         case 'velocity', wNote = vel / 127;
         case 'duration', wNote = dur;
+        case 'weight',   wNote = weightCol;
         otherwise,       wNote = [];
     end
 
     % Group notes into events.
+    % A gridded table already says which rows share an event, so its grid
+    % position is the key and the onset tolerance does not apply.
     if strcmp(nvArgs.chords, 'separate') || nNotes == 0
         groups = num2cell(1:nNotes);
+    elseif any(strcmp(vars, 'gridIndex'))
+        key = double(notes.gridIndex(keep));
+        groups = {};
+        for i = 1:nNotes
+            if ~isempty(groups) && key(i) == key(groups{end}(1))
+                groups{end}(end + 1) = i;
+            else
+                groups{end + 1} = i; %#ok<AGROW>
+            end
+        end
     else
         [~, order] = sort(onset);
         groups = {};
@@ -157,6 +211,9 @@ function pm = preMaetFromScore(source, nvArgs)
                 end
             end
         end
+        % A slot with no value carries no weight, whether it is padding
+        % or an empty grid point whose weight column is itself missing.
+        W(isnan(M)) = 0;
         pAttr{a} = M;
         wList{a} = W;
     end
@@ -184,4 +241,16 @@ function pm = preMaetFromScore(source, nvArgs)
     end
 
     pm = preMaet(pAttr, w, specs);
+end
+
+
+function v = localOptional(notes, name, keep)
+    % A column the source may not carry reads as zeros, so that an
+    % attribute the caller did not ask for costs nothing; asking for one
+    % that is absent is refused earlier, by name.
+    if any(strcmp(notes.Properties.VariableNames, name))
+        v = double(notes.(name)(keep));
+    else
+        v = zeros(sum(keep), 1);
+    end
 end

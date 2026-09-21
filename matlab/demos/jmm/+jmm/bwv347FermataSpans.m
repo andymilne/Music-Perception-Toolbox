@@ -14,7 +14,7 @@ function spans = bwv347FermataSpans()
 %
 %   See also JMM.BWV347NOTES, JMM.BWVWINDOWSTATE.
     t = jmm.bwv347Notes();
-    f = t.fermata == 1;
+    f = t.fermata;
     spans = unique([t.onsetBeats(f), t.onsetBeats(f) + t.durationBeats(f)], ...
                    'rows');
 end

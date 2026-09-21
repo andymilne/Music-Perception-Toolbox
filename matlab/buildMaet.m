@@ -392,11 +392,12 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
     % Degenerate empty collection (e.g. an all-dead pruning, or a window
     % that captures nothing): a valid zero-mass density with no tuples,
     % matching the historical vector-build behaviour. Constructed directly
-    % because the general multi-attribute event validation (each event
-    % needs at least r valid values) correctly rejects empty events in the
-    % multi-event setting. Placed before the r > K validation so the
-    % empty case is accepted rather than rejected. Twin of the K == 0
-    % branch of Python _build_maet_single_multiset.
+    % and placed before the r > K validation so the empty case is accepted
+    % rather than rejected. The multi-event path reaches the same reading
+    % by its own route: an event with no value at all on an attribute
+    % admits no tuple there and so contributes nothing, while a partly
+    % filled one is still an error. Twin of the K == 0 branch of Python
+    % _build_maet_single_multiset.
     if isempty(p)
         isRel = logical(isRel);
         dim   = r - double(isRel);
@@ -833,7 +834,14 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     end
     dim = sum(dimPerAttr);
 
-    % --- Eager input validation: each event must have enough non-NaN
+    % --- Eager input validation: each event must have either enough
+    % non-NaN values for its tuple size or none at all. An event with no
+    % value on an attribute -- a grid slice with nothing sounding, say --
+    % admits no tuple there, so it contributes nothing to the density,
+    % the inner product, or any entropy taken from them, while keeping
+    % its place in the event sequence for binding and differencing. An
+    % event with some but too few values is a mistake and is refused.
+    % --- each event must have enough non-NaN
     % values in every attribute. We check here (cheap) so that bad inputs
     % fail at buildMaet time even when lazy=true. The full per-event
     % enumeration in localFillMAExpensive recomputes the valid index
@@ -849,7 +857,10 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
                     tg = tg(:);                      % K_total x 1 (L = 2)
                 end
                 validIdx = find(~isnan(valCol(:))).';   % 1 x Kv value indices
-                if ~localNestedFeasible(validIdx, tg, rLv, numel(rLv))
+                % An event with no value at all on this attribute admits
+                % no tuple and contributes nothing; only a partly filled
+                % one is an error.
+                if ~isempty(validIdx) && ~localNestedFeasible(validIdx, tg, rLv, numel(rLv))
                     error('buildMaet:nestedInfeasible', ...
                           ['Event %d, nested attribute %d: the non-NaN ' ...
                            'values do not admit a full nested r-tuple for ' ...
@@ -861,7 +872,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
             valid = ~isnan(valCol);
             K_na = sum(valid);
             r_a = rVec(a);
-            if K_na < r_a
+            if K_na > 0 && K_na < r_a
                 error('buildMaet:insufficientValues', ...
                       ['Event %d, attribute %d has %d non-NaN value(s) ' ...
                        'but r_a = %d.'], n, a, K_na, r_a);
@@ -998,7 +1009,7 @@ function dens = localFillMAExpensive(dens, verbose)
         if N == 1
             valCol = P(:, 1);
             valid  = find(~isnan(valCol));
-            if numel(valid) < r_a
+            if numel(valid) > 0 && numel(valid) < r_a
                 error('buildMaet:insufficientValues', ...
                       ['Event %d, attribute %d has %d non-NaN value(s) ' ...
                        'but r_a = %d.'], 1, 1, numel(valid), r_a);
@@ -1054,7 +1065,7 @@ function dens = localFillMAExpensive(dens, verbose)
                 for n = 1:N
                     val    = P(:, n);
                     validn = find(~isnan(val));
-                    if numel(validn) < r_a
+                    if numel(validn) > 0 && numel(validn) < r_a
                         error('buildMaet:insufficientValues', ...
                               ['Event %d, attribute %d has %d non-NaN ' ...
                                'value(s) but r_a = %d.'], n, 1, ...
@@ -1124,20 +1135,29 @@ function dens = localFillMAExpensive(dens, verbose)
                 if isvector(tg)
                     tg = tg(:);                       % K_total x 1
                 end
+                D_a = prod(spec.r);
+                if K_na == 0
+                    % No value at all on this attribute: no tuple, so the
+                    % event contributes nothing.
+                    permIdx{n, a} = zeros(D_a, 0);
+                    combIdx{n, a} = zeros(D_a, 0);
+                    permW{n, a}   = zeros(1, 0);
+                    combW{n, a}   = zeros(1, 0);
+                    continue
+                end
                 tagsValid = tg(valid, :);             % Kv x (L-1)
                 [permMat, combMat] = localNestedEnumIndices( ...
                     valid(:).', tagsValid, spec.r(:).', spec.exch(:).');
                 permIdx{n, a} = permMat;
                 combIdx{n, a} = combMat;
                 wCol = wCell{a}(:, n);
-                D_a = prod(spec.r);
                 permW{n, a} = prod(reshape(wCol(permMat), D_a, []), 1);
                 combW{n, a} = prod(reshape(wCol(combMat), D_a, []), 1);
                 continue
             end
 
             r_a     = rVec(a);
-            if K_na < r_a
+            if K_na > 0 && K_na < r_a
                 error('buildMaet:insufficientValues', ...
                       ['Event %d, attribute %d has %d non-NaN value(s) ' ...
                        'but r_a = %d.'], n, a, K_na, r_a);
@@ -1368,6 +1388,19 @@ function idxCell = localCartesianIndices(sizes)
     %   (MATLAB column-major ndgrid convention).
     A = numel(sizes);
     idxCell = cell(1, A);
+    if any(sizes == 0)
+        % An event with no tuple on one attribute -- a grid slice with
+        % nothing sounding, say -- has none in the product either, so
+        % every axis is indexed by nothing. Without this the zero size
+        % would leave the other axes indexed as though the product were
+        % non-empty (prod of an empty range is 1, and a zero repInner
+        % does not trigger the kron below), and their lengths would
+        % disagree with the product's.
+        for a = 1:A
+            idxCell{a} = zeros(1, 0);
+        end
+        return;
+    end
     for a = 1:A
         repInner = prod(sizes(1:a - 1));   % consecutive repeats of each atom
         repOuter = prod(sizes(a + 1:end));  % tiles of the full cycle

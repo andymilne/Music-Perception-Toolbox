@@ -4,6 +4,31 @@ function [p, w] = addSpectra(p, w, mode, varargin)
 %   Five modes determine the partial positions; for the first four, a
 %   sub-option selects the weight decay law.
 %
+%   === Two forms ===
+%
+%   [p, w] = addSpectra(p, w, mode, ...)
+%   pm     = addSpectra(pm, mode, ..., 'attribute', a)
+%
+%   Given a single weighted multiset the function returns the expanded
+%   (p, w) pair, and that is the primitive the harmony, entropy, and
+%   consonance functions call. Given a pre-MAET it expands attribute a of
+%   every event at once and returns a pre-MAET, as the other pre-MAET
+%   preprocessors do. 'attribute' takes a position or a name and is
+%   required there, a pre-MAET carrying several attributes and a spectrum
+%   belonging to one.
+%
+%   The expansion multiplies the attribute's K by the number of partials
+%   and leaves N and the spec alone; a padded slot expands to padded
+%   partials at weight zero, a missing value having no spectrum. Partials
+%   of one value differ in weight, so the result always carries weights,
+%   even where the input carried none. The expanded rows come in the order
+%   the single-multiset form gives them, which each language flattens in
+%   its own way.
+%
+%   The bare pAttr / wAttr form the other preprocessors offer is not
+%   available here: its positional layout cannot be told apart from the
+%   single-multiset form, which is this function's alone.
+%
 %   === Harmonic mode ===
 %
 %   [p, w] = addSpectra(p, w, 'harmonic', N, 'powerlaw', rho):
@@ -202,6 +227,20 @@ function [p, w] = addSpectra(p, w, mode, varargin)
 %
 %   See also buildMaet, evalMaet, simMaet.
 
+% === Two forms ===
+% Given a pre-MAET, every positional argument after it sits one slot
+% early, and the weights come from the pre-MAET itself.
+if internal.isPreMaet(p)
+    if nargin < 2
+        error('addSpectra:noMode', 'addSpectra needs a mode.');
+    end
+    args = varargin;
+    if nargin >= 3; args = [{mode}, args]; end
+    p = localPreMaet(p, w, args);
+    w = [];
+    return
+end
+
 % === Input validation ===
 
 p = p(:);
@@ -223,7 +262,29 @@ if ~ischar(mode)
         '''freqlinear'', ''stiff'', or ''custom''.']);
 end
 
-M = numel(p);
+
+[offsets, spec_w] = localPartials(mode, varargin{:});
+
+% === Build output ===
+% For each pitch p(i) with weight w(i), and each partial k with offset
+% offsets(k) and spectral weight spec_w(k), the output contains:
+%   pitch:  p(i) + offsets(k)
+%   weight: w(i) * spec_w(k)
+%
+% Using implicit expansion: (M x 1) + (1 x K) -> (M x K)
+
+p_matrix = p + offsets';      % M x K
+w_matrix = w .* spec_w';     % M x K
+
+% Flatten to column vectors
+p = p_matrix(:);
+w = w_matrix(:);
+
+end
+
+
+function [offsets, spec_w] = localPartials(mode, varargin)
+%localPartials The partial offsets and their weights, for one mode.
 
 % === Extract optional 'units' name-value pair from varargin ===
 
@@ -411,21 +472,103 @@ end
 offsets = offsets(:);
 spec_w  = spec_w(:);
 
-% === Build output ===
-% For each pitch p(i) with weight w(i), and each partial k with offset
-% offsets(k) and spectral weight spec_w(k), the output contains:
-%   pitch:  p(i) + offsets(k)
-%   weight: w(i) * spec_w(k)
+end
+
+
+function pm = localPreMaet(pm, mode, args)
+%localPreMaet Give one attribute of a pre-MAET its partials, at every event.
 %
-% Using implicit expansion: (M x 1) + (1 x K) -> (M x K)
+% The values grow by a factor of the partial count and the events do not,
+% so K becomes K * P and N and the spec stand. A padded slot expands to
+% padded partials at weight zero, a missing value having no spectrum.
+if ~ischar(mode) && ~isstring(mode)
+    error('addSpectra:noMode', ...
+          'addSpectra needs a mode after the pre-MAET.');
+end
+[pAttr, wAttr, specs] = unpackPreMaet(pm);
+A = numel(pAttr);
+if isempty(specs); specs = flatSpecs(pAttr); end
 
-p_matrix = p + offsets';      % M x K
-w_matrix = w .* spec_w';     % M x K
+attribute = [];
+k = 1;
+while k <= numel(args)
+    if (ischar(args{k}) || isstring(args{k})) && strcmpi(args{k}, 'attribute')
+        if k + 1 > numel(args)
+            error('addSpectra:attributeValue', ...
+                  '''attribute'' must be followed by a position or a name.');
+        end
+        attribute = args{k + 1};
+        args(k:k + 1) = [];
+    else
+        k = k + 1;
+    end
+end
+if isempty(attribute)
+    error('addSpectra:noAttribute', ...
+          ['addSpectra needs the attribute whose values take partials: a ' ...
+           'pre-MAET may carry several and a spectrum belongs to one.']);
+end
+names = cellfun(@(sp) localName(sp), specs, 'UniformOutput', false);
+at = internal.attrIndices(attribute, A, names, 'addSpectra');
+if numel(at) ~= 1
+    error('addSpectra:oneAttribute', ...
+          ['addSpectra takes one attribute; a spectrum belongs to one set ' ...
+           'of values.']);
+end
+spec = specs{at};
+if isfield(spec, 'exch') && ~spec.exch && isfield(spec, 'r') && spec.r > 1
+    error('addSpectra:orderedAttribute', ...
+          ['Attribute ''%s'' is read in order at r = %d, so its positions ' ...
+           'carry meaning that adding partials would scramble: a tuple ' ...
+           'would take the first value''s partials rather than one value ' ...
+           'from each position. Add the partials before the attributes ' ...
+           'are bound, or read this one as a multiset.'], ...
+          names{at}, spec.r);
+end
 
-% Flatten to column vectors
-p = p_matrix(:);
-w = w_matrix(:);
+[offsets, spec_w] = localPartials(mode, args{:});
+values = double(pAttr{at});
+[K, N] = size(values);
+if isempty(wAttr)
+    weights = ones(K, N);
+else
+    weights = double(wAttr{at});
+end
+P = numel(offsets);
 
+% The rows follow the single-multiset form of this language: MATLAB
+% flattens a K x P matrix column-major, so the partials of one order come
+% before the next order's.
+grown = zeros(K * P, N);
+grownW = zeros(K * P, N);
+for k = 1:P
+    rows = (k - 1) * K + (1:K);
+    grown(rows, :) = values + offsets(k);
+    grownW(rows, :) = weights .* spec_w(k);
+end
+
+pOut = pAttr;
+pOut{at} = grown;
+wOut = cell(1, A);
+for a = 1:A
+    if a == at
+        wOut{a} = grownW;
+    elseif isempty(wAttr)
+        wOut{a} = ones(size(pAttr{a}));
+    else
+        wOut{a} = double(wAttr{a});
+    end
+end
+pm = packPreMaet(pOut, wOut, specs);
+end
+
+
+function name = localName(spec)
+    if isstruct(spec) && isfield(spec, 'name') && ~isempty(spec.name)
+        name = char(spec.name);
+    else
+        name = '';
+    end
 end
 
 

@@ -7,7 +7,7 @@ function [pm, sweep] = translateAttributes(varargin)
 %   shifted by a chosen offset and the transformed pre-MAET feeds straight
 %   into buildMaet (or a further pre-MAET step). Weights and specs pass
 %   through unchanged; only the values move.%
-%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   The pre-MAET may be passed whole, as packPreMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
 %
@@ -90,7 +90,7 @@ function [pm, sweep] = translateAttributes(varargin)
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
 [pOut, w, specs, sweep] = localTranslateAttributes(pAttr, wAttr, specsPm, rest{:});
 if isempty(sweep)
-    pm = preMaet(pOut, w, specs);
+    pm = packPreMaet(pOut, w, specs);
 else
     % Sweep form: pOut holds one length-A cell per sweep index, so the
     % parts do not share a length and the cross-checks do not

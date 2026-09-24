@@ -31,7 +31,7 @@ function pm = selectPreMaet(pAttr, wAttr, nvArgs)
 %   event. That is allowed and means what it says: the event contributes
 %   nothing on that attribute while keeping its place in the sequence.
 %
-%   See also PREMAET, BUILDMAET, BINDEVENTS, DIFFERENCEEVENTS,
+%   See also PACKPREMAET, BUILDMAET, BINDEVENTS, DIFFERENCEEVENTS,
 %            WEIGHTEVENTS.
 
     arguments
@@ -87,7 +87,7 @@ function pm = selectPreMaet(pAttr, wAttr, nvArgs)
         if ~isempty(wAttr); wOut{i} = wAttr{a}(:, nKeep); end
         specsOut{i} = specs{a};
     end
-    pm = preMaet(pOut, wOut, specsOut);
+    pm = packPreMaet(pOut, wOut, specsOut);
 end
 
 

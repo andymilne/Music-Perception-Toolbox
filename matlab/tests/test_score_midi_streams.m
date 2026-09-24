@@ -145,15 +145,15 @@ end
 % --- a minimal Standard MIDI File writer ---------------------------------
 
 function t = scRead(events, endTick, tpq)
-    path = [tempname(), '.mid'];
-    cleanup = onCleanup(@() delete(path)); %#ok<NASGU>
+    sm_path = [tempname(), '.mid'];
+    cleanup = onCleanup(@() delete(sm_path)); %#ok<NASGU>
     body = scTrack(events, endTick);
     head = [double('MThd'), 0 0 0 6, 0 1, 0 1, ...
             floor(tpq / 256), mod(tpq, 256)];
-    fid = fopen(path, 'w');
+    fid = fopen(sm_path, 'w');
     fwrite(fid, [head, body], 'uint8');
     fclose(fid);
-    t = readScore(path);
+    t = readScore(sm_path);
 end
 
 function bytes = scTrack(events, endTick)

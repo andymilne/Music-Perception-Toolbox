@@ -343,7 +343,7 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
         build_maet(p_attr, w_attr, sigma_vec, r_vec,
                        is_rel_vec, is_per_vec, period_vec, is_exch_vec, *, ...)
 
-    A pre-MAET (:func:`~mpt.pre_maet`) stands in place of ``p`` and
+    A pre-MAET (:func:`~mpt.pack_pre_maet`) stands in place of ``p`` and
     ``w``, bringing its specs with it. Any of the six per-attribute
     parameters --- ``sigma``, ``is_per``, ``period``, ``r``, ``rel``,
     ``exch`` --- may be given alongside, and a supplied value wins over

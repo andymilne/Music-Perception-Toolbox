@@ -23,7 +23,7 @@ PITCH = np.array([[60.0, 62.0, 64.0, 65.0]])
 
 def _weights(shape, centre=None, **kw):
     """Profile applied to pitch through an event-number attribute."""
-    pm = mpt.pre_maet([PITCH, IDX])
+    pm = mpt.pack_pre_maet([PITCH, IDX])
     out = mpt.weight_events(pm, 1, 0, centre, shape,
                             drop_input_attr=True, **kw)
     return np.asarray(out["w_attr"][0]).ravel()
@@ -153,7 +153,7 @@ def test_a_callable_must_return_one_non_negative_factor_per_event():
 # --- composition ------------------------------------------------------
 
 def test_the_driving_attribute_is_dropped_and_the_pitches_survive():
-    pm = mpt.pre_maet([PITCH, IDX])
+    pm = mpt.pack_pre_maet([PITCH, IDX])
     out = mpt.weight_events(pm, 1, 0, None, "exponentialFromEnd",
                             drop_input_attr=True)
     p_out, w_out, specs = mpt.unpack_pre_maet(out)
@@ -165,7 +165,7 @@ def test_the_driving_attribute_is_dropped_and_the_pitches_survive():
 
 def test_an_existing_weight_is_multiplied_into_not_replaced():
     salience = np.array([[1.0, 0.6, 0.6, 1.3]])
-    pm = mpt.pre_maet([PITCH, IDX], [salience, None])
+    pm = mpt.pack_pre_maet([PITCH, IDX], [salience, None])
     out = mpt.weight_events(pm, 1, 0, None, "exponentialFromEnd",
                             drop_input_attr=True)
     np.testing.assert_allclose(

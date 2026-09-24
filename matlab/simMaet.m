@@ -13,7 +13,7 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   internally via buildMaet).
 %
 %   s = simMaet(pm1, pm2):
-%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildMaet
+%   Pre-MAET mode. A pre-MAET (packPreMaet) holds everything buildMaet
 %   needs, so it stands wherever a density does: each side is built
 %   internally and a scalar returned. Either side may equally be a
 %   density, so the two forms mix freely.

@@ -26,7 +26,7 @@ import numpy as np
 from scipy.special import erf as _erf
 
 from .._utils import validate_weights
-from .premaet import make_pre_maet, pre_maet, shift_lead
+from .premaet import make_pre_maet, pack_pre_maet, shift_lead
 
 
 class TranslateAttributesNoOpWarning(UserWarning):
@@ -81,7 +81,7 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     Parameters
     ----------
     pm : dict, optional
-        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        The pre-MAET, whole, as :func:`~mpt.pack_pre_maet` builds it,
         passed in place of ``p_attr``, in which case
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
@@ -200,7 +200,7 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
         w, A, orders, n_events, n_prime, circular,
     )
     specs_out = _diff_kernel_specs(specs_out, orders, A)
-    return pre_maet(p_attr_diff, w_diff, specs_out)
+    return pack_pre_maet(p_attr_diff, w_diff, specs_out)
 
 
 def _check_differenceable(spec, K_a, a):
@@ -463,7 +463,7 @@ def flat_specs(p_attr, *, r=1, rel=False, exch=True, name=None,
     (§7.4.3). Given them, the specs are a complete pre-MAET geometry and
     nothing further need be supplied at the build::
 
-        pm = pre_maet(p_attr, w_attr, flat_specs(
+        pm = pack_pre_maet(p_attr, w_attr, flat_specs(
             p_attr, r=[2, 1], sigma=[0.5, 0.25],
             is_per=[True, False], period=[12.0, 0.0]))
         dens = build_maet(pm)
@@ -650,7 +650,7 @@ def bind_events(
     Parameters
     ----------
     pm : dict, optional
-        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        The pre-MAET, whole, as :func:`~mpt.pack_pre_maet` builds it,
         passed in place of ``p_attr``, in which case
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
@@ -689,6 +689,14 @@ def bind_events(
         omitting ``specs``) on already-bound attributes re-synthesises
         flat specs, silently discarding the existing nesting and
         producing a shallower result.
+    group_by : None, int, or str, keyword-only
+        One attribute, by position or name, whose ``K = 1`` value groups
+        the events: consecutive events sharing a value are bound into one
+        super-event, so groups may differ in length (shorter ones are
+        padded with NaN). Mutually exclusive with ``bind_orders``, which
+        binds a sliding window of fixed width instead.
+    group_atol : float, keyword-only
+        Absolute tolerance for that constancy (default 0).
     r_outer : None, scalar, or length-A, keyword-only
         Outer-level ``r`` (how many bound events to read). ``None``
         defaults to ``L_a`` (the whole window).
@@ -903,7 +911,7 @@ def bind_events(
     w_bound = _bind_weights_nested(
         w, A, orders, K, n_events, n_prime, circular, step,
     )
-    return pre_maet(p_attr_bound, w_bound, specs_out)
+    return pack_pre_maet(p_attr_bound, w_bound, specs_out)
 
 
 
@@ -958,17 +966,6 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
             "step has no meaning for run-length binding (groups are read "
             "from the data, not hopped); leave step at its default."
         )
-    if not isinstance(group_by, (int, np.integer)) or not (0 <= group_by < A):
-        raise ValueError(
-            f"group_by must be an attribute index in [0, {A}); got {group_by}."
-        )
-    if K[group_by] != 1:
-        raise ValueError(
-            f"group_by attribute {group_by} must have K = 1 (one value per "
-            f"event); got K = {K[group_by]}. Constancy across multiple values "
-            f"is ambiguous."
-        )
-
     if specs is None:
         specs_in = flat_specs(p_attr)
     else:
@@ -983,6 +980,22 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
                 f"attribute {a}: run-length binding of an already-nested "
                 f"attribute is not yet supported (flat inputs only)."
             )
+
+    if isinstance(group_by, str):
+        group_by = int(_select_indices([group_by], A, "attribute",
+                                       [s.get("name") if isinstance(s, dict)
+                                        else None for s in specs_in])[0])
+    if not isinstance(group_by, (int, np.integer)) or not (0 <= group_by < A):
+        raise ValueError(
+            f"group_by must be an attribute index in [0, {A}), or the name "
+            f"of one; got {group_by!r}."
+        )
+    if K[group_by] != 1:
+        raise ValueError(
+            f"group_by attribute {group_by} must have K = 1 (one value per "
+            f"event); got K = {K[group_by]}. Constancy across multiple values "
+            f"is ambiguous."
+        )
 
     groups = _run_length_groups(p_attr[group_by][0], float(group_atol))
     n_prime = len(groups)
@@ -1026,11 +1039,17 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
         for ell in range(L_max):
             cols = M[:, src[ell]]                       # (K_a, n_prime)
             blocks.append(np.where(valid[ell][None, :], cols, np.nan))
+            # The weights of a bound position have one row per value of
+            # the attribute, as its values do: a weight given per event
+            # applies to each of that event's values.
+            mask = np.broadcast_to(valid[ell][None, :], (K_a, n_prime))
             if Wa is None:
-                wblocks.append(np.where(valid[ell][None, :], 1.0, 0.0))
+                wblocks.append(np.where(mask, 1.0, 0.0))
             else:
-                wblocks.append(np.where(valid[ell][None, :],
-                                        Wa[:, src[ell]], 0.0))
+                src_w = Wa[:, src[ell]]
+                if src_w.shape[0] == 1 and K_a > 1:
+                    src_w = np.broadcast_to(src_w, (K_a, n_prime))
+                wblocks.append(np.where(mask, src_w, 0.0))
         p_attr_bound.append(np.vstack(blocks))          # (L_max*K_a, n_prime)
         w_bound.append(np.vstack(wblocks))
 
@@ -1044,12 +1063,19 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
         }
         if level_names is not None:
             spec["names"] = list(level_names)
+        # Binding regroups values; it does not touch them, so the
+        # attribute's kernel geometry crosses to the nested spec intact.
+        for key in ("sigma", "is_per", "period"):
+            if key in s_in:
+                spec[key] = s_in[key]
+            elif key == "is_per" and "isPer" in s_in:
+                spec[key] = s_in["isPer"]
         nm = names_attr[a] if names_attr[a] is not None else s_in.get("name")
         if nm is not None:
             spec["name"] = nm
         specs_out.append(spec)
 
-    return pre_maet(p_attr_bound, w_bound, specs_out)
+    return pack_pre_maet(p_attr_bound, w_bound, specs_out)
 
 
 def _canonicalise_bind_orders(bind_orders, A):
@@ -1276,7 +1302,7 @@ def weight_events(
     Parameters
     ----------
     pm : dict, optional
-        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        The pre-MAET, whole, as :func:`~mpt.pack_pre_maet` builds it,
         passed in place of ``p_attr``, in which case
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
@@ -1635,7 +1661,7 @@ def weight_events(
         w_out_kept = list(w_out)
         specs_out = list(specs_in)
 
-    return pre_maet(p_attr_out, w_out_kept, specs_out)
+    return pack_pre_maet(p_attr_out, w_out_kept, specs_out)
 
 
 _WEIGHT_PROFILES = (
@@ -1910,7 +1936,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     Parameters
     ----------
     pm : dict, optional
-        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        The pre-MAET, whole, as :func:`~mpt.pack_pre_maet` builds it,
         passed in place of ``p_attr``, in which case
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
@@ -2046,7 +2072,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
             sweep_base=[M.copy() for M in p_arr],
         )
         return make_pre_maet(sweep, w, specs_out)
-    return pre_maet(cols_out[0], w, specs_out)
+    return pack_pre_maet(cols_out[0], w, specs_out)
 
 
 def _normalise_translate_offsets(offsets, K, A):
@@ -2301,7 +2327,236 @@ def select_pre_maet(p_attr, w_attr=None, attributes=None, events=None, *,
 
     p_out = [p_attr[a][:, n_keep] for a in a_keep]
     w_out = None if w is None else [w[a][:, n_keep] for a in a_keep]
-    return pre_maet(p_out, w_out, [specs_out[a] for a in a_keep])
+    return pack_pre_maet(p_out, w_out, [specs_out[a] for a in a_keep])
+
+
+def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
+                    r=None, exch=None, sigma=None, rel=None, is_per=None,
+                    period=None, specs=None):
+    """Gather several attributes into one whose tuple holds them all.
+
+    The attribute-axis counterpart of :func:`bind_events`, which binds
+    along the event axis. Where three columns carry the three
+    coordinates of one position, or the coordinates of a simplex-coded
+    level, they are three attributes of a pre-MAET and their product
+    pairs each with every other; binding them makes them one attribute
+    whose value at an event is the tuple of all of them, read together.
+
+    The bound attribute takes the place of the first of its inputs; the
+    attributes not listed keep their order around it.
+
+    Parameters
+    ----------
+    p_attr : list of array-like, or pre-MAET
+        A whole pre-MAET, or the per-attribute value matrices.
+    w_attr : list of array-like, optional
+        The per-attribute weight matrices, or ``None``.
+    attributes : sequence
+        The attributes to bind, as indices or names, in the order their
+        values are to be read. The order is what ``exch=False`` makes
+        significant.
+    name : str
+        The bound attribute's name. Required, since no input's name
+        describes the result.
+    r : int
+        How many of the bound tuple's values a tuple takes. Required:
+        it is a claim about what the values mean and has no identity.
+        ``r = sum(K_a)`` reads the whole tuple as one object, which is
+        what a coordinate vector wants.
+    exch : bool
+        Whether the bound values are exchangeable. Required, and
+        normally ``False``, the point of binding being that position
+        signifies.
+    sigma, rel, is_per, period : optional
+        The bound attribute's kernel parameters. Each is inherited where
+        every input agrees on it and required where they differ, since
+        there is no reading of a periodic value bound to a non-periodic
+        one that the call has not chosen.
+    specs : list of dict, optional
+        The attribute specifications; ``None`` synthesises flat ones.
+
+    Returns
+    -------
+    dict
+        The pre-MAET, with the bound attribute in place of its inputs.
+
+    See Also
+    --------
+    separate_attributes, bind_events, select_pre_maet, build_maet
+    """
+    p_attr, w_attr, (attributes,), specs = shift_lead(
+        p_attr, w_attr, [attributes], specs, func="bind_attributes")
+
+    p_attr = [np.asarray(M, dtype=np.float64) for M in p_attr]
+    A = len(p_attr)
+    if A == 0:
+        raise ValueError("p_attr must contain at least one attribute.")
+    specs_in = list(flat_specs(p_attr) if specs is None else specs)
+    if len(specs_in) != A:
+        raise ValueError(
+            f"specs must be a length-A ({A}) list, one per attribute.")
+    if attributes is None:
+        raise ValueError(
+            "bind_attributes needs the attributes to bind; binding is a "
+            "choice about which values belong to one another.")
+    idx = _select_indices(attributes, A, "attribute",
+                          [s.get("name") for s in specs_in])
+    if len(idx) < 2:
+        raise ValueError(
+            "Binding needs at least two attributes; one attribute is "
+            "already its own tuple.")
+    if len(set(idx.tolist())) != len(idx):
+        raise ValueError(
+            "An attribute cannot be bound to itself; list each once.")
+    if name is None:
+        raise ValueError(
+            "bind_attributes needs a name: none of the bound attributes' "
+            "names describes the result.")
+    if r is None or exch is None:
+        missing = " and ".join(
+            f for f, v in (("r", r), ("exch", exch)) if v is None)
+        raise ValueError(
+            f"bind_attributes needs {missing}. The bound attribute holds "
+            f"{sum(p_attr[a].shape[0] for a in idx)} values at an event: r "
+            "says how many of them a tuple takes, and exch whether their "
+            "order signifies. Binding to read a coordinate vector whole "
+            "takes r = sum of the inputs' K and exch = False.")
+
+    w = None if w_attr is None else [np.asarray(W, dtype=np.float64)
+                                     for W in w_attr]
+    spec = dict(name=name, r=int(r), exch=bool(exch))
+    for field, given in (("sigma", sigma), ("rel", rel),
+                         ("is_per", is_per), ("period", period)):
+        if given is not None:
+            spec[field] = given
+            continue
+        values = [specs_in[a].get(field) for a in idx]
+        first = values[0]
+        if all(v == first or (v is None and first is None) for v in values):
+            if first is not None:
+                spec[field] = first
+        else:
+            raise ValueError(
+                f"The bound attributes disagree on {field} ({values}), so "
+                "the bound one has no value to inherit; give it in the "
+                "call.")
+    if spec.get("is_per") and spec.get("period") in (None, 0.0):
+        raise ValueError(
+            f"{name!r}: is_per is set, so it needs a period.")
+
+    bound_p = np.vstack([p_attr[a] for a in idx])
+    bound_w = None if w is None else np.vstack([w[a] for a in idx])
+
+    keep = [a for a in range(A) if a not in set(idx.tolist())]
+    at = int(idx[0])
+    p_out, w_out, specs_out = [], ([] if w is not None else None), []
+    for a in range(A):
+        if a == at:
+            p_out.append(bound_p)
+            specs_out.append(spec)
+            if w is not None:
+                w_out.append(bound_w)
+        elif a in keep:
+            p_out.append(p_attr[a])
+            specs_out.append(specs_in[a])
+            if w is not None:
+                w_out.append(w[a])
+    return pack_pre_maet(p_out, w_out, specs_out)
+
+
+def separate_attributes(p_attr, w_attr=None, attribute=None, *, names=None,
+                        specs=None):
+    """Split one attribute into one attribute per slot.
+
+    The inverse of :func:`bind_attributes`, and the operation by which
+    the conversion's two structural roles differ: under
+    ``'ordered_multiset'`` slot *k* is level *k*, so splitting that
+    attribute slot by slot gives what the ``'separate_attributes'`` role
+    builds from the table directly.
+
+    Each output attribute holds one row of the input and carries its
+    kernel parameters; ``r`` is 1 and ``exch`` says nothing, both being
+    determined by there being one value per event.
+
+    Parameters
+    ----------
+    p_attr : list of array-like, or pre-MAET
+        A whole pre-MAET, or the per-attribute value matrices.
+    w_attr : list of array-like, optional
+        The per-attribute weight matrices, or ``None``.
+    attribute : int or str
+        The attribute to split, as an index or a name.
+    names : sequence of str, optional
+        Names for the parts, one per slot. The default suffixes the
+        source's name with the 1-based slot position.
+    specs : list of dict, optional
+        The attribute specifications; ``None`` synthesises flat ones.
+
+    Returns
+    -------
+    dict
+        The pre-MAET, with the parts in slot order in place of their
+        source.
+
+    See Also
+    --------
+    bind_attributes, select_pre_maet, build_maet
+    """
+    p_attr, w_attr, (attribute,), specs = shift_lead(
+        p_attr, w_attr, [attribute], specs, func="separate_attributes")
+
+    p_attr = [np.asarray(M, dtype=np.float64) for M in p_attr]
+    A = len(p_attr)
+    if A == 0:
+        raise ValueError("p_attr must contain at least one attribute.")
+    specs_in = list(flat_specs(p_attr) if specs is None else specs)
+    if len(specs_in) != A:
+        raise ValueError(
+            f"specs must be a length-A ({A}) list, one per attribute.")
+    if attribute is None:
+        raise ValueError("separate_attributes needs the attribute to split.")
+    idx = _select_indices([attribute], A, "attribute",
+                          [s.get("name") for s in specs_in])
+    at = int(idx[0])
+    K = p_attr[at].shape[0]
+    if K < 2:
+        raise ValueError(
+            "That attribute holds one value at an event, so there is "
+            "nothing to separate.")
+    source = specs_in[at]
+    base = source.get("name") or f"a_{at + 1}"
+    if names is None:
+        names = [f"{base}_{k + 1}" for k in range(K)]
+    names = list(names)
+    if len(names) != K:
+        raise ValueError(
+            f"names must have one entry per slot ({K}); got {len(names)}.")
+
+    w = None if w_attr is None else [np.asarray(W, dtype=np.float64)
+                                     for W in w_attr]
+    parts, part_w, part_specs = [], [], []
+    for k in range(K):
+        parts.append(p_attr[at][k:k + 1, :])
+        if w is not None:
+            part_w.append(w[at][k:k + 1, :])
+        spec = {f: source[f] for f in ("sigma", "rel", "is_per", "period")
+                if f in source}
+        spec.update(name=names[k], r=1, exch=True)
+        part_specs.append(spec)
+
+    p_out, w_out, specs_out = [], ([] if w is not None else None), []
+    for a in range(A):
+        if a == at:
+            p_out.extend(parts)
+            specs_out.extend(part_specs)
+            if w is not None:
+                w_out.extend(part_w)
+        else:
+            p_out.append(p_attr[a])
+            specs_out.append(specs_in[a])
+            if w is not None:
+                w_out.append(w[a])
+    return pack_pre_maet(p_out, w_out, specs_out)
 
 
 def _select_indices(selector, n, what, names):

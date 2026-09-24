@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 
 import mpt
-from mpt import (grid_events, pre_maet_from_score, simplex_vertices,
+from mpt import (grid_attr_table, pre_maet_from_attr_table, simplex_vertices,
                  unpack_pre_maet)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demos"))
@@ -28,15 +28,15 @@ def chorale():
     """BWV 347 on the sixteenth grid, so every event holds all four
     voices and the structural roles have a full slot per level."""
     from jmm import jmm_data
-    return grid_events(jmm_data.bwv347_notes(), 0.25)
+    return grid_attr_table(jmm_data.bwv347_notes(), 0.25)
 
 
 # --- the three encodings -------------------------------------------------
 
 
 def test_ordered_multiset_puts_each_voice_in_its_own_position(chorale):
-    p, _, specs = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch",), time="beats",
+    p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
         roles={"part": "ordered_multiset"}))
     assert len(p) == 1
     assert p[0].shape == (4, 272)
@@ -46,8 +46,8 @@ def test_ordered_multiset_puts_each_voice_in_its_own_position(chorale):
 
 
 def test_separate_attributes_gives_one_attribute_per_voice(chorale):
-    p, _, specs = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch",), time="beats",
+    p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
         roles={"part": "separate_attributes"}))
     assert [s["name"] for s in specs] == [
         "pitch_Soprano", "pitch_Alto", "pitch_Tenor", "pitch_Bass"]
@@ -56,9 +56,9 @@ def test_separate_attributes_gives_one_attribute_per_voice(chorale):
 
 
 def test_simplex_tags_each_note_with_its_voice_vertex(chorale):
-    p, _, specs = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch",), time="beats", chords="separate",
-        roles={"part": "simplex"}))
+    p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0),), time="beats", chords="separate",
+        roles={"part": dict(role="simplex", sigma=1.0)}))
     assert [s["name"] for s in specs] == ["pitch", "part"]
     assert p[1].shape[0] == 3                # V - 1 coordinates
     assert specs[1]["r"] == 3
@@ -67,17 +67,18 @@ def test_simplex_tags_each_note_with_its_voice_vertex(chorale):
 
 
 def test_no_role_leaves_the_chord_an_unordered_multiset(chorale):
-    p, _, specs = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch",), time="beats"))
+    p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True),), time="beats"))
     assert p[0].shape == (4, 272)
     assert specs[0]["r"] == 1
     assert specs[0]["exch"] is True
 
 
 def test_drop_is_the_same_as_no_role(chorale):
-    kw = dict(attributes=("pitch",), time="beats")
-    a = unpack_pre_maet(pre_maet_from_score(chorale, **kw))[0][0]
-    b = unpack_pre_maet(pre_maet_from_score(
+    kw = dict(attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True),),
+              time="beats")
+    a = unpack_pre_maet(pre_maet_from_attr_table(chorale, **kw))[0][0]
+    b = unpack_pre_maet(pre_maet_from_attr_table(
         chorale, roles={"part": "drop"}, **kw))[0][0]
     np.testing.assert_array_equal(a, b)
 
@@ -93,8 +94,10 @@ def test_the_three_encodings_of_analysis_1_2(chorale):
     pitch-height one -- which the analyst then specs.
     """
     def encoding(**kw):
-        return unpack_pre_maet(pre_maet_from_score(
-            chorale, attributes=("pitch", "pitch"), time="beats", **kw))
+        return unpack_pre_maet(pre_maet_from_attr_table(
+            chorale, attributes=(dict(column="pitch", sigma=1.0),
+                                 dict(column="pitch", sigma=1.0)),
+            time="beats", **kw))
 
     aware_p, _, aware_s = encoding(roles={"part": "ordered_multiset"})
     assert [m.shape for m in aware_p] == [(4, 272)] * 2
@@ -102,7 +105,7 @@ def test_the_three_encodings_of_analysis_1_2(chorale):
     assert [s["exch"] for s in aware_s] == [False, False]
 
     simplex_p, _, simplex_s = encoding(chords="separate",
-                                       roles={"part": "simplex"})
+                                       roles={"part": dict(role="simplex", sigma=1.0)})
     agnostic_p, _, agnostic_s = encoding(chords="separate")
     assert [m.shape for m in agnostic_p] == [(1, 1088)] * 2
     assert [s["r"] for s in agnostic_s] == [1, 1]
@@ -118,8 +121,8 @@ def test_the_three_encodings_of_analysis_1_2(chorale):
 
 
 def test_a_structural_category_splits_every_per_note_attribute(chorale):
-    _, _, specs = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch", "velocity"), time="beats",
+    _, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0), dict(column="velocity", sigma=1.0)), time="beats",
         roles={"part": "separate_attributes"}))
     assert [s["name"] for s in specs] == [
         "pitch_Soprano", "pitch_Alto", "pitch_Tenor", "pitch_Bass",
@@ -132,8 +135,8 @@ def test_event_level_attributes_are_not_split(chorale, event_level):
     """The notes gathered into one event share an onset and a bar, so
     splitting either would give one attribute per voice carrying the same
     number, raised to the fourth by the product across attributes."""
-    p, _, specs = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch", event_level), time="beats",
+    p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0), dict(column=event_level, sigma=1.0)), time="beats",
         roles={"part": "ordered_multiset"}))
     assert [s["name"] for s in specs] == ["pitch", event_level]
     assert p[1].shape == (1, 272)
@@ -144,9 +147,10 @@ def test_a_simplex_category_is_tagged_within_each_structural_slot(chorale):
     t = chorale.copy()
     t["register"] = pd.Categorical(
         np.where(t["pitch"] > 64, "high", "low"), categories=["low", "high"])
-    _, _, specs = unpack_pre_maet(pre_maet_from_score(
-        t, attributes=("pitch",), time="beats",
-        roles={"part": "ordered_multiset", "register": "simplex"}))
+    _, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        t, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
+        roles={"part": "ordered_multiset",
+               "register": dict(role="simplex", sigma=1.0)}))
     assert [s["name"] for s in specs] == [
         "pitch", "register_Soprano", "register_Alto", "register_Tenor",
         "register_Bass"]
@@ -157,15 +161,23 @@ def test_a_simplex_category_is_tagged_within_each_structural_slot(chorale):
 
 
 def test_a_gridded_table_takes_its_onset_from_the_grid(chorale):
-    p, _, _ = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch", "onset"), time="beats"))
+    p, _, _ = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)), time="beats"))
     np.testing.assert_allclose(p[1][0, :4], [0.0, 0.25, 0.5, 0.75])
 
 
-def test_gridding_over_the_other_unit_is_refused(chorale):
-    with pytest.raises(ValueError, match="gridded over beats"):
-        pre_maet_from_score(chorale, attributes=("pitch", "onset"),
-                            time="seconds")
+def test_a_beat_grid_reads_its_onset_in_either_unit(chorale):
+    """The grid steps in beats; its points have a time in both, so the
+    onset attribute may be read on a clock -- which is what a sigma in
+    milliseconds over metrical slices needs."""
+    attributes = (dict(column="pitch", sigma=1.0, r=1, exch=True),
+                  dict(column="onset", sigma=1.0, r=1, exch=True))
+    beats = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=attributes, time="beats"))[0][1][0]
+    seconds = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=attributes, time="seconds"))[0][1][0]
+    np.testing.assert_allclose(beats[:4], [0.0, 0.25, 0.5, 0.75])
+    np.testing.assert_allclose(seconds[:4], [0.0, 0.125, 0.25, 0.375])
 
 
 def test_group_by_names_the_event_key(chorale):
@@ -174,8 +186,8 @@ def test_group_by_names_the_event_key(chorale):
     bar 1 are two events rather than one."""
     measures = chorale["measure"].to_numpy()
     runs = 1 + int((measures[1:] != measures[:-1]).sum())
-    p, _, _ = unpack_pre_maet(pre_maet_from_score(
-        chorale, attributes=("pitch",), time="beats", group_by="measure"))
+    p, _, _ = unpack_pre_maet(pre_maet_from_attr_table(
+        chorale, attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True),), time="beats", group_by="measure"))
     assert p[0].shape[1] == runs
     assert runs > int(chorale["measure"].nunique())
 
@@ -188,33 +200,33 @@ def test_two_structural_categories_are_refused(chorale):
     t["register"] = pd.Categorical(
         np.where(t["pitch"] > 64, "high", "low"), categories=["low", "high"])
     with pytest.raises(ValueError, match="only one category may be structural"):
-        pre_maet_from_score(t, attributes=("pitch",), time="beats",
+        pre_maet_from_attr_table(t, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
                             roles={"part": "ordered_multiset",
                                    "register": "separate_attributes"})
 
 
 def test_simplex_alone_needs_one_event_per_note(chorale):
     with pytest.raises(ValueError, match="chords='separate'"):
-        pre_maet_from_score(chorale, attributes=("pitch",), time="beats",
-                            roles={"part": "simplex"})
+        pre_maet_from_attr_table(chorale, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
+                            roles={"part": dict(role="simplex", sigma=1.0)})
 
 
 def test_a_structural_role_needs_bound_events(chorale):
     with pytest.raises(ValueError, match="chords='bind'"):
-        pre_maet_from_score(chorale, attributes=("pitch",), time="beats",
+        pre_maet_from_attr_table(chorale, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
                             chords="separate",
                             roles={"part": "ordered_multiset"})
 
 
 def test_a_role_needs_a_categorical_column(chorale):
     with pytest.raises(TypeError, match="categorical"):
-        pre_maet_from_score(chorale, attributes=("pitch",), time="beats",
+        pre_maet_from_attr_table(chorale, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
                             roles={"pitch": "simplex"})
 
 
 def test_an_unknown_role_is_refused(chorale):
     with pytest.raises(ValueError, match="unknown role"):
-        pre_maet_from_score(chorale, attributes=("pitch",), time="beats",
+        pre_maet_from_attr_table(chorale, attributes=(dict(column="pitch", sigma=1.0),), time="beats",
                             roles={"part": "split"})
 
 
@@ -223,8 +235,8 @@ def test_an_event_missing_a_level_is_dropped_with_a_warning():
     all four voices, since the parts do not all move together."""
     from jmm import jmm_data
     with pytest.warns(UserWarning, match="do not hold exactly one part"):
-        p, _, _ = unpack_pre_maet(pre_maet_from_score(
-            jmm_data.bwv347_notes(), attributes=("pitch",), time="beats",
+        p, _, _ = unpack_pre_maet(pre_maet_from_attr_table(
+            jmm_data.bwv347_notes(), attributes=(dict(column="pitch", sigma=1.0),), time="beats",
             roles={"part": "ordered_multiset"}))
     assert p[0].shape[0] == 4
     assert p[0].shape[1] < 102          # some events lost, none ragged

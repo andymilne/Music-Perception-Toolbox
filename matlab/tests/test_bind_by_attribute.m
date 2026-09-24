@@ -66,6 +66,56 @@ catch
 end
 results(end+1, :) = {'groupBy K~=1 errors', threwK}; %#ok<SAGROW>
 
+% --- groupBy by name, and the carried kernel geometry ---------------------
+% Run-length binding regroups values without touching them, so an
+% attribute's sigma (and periodicity) belong to the nested spec just as they
+% did to the flat one; naming the grouping attribute is the same selection
+% bindAttributes and selectPreMaet accept.
+bnPitch = [60 64 67 62 65];
+bnChord = [0 0 0 1 1];
+bnSpecs = flatSpecs({bnPitch, bnChord}, 'sigma', [0.5 0.25], ...
+                    'isPer', [true false], 'period', [12 0], ...
+                    'name', {'pitch', 'chord'});
+[pbName, wbName, spName] = unpackPreMaet(bindEvents({bnPitch, bnChord}, [], [], ...
+    'groupBy', 'chord', 'specs', bnSpecs, 'rOuter', 2));
+[pbIdx, ~, ~] = unpackPreMaet(bindEvents({bnPitch, bnChord}, [], [], ...
+    'groupBy', 2, 'specs', bnSpecs, 'rOuter', 2));
+okSame = isequaln(pbName{1}, pbIdx{1});
+okSigma = isfield(spName{1}, 'sigma') && abs(spName{1}.sigma - 0.5) < tol ...
+    && isfield(spName{2}, 'sigma') && abs(spName{2}.sigma - 0.25) < tol;
+okPer = isfield(spName{1}, 'isPer') && spName{1}.isPer ...
+    && abs(spName{1}.period - 12) < tol;
+okBuild = true;
+try
+    % The spec carries its own sigma, so the density builds without one.
+    buildMaet(pbName, wbName, 'specs', spName, 'verbose', false);
+catch
+    okBuild = false;
+end
+results(end+1, :) = {'groupBy by name, sigma/isPer/period carried', ...
+    okSame && okSigma && okPer && okBuild}; %#ok<SAGROW>
+
+% --- an inner attribute of K > 1 gets its weight on every value row -------
+% A weight given per event applies to each of that event's values, so the
+% bound weight matrix has Lmax * K_a rows, as the bound value matrix does.
+bwCoords = [60 64 67 62; 0 1 2 3];          % K = 2
+bwChord  = [0 0 1 1];
+bwW      = [1 0.5 2 0.25];
+[pbW, wbW, spW] = unpackPreMaet(bindEvents({bwCoords, bwChord}, ...
+    {bwW, ones(1, 4)}, [], 'groupBy', 2, 'rOuter', 2));
+okWshape = isequal(size(wbW{1}), size(pbW{1}));
+okWrows = max(abs(wbW{1}(1:2, :) - [1 2; 1 2]), [], 'all') < tol ...
+    && max(abs(wbW{1}(3:4, :) - [0.5 0.25; 0.5 0.25]), [], 'all') < tol;
+okWbuild = true;
+try
+    buildMaet(pbW, wbW, 'sigma', [1 1], 'isPer', [false false], ...
+              'period', [0 0], 'specs', spW, 'verbose', false);
+catch
+    okWbuild = false;
+end
+results(end+1, :) = {'groupBy weights have one row per value', ...
+    okWshape && okWrows && okWbuild}; %#ok<SAGROW>
+
 if standalone
     nPass = sum([results{:, 2}]);
     fprintf('test_bind_by_attribute: %d/%d passed\n', nPass, size(results, 1));

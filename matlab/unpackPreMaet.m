@@ -6,7 +6,7 @@ function [pAttr, wAttr, specs] = unpackPreMaet(pm)
 %   and SPECS are [] where unset.
 %
 %   Input
-%       pm - Pre-MAET, as built by preMaet or returned by any pre-MAET
+%       pm - Pre-MAET, as built by packPreMaet or returned by any pre-MAET
 %            operator.
 %
 %   Outputs
@@ -14,7 +14,10 @@ function [pAttr, wAttr, specs] = unpackPreMaet(pm)
 %       wAttr - [] , a scalar, or a 1 x A cell of per-attribute weights.
 %       specs - [] or a 1 x A cell of per-attribute spec structs.
 %
-%   See also PREMAET, SHOWPREMAET.
+%   unpackPreMaet and packPreMaet are inverses: packPreMaet undoes this
+%   split, holding the three parts in one pre-MAET again.
+%
+%   See also PACKPREMAET, SHOWPREMAET.
 
 if ~internal.isPreMaet(pm)
     error('unpackPreMaet:notPreMaet', ...

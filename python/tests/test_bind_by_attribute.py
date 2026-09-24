@@ -12,7 +12,8 @@ import pytest
 
 import mpt
 import mpt._tensor._nested_contraction as nc
-from mpt import bind_events, build_maet, sim_maet, unpack_pre_maet
+from mpt import (bind_events, build_maet, flat_specs, sim_maet,
+                 unpack_pre_maet)
 
 
 def _density(seed, sizes, r_outer=None, exch_outer=True):
@@ -103,3 +104,51 @@ def test_r_outer_exceeding_smallest_group_errors():
     with pytest.raises(Exception):
         build_maet(pb, wb, sigma=[30.0, 0.02], is_per=[False, False],
                        period=[0.0, 0.0], specs=sp, verbose=False)
+
+
+def test_group_by_name_and_carried_spec_fields():
+    """group_by takes a name, and the kernel geometry crosses to the spec.
+
+    Run-length binding regroups values without touching them, so an
+    attribute's sigma (and periodicity) belong to the nested spec just as
+    they did to the flat one; naming the grouping attribute is the same
+    selection bind_attributes and select_pre_maet accept.
+    """
+    pitch = np.array([[60, 64, 67, 62, 65]], float)
+    chord = np.array([[0, 0, 0, 1, 1]], float)
+    specs = flat_specs([pitch, chord], sigma=[0.5, 0.25], is_per=[True, False],
+                       period=[12.0, 0.0], name=['pitch', 'chord'])
+    by_name = unpack_pre_maet(bind_events([pitch, chord], None, None,
+                                          group_by='chord', specs=specs,
+                                          r_outer=2))
+    by_index = unpack_pre_maet(bind_events([pitch, chord], None, None,
+                                           group_by=1, specs=specs,
+                                           r_outer=2))
+    assert np.allclose(by_name[0][0], by_index[0][0], equal_nan=True)
+    assert by_name[2][0]['sigma'] == 0.5
+    assert by_name[2][0]['is_per'] is True
+    assert by_name[2][0]['period'] == 12.0
+    assert by_name[2][1]['sigma'] == 0.25
+    # The spec carries its own sigma, so the density builds without one.
+    build_maet(by_name[0], by_name[1], specs=by_name[2], verbose=False)
+
+
+def test_group_by_weights_have_one_row_per_value():
+    """An inner attribute of K > 1 gets its weight on every value row.
+
+    A weight given per event applies to each of that event's values, so the
+    bound weight matrix has L_max * K_a rows, as the bound value matrix does.
+    """
+    coords = np.array([[60, 64, 67, 62], [0.0, 1.0, 2.0, 3.0]], float)  # K = 2
+    chord = np.array([[0, 0, 1, 1]], float)
+    w_event = np.array([[1.0, 0.5, 2.0, 0.25]])
+    pb, wb, sp = unpack_pre_maet(
+        bind_events([coords, chord], [w_event, np.ones_like(chord)], None,
+                    group_by=1, r_outer=2))
+    assert wb[0].shape == pb[0].shape           # (L_max * K_a, n')
+    # Row block ell = 0 holds the first position of each group, both of its
+    # values carrying that event's weight.
+    assert np.allclose(wb[0][:2, :], np.array([[1.0, 2.0], [1.0, 2.0]]))
+    assert np.allclose(wb[0][2:4, :], np.array([[0.5, 0.25], [0.5, 0.25]]))
+    build_maet(pb, wb, sigma=[1.0, 1.0], is_per=[False, False],
+               period=[0.0, 0.0], specs=sp, verbose=False)

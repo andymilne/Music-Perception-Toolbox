@@ -687,8 +687,8 @@ var_ok = true;
 for gg = gammas_fv
     [~, w_fv, ~] = unpackPreMaet(weightEvents({y_fv}, [], 1, 1, 0, gg, 'sd', width_fv, 'dropInputAttr', false));
     h_fv = w_fv{1};
-    area = sum(h_fv) * dy_fv;
-    variance = sum(y_fv .^ 2 .* h_fv) * dy_fv / area;
+    mt_area = sum(h_fv) * dy_fv;
+    variance = sum(y_fv .^ 2 .* h_fv) * dy_fv / mt_area;
     if abs(variance - width_fv ^ 2) >= 5e-3
         var_ok = false; break;
     end

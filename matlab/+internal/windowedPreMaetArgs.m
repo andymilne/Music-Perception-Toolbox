@@ -11,8 +11,12 @@ function args = windowedPreMaetArgs(args, fname, nPre)
 %   The two pre-MAETs of windowedSimilarity describe one comparison, so
 %   they must agree on the structural geometry: same attribute count, and
 %   the same r, [rel], [exch], and nesting on every attribute. The context
-%   supplies the specs; a disagreement is an error rather than a silent
-%   choice between them.
+%   supplies the geometry; a disagreement is an error rather than a silent
+%   choice between them. Each side keeps its own 'tags', which say which
+%   slot of that side belongs to which nesting group -- a chorale's beat
+%   may hold seven notes where the prototype it is compared against holds
+%   two -- so the query's specs are the shared geometry carrying the
+%   query's own grouping.
 %
 %   Inputs
 %       args  - 1 x n cell of the arguments as received.
@@ -44,7 +48,7 @@ if isempty(specs)
     error([fname ':noSpecs'], ...
           ['A pre-MAET passed here must carry its specs: they are ' ...
            'where the shared geometry is read from. Build it with ' ...
-           'preMaet(pAttr, wAttr, specs), or use the positional form.']);
+           'packPreMaet(pAttr, wAttr, specs), or use the positional form.']);
 end
 A = numel(pms{1}.pAttr);
 for k = 2:nPre
@@ -73,9 +77,25 @@ end
 args = [parts, {sigma, rVec, isRelVec, isPer, period}, rest];
 if any(~cellfun(@isempty, nestedList))
     args = [args, {'specs', specs}];         % nested geometry travels on
+    if nPre > 1
+        % The query is read under the shared geometry but keeps its own
+        % grouping, so that two multisets of different sizes compare.
+        args = [args, {'querySpecs', localSideSpecs(specs, pms{2}.specs, A)}];
+    end
 else
     args = [args, {'isExch', isExchVec}];
 end
+end
+
+
+function out = localSideSpecs(shared, own, A)
+%LOCALSIDESPECS  The shared geometry carrying one side's own tags.
+    out = shared;
+    for a = 1:A
+        if isfield(own{a}, 'tags') && ~isempty(own{a}.tags)
+            out{a}.tags = own{a}.tags;
+        end
+    end
 end
 
 
@@ -111,7 +131,7 @@ function localCheckAgrees(specsA, specsB, A, fname)
                'and both carry specs: they describe one comparison.']);
     end
     for a = 1:A
-        for f = {'r', 'rel', 'exch', 'tags'}
+        for f = {'r', 'rel', 'exch'}
             va = localField(specsA{a}, f{1});
             vb = localField(specsB{a}, f{1});
             if ~isequaln(double(va(:)).', double(vb(:)).')
@@ -122,6 +142,14 @@ function localCheckAgrees(specsA, specsB, A, fname)
                        'isPer and period may differ and are taken from ' ...
                        'the first.'], f{1}, a);
             end
+        end
+        nestedA = isfield(specsA{a}, 'tags') && ~isempty(specsA{a}.tags);
+        nestedB = isfield(specsB{a}, 'tags') && ~isempty(specsB{a}.tags);
+        if nestedA ~= nestedB
+            error([fname ':specsMismatch'], ...
+                  ['One pre-MAET nests attribute %d and the other does ' ...
+                   'not. They describe one comparison, so both sides ' ...
+                   'must be read under the same nesting.'], a);
         end
     end
 end

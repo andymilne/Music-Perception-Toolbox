@@ -36,7 +36,9 @@ function out = windowedSimilarity(varargin)
 %     axis. 'contextWindow' is then a map {axis, struct('shape',..,'width'/'sd',..); ...}.
 %
 %
-%   'locate' is 'centroid' (default) | 'start' | 'end' | 'mid' | a handle.
+%   'locate' is 'centroid' (default) | 'start' | 'end' | 'mid' | a handle,
+%   or, naming the axes separately, a map {axis, rule; ...} in which an
+%   axis the map does not name takes 'centroid'.
 %   'targetAttr' is the attribute whose weights absorb the window factors
 %   (default: first compared attribute; may coincide with a swept axis).
 %   'specs' carries nested geometry from bindEvents. 'isExch' is the
@@ -47,7 +49,7 @@ function out = windowedSimilarity(varargin)
 %   own per-level exch. The window-factor and
 %   comparison-kernel truncation both read the global mptDefaults setting.
 %
-%   See also PREMAET, WINDOWEDENTROPY, WEIGHTEVENTS, TRANSLATEATTRIBUTES,
+%   See also PACKPREMAET, WINDOWEDENTROPY, WEIGHTEVENTS, TRANSLATEATTRIBUTES,
 %            SIMMAET.
 
 varargin = internal.windowedPreMaetArgs(varargin, 'windowedSimilarity', 2);
@@ -82,6 +84,7 @@ arguments
     nv.targetAttr = []
     nv.normalize (1,:) char = 'oneSidedDenom'
     nv.specs = []
+    nv.querySpecs = []
     nv.isExch = []
     nv.verbose (1,1) logical = false
 end
@@ -105,7 +108,7 @@ if ~isempty(nv.sweep)
     end
     out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, isRel, ...
         isPer, period, nv.isExch, nv.sweep, nv.drop, nv.contextWindow, nv.locate, ...
-        nv.normalize, nv.targetAttr, nv.specs);
+        nv.normalize, nv.targetAttr, nv.specs, nv.querySpecs);
     return;
 end
 if isempty(nv.dropWindowAttr)
@@ -115,7 +118,7 @@ end
 out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, isRel, ...
     isPer, period, nv.isExch, centres, nv.start, nv.stop, nv.step, nv.queryCentres, ...
     nv.contextWindow, nv.queryWindow, nv.windowAttr, nv.dropWindowAttr, ...
-    nv.locate, nv.targetAttr, nv.normalize, nv.specs);
+    nv.locate, nv.targetAttr, nv.normalize, nv.specs, nv.querySpecs);
 end
 
 
@@ -125,13 +128,15 @@ end
 function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
         isRel, isPer, period, isExch, centres, startV, stopV, stepV, queryCentres, ...
         contextWindow, queryWindow, windowAttr, dropWindowAttr, locate, ...
-        targetAttr, normalize, specs) %#ok<INUSL>
+        targetAttr, normalize, specs, querySpecs) %#ok<INUSL>
+    if isempty(querySpecs), querySpecs = specs; end
     A = numel(pContext);
     if isempty(windowAttr), axisIdx = A; else, axisIdx = windowAttr; end
     if axisIdx < 1 || axisIdx > A
         error('windowedSimilarity:badWindowAttr', ...
             'windowAttr %d out of range for %d attributes.', axisIdx, A);
     end
+    locate = internal.axisLocate(locate, axisIdx);
     nested = ~isempty(specs);
     [gamma, sd] = internal.singleWindow(contextWindow, internal.queryExtent(pQuery, axisIdx), axisIdx);
     if dropWindowAttr, dropAxes = axisIdx; else, dropAxes = []; end
@@ -182,9 +187,9 @@ function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
         [qGamma, qSd] = internal.singleWindow(queryWindow, ...
             internal.queryExtent(pQuery, axisIdx), axisIdx);
         qCentre = mean(internal.locateRow(pQuery{axisIdx}, locate), 'omitnan');
-        [pQuery, wQuery, sqW] = internal.applyWindows(pQuery, wQuery, specs, ...
+        [pQuery, wQuery, sqW] = internal.applyWindows(pQuery, wQuery, querySpecs, ...
             axisIdx, qCentre, qGamma, qSd, {locate}, target);
-        if nested, specs = sqW; end
+        if nested, querySpecs = sqW; end
     end
     for a = 1:Ac
         [pc, wc, sc] = internal.applyWindows(pContext, wContext, specs, ...
@@ -196,11 +201,11 @@ function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
         end
         for t = 1:T
             if dropWindowAttr || relAxis
-                pqT = pQuery; wqT = wQuery; sqT = specs;
+                pqT = pQuery; wqT = wQuery; sqT = querySpecs;
             else
                 qLoc = mean(internal.locateRow(pQuery{axisIdx}, locate), 'omitnan');
                 offs = cell(1, A); offs{axisIdx} = qRows(a, t) - qLoc;
-                [pqT, wqT, sqT] = unpackPreMaet(translateAttributes(pQuery, wQuery, offs, 'specs', specs));
+                [pqT, wqT, sqT] = unpackPreMaet(translateAttributes(pQuery, wQuery, offs, 'specs', querySpecs));
             end
             [pq, wq, sq] = internal.dropAxes(pqT, wqT, sqT, dropAxes, A);
             if nested
@@ -222,7 +227,8 @@ end
 % =========================================================================
 function out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, ...
         isRel, isPer, period, isExch, sweepMap, dropMap, contextWindow, locate, ...
-        normalize, targetAttr, specs)
+        normalize, targetAttr, specs, querySpecs)
+    if isempty(querySpecs), querySpecs = specs; end
     n = numel(pContext);
     [axes, grids] = internal.parseMap(sweepMap);
     if isempty(axes)
@@ -257,8 +263,8 @@ function out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, ...
         [gammas(k), sds(k)] = internal.resolveWindowStruct(s, ...
             internal.queryExtent(pQuery, axes(k)), axes(k));
         relF(k) = internal.axisIsRel(specs, isRel, axes(k));
-        locates{k} = locate;
-        qLocs(k) = mean(internal.locateRow(pQuery{axes(k)}, locate), 'omitnan');
+        locates{k} = internal.axisLocate(locate, axes(k));
+        qLocs(k) = mean(internal.locateRow(pQuery{axes(k)}, locates{k}), 'omitnan');
     end
     [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
     exchC = internal.subExchArgs(isExch, keep);
@@ -276,9 +282,9 @@ function out = local_ws_multi(pContext, wContext, pQuery, wQuery, sigma, r, ...
             offs{a} = centresK(k) - qLocs(k); doTrans = true;
         end
         if doTrans
-            [pqT, wqT, sqT] = unpackPreMaet(translateAttributes(pQuery, wQuery, offs, 'specs', specs));
+            [pqT, wqT, sqT] = unpackPreMaet(translateAttributes(pQuery, wQuery, offs, 'specs', querySpecs));
         else
-            pqT = pQuery; wqT = wQuery; sqT = specs;
+            pqT = pQuery; wqT = wQuery; sqT = querySpecs;
         end
         [pc, wc, sc] = internal.applyWindows(pContext, wContext, specs, axes, ...
             centresK, gammas, sds, locates, target);

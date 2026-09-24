@@ -1,5 +1,5 @@
 function notes = readScore(path)
-%READSCORE  Parse a MIDI or MusicXML file into an event table.
+%READSCORE  Parse a MIDI or MusicXML file into an attribute table.
 %
 %   notes = readScore(path)
 %
@@ -50,7 +50,7 @@ function notes = readScore(path)
 %
 %   The table is an ordinary MATLAB table, so rows are selected with
 %   MATLAB's own indexing -- notes(notes.part == "Soprano", :) -- and no
-%   toolbox function is needed to read or filter it. preMaetFromScore turns
+%   toolbox function is needed to read or filter it. preMaetFromAttrTable turns
 %   it into the (pAttr, wAttr, specs) of buildMaet. Both parsers are
 %   self-contained (no toolbox or Java dependency) and mirror the Python
 %   mpt.read_score, which reads the same files to the same table.
@@ -120,7 +120,7 @@ function notes = readScore(path)
 %       estimate of sounding amplitude. A different velocity curve is one
 %       transformation of the column away.
 %
-%   See also PREMAETFROMSCORE, BUILDMAET, TRANSFORMATTRIBUTES.
+%   See also PREMAETFROMATTRTABLE, BUILDMAET, TRANSFORMATTRIBUTES.
 
     path = char(path);
     [~, ~, ext] = fileparts(path);

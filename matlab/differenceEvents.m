@@ -7,7 +7,7 @@ function pm = differenceEvents(varargin)
 %   along the event axis to each attribute; the returned pre-MAET chains
 %   into another pre-MAET operation or straight into buildMaet.
 %
-%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   The pre-MAET may be passed whole, as packPreMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
 %
@@ -46,12 +46,12 @@ function pm = differenceEvents(varargin)
 %            K_a x N'; wAttr the transformed weights; specs the attribute
 %            specifications, unchanged from input (or synthesised).
 %
-%   See also PREMAET, BUILDMAET, BINDEVENTS, FLATSPECS,
+%   See also PACKPREMAET, BUILDMAET, BINDEVENTS, FLATSPECS,
 %            TRANSLATEATTRIBUTES.
 
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
 [pAttrDiff, wDiff, specs] = localDifferenceEvents(pAttr, wAttr, specsPm, rest{:});
-pm = preMaet(pAttrDiff, wDiff, specs);
+pm = packPreMaet(pAttrDiff, wDiff, specs);
 end
 
 

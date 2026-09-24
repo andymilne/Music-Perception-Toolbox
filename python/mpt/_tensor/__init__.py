@@ -43,13 +43,15 @@ from .sweep import (
 from .preprocessing import (
     TranslateAttributesNoOpWarning,
     TranslatedSweep,
+    bind_attributes,
     bind_events,
     difference_events,
+    separate_attributes,
     simplex_vertices,
     translate_attributes,
     weight_events,
 )
-from .premaet import is_pre_maet, pre_maet, unpack_pre_maet
+from .premaet import is_pre_maet, pack_pre_maet, unpack_pre_maet
 from .transform import transform_attributes
 
 from .windowed import (

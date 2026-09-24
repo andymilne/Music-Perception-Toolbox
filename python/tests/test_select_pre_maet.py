@@ -6,7 +6,7 @@ Mirror of MATLAB tests/test_select_pre_maet.m.
 import numpy as np
 import pytest
 
-from mpt import (build_maet, flat_specs, pre_maet, select_pre_maet,
+from mpt import (build_maet, flat_specs, pack_pre_maet, select_pre_maet,
                  sim_maet, unpack_pre_maet)
 
 
@@ -15,7 +15,7 @@ def _pm():
          np.array([[0.0, 1.0, 2.0]])]
     w = [np.array([[1.0, 2.0, 3.0], [1.0, 1.0, 1.0]]),
          np.ones((1, 3))]
-    return pre_maet(p, w, flat_specs(p, r=[2, 1], exch=[False, True],
+    return pack_pre_maet(p, w, flat_specs(p, r=[2, 1], exch=[False, True],
                                      name=["pitch", "onset"]))
 
 
@@ -68,7 +68,7 @@ def test_a_multi_coordinate_attribute_moves_whole():
     no selection over attributes can take part of one."""
     coords = np.array([[0.5, -0.5], [0.2887, 0.2887], [0.2041, 0.2041]])
     p = [np.array([[60.0, 64.0]]), coords]
-    pm = pre_maet(p, None, flat_specs(p, r=[1, 3], exch=[True, False],
+    pm = pack_pre_maet(p, None, flat_specs(p, r=[1, 3], exch=[True, False],
                                       name=["pitch", "voice"]))
     out, _, specs = unpack_pre_maet(select_pre_maet(pm, attributes=["voice"]))
     assert out[0].shape == (3, 2)
@@ -100,7 +100,7 @@ def test_selecting_may_leave_an_event_with_no_value():
     on that attribute while keeping its place."""
     p = [np.array([[60.0, np.nan]]), np.array([[0.0, 1.0]])]
     w = [np.array([[1.0, 0.0]]), np.ones((1, 2))]
-    pm = pre_maet(p, w, flat_specs(p, name=["pitch", "onset"]))
+    pm = pack_pre_maet(p, w, flat_specs(p, name=["pitch", "onset"]))
     out, _, _ = unpack_pre_maet(select_pre_maet(pm, events=[1]))
     assert np.isnan(out[0][0, 0])
 

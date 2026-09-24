@@ -1,6 +1,6 @@
-"""Tests for ``pre_maet`` and ``unpack_pre_maet``.
+"""Tests for ``pack_pre_maet`` and ``unpack_pre_maet``.
 
-``pre_maet`` holds the three parts of a pre-MAET -- ``p_attr``,
+``pack_pre_maet`` holds the three parts of a pre-MAET -- ``p_attr``,
 ``w_attr``, and ``specs`` -- in one object. What is pinned here is that
 it is genuinely the same pre-MAET however it is passed: every operator
 takes the whole pre-MAET or the loose triple and returns the whole, the
@@ -26,7 +26,7 @@ class TestConstruction:
 
     def test_keys_and_round_trip(self):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, sp)
+        pm = mpt.pack_pre_maet(p, w, sp)
         assert sorted(pm) == ["p_attr", "specs", "w_attr"]
         p2, w2, sp2 = mpt.unpack_pre_maet(pm)
         assert all(np.array_equal(a, b) for a, b in zip(p2, p))
@@ -35,44 +35,44 @@ class TestConstruction:
 
     def test_unset_parts_are_none(self):
         p, _, _ = _pm()
-        pm = mpt.pre_maet(p)
+        pm = mpt.pack_pre_maet(p)
         assert pm["w_attr"] is None and pm["specs"] is None
 
     def test_pre_maet_in_pre_maet_out(self):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, sp)
-        assert mpt.unpack_pre_maet(mpt.pre_maet(pm)) == \
+        pm = mpt.pack_pre_maet(p, w, sp)
+        assert mpt.unpack_pre_maet(mpt.pack_pre_maet(pm)) == \
             mpt.unpack_pre_maet(pm)
 
     def test_one_part_replaced_leaves_the_rest(self):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, sp)
+        pm = mpt.pack_pre_maet(p, w, sp)
         sp2 = [dict(s) for s in sp]
         sp2[0]["rel"] = True
-        pm2 = mpt.pre_maet(pm, specs=sp2)
+        pm2 = mpt.pack_pre_maet(pm, specs=sp2)
         assert pm2["specs"][0]["rel"] is True
         assert np.array_equal(pm2["w_attr"][0], pm["w_attr"][0])
         assert pm["specs"][0]["rel"] is False      # the original is untouched
 
     def test_scalar_weights_broadcast_untouched(self):
         p, _, _ = _pm()
-        assert mpt.pre_maet(p, 2.0)["w_attr"] == 2.0
+        assert mpt.pack_pre_maet(p, 2.0)["w_attr"] == 2.0
 
     @pytest.mark.parametrize("bad", [([1.0], "w"), ("specs", "s")])
     def test_length_mismatch_errors(self, bad):
         p, _, sp = _pm()
         with pytest.raises(ValueError, match="length A"):
             if bad[1] == "w":
-                mpt.pre_maet(p, [np.ones((1, 4))])
+                mpt.pack_pre_maet(p, [np.ones((1, 4))])
             else:
-                mpt.pre_maet(p, None, sp[:1])
+                mpt.pack_pre_maet(p, None, sp[:1])
 
     def test_single_attribute_must_be_wrapped(self):
         with pytest.raises(TypeError, match="Wrap a single attribute"):
-            mpt.pre_maet(np.array([[60.0, 62.0]]))
+            mpt.pack_pre_maet(np.array([[60.0, 62.0]]))
         p, _, sp = _pm()
         with pytest.raises(TypeError, match="Wrap a single attribute"):
-            mpt.pre_maet(p, None, sp[0])
+            mpt.pack_pre_maet(p, None, sp[0])
 
     def test_unpack_rejects_a_non_pre_maet(self):
         p, _, _ = _pm()
@@ -85,25 +85,25 @@ class TestOperators:
 
     def test_difference_events(self):
         p, w, sp = _pm()
-        a = mpt.difference_events(mpt.pre_maet(p, w, sp), [1, 0])
+        a = mpt.difference_events(mpt.pack_pre_maet(p, w, sp), [1, 0])
         b = mpt.difference_events(p, w, [1, 0], specs=sp)
         assert _same(a, b)
 
     def test_bind_events(self):
         p, w, sp = _pm()
-        a = mpt.bind_events(mpt.pre_maet(p, w, sp), [2, 2])
+        a = mpt.bind_events(mpt.pack_pre_maet(p, w, sp), [2, 2])
         b = mpt.bind_events(p, w, [2, 2], specs=sp)
         assert _same(a, b)
 
     def test_translate_attributes(self):
         p, w, sp = _pm()
-        a = mpt.translate_attributes(mpt.pre_maet(p, w, sp), [5.0, 0.0])
+        a = mpt.translate_attributes(mpt.pack_pre_maet(p, w, sp), [5.0, 0.0])
         b = mpt.translate_attributes(p, w, [5.0, 0.0], specs=sp)
         assert _same(a, b)
 
     def test_transform_attributes(self):
         p, w, sp = _pm()
-        a = mpt.transform_attributes(mpt.pre_maet(p, w, sp),
+        a = mpt.transform_attributes(mpt.pack_pre_maet(p, w, sp),
                                      [("affine", {"scale": 2.0}), None])
         b = mpt.transform_attributes(p, w, [("affine", {"scale": 2.0}), None],
                                      specs=sp)
@@ -113,13 +113,13 @@ class TestOperators:
         p, w, sp = _pm()
         kw = dict(input_attr=1, target_attr=1, centre=1.5, shape=0.0, sd=1.0,
                   drop_input_attr=False)
-        a = mpt.weight_events(mpt.pre_maet(p, w, sp), specs=sp, **kw)
+        a = mpt.weight_events(mpt.pack_pre_maet(p, w, sp), specs=sp, **kw)
         b = mpt.weight_events(p, w, specs=sp, **kw)
         assert _same(a, b)
 
     def test_positional_arguments_shift_behind_a_pre_maet(self):
         p, w, sp = _pm()
-        a = mpt.weight_events(mpt.pre_maet(p, w, sp), 1, 1, 1.5, 0.0, sd=1.0,
+        a = mpt.weight_events(mpt.pack_pre_maet(p, w, sp), 1, 1, 1.5, 0.0, sd=1.0,
                               drop_input_attr=False)
         b = mpt.weight_events(p, w, 1, 1, 1.5, 0.0, sd=1.0,
                               drop_input_attr=False, specs=sp)
@@ -127,7 +127,7 @@ class TestOperators:
 
     def test_operators_compose_without_threading_specs(self):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, sp)
+        pm = mpt.pack_pre_maet(p, w, sp)
         chained = mpt.difference_events(mpt.bind_events(pm, [2, 2]), [1, 1])
         pb, wb, sb = mpt.unpack_pre_maet(mpt.bind_events(p, w, [2, 2],
                                                          specs=sp))
@@ -137,11 +137,11 @@ class TestOperators:
     def test_weights_may_not_be_passed_twice(self):
         p, w, sp = _pm()
         with pytest.raises(TypeError, match="must not be passed again"):
-            mpt.difference_events(mpt.pre_maet(p, w, sp), w, [1, 0])
+            mpt.difference_events(mpt.pack_pre_maet(p, w, sp), w, [1, 0])
 
     def test_read_pre_maet_returns_a_pre_maet(self, tmp_path):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, sp)
+        pm = mpt.pack_pre_maet(p, w, sp)
         f = tmp_path / "pm.csv"
         mpt.write_pre_maet(str(f), pm)
         back = mpt.read_pre_maet(str(f))
@@ -157,7 +157,7 @@ class TestBoundary:
 
     def test_build_maet_takes_a_pre_maet(self):
         p, w, sp = _pm()
-        d1 = mpt.build_maet(mpt.pre_maet(p, w, sp), **self.KW)
+        d1 = mpt.build_maet(mpt.pack_pre_maet(p, w, sp), **self.KW)
         d2 = mpt.build_maet(p, w, specs=sp, **self.KW)
         X = np.array([[60.0], [0.0]])
         assert np.allclose(mpt.eval_maet(d1, X, verbose=False),
@@ -166,11 +166,11 @@ class TestBoundary:
     def test_build_rejects_weights_passed_twice(self):
         p, w, sp = _pm()
         with pytest.raises(TypeError, match="must not be passed again"):
-            mpt.build_maet(mpt.pre_maet(p, w, sp), w, **self.KW)
+            mpt.build_maet(mpt.pack_pre_maet(p, w, sp), w, **self.KW)
 
     def test_entropy_takes_a_pre_maet(self):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, mpt.flat_specs(
+        pm = mpt.pack_pre_maet(p, w, mpt.flat_specs(
             p, r=1, name=["pitch", "time"]))
         for a in range(2):
             pm["specs"][a].update(sigma=self.KW["sigma"][a], is_per=False,
@@ -182,7 +182,7 @@ class TestBoundary:
 
     def test_eval_and_cosine_take_a_pre_maet(self):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, mpt.flat_specs(
+        pm = mpt.pack_pre_maet(p, w, mpt.flat_specs(
             p, r=1, name=["pitch", "time"]))
         for a in range(2):
             pm["specs"][a].update(sigma=self.KW["sigma"][a], is_per=False,
@@ -196,6 +196,62 @@ class TestBoundary:
 
 
 class TestWindowed:
+    def test_a_nested_query_may_hold_fewer_values_than_the_context(self):
+        """The two sides of one comparison share the nesting they are read
+        under, not their inner cardinality: a context whose events hold
+        four values compares against a query whose events hold two."""
+        ctx_vals = np.array([[60.0, 62.0, 64.0, 65.0],
+                             [67.0, 69.0, 71.0, 72.0],
+                             [60.0, 62.0, 64.0, 65.0]]).T
+        q_vals = np.array([[60.0, 64.0], [67.0, 71.0]]).T
+        axis = np.arange(ctx_vals.shape[1], dtype=float).reshape(1, -1)
+
+        def nest(vals, r_outer):
+            p = [vals]
+            specs = mpt.flat_specs(p, r=1, rel=False, exch=True, name='p',
+                                   sigma=0.5, is_per=False, period=0.0)
+            return mpt.bind_events(p, None, r_outer, rel_outer=True,
+                                   specs=specs)
+
+        ctx = mpt.bind_events([ctx_vals, axis], None, [2, 1], rel_outer=True,
+                              specs=mpt.flat_specs(
+                                  [ctx_vals, axis], r=1, rel=False, exch=True,
+                                  sigma=0.5, is_per=False, period=0.0))
+        q_axis = np.arange(q_vals.shape[1], dtype=float).reshape(1, -1)
+        qry = mpt.bind_events([q_vals, q_axis], None, [2, 1], rel_outer=True,
+                              specs=mpt.flat_specs(
+                                  [q_vals, q_axis], r=1, rel=False, exch=True,
+                                  sigma=0.5, is_per=False, period=0.0))
+        centres = mpt.unpack_pre_maet(ctx)[0][1][0]
+        out = np.asarray(mpt.windowed_similarity(
+            ctx, qry, centres=centres, context_window=(1.0, 1.0),
+            window_attr=1, drop_window_attr=True,
+            normalize='oneSidedDenom', verbose=False)).ravel()
+        assert out.shape == centres.shape and np.all(np.isfinite(out))
+
+        # position by position, against the same comparison made directly
+        for k, _ in enumerate(centres):
+            one = mpt.select_pre_maet(ctx, attributes=[0], events=[k])
+            direct = mpt.sim_maet(
+                mpt.build_maet(one, verbose=False),
+                mpt.build_maet(mpt.select_pre_maet(qry, attributes=[0]),
+                               verbose=False),
+                normalize='oneSidedDenom', verbose=False)
+            assert out[k] == pytest.approx(float(direct), abs=1e-12)
+
+    def test_the_two_sides_must_share_the_nesting(self):
+        """Flat against nested is not one comparison."""
+        vals = np.array([[60.0, 64.0], [67.0, 71.0]]).T
+        flat = mpt.pack_pre_maet([vals], None, mpt.flat_specs(
+            [vals], r=1, rel=False, exch=True, sigma=0.5))
+        nested = mpt.bind_events([vals], None, 2, rel_outer=True,
+                                 specs=mpt.flat_specs([vals], r=1, rel=False,
+                                                      exch=True, sigma=0.5))
+        with pytest.raises(ValueError, match="nests attribute|disagree on"):
+            mpt.windowed_similarity(nested, flat, centres=[0.0],
+                                    context_window=(1.0, 1.0), window_attr=0,
+                                    drop_window_attr=False, verbose=False)
+
     """windowed_similarity and windowed_entropy take whole pre-MAETs."""
 
     @staticmethod
@@ -214,8 +270,8 @@ class TestWindowed:
     def test_similarity_matches_the_positional_form(self):
         pC, pQ, sp = self._pair()
         ctr = np.arange(0.0, 7.01, 0.5)
-        got = mpt.windowed_similarity(mpt.pre_maet(pC, specs=sp),
-                                      mpt.pre_maet(pQ, specs=sp), ctr,
+        got = mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                      mpt.pack_pre_maet(pQ, specs=sp), ctr,
                                       **self.KW)
         ref = mpt.windowed_similarity(
             pC, None, pQ, None, [0.5, 0.25], [1, 1], [False, False],
@@ -226,7 +282,7 @@ class TestWindowed:
         pC, _, sp = self._pair()
         ctr = np.arange(0.0, 7.01, 0.5)
         kw = dict(self.KW, context_window=("gauss", 2.0), method="renyi2")
-        got = mpt.windowed_entropy(mpt.pre_maet(pC, specs=sp), ctr, **kw)
+        got = mpt.windowed_entropy(mpt.pack_pre_maet(pC, specs=sp), ctr, **kw)
         ref = mpt.windowed_entropy(
             pC, None, [0.5, 0.25], [1, 1], [False, False], [True, False],
             [12.0, 0.0], ctr, **kw)
@@ -235,11 +291,11 @@ class TestWindowed:
     def test_selective_override_sweeps_one_attribute(self):
         pC, pQ, sp = self._pair()
         ctr = np.arange(0.0, 7.01, 0.5)
-        base = mpt.windowed_similarity(mpt.pre_maet(pC, specs=sp),
-                                       mpt.pre_maet(pQ, specs=sp), ctr,
+        base = mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                       mpt.pack_pre_maet(pQ, specs=sp), ctr,
                                        **self.KW)
-        got = mpt.windowed_similarity(mpt.pre_maet(pC, specs=sp),
-                                      mpt.pre_maet(pQ, specs=sp), ctr,
+        got = mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                      mpt.pack_pre_maet(pQ, specs=sp), ctr,
                                       sigma=[2.0, None], **self.KW)
         ref = mpt.windowed_similarity(
             pC, None, pQ, None, [2.0, 0.25], [1, 1], [False, False],
@@ -250,7 +306,7 @@ class TestWindowed:
     def test_specs_are_required(self):
         pC, pQ, _ = self._pair()
         with pytest.raises(ValueError, match="must carry its specs"):
-            mpt.windowed_similarity(mpt.pre_maet(pC), mpt.pre_maet(pQ),
+            mpt.windowed_similarity(mpt.pack_pre_maet(pC), mpt.pack_pre_maet(pQ),
                                     np.array([0.0]), **self.KW)
 
     def test_structural_geometry_must_agree(self):
@@ -258,8 +314,8 @@ class TestWindowed:
         sp2 = [dict(s) for s in sp]
         sp2[0]["rel"] = True
         with pytest.raises(ValueError, match="disagree on 'rel'"):
-            mpt.windowed_similarity(mpt.pre_maet(pC, specs=sp),
-                                    mpt.pre_maet(pQ, specs=sp2),
+            mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                    mpt.pack_pre_maet(pQ, specs=sp2),
                                     np.array([0.0]), **self.KW)
 
 
@@ -269,7 +325,7 @@ class TestLists:
     @staticmethod
     def _pm(vals):
         p = [np.array([vals], dtype=float), np.array([[0.0, 1.0, 2.0]])]
-        return mpt.pre_maet(p, specs=mpt.flat_specs(
+        return mpt.pack_pre_maet(p, specs=mpt.flat_specs(
             p, sigma=[0.5, 0.25], is_per=[True, False], period=[12.0, 0.0]))
 
     def test_list_versus_list(self):
@@ -313,7 +369,7 @@ class TestLists:
                                              None])
         got = mpt.sim_maet(a, pm_sw, verbose=False)
         built = [mpt.build_maet(
-            mpt.pre_maet(blk, None, a["specs"]), verbose=False)
+            mpt.pack_pre_maet(blk, None, a["specs"]), verbose=False)
             for blk in pm_sw["p_attr"]]
         ref = mpt.sim_maet(mpt.build_maet(a, verbose=False),
                                    built, verbose=False)
@@ -338,13 +394,13 @@ class TestGeometryOverrides:
 
     def test_scalar_and_per_attribute_r(self):
         p, w, sp = self._chords()
-        pm = mpt.pre_maet(p, w, sp)
+        pm = mpt.pack_pre_maet(p, w, sp)
         assert list(mpt.build_maet(pm, r=[2, 1], **self.KW).r) == [2, 1]
         assert list(mpt.build_maet(pm, r=1, **self.KW).r) == [1, 1]
 
     def test_rel_and_exch(self):
         p, w, sp = self._chords()
-        pm = mpt.pre_maet(p, w, sp)
+        pm = mpt.pack_pre_maet(p, w, sp)
         d = mpt.build_maet(pm, r=[2, 1], rel=[True, False],
                                exch=[False, True], **self.KW)
         assert list(d.is_rel) == [True, False]
@@ -352,7 +408,7 @@ class TestGeometryOverrides:
 
     def test_a_sweep_is_one_call_per_value(self):
         p, w, sp = _pm()
-        pm = mpt.pre_maet(p, w, sp)
+        pm = mpt.pack_pre_maet(p, w, sp)
         vals = [mpt.build_maet(pm, sigma=[s, 0.25],
                                    is_per=[False, False],
                                    period=[0.0, 0.0], verbose=False)
@@ -362,7 +418,7 @@ class TestGeometryOverrides:
 
     def test_nested_geometry_is_not_overridable(self):
         p, w, sp = _pm()
-        pmb = mpt.bind_events(mpt.pre_maet(p, w, sp), [2, 2])
+        pmb = mpt.bind_events(mpt.pack_pre_maet(p, w, sp), [2, 2])
         with pytest.raises(ValueError, match="nested attribute"):
             mpt.build_maet(pmb, r=2, **self.KW)
 
@@ -376,7 +432,7 @@ class TestGeometryOverrides:
     def test_wrong_length_override_errors(self):
         p, w, sp = _pm()
         with pytest.raises(ValueError, match="length A"):
-            mpt.build_maet(mpt.pre_maet(p, w, sp), r=[1, 1, 1], **self.KW)
+            mpt.build_maet(mpt.pack_pre_maet(p, w, sp), r=[1, 1, 1], **self.KW)
 
 
 def _same(a, b):

@@ -490,7 +490,7 @@ def entropy_maet(
 
     **Pre-MAET input**:
 
-    - ``entropy_maet(pm)``. A pre-MAET (:func:`~mpt.pre_maet`)
+    - ``entropy_maet(pm)``. A pre-MAET (:func:`~mpt.pack_pre_maet`)
       holds everything :func:`build_maet` needs, so it stands
       wherever a density does: it is built internally and no further
       positional arguments are required.

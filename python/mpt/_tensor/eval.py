@@ -87,7 +87,7 @@ def eval_maet(*args,
 
     **Pre-MAET input**:
 
-    - ``eval_maet(pm, X)``. A pre-MAET (:func:`~mpt.pre_maet`)
+    - ``eval_maet(pm, X)``. A pre-MAET (:func:`~mpt.pack_pre_maet`)
       holds everything :func:`build_maet` needs, so it stands
       wherever a density does: it is built internally and evaluated
       at ``X``. Returns ``(nQ,)``.

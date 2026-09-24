@@ -20,9 +20,11 @@ from ._tensor.sweep import sweep_sim_maet, sweep_eligibility
 from ._tensor.preprocessing import (
     TranslateAttributesNoOpWarning,
     TranslatedSweep,
+    bind_attributes,
     bind_events,
     difference_events,
     flat_specs,
+    separate_attributes,
     simplex_vertices,
     translate_attributes,
     select_pre_maet,

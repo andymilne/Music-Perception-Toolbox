@@ -33,7 +33,7 @@ end
 MAX_TOLERATED_CENTRES_SLOWDOWN = 3.0;
 
 %% ---- Never badly wrong: cost-driven centres picks are not much slower ----
-grid = {
+cm_grid = {
   {'A1 abs r2 K6',  30,      2,     false,         false,         0,       6}
   {'A1 abs r2 K20', 30,      2,     false,         false,         0,       20}
   {'A1 abs r3 K8',  30,      3,     false,         false,         0,       8}
@@ -42,8 +42,8 @@ grid = {
   {'A2 rel r2 K8',  [30 25], [2 2], [true true],   [false false], [0 0],   8}
 };
 rng(1, 'twister');
-for gi = 1:numel(grid)
-    c = grid{gi};
+for gi = 1:numel(cm_grid)
+    c = cm_grid{gi};
     [label, sig, rv, rel, per, P, K] = c{:};
     A = numel(sig);
     pas = cell(A, 1);

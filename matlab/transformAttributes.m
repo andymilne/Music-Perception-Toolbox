@@ -8,7 +8,7 @@ function pm = transformAttributes(varargin)
 %   selected attribute is passed through the transform given for that
 %   attribute, and the returned pre-MAET feeds straight into buildMaet
 %   or a further pre-MAET step.%
-%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   The pre-MAET may be passed whole, as packPreMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
 %   In the bare-array form the input is a numeric array rather than a
@@ -87,7 +87,7 @@ function pm = transformAttributes(varargin)
 %            1 x A' cell, extended likewise. In the bare-array form the
 %            transformed numeric array is returned instead.
 %
-%   See also PREMAET, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
+%   See also PACKPREMAET, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
 %   WEIGHTEVENTS, BUILDMAET.
 
 if ~isempty(varargin) && (isnumeric(varargin{1}) || islogical(varargin{1}))
@@ -105,7 +105,7 @@ if ~isempty(varargin) && (isnumeric(varargin{1}) || islogical(varargin{1}))
 end
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
 [pOut, w, specs] = localTransformAttributes(pAttr, wAttr, specsPm, rest{:});
-pm = preMaet(pOut, w, specs);
+pm = packPreMaet(pOut, w, specs);
 end
 
 

@@ -194,6 +194,24 @@ ok = isequal(size(R8), [2, 2]) && R8(1,1) > 0.99 && R8(2,2) > 0.99 ...
      && R8(1,2) < 0.5 && R8(2,1) < 0.5;
 results(end+1, :) = {'windowedSimilarity two-axis map', ok}; %#ok<SAGROW>
 
+% ----- 8b. locate as a per-axis map -------------------------------------
+% A map {axis, rule; ...} names each swept axis's rule, and an axis the map
+% does not name takes 'centroid'. So a map naming only the time axis must
+% reproduce the scalar default on the pitch axis, and differ from the
+% scalar rule applied to both.
+common8b = {'sweep', {2, [1.0, 11.0]; 1, [62.0, 67.0]}, ...
+            'drop', {2, true; 1, false}, 'specs', sb8, 'verbose', false};
+R8b = @(loc) windowedSimilarity(pb8, wb8, qb8, qw8, [SIGP, SIGT], [1, 1], ...
+    [false, false], [false, false], [0.0, 0.0], 'locate', loc, common8b{:});
+mapDefault = R8b({2, 'centroid'});
+mapStart   = R8b({2, 'start'});
+mapBoth    = R8b({1, 'centroid'; 2, 'start'});
+bothStart  = R8b('start');
+ok = max(abs(mapDefault(:) - R8(:))) < tol && ...
+     max(abs(mapStart(:) - mapBoth(:))) < tol && ...
+     max(abs(mapStart(:) - bothStart(:))) > 0.1;
+results(end+1, :) = {'windowedSimilarity locate map', ok}; %#ok<SAGROW>
+
 % ----- 9. locate is wired (centroid vs start peak at different centres) --
 [qb9, qw9, qs9] = unpackPreMaet(bindEvents({[60, 64], [0.0, 0.6]}, [], [1, 2], 'step', 1, 'relOuter', [false, false]));
 cc9 = linspace(-0.4, 0.7, 12);

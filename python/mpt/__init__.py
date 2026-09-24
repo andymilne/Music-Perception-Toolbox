@@ -16,8 +16,8 @@ __version__ = "3.0.0"
 from .spectra import add_spectra
 
 # --- Symbolic scores (MIDI, MusicXML) ---
-from .score import read_score, pre_maet_from_score
-from .grid import grid_events
+from .score import read_score, pre_maet_from_attr_table
+from .grid import grid_attr_table, ungrid_attr_table
 
 # --- Expectation tensors ---
 from .tensor import (
@@ -34,6 +34,8 @@ from .tensor import (
     transform_attributes,
     translate_attributes,
     select_pre_maet,
+    bind_attributes,
+    separate_attributes,
     weight_events,
     TranslateAttributesNoOpWarning,
     TranslatedSweep,
@@ -73,7 +75,7 @@ from ._utils import estimate_comp_time
 
 # Diagnostic: report how a call would be routed, and why.
 from ._tensor.explain import explain_dispatch
-from ._tensor.premaet import pre_maet, unpack_pre_maet
+from ._tensor.premaet import pack_pre_maet, unpack_pre_maet
 from ._tensor.show import show_pre_maet
 from ._tensor.premaet_io import read_pre_maet, write_pre_maet
 
@@ -98,7 +100,7 @@ from ._defaults import (
 
 __all__ = [
     "explain_dispatch",
-    "pre_maet",
+    "pack_pre_maet",
     "unpack_pre_maet",
     "show_pre_maet",
     "read_pre_maet",
@@ -120,11 +122,14 @@ __all__ = [
     "transform_attributes",
     # score
     "read_score",
-    "grid_events",
-    "pre_maet_from_score",
+    "grid_attr_table",
+    "ungrid_attr_table",
+    "pre_maet_from_attr_table",
     "translate_attributes",
     "TranslatedSweep",
     "select_pre_maet",
+    "bind_attributes",
+    "separate_attributes",
     "weight_events",
     "TranslateAttributesNoOpWarning",
     "windowed_similarity",

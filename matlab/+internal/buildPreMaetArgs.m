@@ -48,7 +48,7 @@ function dens = localBuildSweep(pm, verbose)
     M = numel(pm.pAttr);
     dens = cell(1, M);
     for m = 1:M
-        dens{m} = buildMaet(preMaet(pm.pAttr{m}, pm.wAttr, pm.specs), ...
+        dens{m} = buildMaet(packPreMaet(pm.pAttr{m}, pm.wAttr, pm.specs), ...
                                'verbose', verbose);
     end
 end

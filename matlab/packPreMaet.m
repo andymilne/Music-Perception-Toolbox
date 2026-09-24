@@ -1,7 +1,7 @@
-function pm = preMaet(pAttr, wAttr, specs)
-%PREMAET Build a validated pre-MAET.
+function pm = packPreMaet(pAttr, wAttr, specs)
+%PACKPREMAET Build a validated pre-MAET.
 %
-%   PM = PREMAET(PATTR) and PM = PREMAET(PATTR, WATTR, SPECS) return the
+%   PM = PACKPREMAET(PATTR) and PM = PACKPREMAET(PATTR, WATTR, SPECS) return the
 %   pre-MAET (Milne 2026, Def. 2.6) as a single struct with the fields
 %   pAttr, wAttr, and specs. A pre-MAET is an event sequence together with
 %   the elements each event contributes to each attribute and the
@@ -9,8 +9,8 @@ function pm = preMaet(pAttr, wAttr, specs)
 %   always travel together and always describe the same pre-MAET, so the
 %   struct lets one variable hold the whole of it.
 %
-%   PM = PREMAET(PM0) validates an existing pre-MAET and returns a fresh
-%   one; PM = PREMAET(PM0, WATTR, SPECS) replaces the parts given, leaving
+%   PM = PACKPREMAET(PM0) validates an existing pre-MAET and returns a fresh
+%   one; PM = PACKPREMAET(PM0, WATTR, SPECS) replaces the parts given, leaving
 %   the rest of PM0 in place.
 %
 %   It is a plain struct, not an object: its parts remain ordinary cells
@@ -28,6 +28,9 @@ function pm = preMaet(pAttr, wAttr, specs)
 %
 %   Output
 %       pm - struct with fields pAttr, wAttr, and specs.
+%
+%   packPreMaet and unpackPreMaet are inverses: unpackPreMaet(packPreMaet(
+%   pAttr, wAttr, specs)) returns the three parts it was given.
 %
 %   See also UNPACKPREMAET, SHOWPREMAET, FLATSPECS, BUILDMAET.
 
@@ -48,19 +51,19 @@ if internal.isPreMaet(pAttr)
         specs = base.specs;
     end
 elseif isstruct(pAttr)
-    error('preMaet:badPAttr', ...
+    error('packPreMaet:badPAttr', ...
           ['A struct first argument must be a pre-MAET, with the ' ...
            'fields pAttr, wAttr, and specs.']);
 end
 
 if ~iscell(pAttr)
-    error('preMaet:badPAttr', ...
+    error('packPreMaet:badPAttr', ...
           ['pAttr must be a cell of per-attribute value matrices. Wrap a ' ...
            'single attribute as {values}.']);
 end
 A = numel(pAttr);
 if A < 1
-    error('preMaet:noAttrs', 'pAttr must hold at least one attribute.');
+    error('packPreMaet:noAttrs', 'pAttr must hold at least one attribute.');
 end
 
 wAttr = localCheckWeights(wAttr, A);
@@ -80,12 +83,12 @@ if isnumeric(w) && isscalar(w)
 end
 if iscell(w)
     if numel(w) ~= A
-        error('preMaet:badWeightLength', ...
+        error('packPreMaet:badWeightLength', ...
               'wAttr must have length A = %d; got %d.', A, numel(w));
     end
     return;
 end
-error('preMaet:badWeightType', ...
+error('packPreMaet:badWeightType', ...
       ['wAttr must be [], a scalar, or a 1 x A cell of per-attribute ' ...
        'weights.']);
 end
@@ -97,16 +100,16 @@ if isempty(s) && ~iscell(s)
     return;
 end
 if isstruct(s) && isscalar(s)
-    error('preMaet:badSpecs', ...
+    error('packPreMaet:badSpecs', ...
           ['specs must be a 1 x A cell of per-attribute specs. Wrap a ' ...
            'single spec as {spec}.']);
 end
 if ~iscell(s)
-    error('preMaet:badSpecs', ...
+    error('packPreMaet:badSpecs', ...
           'specs must be [] or a 1 x A cell of per-attribute specs.');
 end
 if numel(s) ~= A
-    error('preMaet:badSpecsLength', ...
+    error('packPreMaet:badSpecsLength', ...
           'specs must have length A = %d; got %d.', A, numel(s));
 end
 end

@@ -131,7 +131,7 @@ else
     w = [];
 end
 
-pm = preMaet(pAttr, w, specs);
+pm = packPreMaet(pAttr, w, specs);
 end
 
 

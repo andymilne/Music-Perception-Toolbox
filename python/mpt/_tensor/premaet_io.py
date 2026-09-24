@@ -26,7 +26,7 @@ import io
 
 import numpy as np
 
-from .premaet import pre_maet, shift_lead
+from .premaet import pack_pre_maet, shift_lead
 
 PARAM_COLUMNS = ("name", "sigma", "r", "rel", "per", "P", "exch")
 
@@ -355,7 +355,7 @@ def read_pre_maet(source, *, delimiter=","):
             w_out[a] = np.where(np.isnan(p_attr[a]), np.nan, w_out[a])
     else:
         w_out = None
-    return pre_maet(p_attr, w_out, specs)
+    return pack_pre_maet(p_attr, w_out, specs)
 
 
 def _isnan(v):

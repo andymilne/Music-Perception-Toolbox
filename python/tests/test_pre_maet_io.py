@@ -153,17 +153,29 @@ class TestOperatorRules:
 
 class TestFromScore:
 
-    def test_score_gives_periodicity_but_not_width(self):
-        """A score states its attributes' periodicity and implies no
-        kernel width, so sigma is left for the analyst."""
+    def test_the_conversion_carries_the_analyst_s_parameters(self):
+        """A score reads its values as written, so periodicity is false
+        unless the analyst asks for it; the width is always the
+        analyst's, and the conversion refuses without one."""
         import os
         src = os.path.join(os.path.dirname(__file__), "data",
                            "score_small.musicxml")
-        _, _, specs = mpt.unpack_pre_maet(mpt.pre_maet_from_score(
-            src, attributes=("pitch",), chords="separate"))
+        _, _, specs = mpt.unpack_pre_maet(mpt.pre_maet_from_attr_table(
+            mpt.read_score(src), chords="separate",
+            attributes=(dict(column="pitch", sigma=0.5),)))
+        assert specs[0]["sigma"] == 0.5
         assert specs[0]["is_per"] is False
         assert specs[0]["period"] == 0.0
-        assert "sigma" not in specs[0]
+
+        _, _, specs = mpt.unpack_pre_maet(mpt.pre_maet_from_attr_table(
+            mpt.read_score(src), chords="separate",
+            attributes=(dict(column="pitch", sigma=0.5, is_per=True,
+                             period=12.0),)))
+        assert specs[0]["is_per"] is True and specs[0]["period"] == 12.0
+
+        with pytest.raises(ValueError, match="no sigma"):
+            mpt.pre_maet_from_attr_table(
+                mpt.read_score(src), chords="separate", attributes=(dict(column="pitch"),))
 
 
 FLAT = '''name,sigma,r,rel,per,P,exch,n = 1,n = 2,n = 3

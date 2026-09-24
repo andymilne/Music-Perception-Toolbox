@@ -8,16 +8,37 @@ from ._utils import validate_weights
 
 
 def add_spectra(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    mode: str,
+    p,
+    w=None,
+    mode=None,
     *args,
+    attribute=None,
+    specs=None,
     units: float = 1200.0,
-) -> tuple[np.ndarray, np.ndarray]:
+):
     """Add spectral partials to a weighted pitch multiset.
 
     Five modes determine the partial positions; for the first four,
     a sub-option selects the weight decay law.
+
+    Two forms. Given a single weighted multiset, ``add_spectra(p, w,
+    mode, ...)`` returns the expanded ``(p, w)`` pair, and this is the
+    primitive the harmony, entropy and consonance functions call.
+    Given a pre-MAET, ``add_spectra(pm, mode, ..., attribute=a)``
+    expands attribute ``a`` of every event at once and returns a
+    pre-MAET, as the other pre-MAET preprocessors do. The expansion
+    multiplies the attribute's ``K`` by the number of partials and
+    leaves ``N`` and the spec alone; padded slots stay padded, a
+    missing value having no spectrum. Partials of one value differ in
+    weight, so the result always carries weights, even where the input
+    carried none. The expanded rows come in the order the
+    single-multiset form gives them, which each language flattens in its
+    own way.
+
+    The bare ``p_attr`` / ``w_attr`` form the other preprocessors
+    offer is not available here: its positional layout cannot be told
+    apart from the single-multiset form, which is this function's
+    alone.
 
     Parameters
     ----------
@@ -32,6 +53,12 @@ def add_spectra(
     *args
         Mode-specific arguments (N, decay type, decay parameter,
         etc.). See the MATLAB ``help addSpectra`` for full details.
+    attribute : int or str, optional
+        Which attribute of a pre-MAET takes the partials, by position
+        or by name. Required in the pre-MAET form and refused in the
+        other.
+    specs : sequence of dict, optional
+        The specs to read in place of the pre-MAET's own.
     units : float
         Cents per unit (default 1200 = one octave per unit of
         log₂ frequency).
@@ -43,9 +70,95 @@ def add_spectra(
     w_out : np.ndarray
         Corresponding weights.
     """
+    if _is_pre_maet(p):
+        # Given a pre-MAET, every positional argument after it sits one
+        # slot early; the weights come from the pre-MAET itself.
+        if w is None:
+            lead, rest = mode, args
+        else:
+            lead, rest = w, ((mode,) if mode is not None else ()) + args
+        return _add_to_pre_maet(p, lead, rest, attribute=attribute,
+                                specs=specs, units=units)
+    if attribute is not None:
+        raise TypeError(
+            "add_spectra: 'attribute' names which attribute of a pre-MAET "
+            "takes partials, and this call gave a single multiset.")
+
     p = np.asarray(p, dtype=np.float64).ravel()
     w = validate_weights(w, len(p))
+    offsets, spec_w = _partials(mode, args, units)
 
+    # Build output: each pitch gets every partial offset.
+    # p is (M,), offsets is (K,) → broadcasting gives (M, K).
+    p_matrix = p[:, None] + offsets[None, :]
+    w_matrix = w[:, None] * spec_w[None, :]
+
+    return p_matrix.ravel(), w_matrix.ravel()
+
+
+def _is_pre_maet(obj):
+    from ._tensor.premaet import is_pre_maet
+    return is_pre_maet(obj)
+
+
+def _add_to_pre_maet(pm, mode, args, *, attribute, specs, units):
+    """Give one attribute of a pre-MAET its partials, at every event."""
+    from ._tensor.premaet import pack_pre_maet, unpack_pre_maet
+    from ._tensor.preprocessing import _select_indices, flat_specs
+
+    p_attr, w_attr, pm_specs = unpack_pre_maet(pm)
+    p_attr = [np.asarray(M, dtype=np.float64) for M in p_attr]
+    A = len(p_attr)
+    specs_in = list(flat_specs(p_attr) if (specs is None and pm_specs is None)
+                    else (pm_specs if specs is None else specs))
+    if len(specs_in) != A:
+        raise ValueError(
+            f"specs must be a length-A ({A}) sequence, one per attribute.")
+    if mode is None:
+        raise ValueError("add_spectra needs a mode.")
+    if attribute is None:
+        raise ValueError(
+            "add_spectra needs the attribute whose values take partials: a "
+            "pre-MAET may carry several and a spectrum belongs to one.")
+    names = [s.get("name") for s in specs_in]
+    idx = _select_indices([attribute], A, "attribute", names)
+    if len(idx) != 1:
+        raise ValueError(
+            "add_spectra takes one attribute; a spectrum belongs to one set "
+            "of values.")
+    at = int(idx[0])
+    spec = dict(specs_in[at])
+    if not spec.get("exch", True) and int(spec.get("r", 1)) > 1:
+        raise ValueError(
+            f"attribute {names[at]!r} is read in order at r = "
+            f"{int(spec['r'])}, so its positions carry meaning that adding "
+            "partials would scramble: a tuple would take the first value's "
+            "partials rather than one value from each position. Add the "
+            "partials before the attributes are bound, or read this one as "
+            "a multiset.")
+
+    offsets, spec_w = _partials(mode, args, units)
+    values = p_attr[at]
+    K, N = values.shape
+    weights = (np.ones((K, N)) if w_attr is None
+               else np.asarray(w_attr[at], dtype=np.float64))
+    P = offsets.size
+    grown = (values[:, None, :] + offsets[None, :, None]).reshape(K * P, N)
+    grownW = (weights[:, None, :] * spec_w[None, :, None]).reshape(K * P, N)
+
+    p_out, w_out = list(p_attr), []
+    p_out[at] = grown
+    for a in range(A):
+        if a == at:
+            w_out.append(grownW)
+        elif w_attr is None:
+            w_out.append(np.ones(p_attr[a].shape))
+        else:
+            w_out.append(np.asarray(w_attr[a], dtype=np.float64))
+    return pack_pre_maet(p_out, w_out, specs_in)
+
+def _partials(mode, args, units):
+    """The partial offsets and their weights, for one mode."""
     mode = mode.lower()
 
     if mode == "harmonic":
@@ -120,13 +233,7 @@ def add_spectra(
             "'freqlinear', 'stiff', or 'custom'."
         )
 
-    # Build output: each pitch gets every partial offset.
-    # p is (M,), offsets is (K,) → broadcasting gives (M, K).
-    p_matrix = p[:, None] + offsets[None, :]
-    w_matrix = w[:, None] * spec_w[None, :]
-
-    return p_matrix.ravel(), w_matrix.ravel()
-
+    return offsets, spec_w
 
 # -------------------------------------------------------------------
 #  Helpers

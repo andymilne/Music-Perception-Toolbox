@@ -1,21 +1,46 @@
-function pm = preMaetFromScore(source, nvArgs)
-%PREMAETFROMSCORE  Build a pre-MAET from a score.
+function pm = preMaetFromAttrTable(T, nvArgs)
+%PREMAETFROMATTRTABLE  Build a pre-MAET from an attribute table.
 %
-%   PM = preMaetFromScore(source, ...)
+%   PM = preMaetFromAttrTable(T, ...)
 %
-%   source is a file path (parsed with readScore: MIDI, MusicXML, or .mxl)
-%   or an event table from readScore. The output is the pre-MAET that
-%   buildMaet and the pre-MAET preprocessors consume.
+%   T is an attribute table, as readScore returns and gridAttrTable passes on.
+%   A score file is read first, with readScore; converting reads a table
+%   and nothing else. The output is the pre-MAET that buildMaet and the
+%   pre-MAET preprocessors consume.
 %
 %   Name-value pairs
-%       'attributes'     - cell of names from {'pitch', 'onset', 'duration',
+%       'attributes'     - required: a cell of one entry per attribute, in
+%                          order. An entry is a struct carrying its column
+%                          in a 'column' field together with the
+%                          attribute's own parameters: 'name', 'sigma',
+%                          'r', 'exch', 'rel', 'isPer', 'period'. The ten
+%                          names 'pitch', 'onset', 'duration',
 %                          'soundingDuration', 'velocity', 'weight',
-%                          'noteNumber', 'part', 'measure', 'fermata'}, in
-%                          order (default {'pitch', 'onset'}). The last four
-%                          need a column the source carries, and raise where
-%                          it does not. On a gridded table 'onset' reads the
-%                          grid's onset, the event there being the grid
-%                          point rather than any one note.
+%                          'noteNumber', 'part', 'measure', and 'fermata'
+%                          get the score-specific treatment (the pitch
+%                          scale, beats against seconds, the grid's
+%                          onset); any other column of the table is read
+%                          as it stands, so a table that never saw a
+%                          score converts too. A categorical column is
+%                          refused here and belongs to 'roles', its
+%                          levels not being values on a line. Listing one column twice gives two
+%                          attributes of the same values, read under
+%                          different parameters, which is how pitch class
+%                          and pitch height are taken from one pitch column.
+%
+%                            preMaetFromAttrTable(T, 'attributes', { ...
+%                              struct('column','pitch','name','pitchClass', ...
+%                                     'sigma',0.5,'isPer',true,'period',12), ...
+%                              struct('column','pitch','name','pitchHeight', ...
+%                                     'sigma',8), ...
+%                              struct('column','onset','sigma',0.5)}, ...
+%                              'time', 'beats')
+%
+%                          Of the ten, the last four need a column the
+%                          source carries, and raise where it does not. On a
+%                          gridded table 'onset' reads the grid's onset, the
+%                          event there being the grid point rather than any
+%                          one note.
 %       'pitch'          - pitch scale: 'midi' (default), 'cents', 'hz',
 %                          'octave', or any pitch scale of transformAttributes.
 %       'time'           - 'seconds' (default) or 'beats' (quarter notes)
@@ -25,7 +50,10 @@ function pm = preMaetFromScore(source, nvArgs)
 %                          (the table's weight column, which folds channel
 %                          volume and expression into the velocity).
 %       'parts'          - [] (all), the 1-based parts to keep, or a cell
-%                          or string array of part names.
+%                          or string array of part names. A convenience
+%                          for the common case; selecting rows of the
+%                          table before converting is the more general
+%                          route, and reaches any column.
 %       'chords'         - 'bind' (default) gathers notes that start together
 %                          (within 'chordTolerance', in the chosen time unit)
 %                          into one event whose pitch, duration, velocity,
@@ -38,7 +66,21 @@ function pm = preMaetFromScore(source, nvArgs)
 %       'roles'          - struct mapping a categorical column to how it
 %                          reaches the pre-MAET: 'separateAttributes',
 %                          'orderedMultiset', 'simplex', or 'drop'. A
-%                          column with no entry is not encoded.
+%                          column with no entry is not encoded. A value
+%                          may instead be a struct carrying the role in a
+%                          'role' field together with the parameters of the
+%                          attribute the role creates, which is how a
+%                          simplex-coded category is given its own sigma:
+%                          struct('role', 'simplex', 'sigma', 0.2).
+%
+%                          Where a role fixes 'r' or 'exch' and a value is
+%                          supplied too: under 'orderedMultiset' the
+%                          supplied value is taken and a warning names what
+%                          the role implies, the role having only arranged
+%                          existing values into slots; under 'simplex' it
+%                          is refused, the role having replaced the level
+%                          with coordinates that denote a vertex only read
+%                          whole and in order.
 %
 %                          The first two are STRUCTURAL: the level is
 %                          realized as which attribute you are in, or as
@@ -98,12 +140,22 @@ function pm = preMaetFromScore(source, nvArgs)
 %            slots carry weight 0), or [] under 'ones'; specs a 1 x A cell
 %            of flat specs, named after the attributes.
 %
-%   See also PREMAET, READSCORE, BUILDMAET, TRANSFORMATTRIBUTES,
+%            The pre-MAET is complete: every attribute carries the
+%            parameters its density needs, so it is ready for buildMaet
+%            without anything being set on the specs afterwards. The
+%            conversion fills in only what follows from the data or from
+%            another argument -- the values, r and exch under a structural
+%            role, and reading a value as written for rel and isPer -- and
+%            asks for the rest: sigma always, and r and exch where an
+%            attribute holds more than one value at an event and no role
+%            has fixed them.
+%
+%   See also PACKPREMAET, READSCORE, BUILDMAET, TRANSFORMATTRIBUTES,
 %            FLATSPECS.
 
     arguments
-        source
-        nvArgs.attributes = {'pitch', 'onset'}
+        T table
+        nvArgs.attributes = {}
         nvArgs.pitch (1,:) char = 'midi'
         nvArgs.time (1,:) char = 'seconds'
         nvArgs.weights (1,:) char = 'velocity'
@@ -115,29 +167,54 @@ function pm = preMaetFromScore(source, nvArgs)
         nvArgs.names (1,1) logical = true
     end
 
-    if ischar(source) || isstring(source)
-        notes = readScore(char(source));
-    else
-        notes = source;
+    notes = T;
+    if isempty(nvArgs.attributes)
+        error('preMaetFromAttrTable:noAttributes', ...
+              ['''attributes'' is required: a pre-MAET is its attributes, ' ...
+               'and each carries parameters a score cannot supply. Write ' ...
+               '{struct(''column'', ''pitch'', ''sigma'', 0.5), ...}.']);
     end
-    attributes = cellfun(@(a) lower(char(a)), cellstr(nvArgs.attributes), 'UniformOutput', false);
-    allowed = {'pitch', 'onset', 'duration', 'soundingDuration', 'velocity', ...
-               'weight', 'noteNumber', 'part', 'measure', 'fermata'};
+    [attributes, suppliedSpecs] = localEntries(nvArgs.attributes, 'attributes');
+    known = {'pitch', 'onset', 'duration', 'soundingDuration', 'velocity', ...
+             'weight', 'noteNumber', 'part', 'measure', 'fermata'};
+    % The ten known names get the score-specific treatment -- the pitch
+    % scale, beats against seconds, the grid's onset. Any other column of
+    % the table is read as it stands, so a table that never saw a score
+    % converts too. A known name is matched without regard to case and
+    % then taken in its canonical spelling.
+    extra = {};
     for i = 1:numel(attributes)
-        if ~any(strcmp(attributes{i}, allowed))
-            error('preMaetFromScore:attribute', ...
-                  'Unknown attribute ''%s''; choose from %s.', attributes{i}, strjoin(allowed, ', '));
+        k = find(strcmpi(attributes{i}, known), 1);
+        if ~isempty(k)
+            attributes{i} = known{k};
+            continue;
         end
+        if ~any(strcmp(notes.Properties.VariableNames, attributes{i}))
+            error('preMaetFromAttrTable:attribute', ...
+                  ['Unknown attribute ''%s'': it is neither one of the ' ...
+                   'score attributes (%s) nor a column of the table.'], ...
+                  attributes{i}, strjoin(known, ', '));
+        end
+        if iscategorical(notes.(attributes{i})) ...
+                || iscellstr(notes.(attributes{i})) ...
+                || isstring(notes.(attributes{i}))
+            error('preMaetFromAttrTable:categoricalAttribute', ...
+                  ['Attribute ''%s'' reads a categorical column, whose ' ...
+                   'levels are not values on a line. Give it to ''roles'' ' ...
+                   'instead, which says how a category reaches the ' ...
+                   'pre-MAET.'], attributes{i});
+        end
+        extra{end + 1} = attributes{i}; %#ok<AGROW>
     end
     if ~any(strcmp(nvArgs.time, {'seconds', 'beats'}))
-        error('preMaetFromScore:time', 'time must be ''seconds'' or ''beats''.');
+        error('preMaetFromAttrTable:time', 'time must be ''seconds'' or ''beats''.');
     end
     if ~any(strcmp(nvArgs.weights, {'velocity', 'ones', 'duration', 'weight'}))
-        error('preMaetFromScore:weights', ...
+        error('preMaetFromAttrTable:weights', ...
               'weights must be ''velocity'', ''ones'', ''duration'', or ''weight''.');
     end
     if ~any(strcmp(nvArgs.chords, {'bind', 'separate'}))
-        error('preMaetFromScore:chords', 'chords must be ''bind'' or ''separate''.');
+        error('preMaetFromAttrTable:chords', 'chords must be ''bind'' or ''separate''.');
     end
 
     % How a categorical column reaches the pre-MAET. The first two roles
@@ -150,22 +227,26 @@ function pm = preMaetFromScore(source, nvArgs)
     structuralRole = '';
     simplexColumns = {};
     roleNames = fieldnames(nvArgs.roles);
+    roleSpecs = struct();
     for i = 1:numel(roleNames)
         column = roleNames{i};
-        role = char(nvArgs.roles.(column));
+        [roleCell, roleSpecCell] = localEntries({nvArgs.roles.(column)}, 'roles');
+        roleSpecs.(column) = roleSpecCell{1};
+        k = find(strcmpi(roleCell{1}, allRoles), 1);
+        if ~isempty(k); role = allRoles{k}; else; role = roleCell{1}; end
         if ~any(strcmp(role, allRoles))
-            error('preMaetFromScore:unknownRole', ...
+            error('preMaetFromAttrTable:unknownRole', ...
                   'roles.%s: unknown role ''%s''; choose from %s.', ...
                   column, role, strjoin(allRoles, ', '));
         end
         if ~any(strcmp(notes.Properties.VariableNames, column))
-            error('preMaetFromScore:unknownColumn', ...
+            error('preMaetFromAttrTable:unknownColumn', ...
                   'roles names column ''%s'', which the table does not have.', ...
                   column);
         end
         if strcmp(role, 'drop'); continue; end
         if ~iscategorical(notes.(column))
-            error('preMaetFromScore:roleKind', ...
+            error('preMaetFromAttrTable:roleKind', ...
                   ['roles.%s: a role needs a categorical column, and %s ' ...
                    'is %s.'], column, column, class(notes.(column)));
         end
@@ -174,7 +255,7 @@ function pm = preMaetFromScore(source, nvArgs)
             continue;
         end
         if ~isempty(structuralColumn)
-            error('preMaetFromScore:twoStructural', ...
+            error('preMaetFromAttrTable:twoStructural', ...
                   ['roles.%s: only one category may be structural against ' ...
                    'a given value set, and ''%s'' already is. A structural ' ...
                    'category individuates the values sounding together; two ' ...
@@ -190,44 +271,63 @@ function pm = preMaetFromScore(source, nvArgs)
         structuralRole = role;
     end
     if ~isempty(structuralColumn) && ~strcmp(nvArgs.chords, 'bind')
-        error('preMaetFromScore:structuralNeedsBind', ...
+        error('preMaetFromAttrTable:structuralNeedsBind', ...
               ['roles.%s is structural, which gathers the rows of an event ' ...
                'into one; that needs ''chords'', ''bind''.'], structuralColumn);
     end
     if ~isempty(simplexColumns) && isempty(structuralColumn) ...
             && strcmp(nvArgs.chords, 'bind')
-        error('preMaetFromScore:simplexNeedsSeparate', ...
+        error('preMaetFromAttrTable:simplexNeedsSeparate', ...
               ['The ''simplex'' role carries the level as a value at each ' ...
                'event, so each concurrently-sounding note is its own event; ' ...
                'that needs ''chords'', ''separate'', or a structural ' ...
                'category to tag within.']);
     end
 
-    if ~istable(notes)
-        error('preMaetFromScore:source', ...
-              ['source must be a file path or an event table from ' ...
-               'readScore; got %s.'], class(notes));
-    end
     vars = notes.Properties.VariableNames;
-    needs = {'soundingDuration', 'soundingDurationBeats'; ...
+    if strcmp(nvArgs.time, 'seconds')
+        unit = 'Seconds'; other = 'Beats';
+    else
+        unit = 'Beats'; other = 'Seconds';
+    end
+    % Of the ten names, these need a column the source carries. A table
+    % that never saw a score carries few of them, and asks for none of
+    % them, so each is read only where something names it.
+    needs = {'soundingDuration', ['soundingDuration', unit]; ...
+             'duration',         ['duration', unit]; ...
              'weight',           'weight'; ...
              'noteNumber',       'noteNumber'; ...
-             'fermata',          'fermata'};
+             'fermata',          'fermata'; ...
+             'velocity',         'velocity'; ...
+             'part',             'part'; ...
+             'measure',          'measure'};
     for i = 1:size(needs, 1)
         if any(strcmp(needs{i, 1}, attributes)) && ~any(strcmp(vars, needs{i, 2}))
-            error('preMaetFromScore:missingColumn', ...
+            error('preMaetFromAttrTable:missingColumn', ...
                   ['The table has no ''%s'' column, so ''%s'' cannot be an ' ...
                    'attribute; this source does not carry it.'], ...
                   needs{i, 2}, needs{i, 1});
         end
     end
-    if strcmp(nvArgs.weights, 'weight') && ~any(strcmp(vars, 'weight'))
-        error('preMaetFromScore:noWeight', ...
-              ['weights ''weight'' needs a ''weight'' column, which this ' ...
-               'source does not carry.']);
+    policies = {'weight', 'weight'; 'velocity', 'velocity'; ...
+                'duration', ['duration', unit]};
+    for i = 1:size(policies, 1)
+        if strcmp(nvArgs.weights, policies{i, 1}) ...
+                && ~any(strcmp(vars, policies{i, 2}))
+            error('preMaetFromAttrTable:noWeight', ...
+                  ['weights ''%s'' needs a ''%s'' column, which this ' ...
+                   'source does not carry.'], policies{i, 1}, policies{i, 2});
+        end
+    end
+    hasPart = any(strcmp(vars, 'part'));
+    if ~isempty(nvArgs.parts) && ~hasPart
+        error('preMaetFromAttrTable:missingColumn', ...
+              ['''parts'' selects by part, and this source has no ''part'' ' ...
+               'column. Selecting rows of the table before converting is ' ...
+               'the more general route, and reaches any column.']);
     end
 
-    partCodes = double(notes.part);
+    if hasPart; partCodes = double(notes.part); else; partCodes = []; end
     keep = true(height(notes), 1);
     if ~isempty(nvArgs.parts)
         wanted = nvArgs.parts;
@@ -237,11 +337,6 @@ function pm = preMaetFromScore(source, nvArgs)
             keep = keep & ismember(cellstr(notes.part), cellstr(wanted));
         end
     end
-    if strcmp(nvArgs.time, 'seconds')
-        unit = 'Seconds'; other = 'Beats';
-    else
-        unit = 'Beats'; other = 'Seconds';
-    end
     % On a gridded table the event is the grid point, so its onset is the
     % grid's, not the onset of whichever note happens to be in the first
     % slot. The note's own onset stays in the table for selection.
@@ -249,19 +344,19 @@ function pm = preMaetFromScore(source, nvArgs)
     if any(strcmp(vars, ['gridOnset', unit]))
         onsetName = ['gridOnset', unit];
     elseif any(strcmp(vars, ['gridOnset', other]))
-        error('preMaetFromScore:gridUnit', ...
+        error('preMaetFromAttrTable:gridUnit', ...
               ['The table was gridded over %s, so time ''%s'' has no grid ' ...
                'onset to read; grid over %s or convert with that unit.'], ...
               lower(other), nvArgs.time, nvArgs.time);
     end
+    optional = @(name) localOptional(notes, name, keep);
     onset = notes.(onsetName)(keep);
-    dur = notes.(['duration', unit])(keep);
+    dur = optional(['duration', unit]);
     soundingName = ['soundingDuration', unit];
     midi = notes.pitch(keep);
-    vel = notes.velocity(keep);
-    part = partCodes(keep);
-    measure = double(notes.measure(keep));
-    optional = @(name) localOptional(notes, name, keep);
+    vel = optional('velocity');
+    if hasPart; part = partCodes(keep); else; part = zeros(sum(keep), 1); end
+    measure = optional('measure');
     sounding = optional(soundingName);
     noteNumber = optional('noteNumber');
     weightCol = optional('weight');
@@ -277,6 +372,9 @@ function pm = preMaetFromScore(source, nvArgs)
                      'soundingDuration', sounding, 'velocity', vel, ...
                      'weight', weightCol, 'noteNumber', noteNumber, ...
                      'part', part, 'measure', measure, 'fermata', fermata);
+    for i = 1:numel(extra)
+        perNote.(extra{i}) = localOptional(notes, extra{i}, keep);
+    end
     switch nvArgs.weights
         case 'velocity', wNote = vel / 127;
         case 'duration', wNote = dur;
@@ -288,7 +386,7 @@ function pm = preMaetFromScore(source, nvArgs)
     % grid position, already says which rows share an event, and the
     % onset tolerance then does not apply.
     if ~isempty(nvArgs.groupBy) && ~any(strcmp(vars, char(nvArgs.groupBy)))
-        error('preMaetFromScore:unknownColumn', ...
+        error('preMaetFromAttrTable:unknownColumn', ...
               'groupBy names column ''%s'', which the table does not have.', ...
               char(nvArgs.groupBy));
     end
@@ -366,7 +464,7 @@ function pm = preMaetFromScore(source, nvArgs)
             else
                 gridded = '';
             end
-            warning('preMaetFromScore:incompleteEvents', ...
+            warning('preMaetFromAttrTable:incompleteEvents', ...
                     ['%d of %d events do not hold exactly one %s per level, ' ...
                      'so they are dropped%s. A structural category fills ' ...
                      'every slot of every event.'], ...
@@ -385,9 +483,13 @@ function pm = preMaetFromScore(source, nvArgs)
     specR = zeros(1, 0);
     specExch = false(1, 0);
     specNames = {};
+    specSupplied = {};
+    specFixed = {};
 
     for a = 1:numel(attributes)
         name = attributes{a};
+        supplied = suppliedSpecs{a};
+        if isfield(supplied, 'name'); base = supplied.name; else; base = name; end
         vals = perNote.(name);
         % The notes gathered into one event share an onset and a bar,
         % so a structural category does not split either: one
@@ -421,7 +523,8 @@ function pm = preMaetFromScore(source, nvArgs)
                 end
             end
             [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
-                pAttr, wList, specR, specExch, specNames, M, W, 1, true, name);
+                pAttr, wList, specR, specExch, specNames, M, W, 1, true, base);
+            specSupplied{end + 1} = supplied; specFixed{end + 1} = '';
         elseif isEventLevel
             M = nan(1, N);
             for n = 1:N
@@ -429,7 +532,8 @@ function pm = preMaetFromScore(source, nvArgs)
             end
             [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
                 pAttr, wList, specR, specExch, specNames, M, ones(1, N), ...
-                1, true, name);
+                1, true, base);
+            specSupplied{end + 1} = supplied; specFixed{end + 1} = '';
         elseif strcmp(structuralRole, 'separateAttributes')
             for v = 1:numel(levels)
                 M = nan(1, N);
@@ -440,7 +544,8 @@ function pm = preMaetFromScore(source, nvArgs)
                 end
                 [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
                     pAttr, wList, specR, specExch, specNames, M, W, 1, true, ...
-                    sprintf('%s_%s', name, levels{v}));
+                    sprintf('%s_%s', base, levels{v}));
+                specSupplied{end + 1} = supplied; specFixed{end + 1} = '';
             end
         else
             V = numel(levels);
@@ -453,7 +558,9 @@ function pm = preMaetFromScore(source, nvArgs)
                 end
             end
             [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
-                pAttr, wList, specR, specExch, specNames, M, W, V, false, name);
+                pAttr, wList, specR, specExch, specNames, M, W, V, false, base);
+            specSupplied{end + 1} = supplied;
+            specFixed{end + 1} = 'orderedMultiset';
         end
     end
 
@@ -463,6 +570,8 @@ function pm = preMaetFromScore(source, nvArgs)
     % its other attributes, and the attributes multiply.
     for i = 1:numel(simplexColumns)
         column = simplexColumns{i};
+        supplied = roleSpecs.(column);
+        if isfield(supplied, 'name'); base = supplied.name; else; base = column; end
         vertices = simplexVertices(numel(categories(notes.(column))));
         d = size(vertices, 2);
         codesS = double(notes.(column));
@@ -475,7 +584,8 @@ function pm = preMaetFromScore(source, nvArgs)
             end
             [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
                 pAttr, wList, specR, specExch, specNames, M, ones(d, N), ...
-                d, false, column);
+                d, false, base);
+            specSupplied{end + 1} = supplied; specFixed{end + 1} = 'simplex';
         else
             for v = 1:numel(levels)
                 M = nan(d, N);
@@ -485,7 +595,9 @@ function pm = preMaetFromScore(source, nvArgs)
                 end
                 [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
                     pAttr, wList, specR, specExch, specNames, M, ones(d, N), ...
-                    d, false, sprintf('%s_%s', column, levels{v}));
+                    d, false, sprintf('%s_%s', base, levels{v}));
+                specSupplied{end + 1} = supplied;
+                specFixed{end + 1} = 'simplex';
             end
         end
     end
@@ -501,20 +613,12 @@ function pm = preMaetFromScore(source, nvArgs)
     else
         specs = flatSpecs(pAttr, 'r', specR, 'exch', specExch);
     end
-    % A score determines the periodicity of its attributes and not their
-    % kernel widths. Pitches, onsets, durations, velocities, parts, bars
-    % and fermatas are all read as they are written -- absolute, on an
-    % unbounded axis -- so [per] = 0 and the period is inert; octave
-    % equivalence is an equivalence the analyst imposes, not one the score
-    % states. Sigma is left unset rather than defaulted, because there is
-    % no width a score implies: buildMaet will then name the attribute
-    % that still needs one.
     for a = 1:numel(specs)
-        specs{a}.isPer = false;
-        specs{a}.period = 0;
+        specs{a} = localMergeSpec(specs{a}, specSupplied{a}, ...
+                                  specFixed{a}, size(pAttr{a}, 1));
     end
 
-    pm = preMaet(pAttr, w, specs);
+    pm = packPreMaet(pAttr, w, specs);
 end
 
 
@@ -526,6 +630,166 @@ function v = localOptional(notes, name, keep)
         v = double(notes.(name)(keep));
     else
         v = zeros(sum(keep), 1);
+    end
+end
+
+
+function [subjects, supplied] = localEntries(entries, what)
+    % Split each 'attributes' or 'roles' entry into its subject and the
+    % per-attribute parameters it carries. A plain name is the subject
+    % with no parameters, which is the form that predates the
+    % spec-carrying one.
+    fields = {'name', 'sigma', 'r', 'exch', 'rel', 'isPer', 'period'};
+    if ~iscell(entries); entries = cellstr(entries); end
+    subjects = cell(1, numel(entries));
+    supplied = cell(1, numel(entries));
+    if strcmp(what, 'attributes'); key = 'column'; else; key = 'role'; end
+    for i = 1:numel(entries)
+        e = entries{i};
+        if ischar(e) || isstring(e)
+            if strcmp(what, 'attributes')
+                error('preMaetFromAttrTable:badEntry', ...
+                      ['attributes.%s: an attribute is given as a struct ' ...
+                       'of its column and its parameters, not as a bare ' ...
+                       'name, since a name carries no sigma. Write ' ...
+                       'struct(''column'', ''%s'', ''sigma'', ...).'], ...
+                      char(e), char(e));
+            end
+            subjects{i} = char(e);
+            supplied{i} = struct();
+            continue;
+        end
+        if ~isstruct(e) || ~isscalar(e)
+            error('preMaetFromAttrTable:badEntry', ...
+                  ['An %s entry must be a name or a scalar struct; got ' ...
+                   '%s.'], what, class(e));
+        end
+        if ~isfield(e, key)
+            error('preMaetFromAttrTable:badEntry', ...
+                  ['An %s entry given as a struct needs a ''%s'' field; ' ...
+                   'got %s.'], what, key, strjoin(fieldnames(e).', ', '));
+        end
+        subjects{i} = char(e.(key));
+        e = rmfield(e, key);
+        unknown = setdiff(fieldnames(e).', fields);
+        if ~isempty(unknown)
+            error('preMaetFromAttrTable:badEntry', ...
+                  '%s.%s: unknown parameter(s) %s; choose from %s.', ...
+                  what, subjects{i}, strjoin(unknown, ', '), ...
+                  strjoin(fields, ', '));
+        end
+        if isfield(e, 'isPer') && e.isPer && ~isfield(e, 'period')
+            error('preMaetFromAttrTable:badEntry', ...
+                  '%s.%s: isPer is set, so it needs a period.', ...
+                  what, subjects{i});
+        end
+        supplied{i} = e;
+    end
+end
+
+
+function spec = localMergeSpec(spec, supplied, fixed, K)
+    % Fold one attribute's supplied parameters into the spec the
+    % conversion built, and settle any conflict with a role.
+    %
+    % A role fixes r and exch for the attributes it governs. Under
+    % 'orderedMultiset' the role only arranges existing values into
+    % slots, so how many are drawn from them and whether their order
+    % counts remain the analyst's questions and a supplied value wins,
+    % with a warning. Under 'simplex' the role replaces the level with
+    % the coordinates of a simplex vertex, which denote a vertex only
+    % read whole and in order, so a supplied value is refused.
+    roleR = spec.r;
+    roleExch = spec.exch;
+    hasR = isfield(supplied, 'r');
+    hasExch = isfield(supplied, 'exch');
+
+    switch fixed
+      case 'simplex'
+        if hasR && double(supplied.r) ~= roleR
+            error('preMaetFromAttrTable:simplexTupleSize', ...
+                  ['%s: the ''simplex'' role carries the level as the %d ' ...
+                   'coordinates of a simplex vertex, read whole, so r ' ...
+                   'must be %d and not %d. A tuple of some of a point''s ' ...
+                   'coordinates is not a point. To compare runs of levels ' ...
+                   'rather than one level, nest: bindAttributes then ' ...
+                   'bindEvents, giving an outer tuple size over positions ' ...
+                   '(r = (%d, 2) for pairs of levels in order). The ' ...
+                   'grammar analysis of the JMM online supplement is the ' ...
+                   'worked case.'], ...
+                  spec.name, roleR, roleR, double(supplied.r), roleR);
+        end
+        if hasExch && supplied.exch
+            error('preMaetFromAttrTable:simplexOrder', ...
+                  ['%s: the ''simplex'' role''s coordinates are read in ' ...
+                   'order, so exch must be false; permuting them gives a ' ...
+                   'point that is not a vertex.'], spec.name);
+        end
+      case 'orderedMultiset'
+        if hasR && double(supplied.r) ~= roleR
+            warning('preMaetFromAttrTable:tupleSizeOverride', ...
+                    ['%s: the ''orderedMultiset'' role fills %d slots, so ' ...
+                     'it implies r = %d; taking the supplied r = %d, which ' ...
+                     'reads tuples of %d of those slots.'], ...
+                    spec.name, roleR, roleR, double(supplied.r), ...
+                    double(supplied.r));
+            spec.r = double(supplied.r);
+        end
+        if hasExch && logical(supplied.exch) ~= roleExch
+            warning('preMaetFromAttrTable:orderOverride', ...
+                    ['%s: the ''orderedMultiset'' role binds each value to ' ...
+                     'its slot, so it implies exch = false; taking the ' ...
+                     'supplied exch = true, which reads the slots as an ' ...
+                     'unordered multiset and leaves nothing downstream ' ...
+                     'reading the binding.'], spec.name);
+            spec.exch = logical(supplied.exch);
+        end
+      otherwise
+        if hasR; spec.r = double(supplied.r); end
+        if hasExch; spec.exch = logical(supplied.exch); end
+    end
+
+    % A score reads its values as they are written -- absolute, on an
+    % unbounded axis -- so rel and isPer are false unless the analyst
+    % says otherwise; octave equivalence is an equivalence imposed, not
+    % one the score states.
+    if isfield(supplied, 'rel'); spec.rel = logical(supplied.rel); end
+    if isfield(supplied, 'isPer')
+        spec.isPer = logical(supplied.isPer);
+    else
+        spec.isPer = false;
+    end
+    if isfield(supplied, 'period')
+        spec.period = double(supplied.period);
+    else
+        spec.period = 0;
+    end
+    if ~isfield(supplied, 'sigma')
+        error('preMaetFromAttrTable:noSigma', ...
+              ['%s: no sigma. A score fixes what the values are and not ' ...
+               'how tolerant a match is, so every attribute needs one; ' ...
+               'there is no width to default to, sigma = 0 being a real ' ...
+               'and degenerate choice rather than an absence.'], spec.name);
+    end
+    spec.sigma = double(supplied.sigma);
+
+    % r and exch are claims about what an attribute's values mean, not
+    % transformations with an off position, so neither has an identity to
+    % default to. Where the attribute holds one value per event both are
+    % determined -- r = 1, and exch says nothing -- and neither need be
+    % given; where a role fixes them it has already answered for the
+    % analyst.
+    if K > 1 && isempty(fixed)
+        missing = {};
+        if ~hasR; missing{end + 1} = 'r'; end
+        if ~hasExch; missing{end + 1} = 'exch'; end
+        if ~isempty(missing)
+            error('preMaetFromAttrTable:noTupleSize', ...
+                  ['%s: this attribute holds %d values at an event, so it ' ...
+                   'needs %s. r says how many of them a tuple takes, and ' ...
+                   'exch whether their order signifies; neither follows ' ...
+                   'from the score.'], spec.name, K, strjoin(missing, ' and '));
+        end
     end
 end
 

@@ -18,7 +18,7 @@ import math
 
 import numpy as np
 
-from .premaet import pre_maet, shift_lead
+from .premaet import pack_pre_maet, shift_lead
 from .preprocessing import flat_specs
 
 __all__ = ["transform_attributes", "TRANSFORM_NAMES", "PITCH_SCALES"]
@@ -442,7 +442,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
     Parameters
     ----------
     pm : dict, optional
-        The pre-MAET, whole, as :func:`~mpt.pre_maet` builds it,
+        The pre-MAET, whole, as :func:`~mpt.pack_pre_maet` builds it,
         passed in place of ``p_attr``, in which case
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
@@ -611,7 +611,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
 
     if w_list is None:
         w_out = w
-    return pre_maet(p_out, w_out, specs_out)
+    return pack_pre_maet(p_out, w_out, specs_out)
 
 
 def _sign_spec(spec):

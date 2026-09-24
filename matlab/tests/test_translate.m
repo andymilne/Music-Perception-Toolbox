@@ -164,8 +164,8 @@ results{end,2}   = throwsError(@() translateAttributes({[0 4], [1 2]}, [], ...
 % --- Integration: sweep -> build -> cosine self-match ---------------
 
 chord = [0; 4; 7];                             % K=3 chord, N=1
-grid  = [-200 -100 0 100 200];                 % row, M=5
-[sweep, ~, specs] = unpackPreMaet(translateAttributes({chord}, [], {grid}));
+tr_grid  = [-200 -100 0 100 200];                 % row, M=5
+[sweep, ~, specs] = unpackPreMaet(translateAttributes({chord}, [], {tr_grid}));
 ref = buildMaet({chord}, [], 'specs', specs, 'sigma', 30, ...
                    'isPer', false, 'period', 0, 'verbose', false);
 sims = zeros(1, numel(sweep));

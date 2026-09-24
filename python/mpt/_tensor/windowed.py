@@ -370,7 +370,9 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
     * **Multiple axes**: give ``sweep={axis: positions, ...}`` and a parallel
       ``drop={axis: bool, ...}``; the output gains one dimension per swept
       axis (Cartesian product), each axis windowed and, by default, query-
-      locked. ``context_window`` is then a per-axis ``dict``.
+      locked. ``context_window`` is then a per-axis ``dict``, and ``locate``
+      may be one too (``{axis: rule, ...}``, an axis it does not name taking
+      ``'centroid'``; MATLAB: the ``{axis, rule; ...}`` cell).
 
     ``target_attr`` is the attribute whose weights absorb the window factors
     (default: the first compared attribute; it may coincide with a swept
@@ -381,9 +383,10 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
     mutually exclusive with ``specs``, whose nesting carries its own
     per-level exch.
     """
+    query_specs = specs
     if is_pre_maet(p_context):
         (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
-         specs, centres) = _windowed_pre_maet_args(
+         side_specs, centres) = _windowed_pre_maet_args(
             [p_context, w_context], p_query if p_query is not None
             else centres,
             {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
@@ -391,6 +394,7 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
             "windowed_similarity")
         p_context, p_query = p_attrs
         w_context, w_query = w_attrs
+        specs, query_specs = side_specs
     if sweep is not None:
         if drop is None:
             raise ValueError("multi-axis `sweep` requires a parallel `drop`.")
@@ -402,7 +406,7 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
             p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
             period, is_exch, sweep, drop,
             context_window if isinstance(context_window, dict)
-            else None, locate, normalize, target_attr, specs)
+            else None, locate, normalize, target_attr, specs, query_specs)
     if drop_window_attr is None:
         raise ValueError(
             "`drop_window_attr` is required (True places only, False compares).")
@@ -410,12 +414,14 @@ def windowed_similarity(p_context, w_context=None, p_query=None,
         p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per, period,
         is_exch, centres, start, stop, step, query_centres, context_window,
         query_window, window_attr, drop_window_attr, locate, target_attr,
-        normalize, specs)
+        normalize, specs, query_specs)
 
 
 def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
               period, is_exch, sweep, drop, context_window, locate, normalize,
-              target_attr, specs):
+              target_attr, specs, query_specs=None):
+    if query_specs is None:
+        query_specs = specs
     p_context, p_query = list(p_context), list(p_query)
     _check_is_exch_vs_specs(is_exch, specs)
     keys, drop_axes, target, win, grids = _prep_sweep(
@@ -432,10 +438,10 @@ def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                 p_query[a], _resolve_locate(locate, a))))
             offs[a] = np.array([[centres[a] - q_loc]], dtype=float)
         if any(o is not None for o in offs):
-            pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(p_query, w_query, offs,
-                                                     specs=specs))
+            pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(
+                p_query, w_query, offs, specs=query_specs))
         else:
-            pq_t, wq_t, sq_t = p_query, w_query, specs
+            pq_t, wq_t, sq_t = p_query, w_query, query_specs
         pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs, centres,
                                           win, locate, target)
         pc, wc, sc, keep = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
@@ -462,7 +468,9 @@ def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
 def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                period, is_exch, centres, start, stop, step, query_centres,
                context_window, query_window, window_attr, drop_window_attr,
-               locate, target_attr, normalize, specs):
+               locate, target_attr, normalize, specs, query_specs=None):
+    if query_specs is None:
+        query_specs = specs
     p_context, p_query = list(p_context), list(p_query)
     _check_is_exch_vs_specs(is_exch, specs)
     n = len(p_context)
@@ -519,9 +527,10 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
             p_query[axis], _resolve_locate(locate, axis))))
         q_target = target
         p_query, w_query, specs_q = _apply_windows(
-            p_query, w_query, specs, {axis: q_centre}, q_win, locate, q_target)
+            p_query, w_query, query_specs, {axis: q_centre}, q_win, locate,
+            q_target)
         if nested:
-            specs = specs_q
+            query_specs = specs_q
     for a in range(A):
         pc_w, wc_w, sc_w = _apply_windows(
             p_context, w_context, specs, {axis: float(ctx_centres[a])}, win,
@@ -531,14 +540,14 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                              verbose=False) if nested else None)
         for t in range(q_rows.shape[1]):
             if drop_window_attr or rel_axis:
-                pq_t, wq_t, sq_t = p_query, w_query, specs
+                pq_t, wq_t, sq_t = p_query, w_query, query_specs
             else:
                 q_loc = float(np.nanmean(_locate_row(
                     p_query[axis], _resolve_locate(locate, axis))))
                 offs = [None] * n
                 offs[axis] = np.array([[float(q_rows[a, t]) - q_loc]], dtype=float)
-                pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(p_query, w_query, offs,
-                                                         specs=specs))
+                pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(
+                    p_query, w_query, offs, specs=query_specs))
             pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
             if nested:
                 dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd,
@@ -595,13 +604,14 @@ def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
     """
     if is_pre_maet(p_context):
         (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
-         specs, centres) = _windowed_pre_maet_args(
+         side_specs, centres) = _windowed_pre_maet_args(
             [p_context], w_context if w_context is not None else centres,
             {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
              "rel": rel if rel is not None else is_rel, "exch": exch},
             "windowed_entropy")
         p_context, = p_attrs
         w_context, = w_attrs
+        specs, = side_specs
     if marginalise is not None:
         raise NotImplementedError(
             "marginalise (integrating a retained axis out of the density) is "
@@ -744,7 +754,7 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
         raise ValueError(
             f"{func}: a pre-MAET passed here must carry its specs — they "
             "are where the shared geometry is read from. Build it with "
-            "pre_maet(p_attr, w_attr, specs), or use the positional form.")
+            "pack_pre_maet(p_attr, w_attr, specs), or use the positional form.")
     A = len(pms[0]["p_attr"])
     for k, pm in enumerate(pms[1:], start=1):
         _check_specs_agree(specs, pm.get("specs"), A, func)
@@ -762,20 +772,38 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
         _normalise_specs(specs, A)
 
     nested = any(n is not None for n in nested_list)
+    # Each side keeps its own 'tags', and takes every other field from the
+    # first: the comparison's geometry is shared, the grouping is not.
+    side_specs = [specs]
+    for pm in pms[1:]:
+        own = pm.get("specs")
+        side_specs.append([dict(shared, tags=one.get("tags"))
+                           if one.get("tags") is not None
+                           else {k: v for k, v in shared.items()
+                                 if k != "tags"}
+                           for shared, one in zip(specs, own)])
     return ([pm["p_attr"] for pm in pms], [pm.get("w_attr") for pm in pms],
             sigma, r_vec, is_rel_vec, is_per, period,
             None if nested else is_exch_vec,
-            specs if nested else None, centres)
+            [sp if nested else None for sp in side_specs], centres)
 
 
 def _check_specs_agree(specs_a, specs_b, A, func):
-    """The pre-MAETs of one comparison must share the structural geometry."""
+    """The pre-MAETs of one comparison must share the structural geometry.
+
+    ``tags`` is not among the fields compared. It says which slot of its
+    own side belongs to which nesting group, so its length is that side's
+    padded inner cardinality --- a chorale's beat may hold seven notes
+    where the prototype it is compared against holds two. What must agree
+    is the nesting the comparison is read under, which ``r``, ``rel``, and
+    ``exch`` carry.
+    """
     if not specs_b or len(specs_b) != A:
         raise ValueError(
             f"{func}: the two pre-MAETs must have the same attribute count "
             "and both carry specs — they describe one comparison.")
     for a in range(A):
-        for f in ("r", "rel", "exch", "tags"):
+        for f in ("r", "rel", "exch"):
             va = list(np.ravel(specs_a[a].get(f, [])))
             vb = list(np.ravel(specs_b[a].get(f, [])))
             if va != vb:
@@ -784,3 +812,8 @@ def _check_specs_agree(specs_a, specs_b, A, func):
                     f"attribute {a}. They describe one comparison, so the "
                     "structural geometry must match; sigma, is_per and "
                     "period may differ and are taken from the first.")
+        if (specs_a[a].get("tags") is None) != (specs_b[a].get("tags") is None):
+            raise ValueError(
+                f"{func}: one pre-MAET nests attribute {a} and the other "
+                "does not. They describe one comparison, so both sides must "
+                "be read under the same nesting.")

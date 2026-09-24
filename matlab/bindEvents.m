@@ -4,7 +4,7 @@ function pm = bindEvents(varargin)
 %   PM = bindEvents(PM0, bindOrders, ...) and
 %   PM = bindEvents(pAttr, wAttr, bindOrders, ...) are a cross-event
 %   preprocessing helper on the pre-MAET.%
-%   The pre-MAET may be passed whole, as preMaet builds it, or in
+%   The pre-MAET may be passed whole, as packPreMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
 %
@@ -64,6 +64,13 @@ function pm = bindEvents(varargin)
 %                      already-bound attributes re-synthesises flat specs,
 %                      silently discarding the existing nesting and producing
 %                      a shallower result.
+%       'groupBy'    - [] (default) or one attribute, by index or name, whose
+%                      K = 1 value groups the events: consecutive events
+%                      sharing a value are bound into one super-event, so
+%                      groups may differ in length (shorter ones are padded
+%                      with NaN). Mutually exclusive with bindOrders, which
+%                      binds a sliding window of fixed width instead.
+%       'groupAtol'  - Absolute tolerance for that constancy (default 0).
 %       'rOuter'     - [] (default L_a) or scalar/1xA outer-level r.
 %       'exchOuter'   - outer-level [exch] (default false; bag reading if true).
 %       'relOuter'   - outer-level [rel] (default false).
@@ -86,7 +93,7 @@ function pm = bindEvents(varargin)
 
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
 [pAttrBound, wBound, specs] = localBindEvents(pAttr, wAttr, specsPm, rest{:});
-pm = preMaet(pAttrBound, wBound, specs);
+pm = packPreMaet(pAttrBound, wBound, specs);
 end
 
 
@@ -497,18 +504,6 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
             ['step has no meaning for run-length binding (groups are read ' ...
              'from the data, not hopped); leave step at its default.']);
     end
-    if ~(isscalar(groupBy) && groupBy == round(groupBy) ...
-            && groupBy >= 1 && groupBy <= A)
-        error('bindEvents:badGroupBy', ...
-            'groupBy must be an attribute index in 1..%d.', A);
-    end
-    if K(groupBy) ~= 1
-        error('bindEvents:groupByCardinality', ...
-            ['groupBy attribute %d must have K = 1 (one value per event); ' ...
-             'got K = %d. Constancy across multiple values is ambiguous.'], ...
-            groupBy, K(groupBy));
-    end
-
     if isempty(nvArgs.specs)
         specsIn = flatSpecs(pAttr);
     else
@@ -524,6 +519,23 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
                 ['attribute %d: run-length binding of an already-nested ' ...
                  'attribute is not yet supported (flat inputs only).'], a);
         end
+    end
+
+    if ischar(groupBy) || isstring(groupBy)
+        groupBy = internal.attrIndices(groupBy, A, ...
+            cellfun(@(sp) localSpecField(sp, 'name', ''), specsIn, ...
+                    'UniformOutput', false), 'bindEvents');
+    end
+    if ~(isscalar(groupBy) && groupBy == round(groupBy) ...
+            && groupBy >= 1 && groupBy <= A)
+        error('bindEvents:badGroupBy', ...
+            'groupBy must be an attribute index in 1..%d.', A);
+    end
+    if K(groupBy) ~= 1
+        error('bindEvents:groupByCardinality', ...
+            ['groupBy attribute %d must have K = 1 (one value per event); ' ...
+             'got K = %d. Constancy across multiple values is ambiguous.'], ...
+            groupBy, K(groupBy));
     end
 
     % --- consecutive runs on the grouping attribute ---
@@ -584,11 +596,17 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
             cols = Marr(:, src(ell, :));           % K_a x nPrime
             cols(:, ~vmask) = NaN;
             blocks{ell} = cols;
+            % The weights of a bound position have one row per value of
+            % the attribute, as its values do: a weight given per event
+            % applies to each of that event's values.
             if isempty(w)
                 wb = double(repmat(vmask, K_a, 1));
             else
                 wa = w{a};
                 wb = wa(:, src(ell, :));
+                if size(wb, 1) == 1 && K_a > 1
+                    wb = repmat(wb, K_a, 1);
+                end
                 wb(:, ~vmask) = 0;
             end
             wblocks{ell} = wb;
@@ -604,6 +622,16 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
         spec = struct('tags', newColRow, 'r', [rInA rOut(a)], ...
                       'exch', [exchInA exchOut(a)], 'rel', [relInA relOut(a)]);
         if ~isempty(levelNames); spec.names = levelNames; end
+        % Binding regroups values; it does not touch them, so the
+        % attribute's kernel geometry crosses to the nested spec intact.
+        for kf = {'sigma', 'isPer', 'period'}
+            if isstruct(sIn) && isfield(sIn, kf{1})
+                spec.(kf{1}) = sIn.(kf{1});
+            end
+        end
+        if isstruct(sIn) && isfield(sIn, 'is_per') && ~isfield(spec, 'isPer')
+            spec.isPer = sIn.is_per;
+        end
         if ~isempty(namesAttr{a})
             spec.name = namesAttr{a};
         elseif ~isempty(localSpecField(sIn, 'name', []))

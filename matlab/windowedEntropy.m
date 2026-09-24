@@ -33,7 +33,7 @@ function H = windowedEntropy(varargin)
 %   yet implemented.
 %
 %
-%   See also PREMAET, WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDMAET,
+%   See also PACKPREMAET, WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDMAET,
 %            ENTROPYMAET.
 
 varargin = internal.windowedPreMaetArgs(varargin, 'windowedEntropy', 1);
@@ -113,6 +113,7 @@ function H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, isExch, .
         error('windowedEntropy:badWindowAttr', ...
             'windowAttr %d out of range for %d attributes.', axisIdx, A);
     end
+    locate = internal.axisLocate(locate, axisIdx);
     nested = ~isempty(specs);
     [gamma, sd] = internal.singleWindow(contextWindow, NaN, axisIdx);
     if dropWindowAttr, dropAxes = axisIdx; else, dropAxes = []; end
@@ -180,7 +181,7 @@ function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isExch, ..
                  'explicit contextWindow entry for every swept axis (axis %d missing).'], axes(k));
         end
         [gammas(k), sds(k)] = internal.resolveWindowStruct(cwVals{ci}, NaN, axes(k));
-        locates{k} = locate;
+        locates{k} = internal.axisLocate(locate, axes(k));
     end
     [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
     exchC = internal.subExchArgs(isExch, keep);

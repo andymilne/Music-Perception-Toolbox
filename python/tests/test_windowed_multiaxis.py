@@ -97,6 +97,33 @@ def test_locate_start_vs_centroid_shift():
     assert at_start[0] > 0.99          # event's start inside the window
 
 
+def test_locate_map_names_the_axes_separately():
+    """A per-axis locate map picks each swept axis's rule, an axis the map
+    does not name taking 'centroid' (MATLAB: the {axis, rule; ...} cell)."""
+    pat_p = np.array([60., 63., 60., 65.])
+    pat_t = np.array([0., 0.5, 1.5, 2.0])
+    pp = np.concatenate([pat_p, pat_p + 5.0]).reshape(1, 8)
+    tt = np.concatenate([pat_t, pat_t + 10.0]).reshape(1, 8)
+    pb, wb, sb = unpack_pre_maet(bind_events([pp, tt], None, [4, 4], step=1))
+    qb, qw, _ = unpack_pre_maet(bind_events(
+        [pat_p.reshape(1, 4), pat_t.reshape(1, 4)], None, [4, 4], step=1))
+
+    def at(locate):
+        return windowed_similarity(
+            pb, wb, qb, qw, [SIG_P, SIG_T], [1, 1], [False, False],
+            [False, False], [0.0, 0.0],
+            sweep={0: np.array([62.0, 67.0]), 1: np.array([1.0, 11.0])},
+            drop={0: False, 1: True}, locate=locate, specs=sb, verbose=False)
+
+    map_default = at({1: "centroid"})
+    map_start = at({1: "start"})
+    both_start = at("start")
+    assert np.allclose(map_default, at("centroid"), rtol=1e-9, atol=1e-9)
+    assert np.allclose(map_start, at({0: "centroid", 1: "start"}),
+                       rtol=1e-9, atol=1e-9)
+    assert np.max(np.abs(map_start - both_start)) > 0.1
+
+
 def test_drop_requires_one_entry_per_sweep(flat_triple, query):
     p_attr, centres = flat_triple
     with pytest.raises(ValueError):

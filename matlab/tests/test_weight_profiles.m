@@ -28,7 +28,7 @@ wpIdx   = [1 2 3 4];
 wpPitch = [60 62 64 65];
 wpTol   = 1e-12;
 
-wpPm      = preMaet({wpPitch, wpIdx});
+wpPm      = packPreMaet({wpPitch, wpIdx});
 wpRecency = exp(-[3 2 1 0]);
 
 %% --- The anchored serial-position profiles ---------------------------
@@ -141,7 +141,7 @@ results{end, 2}   = throwsErrorWithId(@() localProfileWeights(wpPm, 2, @(d) ones
 
 %% --- Composition ------------------------------------------------------
 
-wpPm = weightEvents(preMaet({wpPitch, wpIdx}), 2, 1, NaN, ...
+wpPm = weightEvents(packPreMaet({wpPitch, wpIdx}), 2, 1, NaN, ...
                     'exponentialFromEnd', 'dropInputAttr', true);
 [wpPOut, wpWOut, wpSpecsOut] = unpackPreMaet(wpPm);
 results{end+1, 1} = 'weight profiles: the driving attribute is dropped and the pitches survive';
@@ -150,7 +150,7 @@ results{end, 2}   = numel(wpPOut) == 1 && numel(wpSpecsOut) == 1 ...
     && max(abs(wpWOut{1} - wpRecency)) < wpTol;
 
 wpSalience = [1 0.6 0.6 1.3];
-wpPmS = weightEvents(preMaet({wpPitch, wpIdx}, {wpSalience, []}), 2, 1, NaN, ...
+wpPmS = weightEvents(packPreMaet({wpPitch, wpIdx}, {wpSalience, []}), 2, 1, NaN, ...
                      'exponentialFromEnd', 'dropInputAttr', true);
 [~, wpWS, ~] = unpackPreMaet(wpPmS);
 results{end+1, 1} = 'weight profiles: an existing weight is multiplied into, not replaced';

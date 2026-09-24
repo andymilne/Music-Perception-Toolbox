@@ -62,7 +62,7 @@ function H = entropyMaet(varargin)
 %       positions.
 %
 %     H = ENTROPYMAET(PM)
-%       Pre-MAET form. A pre-MAET (preMaet) holds everything
+%       Pre-MAET form. A pre-MAET (packPreMaet) holds everything
 %       buildMaet needs, so it stands wherever a density does: it is
 %       built internally and no further positional arguments are
 %       required.
@@ -232,7 +232,7 @@ function H = entropyMaet(varargin)
 %                          'xMin', -0.5, 'xMax', 1.5, ...
 %                          'nPointsPerDim', 80);
 %
-%   See also PREMAET, BUILDMAET, EVALMAET, SIMMAET.
+%   See also PACKPREMAET, BUILDMAET, EVALMAET, SIMMAET.
 
 % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
 guard = internal.callGuard(); %#ok<NASGU>

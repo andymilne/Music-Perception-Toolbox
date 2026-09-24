@@ -1,15 +1,16 @@
-"""``read_score`` and ``pre_maet_from_score`` on the shared fixtures in
+"""``read_score`` and ``pre_maet_from_attr_table`` on the shared fixtures in
 tests/data (a format-1 MIDI file and a MusicXML score, plain and
 compressed). Mirror of MATLAB tests/test_score.m; both suites assert
-the same event tables.
+the same attribute tables.
 """
 import os
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import mpt
-from mpt import (build_maet, sim_maet, pre_maet_from_score,
+from mpt import (build_maet, sim_maet, pre_maet_from_attr_table,
                  read_score, unpack_pre_maet)
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
@@ -86,26 +87,26 @@ def test_musicxml_table(name):
 
 def test_a_fermata_attribute_needs_a_fermata_column():
     with pytest.raises(ValueError, match="fermata"):
-        pre_maet_from_score(os.path.join(DATA, "score_small.mid"),
-                            attributes=("pitch", "fermata"))
+        pre_maet_from_attr_table(read_score(os.path.join(DATA, "score_small.mid")),
+                            attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="fermata", sigma=1.0, r=1, exch=True)))
 
 
 def test_parts_may_be_named():
-    by_index = pre_maet_from_score(
-        os.path.join(DATA, "score_small.mid"), parts=1, chords="separate")
-    by_name = pre_maet_from_score(
-        os.path.join(DATA, "score_small.mid"), parts=["Melody"],
+    by_index = pre_maet_from_attr_table(
+        read_score(os.path.join(DATA, "score_small.mid")), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)), parts=1, chords="separate")
+    by_name = pre_maet_from_attr_table(
+        read_score(os.path.join(DATA, "score_small.mid")), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)), parts=["Melody"],
         chords="separate")
     np.testing.assert_array_equal(unpack_pre_maet(by_index)[0][0],
                                   unpack_pre_maet(by_name)[0][0])
 
 
 def test_fermata_attribute():
-    """The fermata column enters pre_maet_from_score as an attribute (0/1
+    """The fermata column enters pre_maet_from_attr_table as an attribute (0/1
     per note; in bound chords one value per note, NaN-padded)."""
-    p, w, specs = unpack_pre_maet(pre_maet_from_score(
-        os.path.join(DATA, "score_small.musicxml"),
-        attributes=("pitch", "fermata"), chords="separate", time="beats"))
+    p, w, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        read_score(os.path.join(DATA, "score_small.musicxml")),
+        attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="fermata", sigma=1.0, r=1, exch=True)), chords="separate", time="beats"))
     assert specs[1]["name"] == "fermata"
     np.testing.assert_array_equal(p[1].ravel(), XML_TABLE["fermata"])
 
@@ -143,7 +144,7 @@ def test_unknown_extension():
 
 def test_events_bind_chords_by_default():
     p, w, specs = unpack_pre_maet(
-        pre_maet_from_score(os.path.join(DATA, "score_small.mid")))
+        pre_maet_from_attr_table(read_score(os.path.join(DATA, "score_small.mid")), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True))))
     assert [s["name"] for s in specs] == ["pitch", "onset"]
     assert p[0].shape == (4, 4) and p[1].shape == (1, 4)
     np.testing.assert_array_equal(p[0][:, 0], [60, 48, 52, 55])
@@ -155,9 +156,9 @@ def test_events_bind_chords_by_default():
 
 
 def test_events_options():
-    p, w, specs = unpack_pre_maet(pre_maet_from_score(
-        os.path.join(DATA, "score_small.musicxml"),
-        attributes=("pitch", "onset", "duration"), pitch="cents",
+    p, w, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        read_score(os.path.join(DATA, "score_small.musicxml")),
+        attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True), dict(column="duration", sigma=1.0, r=1, exch=True)), pitch="cents",
         time="beats", weights="ones", chords="separate", parts=2))
     assert w is None
     assert [s["name"] for s in specs] == ["pitch", "onset", "duration"]
@@ -165,16 +166,16 @@ def test_events_options():
     np.testing.assert_allclose(p[0][0], [3600, 4800, 5200, 5500, 4300, 4100, 5300])
     np.testing.assert_allclose(p[1][0], [0, 0, 0, 0, 1, 2, 3])
     np.testing.assert_allclose(p[2][0], [1, 2, 2, 2, 1, 1, 3])
-    p2, w2, _ = unpack_pre_maet(pre_maet_from_score(
-        os.path.join(DATA, "score_small.musicxml"),
+    p2, w2, _ = unpack_pre_maet(pre_maet_from_attr_table(
+        read_score(os.path.join(DATA, "score_small.musicxml")), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)),
         weights="duration", chords="separate", time="beats"))
     np.testing.assert_allclose(w2[0][0], XML_TABLE["duration_beats"])
 
 
 def test_events_from_a_table_and_chord_tolerance():
     t = read_score(os.path.join(DATA, "score_small.mid"))
-    p, _, _ = unpack_pre_maet(pre_maet_from_score(
-        t, chords="bind", chord_tolerance=0.6,
+    p, _, _ = unpack_pre_maet(pre_maet_from_attr_table(
+        t, attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)), chords="bind", chord_tolerance=0.6,
         time="seconds", weights="ones"))
     # 0.5 s (E4) binds to the notes at 0 s; 2 s stays alone
     assert p[0].shape[1] == 3 and p[0].shape[0] == 5
@@ -183,17 +184,17 @@ def test_events_from_a_table_and_chord_tolerance():
 def test_bad_arguments():
     path = os.path.join(DATA, "score_small.mid")
     with pytest.raises(ValueError, match="Unknown attribute"):
-        pre_maet_from_score(path, attributes=("pitch", "colour"))
+        pre_maet_from_attr_table(read_score(path), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="colour", sigma=1.0, r=1, exch=True)))
     with pytest.raises(ValueError, match="time must"):
-        pre_maet_from_score(path, time="ticks")
+        pre_maet_from_attr_table(read_score(path), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)), time="ticks")
     with pytest.raises(ValueError, match="chords must"):
-        pre_maet_from_score(path, chords="merge")
+        pre_maet_from_attr_table(read_score(path), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)), chords="merge")
 
 
 def test_pre_maet_feeds_the_pipeline():
     """A pitch-class dyad density of the chord track, and its similarity
     with itself, without any hand-built pre-MAET."""
-    pm = pre_maet_from_score(os.path.join(DATA, "score_small.mid"), parts=2)
+    pm = pre_maet_from_attr_table(read_score(os.path.join(DATA, "score_small.mid")), attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True), dict(column="onset", sigma=1.0, r=1, exch=True)), parts=2)
     pm["specs"][0]["r"] = 2
     d = build_maet(pm, sigma=[1.0, 0.2],
                        is_per=[True, False], period=[12.0, 0.0],
@@ -243,3 +244,49 @@ def test_musicxml_staff_and_articulations(tmp_path):
 def test_staff_defaults_to_one(tmp_path):
     t = read_score(os.path.join(DATA, "score_small.musicxml"))
     assert set(t["staff"].unique()) == {1}
+
+
+class TestATableThatNeverSawAScore:
+    """The ten score names get score-specific treatment, but only where
+    something asks for them: a table built by hand carries few of them."""
+
+    def _bare(self):
+        return pd.DataFrame({"onset_seconds": [0.0, 0.14, 0.28],
+                             "pitch": [64.0, 66.0, 71.0]})
+
+    def test_two_columns_are_enough(self):
+        pm = mpt.pre_maet_from_attr_table(
+            self._bare(),
+            attributes=(dict(column="pitch", sigma=0.5),
+                        dict(column="onset", name="t", sigma=0.006)),
+            time="seconds", chords="separate", weights="ones")
+        p_attr, _, specs = mpt.unpack_pre_maet(pm)
+        assert [a.shape for a in p_attr] == [(1, 3), (1, 3)]
+        assert [s["name"] for s in specs] == ["pitch", "t"]
+
+    @pytest.mark.parametrize("name,column", [
+        ("duration", "duration_seconds"), ("velocity", "velocity"),
+        ("part", "part"), ("measure", "measure"),
+        ("fermata", "fermata"), ("note_number", "note_number")])
+    def test_a_missing_column_is_refused_only_when_named(self, name, column):
+        with pytest.raises(ValueError, match=f"no {column!r} column"):
+            mpt.pre_maet_from_attr_table(
+                self._bare(),
+                attributes=(dict(column="pitch", sigma=0.5),
+                            dict(column=name, sigma=0.5)),
+                time="seconds", chords="separate", weights="ones")
+
+    @pytest.mark.parametrize("policy,column", [
+        ("velocity", "velocity"), ("duration", "duration_seconds"),
+        ("weight", "weight")])
+    def test_a_weighting_asks_for_its_own_column(self, policy, column):
+        with pytest.raises(ValueError, match=f"needs a {column!r} column"):
+            mpt.pre_maet_from_attr_table(
+                self._bare(), attributes=(dict(column="pitch", sigma=0.5),),
+                time="seconds", chords="separate", weights=policy)
+
+    def test_selecting_parts_asks_for_the_part_column(self):
+        with pytest.raises(ValueError, match="no 'part' column"):
+            mpt.pre_maet_from_attr_table(
+                self._bare(), attributes=(dict(column="pitch", sigma=0.5),),
+                time="seconds", chords="separate", weights="ones", parts=[1])

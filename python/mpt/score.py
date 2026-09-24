@@ -2,18 +2,17 @@
 
 Two functions. :func:`read_score` parses a Standard MIDI File (format 0
 or 1) or a MusicXML file (``.musicxml``, ``.xml``, or compressed
-``.mxl``) into an *event table* -- a :class:`pandas.DataFrame` with one
+``.mxl``) into an *attribute table* -- a :class:`pandas.DataFrame` with one
 row per sounding note, carrying its onset and duration in beats and in
 seconds, its MIDI pitch, its velocity, and its part, plus whatever else
-its source records. :func:`pre_maet_from_score` turns an event table (or
-a path) into
+its source records. :func:`pre_maet_from_attr_table` turns an attribute table into
 the ``(p_attr, w_attr, specs)`` that :func:`build_maet` and the
 pre-MAET preprocessors consume, choosing the attributes, their units,
 the weights, and whether simultaneous notes are bound into one
 multi-value event.
 
 Both parsers are self-contained (no third-party dependency) and mirror
-``readScore`` / ``preMaetFromScore`` in MATLAB, which read the same files
+``readScore`` / ``preMaetFromAttrTable`` in MATLAB, which read the same files
 to the same table.
 
 Conventions
@@ -45,14 +44,16 @@ from collections import defaultdict
 import zipfile
 import xml.etree.ElementTree as ET
 
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 
-from ._tensor.premaet import pre_maet
+from ._tensor.premaet import pack_pre_maet
 from ._tensor.preprocessing import flat_specs, simplex_vertices
 from ._tensor.transform import _convert_scale
 
-__all__ = ["read_score", "pre_maet_from_score"]
+__all__ = ["read_score", "pre_maet_from_attr_table"]
 
 # The columns each source produces, in order. A column is present only
 # where its source carries the information, so channel and voice are
@@ -83,7 +84,7 @@ _STEP_TO_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 # ===================================================================
 
 def read_score(path):
-    """Parse a MIDI or MusicXML file into an event table.
+    """Parse a MIDI or MusicXML file into an attribute table.
 
     Parameters
     ----------
@@ -797,7 +798,7 @@ def _timewise_to_partwise(root):
 
 
 # ===================================================================
-#  pre_maet_from_score
+#  pre_maet_from_attr_table
 # ===================================================================
 
 #: How a categorical column reaches the pre-MAET. The first two are
@@ -814,24 +815,177 @@ _STRUCTURAL_ROLES = ("separate_attributes", "ordered_multiset")
 #: attributes multiply, that factor would be raised to the fourth.
 _EVENT_LEVEL = ("onset", "measure")
 
+#: The per-attribute parameters a spec entry may carry, besides the
+#: ``column`` that says which column it reads.
+_SPEC_FIELDS = ("name", "sigma", "r", "exch", "rel", "is_per", "period")
 
-def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
-                        pitch="midi", time="seconds", weights="velocity",
-                        parts=None, chords="bind", chord_tolerance=0.0,
-                        roles=None, group_by=None, names=True):
-    """Build the pre-MAET's parts from a score.
+
+def _attribute_entry(entry, what):
+    """Split one 'attributes' or 'roles' entry into its subject and the
+    per-attribute parameters it carries.
+
+    An attribute is a mapping, since a bare name carries no ``sigma`` and
+    could not describe an attribute of a pre-MAET. A role may be a bare
+    name, since the role is the value and only ``'simplex'`` creates an
+    attribute whose parameters have nowhere else to come from.
+    """
+    if isinstance(entry, str):
+        if what == "attributes":
+            raise TypeError(
+                f"attributes[{entry!r}]: an attribute is given as a mapping "
+                "of its column and its parameters, not as a bare name, "
+                "since a name carries no sigma. Write "
+                f"dict(column={entry!r}, sigma=...).")
+        return entry, {}
+    if isinstance(entry, Mapping):
+        entry = dict(entry)
+        subject = entry.pop("column", None) if what == "attributes" \
+            else entry.pop("role", None)
+        key = "column" if what == "attributes" else "role"
+        if subject is None:
+            raise ValueError(
+                f"An {what} entry given as a mapping needs a {key!r} key; "
+                f"got {sorted(entry)}.")
+        unknown = [k for k in entry if k not in _SPEC_FIELDS]
+        if unknown:
+            raise ValueError(
+                f"{what}[{subject!r}]: unknown parameter(s) "
+                f"{sorted(unknown)}; choose from {_SPEC_FIELDS}.")
+        if entry.get("is_per") and "period" not in entry:
+            raise ValueError(
+                f"{what}[{subject!r}]: is_per is set, so it needs a period.")
+        return subject, entry
+    raise TypeError(
+        f"An {what} entry must be a name or a mapping; got "
+        f"{type(entry).__name__}.")
+
+
+def _merge_spec(spec, supplied, fixed, k):
+    """Fold one attribute's supplied parameters into the spec the
+    conversion built, and settle any conflict with a role.
+
+    A role fixes ``r`` and ``exch`` for the attributes it governs. Under
+    ``'ordered_multiset'`` the role only arranges existing values into
+    slots, so how many are drawn from them and whether their order counts
+    remain the analyst's questions and a supplied value wins, with a
+    warning. Under ``'simplex'`` the role replaces the level with the
+    coordinates of a simplex vertex, which denote a vertex only read
+    whole and in order, so a supplied value is refused.
+    """
+    role_r, role_exch = spec["r"], spec["exch"]
+    want_r, want_exch = supplied.get("r"), supplied.get("exch")
+
+    if fixed == "simplex":
+        if want_r is not None and int(want_r) != role_r:
+            raise ValueError(
+                f"{spec['name']!r}: the 'simplex' role carries the level as "
+                f"the {role_r} coordinates of a simplex vertex, read whole, "
+                f"so r must be {role_r} and not {int(want_r)}. A tuple of "
+                "some of a point's coordinates is not a point. To compare "
+                "runs of levels rather than one level, nest: bind_attributes "
+                "then bind_events, giving an outer tuple size over positions "
+                f"(r = ({role_r}, 2) for pairs of levels in order). The "
+                "grammar analysis of the JMM online supplement is the worked "
+                "case.")
+        if want_exch:
+            raise ValueError(
+                f"{spec['name']!r}: the 'simplex' role's coordinates are "
+                "read in order, so exch must be False; permuting them gives "
+                "a point that is not a vertex.")
+    elif fixed == "ordered_multiset":
+        if want_r is not None and int(want_r) != role_r:
+            warnings.warn(
+                f"{spec['name']!r}: the 'ordered_multiset' role fills "
+                f"{role_r} slots, so it implies r = {role_r}; taking the "
+                f"supplied r = {int(want_r)}, which reads tuples of "
+                f"{int(want_r)} of those slots.", UserWarning, stacklevel=3)
+            spec["r"] = int(want_r)
+        if want_exch is not None and bool(want_exch) != role_exch:
+            warnings.warn(
+                f"{spec['name']!r}: the 'ordered_multiset' role binds each "
+                "value to its slot, so it implies exch = False; taking the "
+                "supplied exch = True, which reads the slots as an unordered "
+                "multiset and leaves nothing downstream reading the "
+                "binding.", UserWarning, stacklevel=3)
+            spec["exch"] = bool(want_exch)
+    else:
+        if want_r is not None:
+            spec["r"] = int(want_r)
+        if want_exch is not None:
+            spec["exch"] = bool(want_exch)
+
+    # A score reads its values as they are written --- absolute, on an
+    # unbounded axis --- so rel and is_per are false unless the analyst
+    # says otherwise; octave equivalence is an equivalence imposed, not
+    # one the score states.
+    spec["rel"] = bool(supplied.get("rel", spec.get("rel", False)))
+    spec["is_per"] = bool(supplied.get("is_per", False))
+    spec["period"] = float(supplied.get("period", 0.0))
+    if "sigma" not in supplied:
+        raise ValueError(
+            f"{spec['name']!r}: no sigma. A score fixes what the values "
+            "are and not how tolerant a match is, so every attribute needs "
+            "one; there is no width to default to, sigma = 0 being a real "
+            "and degenerate choice rather than an absence.")
+    spec["sigma"] = float(supplied["sigma"])
+
+    # r and exch are claims about what an attribute's values mean, not
+    # transformations with an off position, so neither has an identity to
+    # default to. Where the attribute holds one value per event both are
+    # determined -- r = 1, and exch says nothing -- and neither need be
+    # given; where a role fixes them it has already answered for the
+    # analyst.
+    if k > 1 and fixed is None:
+        missing = [f for f in ("r", "exch") if f not in supplied]
+        if missing:
+            raise ValueError(
+                f"{spec['name']!r}: this attribute holds {k} values at an "
+                f"event, so it needs {' and '.join(missing)}. r says how "
+                "many of them a tuple takes, and exch whether their order "
+                "signifies; neither follows from the score.")
+
+
+
+def pre_maet_from_attr_table(table, *, attributes,
+                              pitch="midi", time="seconds",
+                              weights="velocity", parts=None, chords="bind",
+                              chord_tolerance=0.0, roles=None,
+                              group_by=None, names=True):
+    """Build a pre-MAET from an attribute table.
 
     Parameters
     ----------
-    source : str or DataFrame
-        A file path (parsed with :func:`read_score`) or an event table.
-    attributes : sequence of {'pitch', 'onset', 'duration',
-        'sounding_duration', 'velocity', 'weight', 'note_number', 'part',
-        'measure', 'fermata'}
-        The attributes, in order (default pitch and onset). The last four
-        need a column the source carries, and raise where it does not.
-        On a gridded table ``'onset'`` reads the grid's onset, the event
-        there being the grid point rather than any one note.
+    table : DataFrame
+        An attribute table, as :func:`read_score` returns and
+        :func:`grid_attr_table` passes on. A score file is read first, with
+        :func:`read_score`; converting reads a table and nothing else.
+    attributes : sequence of mapping
+        Required: one entry per attribute, in order. An entry is a
+        mapping carrying its column under ``'column'`` together with the
+        attribute's own parameters: ``name``, ``sigma``, ``r``, ``exch``,
+        ``rel``, ``is_per``, ``period``. The ten names ``'pitch'``,
+        ``'onset'``, ``'duration'``, ``'sounding_duration'``,
+        ``'velocity'``, ``'weight'``, ``'note_number'``, ``'part'``,
+        ``'measure'``, and ``'fermata'`` get the score-specific treatment
+        (the pitch scale, beats against seconds, the grid's onset); any
+        other column of the table is read as it stands, so a table that
+        never saw a score converts too. A categorical column is refused
+        here and belongs to ``roles``, its levels not being values on a
+        line. Listing one
+        column twice gives two attributes of the same values, read under
+        different parameters, which is how pitch class and pitch height
+        are taken from one pitch column::
+
+            pre_maet_from_attr_table(table, attributes=(
+                dict(column="pitch", name="pitchClass",
+                     sigma=0.5, is_per=True, period=12.0),
+                dict(column="pitch", name="pitchHeight", sigma=8.0),
+                dict(column="onset", sigma=0.5)), time="beats")
+
+        Of the ten, the last four need a column the source carries, and
+        raise where it does not. On a gridded table ``'onset'`` reads the grid's
+        onset, the event there being the grid point rather than any one
+        note.
     pitch : {'midi', 'cents', 'hz', 'octave', ...}
         Pitch scale (any pitch scale of :func:`transform_attributes`).
     time : {'seconds', 'beats'}
@@ -842,7 +996,10 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         volume and expression into the velocity.
     parts : None, int, sequence of int, or sequence of str
         Parts to keep, either 1-based positions in the table's part
-        categories or the part names themselves; ``None`` keeps all.
+        categories or the part names themselves; ``None`` keeps all. A
+        convenience for the common case; selecting rows of the table
+        before converting is the more general route, and reaches any
+        column.
     chords : {'bind', 'separate'}
         ``'bind'`` gathers notes that start together (within
         ``chord_tolerance``, in the chosen time unit) into one event whose
@@ -854,7 +1011,17 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         How each categorical column reaches the pre-MAET: column name to
         one of ``'separate_attributes'``, ``'ordered_multiset'``,
         ``'simplex'``, or ``'drop'``. A column with no entry is not
-        encoded.
+        encoded. A value may instead be a mapping carrying the role under
+        ``'role'`` together with the parameters of the attribute the role
+        creates, which is how a simplex-coded category is given its own
+        width: ``dict(role="simplex", sigma=0.2)``.
+
+        Where a role fixes ``r`` or ``exch`` and a value is supplied too:
+        under ``'ordered_multiset'`` the supplied value is taken and a
+        warning names what the role implies, the role having only arranged
+        existing values into slots; under ``'simplex'`` it is refused, the
+        role having replaced the level with coordinates that denote a
+        vertex only read whole and in order.
 
         The first two are **structural**: the level is realized as which
         attribute you are in, or as which position, so the binding of
@@ -909,20 +1076,49 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         attribute (NaN-padded slots carry weight 0), or ``None`` under
         ``'ones'``; its ``specs`` flat specs, named after the attributes
         when ``names`` is set.
+
+        The pre-MAET is complete: every attribute carries the parameters
+        its density needs, so it is ready for :func:`mpt.build_maet`
+        without anything being set on the specs afterwards. The
+        conversion fills in only what follows from the data or from
+        another argument --- the values, ``r`` and ``exch`` under a
+        structural role, and reading a value as written for ``rel`` and
+        ``is_per`` --- and asks for the rest: ``sigma`` always, and ``r``
+        and ``exch`` where an attribute holds more than one value at an
+        event and no role has fixed them.
     """
-    table = read_score(source) if isinstance(source, (str, os.PathLike)) \
-        else source
     if not isinstance(table, pd.DataFrame):
         raise TypeError(
-            "source must be a file path or an event table from "
-            f"read_score; got {type(table).__name__}.")
-    attributes = [str(a).lower() for a in attributes]
-    allowed = ("pitch", "onset", "duration", "sounding_duration", "velocity",
-               "weight", "note_number", "part", "measure", "fermata")
-    for a in attributes:
-        if a not in allowed:
+            "table must be an attribute table, as read_score returns and "
+            f"grid_attr_table passes on; got {type(table).__name__}. A score "
+            "file is read first, with read_score.")
+    given = [_attribute_entry(a, "attributes") for a in attributes]
+    attributes = [str(c) for c, _ in given]
+    supplied_specs = [d for _, d in given]
+    known = ("pitch", "onset", "duration", "sounding_duration", "velocity",
+             "weight", "note_number", "part", "measure", "fermata")
+    lowered = {k.lower(): k for k in known}
+    # The ten known names get the score-specific treatment -- the pitch
+    # scale, beats against seconds, the grid's onset. Any other column of
+    # the table is read as it stands, so a table that never saw a score
+    # converts too.
+    extra = []
+    for i, a in enumerate(attributes):
+        canonical = lowered.get(a.lower())
+        if canonical is not None:
+            attributes[i] = canonical
+            continue
+        if a not in table.columns:
             raise ValueError(
-                f"Unknown attribute {a!r}; choose from {allowed}.")
+                f"Unknown attribute {a!r}: it is neither one of the score "
+                f"attributes {known} nor a column of the table.")
+        if isinstance(table[a].dtype, pd.CategoricalDtype) or \
+                table[a].dtype == object:
+            raise TypeError(
+                f"Attribute {a!r} reads a categorical column, whose levels "
+                "are not values on a line. Give it to 'roles' instead, "
+                "which says how a category reaches the pre-MAET.")
+        extra.append(a)
     if time not in ("seconds", "beats"):
         raise ValueError("time must be 'seconds' or 'beats'.")
     if weights not in ("velocity", "ones", "duration", "weight"):
@@ -933,8 +1129,11 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
 
     structural = None
     simplex_columns = []
+    role_specs = {}
     for column, role in dict(roles or {}).items():
+        role, role_spec = _attribute_entry(role, "roles")
         role = str(role).lower()
+        role_specs[column] = role_spec
         if role not in _ROLES:
             raise ValueError(
                 f"roles[{column!r}]: unknown role {role!r}; choose from "
@@ -975,21 +1174,35 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
             "so each concurrently-sounding note is its own event; that needs "
             "chords='separate', or a structural category to tag within.")
 
-    _NEEDS_COLUMN = {"sounding_duration": "sounding_duration_beats",
-                     "weight": "weight", "note_number": "note_number",
-                     "fermata": "fermata"}
+    unit = "seconds" if time == "seconds" else "beats"
+    # Of the ten names, these need a column the source carries. A table
+    # that never saw a score carries few of them, and asks for none of
+    # them, so each is read only where something names it.
+    _NEEDS_COLUMN = {"sounding_duration": f"sounding_duration_{unit}",
+                     "duration": f"duration_{unit}", "weight": "weight",
+                     "note_number": "note_number", "fermata": "fermata",
+                     "velocity": "velocity", "part": "part",
+                     "measure": "measure"}
     for name in attributes:
         column = _NEEDS_COLUMN.get(name)
         if column is not None and column not in table.columns:
             raise ValueError(
                 f"The table has no {column!r} column, so {name!r} cannot be "
                 "an attribute; this source does not carry it.")
-    if weights == "weight" and "weight" not in table.columns:
+    for policy, column in (("weight", "weight"), ("velocity", "velocity"),
+                           ("duration", f"duration_{unit}")):
+        if weights == policy and column not in table.columns:
+            raise ValueError(
+                f"weights={policy!r} needs a {column!r} column, which this "
+                "source does not carry.")
+    if parts is not None and "part" not in table.columns:
         raise ValueError(
-            "weights='weight' needs a 'weight' column, which this source "
-            "does not carry.")
+            "'parts' selects by part, and this source has no 'part' "
+            "column. Selecting rows of the table before converting is the "
+            "more general route, and reaches any column.")
 
-    part_codes = table["part"].cat.codes.to_numpy() + 1
+    part_codes = (table["part"].cat.codes.to_numpy() + 1
+                  if "part" in table.columns else None)
     keep = np.ones(len(table), dtype=bool)
     if parts is not None:
         wanted = np.atleast_1d(np.asarray(parts, dtype=object))
@@ -1008,7 +1221,6 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         # as NaN rather than raising.
         return table[name].astype(float).to_numpy()[keep]
 
-    unit = "seconds" if time == "seconds" else "beats"
     # On a gridded table the event is the grid point, so its onset is the
     # grid's, not the onset of whichever note happens to be in the first
     # slot. The note's own onset stays in the table for selection.
@@ -1018,20 +1230,22 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
     elif any(c.startswith("grid_onset_") for c in table.columns):
         other = next(c for c in table.columns if c.startswith("grid_onset_"))
         raise ValueError(
-            f"The table was gridded over {other.rsplit('_', 1)[1]}, so "
-            f"time={time!r} has no grid onset to read; grid over {time} or "
-            "convert with that unit.")
-    onset = _col(onset_column)
-    dur = _col(f"duration_{unit}")
-    midi = _col("pitch")
-    vel = _col("velocity")
-    part = part_codes.astype(np.float64)[keep]
-    measure = _col("measure")
+            f"The table was gridded over {other.rsplit('_', 1)[1]} and "
+            f"carries no grid onset in {time}, its source having no "
+            f"{time} to map the grid points onto. Grid over {time}, or "
+            "convert with the unit the table has.")
     n_kept = int(keep.sum())
 
     def _optional(name):
         return _col(name) if name in table.columns else np.zeros(n_kept)
 
+    onset = _col(onset_column)
+    dur = _optional(f"duration_{unit}")
+    midi = _col("pitch")
+    vel = _optional("velocity")
+    part = (part_codes.astype(np.float64)[keep] if part_codes is not None
+            else np.zeros(n_kept))
+    measure = _optional("measure")
     sounding = _optional(f"sounding_duration_{unit}")
     note_number = _optional("note_number")
     weight_col = _optional("weight")
@@ -1044,6 +1258,8 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
                 "sounding_duration": sounding, "velocity": vel,
                 "weight": weight_col, "note_number": note_number,
                 "part": part, "measure": measure, "fermata": fermata}
+    for column in extra:
+        per_note[column] = _col(column)
     if weights == "velocity":
         w_note = vel / 127.0
     elif weights == "duration":
@@ -1125,8 +1341,9 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
 
     p_attr, w_list = [], []
     spec_r, spec_exch, spec_names = [], [], []
+    spec_supplied, spec_fixed = [], []
 
-    def _add(M, W, *, r=1, exch=True, name=None):
+    def _add(M, W, *, r=1, exch=True, name=None, supplied=None, fixed=None):
         W = np.asarray(W, dtype=float)
         M = np.asarray(M, dtype=float)
         W[np.isnan(M)] = 0.0
@@ -1135,8 +1352,11 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         spec_r.append(r)
         spec_exch.append(exch)
         spec_names.append(name)
+        spec_supplied.append(dict(supplied or {}))
+        spec_fixed.append(fixed)
 
-    for a in attributes:
+    for a, supplied in zip(attributes, supplied_specs):
+        base = supplied.get("name", a)
         vals = per_note[a]
         if structural is None:
             if a in _EVENT_LEVEL or K == 1:
@@ -1151,18 +1371,18 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
                 for n, g in enumerate(groups):
                     M[:len(g), n] = vals[g]
                     W[:len(g), n] = [_weight_at(i) for i in g]
-            _add(M, W, name=a)
+            _add(M, W, name=base, supplied=supplied)
             continue
 
         column, role = structural
         if a in _EVENT_LEVEL:
             M = np.array([[vals[row[0]] for row in slots]], dtype=float)
-            _add(M, np.ones((1, N)), name=a)
+            _add(M, np.ones((1, N)), name=base, supplied=supplied)
         elif role == "separate_attributes":
             for v, level in enumerate(levels):
                 M = np.array([[vals[row[v]] for row in slots]], dtype=float)
                 W = np.array([[_weight_at(row[v]) for row in slots]])
-                _add(M, W, name=f"{a}_{level}")
+                _add(M, W, name=f"{base}_{level}", supplied=supplied)
         else:
             V = len(levels)
             M = np.empty((V, N))
@@ -1171,13 +1391,16 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
                 for v in range(V):
                     M[v, n] = vals[row[v]]
                     W[v, n] = _weight_at(row[v])
-            _add(M, W, r=V, exch=False, name=a)
+            _add(M, W, r=V, exch=False, name=base, supplied=supplied,
+                 fixed="ordered_multiset")
 
     # Simplex-coded categories. The coordinates of one level form one
     # ordered value read whole, so the attribute's tuple size is their
     # number and its weights are one: the note's own weight is carried by
     # its other attributes, and the attributes multiply.
     for column in simplex_columns:
+        supplied = role_specs.get(column, {})
+        base = supplied.get("name", column)
         vertices = simplex_vertices(len(table[column].cat.categories))
         d = vertices.shape[1]
         codes = _codes(column)
@@ -1189,26 +1412,20 @@ def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
         if structural is None:
             M = np.column_stack([_coords(g[0]) for g in groups]) if N \
                 else np.zeros((d, 0))
-            _add(M, np.ones((d, N)), r=d, exch=False, name=column)
+            _add(M, np.ones((d, N)), r=d, exch=False, name=base,
+                 supplied=supplied, fixed="simplex")
         else:
             for v, level in enumerate(levels):
                 M = np.column_stack([_coords(row[v]) for row in slots]) \
                     if N else np.zeros((d, 0))
                 _add(M, np.ones((d, N)), r=d, exch=False,
-                     name=f"{column}_{level}")
+                     name=f"{base}_{level}", supplied=supplied,
+                     fixed="simplex")
 
     w = None if w_note is None else w_list
     specs = flat_specs(p_attr, r=spec_r, exch=spec_exch,
                        name=spec_names if names else None)
-    # A score determines the periodicity of its attributes and not their
-    # kernel widths. Pitches, onsets, durations, velocities, parts, bars
-    # and fermatas are all read as they are written --- absolute, on an
-    # unbounded axis --- so [per] = 0 and the period is inert; octave
-    # equivalence is an equivalence the analyst imposes, not one the score
-    # states. Sigma is left unset rather than defaulted, because there is
-    # no width a score implies: build_maet will then name the
-    # attribute that still needs one.
-    for spec in specs:
-        spec["is_per"] = False
-        spec["period"] = 0.0
-    return pre_maet(p_attr, w, specs)
+    for spec, supplied, fixed, M in zip(specs, spec_supplied, spec_fixed,
+                                        p_attr):
+        _merge_spec(spec, supplied, fixed, int(M.shape[0]))
+    return pack_pre_maet(p_attr, w, specs)

@@ -303,7 +303,7 @@ def sim_maet(*args,
     **Pre-MAET input**:
 
     - ``sim_maet(pm1, pm2)``. A pre-MAET
-      (:func:`~mpt.pre_maet`) holds everything :func:`build_maet`
+      (:func:`~mpt.pack_pre_maet`) holds everything :func:`build_maet`
       needs, so it stands wherever a density does: each side is built
       internally and a scalar returned. Either side may equally be a
       density, so the two forms mix freely.

@@ -76,7 +76,7 @@ testsDir = fileparts(mfilename('fullpath'));
 % Grouped concatenation sidesteps this entirely and is unambiguous.
 
 % Core (pitch, spectra, circular measures)
-core = {'test_transform_attributes.m', 'test_score.m', 'test_score_midi_streams.m', 'test_grid_events.m', 'test_pre_maet_roles.m', 'test_add_spectra.m', 'test_circular.m'};
+core = {'test_transform_attributes.m', 'test_score.m', 'test_score_midi_streams.m', 'test_grid_attr_table.m', 'test_pre_maet_roles.m', 'test_attribute_specs.m', 'test_bind_attributes.m', 'test_add_spectra.m', 'test_circular.m'};
 
 % Tier-1/2/4 batched dispatch (v3+)
 batched = {'test_tier1_batched.m', 'test_tier2_batched.m', 'test_tier4_batched.m'};

@@ -14,7 +14,7 @@ function vals = evalMaet(varargin)
 %   The optional isExch sits between period and X in every raw form.
 %
 %   vals = evalMaet(pm, X):
-%   Pre-MAET mode. A pre-MAET (preMaet) holds everything buildMaet
+%   Pre-MAET mode. A pre-MAET (packPreMaet) holds everything buildMaet
 %   needs, so it stands wherever a density does: it is built internally
 %   and evaluated at X.
 %

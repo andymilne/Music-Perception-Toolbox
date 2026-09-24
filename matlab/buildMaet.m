@@ -13,7 +13,7 @@ function dens = buildMaet(varargin)
 %   PRE-MAET (the canonical multi-attribute entry):
 %     dens = buildMaet(pm)
 %     dens = buildMaet(pm, 'sigma', sigmaVec, ...)
-%   A pre-MAET (preMaet) stands in place of pAttr and wAttr, bringing
+%   A pre-MAET (packPreMaet) stands in place of pAttr and wAttr, bringing
 %   its specs with it. Any of the six per-attribute parameters --
 %   'sigma', 'isPer', 'period', 'r', 'rel', 'exch' -- may be given
 %   alongside, and a supplied value wins over the specs for every
@@ -132,7 +132,7 @@ function dens = buildMaet(varargin)
 %                 code that reads U_perm / wJ directly without going
 %                 through evalMaet / simMaet / entropyMaet.
 %
-%   See also preMaet, evalMaet, simMaet, entropyMaet.
+%   See also packPreMaet, evalMaet, simMaet, entropyMaet.
 
     % ------------------------------------------------------------------
     % Parse optional name-value pairs and split positional args

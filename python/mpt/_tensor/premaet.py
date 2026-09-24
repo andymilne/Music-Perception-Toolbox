@@ -9,7 +9,7 @@ module gives them a single named-field object so that a pre-MAET can be
 held in one variable, returned from one output, and passed on whole.
 
 That object is a plain :class:`dict` with the keys ``p_attr``, ``w_attr``,
-and ``specs``, built and validated by :func:`pre_maet`. It is not a class:
+and ``specs``, built and validated by :func:`pack_pre_maet`. It is not a class:
 the parts stay ordinary Python objects, so a caller may read or replace any
 of them directly, and every function that accepts a whole pre-MAET equally
 accepts the three parts written out.
@@ -21,7 +21,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
-__all__ = ["pre_maet", "unpack_pre_maet", "is_pre_maet"]
+__all__ = ["pack_pre_maet", "unpack_pre_maet", "is_pre_maet"]
 
 _KEYS = ("p_attr", "w_attr", "specs")
 
@@ -30,15 +30,15 @@ def is_pre_maet(obj) -> bool:
     """Return True if ``obj`` is a pre-MAET.
 
     The test is a mapping carrying all three of ``p_attr``, ``w_attr``,
-    and ``specs`` --- what :func:`pre_maet` builds and what every
+    and ``specs`` --- what :func:`pack_pre_maet` builds and what every
     pre-MAET operator returns. It decides only whether an argument is a
-    whole pre-MAET or a bare ``p_attr``; :func:`pre_maet` performs the
+    whole pre-MAET or a bare ``p_attr``; :func:`pack_pre_maet` performs the
     real validation.
     """
     return isinstance(obj, Mapping) and all(k in obj for k in _KEYS)
 
 
-def pre_maet(p_attr, w_attr=None, specs=None):
+def pack_pre_maet(p_attr, w_attr=None, specs=None):
     """Build a validated pre-MAET.
 
     Parameters
@@ -66,6 +66,10 @@ def pre_maet(p_attr, w_attr=None, specs=None):
         If the parts are not mutually consistent -- most often a
         ``w_attr`` or ``specs`` whose length does not match A.
 
+    ``pack_pre_maet`` and :func:`unpack_pre_maet` are inverses:
+    ``unpack_pre_maet(pack_pre_maet(p, w, specs))`` returns the three
+    parts it was given.
+
     See Also
     --------
     unpack_pre_maet : Split a pre-MAET back into the three parts.
@@ -80,7 +84,7 @@ def pre_maet(p_attr, w_attr=None, specs=None):
             specs = base.get("specs")
     elif isinstance(p_attr, Mapping):
         raise TypeError(
-            "pre_maet: a mapping first argument must be a pre-MAET, "
+            "pack_pre_maet: a mapping first argument must be a pre-MAET, "
             f"carrying the keys {list(_KEYS)}; got keys "
             f"{sorted(p_attr)}."
         )
@@ -107,7 +111,7 @@ def unpack_pre_maet(pm):
     Parameters
     ----------
     pm : Mapping
-        A pre-MAET, as built by :func:`pre_maet` or returned by any
+        A pre-MAET, as built by :func:`pack_pre_maet` or returned by any
         pre-MAET operator.
 
     Returns
@@ -115,6 +119,11 @@ def unpack_pre_maet(pm):
     tuple
         The three parts, in the order the loose-triple signatures take
         them. ``w_attr`` and ``specs`` are ``None`` where unset.
+
+    See Also
+    --------
+    pack_pre_maet : The inverse, holding the three parts in one
+        pre-MAET again.
     """
     if not is_pre_maet(pm):
         raise TypeError(
@@ -181,7 +190,7 @@ def _reject_unknown_keys(pm):
     extra = [k for k in pm if k not in _KEYS]
     if extra:
         raise ValueError(
-            "pre_maet: a pre-MAET carries only the keys "
+            "pack_pre_maet: a pre-MAET carries only the keys "
             f"{list(_KEYS)}; got the extra key(s) {sorted(extra)}."
         )
 
@@ -189,18 +198,18 @@ def _reject_unknown_keys(pm):
 def _normalise_p_attr(p_attr):
     if isinstance(p_attr, np.ndarray) and p_attr.ndim <= 2:
         raise TypeError(
-            "pre_maet: p_attr must be a sequence of per-attribute value "
+            "pack_pre_maet: p_attr must be a sequence of per-attribute value "
             "matrices, not a single array. Wrap a single attribute as "
             "[values]."
         )
     if isinstance(p_attr, (str, bytes)) or not hasattr(p_attr, "__len__"):
         raise TypeError(
-            "pre_maet: p_attr must be a sequence of per-attribute value "
+            "pack_pre_maet: p_attr must be a sequence of per-attribute value "
             "matrices."
         )
     p_list = list(p_attr)
     if not p_list:
-        raise ValueError("pre_maet: p_attr must hold at least one attribute.")
+        raise ValueError("pack_pre_maet: p_attr must hold at least one attribute.")
     return p_list
 
 
@@ -213,13 +222,13 @@ def _normalise_w_attr(w_attr, A):
         return w_attr
     if not hasattr(w_attr, "__len__"):
         raise TypeError(
-            "pre_maet: w_attr must be None, a scalar, or a length-A "
+            "pack_pre_maet: w_attr must be None, a scalar, or a length-A "
             "sequence of per-attribute weights."
         )
     w_list = list(w_attr)
     if len(w_list) != A:
         raise ValueError(
-            f"pre_maet: w_attr must have length A = {A}; got "
+            f"pack_pre_maet: w_attr must have length A = {A}; got "
             f"{len(w_list)}."
         )
     return w_list
@@ -230,19 +239,19 @@ def _normalise_specs(specs, A):
         return None
     if isinstance(specs, Mapping):
         raise TypeError(
-            "pre_maet: specs must be a length-A sequence of per-attribute "
+            "pack_pre_maet: specs must be a length-A sequence of per-attribute "
             "specifications, not a single specification. Wrap a single "
             "attribute as [spec]."
         )
     if not hasattr(specs, "__len__"):
         raise TypeError(
-            "pre_maet: specs must be None or a length-A sequence of "
+            "pack_pre_maet: specs must be None or a length-A sequence of "
             "per-attribute specifications."
         )
     specs_list = list(specs)
     if len(specs_list) != A:
         raise ValueError(
-            f"pre_maet: specs must have length A = {A}; got "
+            f"pack_pre_maet: specs must have length A = {A}; got "
             f"{len(specs_list)}."
         )
     return specs_list

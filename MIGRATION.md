@@ -50,7 +50,7 @@ manuscript already makes between notated and sustained fermata chords.
 velocity, under each controller's squared amplitude curve; `velocity` keeps
 the value as recorded.
 
-`preMaetFromScore` / `pre_maet_from_score` gains `'soundingDuration'`,
+`preMaetFromAttrTable` / `pre_maet_from_attr_table` gains `'soundingDuration'`,
 `'weight'`, and `'noteNumber'` as attributes and `'weight'` as a `'weights'`
 choice. All four raise where the source does not carry the column.
 
@@ -87,13 +87,13 @@ Three of these are corrections rather than repackaging:
   information.
 - **`fermata` is absent from a MIDI table** rather than present and always
   zero. Asking for it as an attribute of a pre-MAET built from a MIDI file
-  now raises `preMaetFromScore:noFermata` instead of silently contributing
+  now raises `preMaetFromAttrTable:noFermata` instead of silently contributing
   a column of zeros.
 - **The part names have somewhere to live.** They are the categories of the
   `part` column, so a part is selected by name -- `t(t.part == "Soprano",
   :)`, `df[df.part == "Soprano"]` -- and `partNames` is gone.
 
-`preMaetFromScore` / `pre_maet_from_score` is unchanged in its options and
+`preMaetFromAttrTable` / `pre_maet_from_attr_table` is unchanged in its options and
 its output, except that `'parts'` now accepts part names as well as 1-based
 positions, and that passing anything other than a path or a table raises.
 Anyone who only ever passed a path to it is unaffected.

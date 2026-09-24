@@ -111,7 +111,7 @@ The consumer wrappers compose the tier-2 primitives into measures with musical i
 
 - **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `select_pre_maet`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `sim_maet` recognizes and reduces to a sweep.
 
-- **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `pre_maet_from_score` (MIDI and MusicXML input, the first returning an event table -- a MATLAB `table`, a pandas `DataFrame` -- and the second a pre-MAET), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
+- **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `pre_maet_from_attr_table` (MIDI and MusicXML input, the first returning an attribute table -- a MATLAB `table`, a pandas `DataFrame` -- and the second a pre-MAET), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
 
 The consumer layer is where measure-specific documentation belongs (see USER_GUIDE §6); the layering in this document stops at the tier-2 primitives.
 
@@ -134,7 +134,7 @@ mpt/
 │   │                      helpers
 │   ├── build.py           build_maet (single-multiset and multi-attribute
 │   │                      input forms; both produce a MaetDensity)
-│   ├── premaet.py         pre_maet, unpack_pre_maet: the pre-MAET as one
+│   ├── premaet.py         pack_pre_maet, unpack_pre_maet: the pre-MAET as one
 │   │                      object, and the argument front end the operators share
 │   ├── transform.py       transform_attributes (scale conversions, log and other elementwise maps)
 │   ├── preprocessing.py   difference_events, bind_events, translate_attributes,
@@ -190,8 +190,8 @@ mpt/
 ├── serial.py              continuity, kernel_cov
 ├── spectra.py             add_spectra
 ├── audio.py               audio_peaks, AudioPeaksDetail
-├── score.py               read_score, pre_maet_from_score (MIDI, MusicXML)
-├── grid.py                grid_events (sampling an event table on a grid)
+├── score.py               read_score, pre_maet_from_attr_table (MIDI, MusicXML)
+├── grid.py                grid_attr_table (sampling an attribute table on a grid)
 ├── _kernel.py             Gaussian-kernel sum helper: the single centres-path
 │                          numerical primitive (truncated 1-D, bucket-grid,
 │                          circular, and exact chunked branches)
@@ -638,6 +638,8 @@ Twin-language parity is the default but not a rule. Acceptable divergences:
 - Shape rules that are idiomatic in one language and not in the other, where each language's rule is the one its users expect. The standing case is the batched-raw dispatch of `simMaet` / `sim_maet`, `evalMaet` / `eval_maet`, and `entropyMaet` / `entropy_maet`: MATLAB enters batched-raw on an operand that is a matrix with both dimensions greater than one, so a `K`-by-1 column is a vector and is broadcast as one shared multiset, while Python enters it on `ndim == 2`, so a `(K, 1)` array is K rows of one element each. Forcing either to the other's convention would make one side read as a translation of the other. The divergence is documented in each entry point's docstring and in USER_GUIDE §6, and pinned by `test_batched_shape_rule.py` / `.m`; a batch of one-element multisets is written the same way in both languages by padding to two columns with NaN, which the batched path strips per row.
 
 - Drawing methods one language's plotting library supports and the other's does not. The standing case is `plotMaet` / `plot_maet`. Both dispatch on the drawn dimensionality and offer the same three methods — `kernels`, which is geometry; `points`, a scatter, at three dimensions only; and `density`, the density itself. One combination is MATLAB only: `density` at three dimensions, which draws the volume as a stack of texture-mapped surfaces with per-texel opacity. matplotlib has no texture-mapped 3-D surface, so the Python side would need a different mechanism rather than a translation, and it raises there naming `points`. Everything else is in both. Related, and worth knowing before reimplementing either: MATLAB draws truecolour marks with unmapped opacity opaque once the figure settles while rendering them correctly during a drag, so `points` uses mapped colour and a scaled alphamap, and a surface uses `AlphaData` with `FaceColor` and `FaceAlpha` both `texturemap` — per-vertex opacity on a large surface renders blank. Both of those render dependably, and the obvious first implementation does not. The marker-size budget in `points` exists only for MATLAB: matplotlib depth-sorts and blends its marks, so the Python side sizes them as asked.
+
+- The conventions of each language's table type. The attribute table is a MATLAB `table` and a pandas `DataFrame`, and the differences are the ones a user of either already expects. Column names are camelCase against snake_case, as elsewhere. Grid positions and note identifiers from `gridAttrTable` / `grid_attr_table` are 1-based in MATLAB and 0-based in Python. A missing value needs a type that can hold one, so a gridded table's integer and boolean columns become pandas' nullable `Int64` and `boolean`, while MATLAB — having no missing logical — returns a logical column as double with `NaN` where a slice is empty. What is not a column lives where each language keeps such a thing: the source in `Properties.Description` and `df.attrs['source']`, the grid's own parameters in `Properties.UserData` and `df.attrs`. The role names of `preMaetFromAttrTable` / `pre_maet_from_attr_table` follow the same case convention (`'orderedMultiset'` against `'ordered_multiset'`). None of this changes a value: both suites assert the same numbers against the same fixtures, and the acceptance tests — 272 grid points on BWV 347, and the three encodings of the article's Table 2 — are written out identically on both sides.
 
 - Parallelism the runtime provides in one language and not the other. MATLAB threads elementwise transcendental arithmetic in the runtime and gives each `parfor` worker a single computational thread; NumPy's `exp` is single-threaded whatever the environment, so the Python kernel paths spread that arithmetic over a thread pool themselves and expose the count as the `kernel_threads` default, which MATLAB has no use for. The split is by contiguous spans of evaluation points, and every point keeps its serial arithmetic, so the values are bit-identical at any thread count (`test_kernel_threads.py`). Measured on sixteen cores: about 7× on the kernel portion of a call, which is the bulk of most evaluations.
 

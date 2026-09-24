@@ -4,6 +4,9 @@ __pycache__/
 *.diff
 APPLY_NOTES.txt
 
+# MATLAB editor autosaves.
+*.asv
+
 # Calibration run outputs. Each is the default output path of a
 # calibration tool, so a committed copy is a stale run the next one
 # silently overwrites; the fitted constants live in the source, with
@@ -28,3 +31,15 @@ python/demos/*.png
 python/dist/
 python/demos/jmm/figures/
 matlab/demos/jmm/figures/
+
+# Coltrane, Acknowledgement. The transcription of the solo is not
+# distributed with the toolbox; the demos read whatever monophonic MIDI
+# transcription the user places at these paths.
+python/demos/jmm/data/AwakeningSolo.mid
+matlab/demos/jmm/data/AwakeningSolo.mid
+
+# Ren, Rammos, and Rohrmeier's (2024) rule-labelled derivations of the
+# Jazz Harmony Treebank, read by the supplied-parse demo. Public, but
+# not ours to redistribute; the demo says where to fetch it.
+python/demos/jmm/data/ParseTrees.json
+matlab/demos/jmm/data/ParseTrees.json

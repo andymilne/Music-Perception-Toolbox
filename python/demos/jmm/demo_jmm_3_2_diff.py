@@ -1,4 +1,5 @@
-"""demo_jmm_3_1_diff.py — Analysis 3.1 (Section 4.3.1 of the JMM article).
+"""demo_jmm_3_2_diff.py — Analysis 3.2 (Online Supplement, Section 9): joint
+differencing on pitch and time in Piano Phase.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
@@ -6,7 +7,7 @@ from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
 (the rendered Piano Phase voices); the figures stay on screen unless
 SAVE_FIGURES is set.
 
-Analysis 3.1: joint differencing on pitch and time in Reich's *Piano Phase*.
+Analysis 3.2: joint differencing on pitch and time in Reich's *Piano Phase*.
 
 The phasing voice (Piano 2) is differenced jointly on pitch and time via
 `difference_events` with per-attribute orders [1, 1, 0]: the pitch and onset
@@ -23,7 +24,7 @@ The analysis is run at two values of the time-difference kernel width:
     accelerandi shift the IOI over a 135.4-137.8 ms range (a 2.4 ms
     excursion, below the JND), so at this width the (dp, dt) fingerprint is
     indistinguishable everywhere and the entropy is flat while the phase
-    staircase climbs 0 -> 12 pulses --- the foil that motivates Analyses 3.2
+    staircase climbs 0 -> 12 pulses --- the foil that motivates Analyses 3.1
     (phase as texture) and 3.3 (phase as lag).
 
   * sigma_t = 0.1 ms --- far below the JND. At this super-human resolution
@@ -44,6 +45,10 @@ Pre-MAET structure (after differencing)::
     abs onset   0      --- (window axis, deleted after weighting)
 
     r = (1, 1); estimator: windowed Renyi-2 (Gaussian window, s.d. 6 s).
+
+Data: ``piano_phase`` (the rendered Piano Phase voices). Toolbox: ``pre_maet_from_attr_table``, ``difference_events``,
+``select_pre_maet``, ``build_maet``, ``eval_maet``,
+``windowed_entropy``. Runtime: a few seconds.
 """
 import os
 import numpy as np
@@ -57,7 +62,7 @@ plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19, 'axes.labelsize': 17
 
 import mpt
 from mpt import unpack_pre_maet
-mpt.set_default(show_hints=False, truncation_sigmas=4.0, kernel_precision='double')
+_prev_defaults = mpt.set_default(show_hints=False)
 from mpt import (difference_events, build_maet, eval_maet,
                  show_pre_maet,
                  windowed_entropy)
@@ -80,26 +85,35 @@ C_JND  = '#1f4eb8'          # blue  --- perceptual (JND-matched) line
 C_FINE = '#8e2f9e'          # purple --- sub-JND (super-human) line
 
 # --- joint differencing of the phasing voice ------------------------------
-pitch, onset = pe.render_voice(2)
-N = len(pitch)
-p_attr = [pitch.reshape(1, N), onset.reshape(1, N), onset.reshape(1, N)]
+# The phasing voice as an attribute table, converted to three attributes:
+# its pitch, its onset, and a second reading of the same onset column,
+# which the differencing leaves alone to serve as the windowing axis.
+voice = mpt.pre_maet_from_attr_table(
+    pe.voice_table(2),
+    attributes=(dict(column='pitch', name='dp', sigma=SIGMA_DP),
+                dict(column='onset', name='dt', sigma=SIGMA_JND),
+                dict(column='onset', name='t', sigma=1.0)),
+    time='seconds', chords='separate', weights='ones')
 # Per-attribute difference orders: pitch and onset first-differenced, the
 # third (onset copy) passed through at order 0 as the windowing axis.
-pd, wd, _ = unpack_pre_maet(difference_events(p_attr, None, [1, 1, 0]))
+diff = difference_events(voice, [1, 1, 0])
+pd, wd, _ = unpack_pre_maet(diff)
 dp, dt, t_abs = pd[0].ravel(), pd[1].ravel(), pd[2].ravel()
+N = len(dp) + 1
 print(f'Differenced events: {len(dp)}; dp distinct: '
       f'{sorted(set(np.round(dp).astype(int).tolist()))}')
 print(f'IOI (=dt) min/max: {dt.min()*1000:.2f} / {dt.max()*1000:.2f} ms  '
       f'(excursion {(dt.max()-dt.min())*1000:.2f} ms)')
 
-show_pre_maet([pd[0], pd[1]], None, names=['dp', 'dt'],
-              sigma=[SIGMA_DP, SIGMA_JND], is_per=[False, False],
+# The two widths are stated for the differences themselves --- a pitch
+# interval, and an IOI against its JND --- so they are given rather than
+# inherited from the values the differencing started out from.
+DIFFERENCED = mpt.select_pre_maet(diff, attributes=['dp', 'dt'])
+show_pre_maet(DIFFERENCED, sigma=[SIGMA_DP, SIGMA_JND],
               max_events=4, decimals=3)
 
 # --- (a) static (dp, dt) density over the whole voice (at the JND width) ---
-static = build_maet([pd[0], pd[1]], None, [SIGMA_DP, SIGMA_JND], [1, 1],
-                        [False, False], [False, False], [0.0, 0.0],
-                        verbose=False)
+static = build_maet(DIFFERENCED, sigma=[SIGMA_DP, SIGMA_JND], verbose=False)
 dp_grid = np.linspace(dp.min() - 2, dp.max() + 2, 200)
 dt_grid = np.linspace(dt.min() - 0.04, dt.max() + 0.04, 120)
 DP, DT = np.meshgrid(dp_grid, dt_grid)
@@ -123,10 +137,7 @@ def sweep(sig):
     (The placeholder onset sigma is unused: that axis is dropped.)
     """
     return windowed_entropy(
-        pd, wd,
-        [SIGMA_DP, sig, 1.0], [1, 1, 1],
-        [False, False, False], [False, False, False], [0.0, 0.0, 0.0],
-        centres,
+        diff, centres, sigma=[SIGMA_DP, sig, 1.0],
         context_window=(0.0, WINDOW_SD * 2.0 * np.sqrt(3.0)),
         method='renyi2',
         window_attr=2, drop_window_attr=True,
@@ -180,8 +191,12 @@ axD.spines[['top', 'right']].set_visible(False)
 fig.tight_layout()
 if SAVE_FIGURES:
     os.makedirs(FIG_DIR, exist_ok=True)
-    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_3_1_diff.png'),
+    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_3_2_diff.png'),
                 dpi=140, bbox_inches='tight')
-    print('Saved figures/demo_jmm_3_1_diff.png')
+    print('Saved figures/demo_jmm_3_2_diff.png')
 else:
     plt.show()
+
+# The demo leaves the toolbox as it found it: the defaults it set at the
+# top are restored here.
+mpt.set_default(**_prev_defaults)

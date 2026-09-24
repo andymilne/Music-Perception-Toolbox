@@ -1,6 +1,6 @@
-%% demo_jmm_1_3_tonic_tuple_size.m
-% Analysis 1.3 (Section 4.1.3 of the JMM article; the article calls it
-% Analysis 1.2 in the reduced version).
+%% demo_jmm_1_4_tonic_tuple_size.m
+% Analysis 1.4 (Online Supplement, Section 7): cadence-tonic matching at
+% increasing tuple size.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
@@ -8,7 +8,7 @@
 % jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
 % SAVE_FIGURES is set.
 %
-% Analysis 1.3: structural matching of the four cadence tonics of BWV 347
+% Analysis 1.4: structural matching of the four cadence tonics of BWV 347
 % at increasing tuple size r, on a single chord (no nesting).
 %
 % Each cadence tonic (the final chord of cadences C1-C4) is one event with
@@ -29,19 +29,14 @@
 % shown only for completeness.
 %
 % These are the same four tonics compared as whole nested cadences in
-% Analysis 1.4, in the same panel layout, so the two figures read together.
+% Analysis 1.3, in the same panel layout, so the two figures read together.
 %
-% Toolbox-dependency notes
-% ------------------------
-% Uses
-%     buildMaet, simMaet; jmm.bwv347Grid.
+% Data: jmm.bwv347Notes (the bundled MusicXML read with readScore,
+% repeats expanded). Toolbox: gridAttrTable, preMaetFromAttrTable,
+% selectPreMaet, buildMaet, simMaet. Runtime: a second or two.
 %
-% The Python mirror is demos/jmm/demo_jmm_1_3_tonic_tuple_size.py.
-
-% The demo folder is located from the toolbox root, which is always
-% reachable, rather than from the script itself: in a script neither
-% mfilename nor dbstack reports the file, and the current folder need not
-% be the script's own. Adding it puts the +jmm helper package in scope.
+% The demo folder is located from the toolbox root, and adding it puts
+% the +jmm helper package in scope.
 mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
@@ -52,11 +47,11 @@ thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
 
-% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% Set true to write the figures to a
 % figures/ folder beside this script; false leaves them on screen only.
 SAVE_FIGURES = false;
 
-mptDefaults('showHints', false);
+prevDefaults = mptDefaults('showHints', false);
 
 % ---------------------------------------------------------------------------
 % Parameters
@@ -71,13 +66,27 @@ CADENCE_NAMES = {'C1', 'C2', 'C3', 'C4'};
 % Extract the cadence tonics
 % ---------------------------------------------------------------------------
 fprintf('Loading BWV 347 and extracting cadence tonics...\n');
-[times, pitchesSatb, ~] = jmm.bwv347Grid();
-tonics = zeros(4, 4);                       % row cid: (4,) pitch vector
+% The chorale as a pre-MAET: each grid point one event, holding its chord as
+% an unordered pitch multiset, alongside the point's own time. The onset
+% attribute locates a cadence tonic and is dropped before any density is
+% built, so its width never enters; the tuple size, mode, and periodicity
+% are the sweep's, which buildMaet overrides per call.
+pm = preMaetFromAttrTable( ...
+    gridAttrTable(jmm.bwv347Notes(), jmm.gridStepQn()), ...
+    'attributes', {struct('column', 'pitch', 'sigma', SIGMA_PITCH, ...
+                          'r', 1, 'exch', true, 'isPer', true, ...
+                          'period', PERIOD), ...
+                   struct('column', 'onset', 'sigma', 1.0)}, ...
+    'time', 'beats', 'weights', 'ones');
+[pmPAttr, ~, pmSpecs] = unpackPreMaet(pm);
+pmNames = cellfun(@(sp) sp.name, pmSpecs, 'UniformOutput', false);
+onsets = pmPAttr{find(strcmp(pmNames, 'onset'), 1)}(1, :);
+tonicEvents = zeros(1, 4);                  % the event of each cadence final
 for cid = 1:4
-    [~, k] = min(abs(times - TONIC_TIMES(cid)));
-    tonics(cid, :) = pitchesSatb(k, :);
+    [~, tonicEvents(cid)] = min(abs(onsets - TONIC_TIMES(cid)));
+    chord = sort(pmPAttr{1}(:, tonicEvents(cid)).', 'descend');
     fprintf('  tonic C%d: [%s]\n', cid, ...
-            strjoin(arrayfun(@(x) sprintf('%.1f', x), tonics(cid, :), ...
+            strjoin(arrayfun(@(x) sprintf('%.1f', x), chord, ...
                              'UniformOutput', false), ', '));
 end
 
@@ -119,8 +128,10 @@ for row = 1:2
             % call per row.
             dens = cell(1, 4);
             for c = 1:4
-                dens{c} = buildMaet({tonics(c, :).'}, [], SIGMA_PITCH, r, ...
-                                       isRel, isPer, PERIOD, 'verbose', false);
+                dens{c} = buildMaet(selectPreMaet(pm, ...
+                    'attributes', {'pitch'}, 'events', tonicEvents(c)), ...
+                    'sigma', SIGMA_PITCH, 'r', r, 'rel', isRel, ...
+                    'isPer', isPer, 'period', PERIOD, 'verbose', false);
             end
             M = zeros(4, 4);
             for i = 1:4
@@ -178,7 +189,10 @@ figDir = fullfile(thisDir, 'figures');
 if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
 if SAVE_FIGURES
     print(fig, '-dpng', '-r140', ...
-          fullfile(figDir, 'demo_jmm_1_3_tonic_tuple_size.png'));
-    fprintf('Saved figures/demo_jmm_1_3_tonic_tuple_size.png\n');
+          fullfile(figDir, 'demo_jmm_1_4_tonic_tuple_size.png'));
+    fprintf('Saved figures/demo_jmm_1_4_tonic_tuple_size.png\n');
 end
 
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);

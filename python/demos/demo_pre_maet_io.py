@@ -40,7 +40,7 @@ import numpy as np
 
 import mpt
 
-mpt.set_default(show_hints=False)
+_prev_defaults = mpt.set_default(show_hints=False)
 OUT_DIR = tempfile.mkdtemp(prefix="mpt_premaet_")
 
 
@@ -67,10 +67,10 @@ specs = [
      "sigma": 0.1, "is_per": False, "period": 0.0},
 ]
 
-# pre_maet holds the three parts in one variable, which every function
+# pack_pre_maet holds the three parts in one variable, which every function
 # below then takes whole. The specs carry the kernel geometry, so nothing
 # further is needed here: the pre-MAET is complete as it stands.
-pm = mpt.pre_maet(p_attr, specs=specs)
+pm = mpt.pack_pre_maet(p_attr, specs=specs)
 
 print("  (a) markdown\n")
 mpt.show_pre_maet(pm)
@@ -136,7 +136,7 @@ mpt.show_pre_maet(pm, sigma=[0.6, 0.1],
 
 # The effect of the width is visible against a semitone shift: the wider the
 # pitch kernel, the more nearly the shifted cadence matches the original.
-pm_up = mpt.pre_maet([pm["p_attr"][0] + 1.0, pm["p_attr"][1]],
+pm_up = mpt.pack_pre_maet([pm["p_attr"][0] + 1.0, pm["p_attr"][1]],
                      specs=pm["specs"])
 print()
 for sigma_pitch in (0.05, 0.15, 0.6, 2.0):
@@ -183,7 +183,7 @@ print("=== 6. NA, where a step could not carry a parameter ===\n")
 # sigma. NA marks the absence of a canonical choice, and the analyst
 # supplies the width the new units call for.
 pm_log = mpt.transform_attributes(
-    mpt.pre_maet([p_attr[1] + 1.0], specs=[specs[1]]), ["log"])
+    mpt.pack_pre_maet([p_attr[1] + 1.0], specs=[specs[1]]), ["log"])
 mpt.show_pre_maet(pm_log)
 try:
     mpt.build_maet(pm_log, verbose=False)
@@ -231,10 +231,13 @@ print("=== 8. From a score ===\n")
 score = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "jmm", "data", "bwv347.musicxml")
 if os.path.exists(score):
-    pm_s = mpt.pre_maet_from_score(
-        score, attributes=("pitch", "onset"), chords="bind")
-    # A score determines periodicity and not kernel widths, so sigma is
-    # left for the analyst; the table shows what is still missing.
+    # Each attribute names its column and the parameters under which it
+    # is read: the pitch of a bound chord as a periodic class taken two
+    # at a time, and the chord's onset singly.
+    pm_s = mpt.pre_maet_from_attr_table(mpt.read_score(score), attributes=(
+        dict(column="pitch", sigma=0.5, r=2, exch=True,
+             is_per=True, period=12.0),
+        dict(column="onset", sigma=0.25)), chords="bind")
     mpt.show_pre_maet(pm_s, max_events=5, max_elements=4)
     try:
         mpt.build_maet(pm_s, verbose=False)
@@ -250,3 +253,7 @@ else:
     print("  (score fixture not found; skipping)")
 
 print(f"\nFiles written to {OUT_DIR}")
+
+# The demo leaves the toolbox as it found it: the defaults it set at the
+# top are restored here.
+mpt.set_default(**_prev_defaults)

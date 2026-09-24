@@ -41,16 +41,18 @@ function pp = pianoPhase()
 %     .cellDur       - one cell, seconds; .tEnd - the piece, seconds.
 %     .shiftStarts   - 1 x 12 accelerando starts, seconds.
 %     .shiftCentres  - 1 x 12 accelerando centres, seconds
-%                      (piano_phase.shift_centre_times).
+%                     .
 %     .lagAt         - function handle: phase k (in pulses) at time x
-%                      measured in Piano-1 CELLS (piano_phase.lag_at).
+%                      measured in Piano-1 CELLS.
 %     .voice1, .voice2
 %                    - structs with 1 x M .pitch (MIDI) and .onset
-%                      (seconds) (piano_phase.render_voice).
+%                      (seconds).
 %     .piece         - both voices pooled and time-sorted: .pitch, .onset,
-%                      .voice (1 or 2) (piano_phase.render_piece).
-%
-%   Twin of piano_phase.py in the Python demos.
+%                      .voice (1 or 2).
+%     .voice1Table, .voice2Table, .pieceTable
+%                    - the same three as attribute tables, one row per
+%                      note-on: onsetSeconds and pitch, and on the pooled
+%                      one a categorical part .
     persistent cached
     if isempty(cached)
         cached = localRender();
@@ -115,6 +117,24 @@ function pp = localRender()
     pp.piece.pitch = pitch(order);
     pp.piece.onset = onset(order);
     pp.piece.voice = voice(order);
+
+    % --- the same three, as attribute tables -------------------------------
+    % The rendering fixes when each note sounds and at what pitch, and
+    % nothing else, so a voice's table carries those two columns and no
+    % more; the pooled table adds the voice as a categorical 'part', which
+    % the conversion's roles reach as they reach a chorale's voices.
+    pp.voice1Table = localVoiceTable(pp.voice1);
+    pp.voice2Table = localVoiceTable(pp.voice2);
+    pp.pieceTable = localVoiceTable(pp.piece);
+    pp.pieceTable.part = categorical(compose('Piano %d', pp.piece.voice(:)), ...
+                                     {'Piano 1', 'Piano 2'});
+end
+
+
+function t = localVoiceTable(v)
+    %localVoiceTable One row per note-on, in onset order.
+    t = table(v.onset(:), double(v.pitch(:)), ...
+              'VariableNames', {'onsetSeconds', 'pitch'});
 end
 
 

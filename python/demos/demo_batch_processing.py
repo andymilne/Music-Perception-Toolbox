@@ -269,7 +269,7 @@ print("\n=== Workflow 3: A list of pre-MAETs (batching, other sense) ===\n")
 def _item(pcs, onsets):
     p = [np.asarray(pcs, dtype=float)[None, :],
          np.asarray(onsets, dtype=float)[None, :]]
-    return mpt.pre_maet(p, specs=mpt.flat_specs(
+    return mpt.pack_pre_maet(p, specs=mpt.flat_specs(
         p, name=["pitch class", "onset"], sigma=[35.0, 0.25],
         is_per=[True, False], period=[1200.0, 0.0]))
 

@@ -79,7 +79,7 @@ w = {metre, metre};
 
 % The three parts travel together as one pre-MAET, which every operator
 % below takes whole and returns whole.
-pm = preMaet(pAttr, w);
+pm = packPreMaet(pAttr, w);
 
 isRel   = [false false];      % both attributes are absolute
 isPer   = [true  false];      % attribute 1 is periodic (PC), attribute 2 isn't
@@ -178,11 +178,11 @@ fprintf('  absolute build: dim = %d, cosine self-match = %.4f\n', ...
 % specs, and below the values.
 specBBOut = specBB;
 specBBOut{1}.rel = [0 0 1];                  % outermost unit on pitch
-pmBBOut = preMaet(pmBB, [], specBBOut);
+pmBBOut = packPreMaet(pmBB, [], specBBOut);
 dBBOut = buildMaet(pmBBOut, kwBB{:});
 pmBBT = pmBB;
 pmBBT.pAttr{1} = pmBB.pAttr{1} + 5;          % transpose all pitches +5
-pmBBOutT = preMaet(pmBBT, [], specBBOut);
+pmBBOutT = packPreMaet(pmBBT, [], specBBOut);
 dBBOutT = buildMaet(pmBBOutT, kwBB{:});
 dBBAbsT = buildMaet(pmBBT, kwBB{:});
 simOut = simMaet(dBBOut, dBBOutT, 'verbose', false);
@@ -231,6 +231,49 @@ fprintf(['  inputAttr = 2 (time); targetAttr = 2; centre = 6; sd = 2; ' ...
     'shape = 0 (Gaussian)\n']);
 showPreMaet(pmW, 'decimals', 3, KERNEL{:});
 fprintf('\n');
+
+%% ===================================================================
+%  5b. selectPreMaet (S): keep some attributes and some events
+%  ===================================================================
+
+fprintf('=== 5b. selectPreMaet (S) ===\n');
+
+% A filter on the pre-MAET itself, as against selecting rows of the
+% attribute table it may have been built from, which is MATLAB's own
+% job. It reads only the two levels every pre-MAET has -- its attributes
+% and its events -- so it knows nothing of where the pre-MAET came from.
+% Here the cadence's three chords (events 5 to 7) on the pitch attribute
+% alone; the kept items come back in the order given, and each keeps its
+% tuple size and flags, so a selection cannot change what an attribute
+% means.
+pmS = selectPreMaet(pm, 'attributes', 1, 'events', 5:7);
+
+fprintf('  attributes = 1 (pitch); events = 5:7 (the cadence)\n');
+showPreMaet(pmS, 'decimals', 3, 'sigma', 0.5, 'isPer', true, ...
+            'period', 12, 'names', {'pitch'});
+fprintf('\n');
+
+%% ===================================================================
+%  5c. bindAttributes and separateAttributes: one attribute from
+%      several, and several from one
+%  ===================================================================
+
+fprintf('=== 5c. bindAttributes and separateAttributes ===\n');
+
+% Binding along the attribute axis, as bindEvents binds along the event
+% axis. Pitch and time describe the same events, so binding them gives
+% one attribute whose value at an event is the ordered pair, read whole
+% (r = 2, exch = false) rather than as the product of two attributes.
+pmBA = bindAttributes(pm, [1 2], 'name', 'pitchTime', 'r', 2, ...
+                      'exch', false, 'sigma', 0.5);
+showPreMaet(pmBA, 'decimals', 3, 'names', {'pitchTime'});
+fprintf('\n');
+
+% separateAttributes is the inverse, splitting it back into one
+% attribute per slot.
+[pBack, ~, sBack] = unpackPreMaet(separateAttributes(pmBA, 'pitchTime'));
+fprintf('  separated back into %d attributes: %s\n\n', numel(pBack), ...
+        strjoin(cellfun(@(x) x.name, sBack, 'UniformOutput', false), ', '));
 
 %% ===================================================================
 %  6. D o B == B o D (n-tuple entropy pipeline commutation)

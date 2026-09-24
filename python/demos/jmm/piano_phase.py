@@ -38,6 +38,7 @@ shift_centre_times() -> (12,) ndarray of accelerando centres, seconds.
 """
 from __future__ import annotations
 import numpy as np
+import pandas as pd
 
 # --- canonical cell (E5, F#5, B5, C#6, D6, F#5, E5, C#6, B5, F#5, D6, C#6) ---
 CELL = np.array([76, 78, 83, 85, 86, 78, 76, 85, 83, 78, 86, 85], dtype=int)
@@ -114,6 +115,29 @@ def render_piece():
     voice = np.concatenate([np.ones_like(t1), 2.0 * np.ones_like(t2)])
     order = np.argsort(onset, kind='stable')
     return pitch[order], onset[order], voice[order]
+
+
+def voice_table(v: int):
+    """Voice v as an attribute table: one row per note-on, in onset order.
+
+    The rendering fixes when each note sounds and at what pitch, and
+    nothing else, so the table carries those two columns and no more.
+    """
+    pitch, onset = render_voice(v)
+    return pd.DataFrame({'onset_seconds': onset, 'pitch': pitch})
+
+
+def piece_table():
+    """Both voices pooled and time-sorted, as an attribute table.
+
+    The voice is a categorical column named ``part``, so the conversion's
+    roles reach it as they reach a chorale's voices.
+    """
+    pitch, onset, voice = render_piece()
+    return pd.DataFrame({
+        'onset_seconds': onset, 'pitch': pitch,
+        'part': pd.Categorical([f'Piano {int(v)}' for v in voice],
+                               categories=['Piano 1', 'Piano 2'])})
 
 
 if __name__ == '__main__':

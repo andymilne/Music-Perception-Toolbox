@@ -3,7 +3,6 @@ function s = gridStepQn()
 %
 %   s = jmm.gridStepQn()
 %
-%   The sixteenth note is the smallest value in BWV 347. Twin of
-%   jmm_data.GRID_STEP_QN in the Python demos.
+%   The sixteenth note is the smallest value in BWV 347.
     s = 0.25;
 end

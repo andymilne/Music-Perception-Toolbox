@@ -1,5 +1,6 @@
 %% demo_jmm_1_1_entropy.m
-% Analysis 1.1: windowed pitch entropy across BWV 347.
+% Analysis 1.1 (JMM article, Section 4.1.1): windowed pitch entropy across
+% BWV 347.
 %
 % Reproduces Analysis 1.1 of the JMM article (Section 4.1.1): the temporal
 % evolution of pitch entropy across Bach's chorale BWV 347, read through a
@@ -13,10 +14,13 @@
 % by metric class, the profile also shows the on-beat / off-beat contrast
 % that the Online Supplement tests across a corpus of chorales.
 %
-% How it is computed. Every grid-point chord is spectrally augmented
-% (addSpectra: twelve harmonics, partial h weighted h^-0.67), so the pitch
-% attribute carries 48 partials per event. The chorale is then a two-
-% attribute pre-MAET (pitch, time). windowedEntropy sweeps a
+% How it is computed. The chorale is gridded (gridAttrTable) and converted
+% to a two-attribute pre-MAET (pitch, time) in one call
+% (preMaetFromAttrTable): each grid point is an event holding its chord as
+% an unordered pitch multiset in cents, alongside the point's own time.
+% Every chord is then spectrally augmented (addSpectra on that attribute:
+% twelve harmonics, partial h weighted h^-0.67), so the pitch attribute
+% carries 48 partials per event. windowedEntropy then sweeps a
 % window along the time attribute: at each centre the events are
 % reweighted by the window (weightEvents under the hood, the window
 % factor multiplied into the pitch weights), the time axis is dropped, and
@@ -26,17 +30,14 @@
 % note (one event per window, so the profile is the per-event entropy) and
 % a Gaussian of one quarter note.
 %
-% Data: jmm.bwv347Grid (the score sampled on the sixteenth-note grid,
-% repeats expanded). Toolbox: addSpectra, windowedEntropy. Runtime: a few
-% minutes (the differential estimator refines its grid at every centre).
+% Data: jmm.bwv347Notes (the bundled MusicXML read with readScore,
+% repeats expanded). Toolbox: gridAttrTable, preMaetFromAttrTable,
+% addSpectra, windowedEntropy. Runtime: under a minute (the differential
+% estimator refines its grid at every centre).
 % The figures stay on screen unless SAVE_FIGURES is set.
-%
-% The Python mirror is demos/jmm/demo_jmm_1_1_entropy.py.
 
-% The demo folder is located from the toolbox root, which is always
-% reachable, rather than from the script itself: in a script neither
-% mfilename nor dbstack reports the file, and the current folder need not
-% be the script's own. Adding it puts the +jmm helper package in scope.
+% The demo folder is located from the toolbox root, and adding it puts
+% the +jmm helper package in scope.
 mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
@@ -47,13 +48,11 @@ thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
 
-% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% Set true to write the figures and the checkpoint data to a
 % figures/ folder beside this script; false leaves them on screen only.
 SAVE_FIGURES = false;
 
-mptDefaults('showHints', false, ...
-            'truncationSigmas', 3.0, ...        % truncate Gaussian tails at 3 sigma
-            'kernelPrecision', 'single');       % 32-bit kernel arithmetic
+prevDefaults = mptDefaults('showHints', false);
 
 % ---------------------------------------------------------------------------
 % Parameters
@@ -76,33 +75,29 @@ WINDOWS = struct( ...
 nWindows = numel(WINDOWS);
 
 % ---------------------------------------------------------------------------
-% Load chorale, spectrally expand partials
+% Load chorale, spectral enrichment
 % ---------------------------------------------------------------------------
 fprintf('Loading BWV 347 and expanding partials...\n');
-[times, pitchesSatb, ~] = jmm.bwv347Grid();
+% The chorale on the sixteenth-note grid, converted to a two-attribute
+% pre-MAET: the grid point's chord as the pitch attribute, read in cents as
+% an unordered multiset, and the grid point's own time as the axis the
+% window will slide along. Each chord's four pitches then take their
+% partials, which multiplies the pitch attribute's K by twelve and leaves
+% the events alone.
+g = gridAttrTable(jmm.bwv347Notes(), jmm.gridStepQn());
+pm = preMaetFromAttrTable(g, 'attributes', { ...
+        struct('column', 'pitch', 'sigma', SIGMA_PITCH, 'r', 1, ...
+               'exch', true), ...
+        struct('column', 'onset', 'name', 'time', 'sigma', 1.0)}, ...
+        'time', 'beats', 'pitch', 'cents', 'weights', 'ones');
+pm = addSpectra(pm, SPECTRUM{:}, 'attribute', 'pitch');
+
+pAttrPre = unpackPreMaet(pm);
+times = pAttrPre{2};
 N = numel(times);
-tEnd = times(end) + 0.25;
-pitchesCents = transformAttributes(pitchesSatb, [], {'midi', 'cents'});           % (N, 4)
-K = 4 * H_PARTIALS;                           % 48 partials per event
+tEnd = times(end) + jmm.gridStepQn();
 
-% addSpectra operates on one weighted multiset (one event) at a time, so
-% the expansion runs as a per-event loop.
-pPartials = zeros(N, K);
-wPartials = zeros(N, K);
-for n = 1:N
-    [pAug, wAug] = addSpectra(pitchesCents(n, :), [], SPECTRUM{:});
-    pPartials(n, :) = pAug(:).';
-    wPartials(n, :) = wAug(:).';
-end
-
-% Pre-MAET inputs: 2 attributes (pitch K=48 partials, time K=1 events).
-% Pitch is attribute 1, time is attribute 2.
-pAttrPre = {pPartials.', times};
-wPre = {wPartials.', ones(1, N)};
-
-showPreMaet(pAttrPre, wPre, [], 'names', {'pitch', 'time'}, ...
-    'sigma', [SIGMA_PITCH, 1.0], 'isPer', [false false], ...
-    'maxEvents', 4, 'maxElements', 4, 'decimals', 2);
+showPreMaet(pm, 'maxEvents', 4, 'maxElements', 4, 'decimals', 2);
 
 % ---------------------------------------------------------------------------
 % Compute differential entropy at each event time
@@ -132,10 +127,7 @@ for wi = 1:nWindows
     if strcmp(window.kind, 'width'), width = window.value;
     else,                             width = window.value * RT3; end
     H(wi, :) = windowedEntropy( ...
-        pAttrPre, wPre, ...
-        [SIGMA_PITCH, 1.0], [1, 1], ...
-        [false, false], [false, false], [0.0, 0.0], ...
-        sweepCentres, ...
+        pm, sweepCentres, ...
         'contextWindow', {window.shape, width}, ...
         'method', 'differential', ...
         'windowAttr', 2, 'dropWindowAttr', true, ...
@@ -291,3 +283,7 @@ if SAVE_FIGURES
     print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_1_entropy.png'));
     fprintf('Saved figures/demo_jmm_1_1_entropy.png.\n');
 end
+
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);

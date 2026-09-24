@@ -1,5 +1,6 @@
 %% demo_jmm_1_2_similarity.m
-% Analysis 1.2: voice-aware versus voice-agnostic similarity across the
+% Analysis 1.2 (JMM article, Section 4.1.2): voice-aware versus
+% voice-agnostic similarity across the
 % pitch–pitch-class blend.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
@@ -27,33 +28,32 @@
 %   (ii)  Simplex-voice: one event per note (N = 4 single-pitch events);
 %         pitch class and pitch height at r = 1, plus a voice attribute
 %         holding each note's vertex of a regular tetrahedron
-%         (simplexVertices(4), its three coordinates taken in order:
+%         (the simplex role, its three coordinates taken in order:
 %         [exch] = 0, r = 3, sigma_voice = 0.2), so matching accrues
 %         additive partial credit, voice by voice.
 %   (iii) Voice-agnostic: one event per note (N = 4, K = 1, r = 1) on the
 %         same two attributes -- the simplex-voice encoding without its
 %         voice attribute, so each note's pitch class stays bound to its
 %         own height; voice identity is not encoded.
-% Each chord's density is built once per encoding and sigma_ph
-% (buildMaet, in jmm.buildVoiceAware, jmm.buildSimplexVoice, and
-% jmm.buildVoiceAgnostic), and the six pair similarities come from one
-% batched simMaet call on density lists (elementwise list mode).
+% Each encoding is one preMaetFromAttrTable call on the gridded chorale --
+% the voice enters through 'roles', and 'chords' sets the grain -- so the
+% three differ only in those two arguments. A chord's density is then one
+% selectPreMaet (its events, and the pitch attributes alone) and one
+% buildMaet, whose 'sigma' override carries the sweep; the six pair
+% similarities come from one batched simMaet call on density lists
+% (elementwise list mode).
 %
 % An appendix figure (HEATMAPS = true) extends the same three encodings
 % to every event of the chorale: N x N cosine-similarity matrices over the
 % 272 sixteenth-note grid points, one broadcast simMaet call per
 % row and encoding, at three pitch-height widths.
 %
-% Data: jmm.bwv347Grid. Toolbox: buildMaet, simMaet,
-% simplexVertices. Runtime: seconds for the sweep; a few minutes more for
-% the heat maps.
-%
-% The Python mirror is demos/jmm/demo_jmm_1_2_similarity.py.
+% Data: jmm.bwv347Notes. Toolbox: gridAttrTable, preMaetFromAttrTable,
+% selectPreMaet, buildMaet, simMaet. Runtime: seconds for the sweep; a few
+% minutes more for the heat maps.
 
-% The demo folder is located from the toolbox root, which is always
-% reachable, rather than from the script itself: in a script neither
-% mfilename nor dbstack reports the file, and the current folder need not
-% be the script's own. Adding it puts the +jmm helper package in scope.
+% The demo folder is located from the toolbox root, and adding it puts
+% the +jmm helper package in scope.
 mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
@@ -64,11 +64,11 @@ thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
 
-% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% Set true to write the figures to a
 % figures/ folder beside this script; false leaves them on screen only.
 SAVE_FIGURES = false;
 
-mptDefaults('showHints', false);
+prevDefaults = mptDefaults('showHints', false);
 
 HEATMAPS = false;            % true: also compute the appendix heat maps
 
@@ -83,10 +83,8 @@ SIGMA_PH_SNAPSHOTS = [200.0, 600.0, 3000.0];       % heat-map widths
 % ---------------------------------------------------------------------------
 % Load chorale, identify reference chord pairs by score time
 % ---------------------------------------------------------------------------
-[times, pitchesSatb, ~] = jmm.bwv347Grid();
 GRID_STEP_QN = jmm.gridStepQn();
-pitchesCents = transformAttributes(pitchesSatb, [], {'midi', 'cents'});
-N = numel(times);
+g = gridAttrTable(jmm.bwv347Notes(), GRID_STEP_QN);
 eventAt = @(t) round(t / GRID_STEP_QN) + 1;         % 1-based grid index
 
 % Six reference chord pairs (label, t_i, t_j), times in the played-through
@@ -103,23 +101,62 @@ PAIR_COLOURS = [0.122 0.306 0.722; 0.169 0.541 0.243; 0.761 0.314 0.031; ...
                 0.690 0.188 0.376; 0.400 0.400 0.400; 0.667 0.667 0.667];
 nPairs = numel(PAIR_LABELS);
 
-% The three encoding builders (jmm package), with their panel titles.
+% ---------------------------------------------------------------------------
+% The three encodings
+% ---------------------------------------------------------------------------
+% One conversion each, from the same gridded table and the same attributes.
+% Every pitch is routed through two attributes of the one pitch column, read
+% in cents: a periodic pitch-class attribute and a non-periodic pitch-height
+% attribute. The onset attribute locates a chord in the piece and is dropped
+% before any density is built, so its width never enters; the pitch-height
+% width is the sweep's, which buildMaet overrides per call.
+ATTRIBUTES = {struct('column', 'pitch', 'name', 'pitchClass', ...
+                     'sigma', SIGMA_PC, 'isPer', true, 'period', 1200), ...
+              struct('column', 'pitch', 'name', 'pitchHeight', ...
+                     'sigma', SIGMA_PHS(1)), ...
+              struct('column', 'onset', 'sigma', 1.0)};
+
+% The voice attribute the simplex role builds carries its own width rather
+% than taking one from the list above.
+VOICE = struct('role', 'simplex', 'sigma', SIGMA_VOICE);
+
+% Voice-aware binds the chord into one event and reads it as the ordered
+% (S, A, T, B) voicing on both pitch attributes (r = 4, exch = 0);
+% simplex-voice takes one event per note and adds the voice as a simplex
+% vertex; voice-agnostic is the same grain with no voice attribute. The
+% three differ only in 'roles' and 'chords'.
 BUILDER_TITLES = {'Voice-aware encoding', ...
                   sprintf('Simplex-voice encoding (\\sigma_{voice} = %g)', SIGMA_VOICE), ...
                   'Voice-agnostic encoding'};
-BUILDERS = {@(c, spc, sph) jmm.buildVoiceAware(c, spc, sph), ...
-            @(c, spc, sph) jmm.buildSimplexVoice(c, spc, sph, SIGMA_VOICE), ...
-            @(c, spc, sph) jmm.buildVoiceAgnostic(c, spc, sph)};
-nBuilders = numel(BUILDERS);
-PC_PH = {'pitch class', 'pitch height'};
-BUILDER_NAMES = {PC_PH, [PC_PH, {'voice'}], PC_PH};
+% One conversion each, from the same table and the same attributes.
+ENCODINGS = { ...
+    preMaetFromAttrTable(g, 'attributes', ATTRIBUTES, 'time', 'beats', ...
+        'pitch', 'cents', 'weights', 'ones', ...
+        'roles', struct('part', 'orderedMultiset')), ...
+    preMaetFromAttrTable(g, 'attributes', ATTRIBUTES, 'time', 'beats', ...
+        'pitch', 'cents', 'weights', 'ones', ...
+        'chords', 'separate', 'roles', struct('part', VOICE)), ...
+    preMaetFromAttrTable(g, 'attributes', ATTRIBUTES, 'time', 'beats', ...
+        'pitch', 'cents', 'weights', 'ones', 'chords', 'separate')};
+% The sigmas of each encoding's kept attributes, given the swept width.
+ENCODING_SIGMAS = {@(sph) [SIGMA_PC, sph], ...
+                   @(sph) [SIGMA_PC, sph, SIGMA_VOICE], ...
+                   @(sph) [SIGMA_PC, sph]};
+nBuilders = numel(ENCODINGS);
+
+% The grid points, read off the voice-aware encoding, whose events are the
+% grid points themselves.
+awarePAttr = unpackPreMaet(ENCODINGS{1});
+times = awarePAttr{3};
+N = numel(times);
 
 % The three encodings carry the same chord differently, so each is shown
 % as the pre-MAET the cosine actually receives, on the cadence-1 tonic.
 for bIdx = 1:nBuilders
-    showPreMaet(BUILDERS{bIdx}(pitchesCents(eventAt(7.0), :), ...
-        SIGMA_PC, SIGMA_PHS(1)), [], [], ...
-        'names', BUILDER_NAMES{bIdx}, 'title', BUILDER_TITLES{bIdx});
+    showPreMaet(selectPreMaet(ENCODINGS{bIdx}, ...
+        'attributes', localKept(ENCODINGS{bIdx}), ...
+        'events', localChordEvents(ENCODINGS{bIdx}, 7.0)), ...
+        'title', BUILDER_TITLES{bIdx});
     fprintf('\n');
 end
 
@@ -137,11 +174,12 @@ sims = zeros(nBuilders, nPairs, numel(SIGMA_PHS));
 for spIdx = 1:numel(SIGMA_PHS)
     sigmaPh = SIGMA_PHS(spIdx);
     for bIdx = 1:nBuilders
-        build = BUILDERS{bIdx};
         dens = cell(1, numel(chordTimes));
         for c = 1:numel(chordTimes)
-            dens{c} = build(pitchesCents(eventAt(chordTimes(c)), :), ...
-                            SIGMA_PC, sigmaPh);
+            dens{c} = buildMaet(selectPreMaet(ENCODINGS{bIdx}, ...
+                'attributes', localKept(ENCODINGS{bIdx}), ...
+                'events', localChordEvents(ENCODINGS{bIdx}, chordTimes(c))), ...
+                'sigma', ENCODING_SIGMAS{bIdx}(sigmaPh), 'verbose', false);
         end
         % One batched call per encoding: list-vs-list elementwise mode
         % returns all six pair similarities at once.
@@ -216,10 +254,12 @@ if HEATMAPS
         sigmaPh = SIGMA_PH_SNAPSHOTS(row);
         fprintf('  σ_ph = %g: building %d densities x 3 encodings ...\n', sigmaPh, N);
         for bIdx = 1:nBuilders
-            build = BUILDERS{bIdx};
             dens = cell(1, N);
             for i = 1:N
-                dens{i} = build(pitchesCents(i, :), SIGMA_PC, sigmaPh);
+                dens{i} = buildMaet(selectPreMaet(ENCODINGS{bIdx}, ...
+                    'attributes', localKept(ENCODINGS{bIdx}), ...
+                    'events', localChordEvents(ENCODINGS{bIdx}, times(i))), ...
+                    'sigma', ENCODING_SIGMAS{bIdx}(sigmaPh), 'verbose', false);
             end
             % The N x N matrix is symmetric with unit diagonal: one
             % broadcast call per row against the densities from that row
@@ -288,4 +328,27 @@ if HEATMAPS
         print(fig, '-dpdf', fullfile(figDir, 'demo_jmm_1_2_heatmaps.pdf'));
         fprintf('Saved figures/demo_jmm_1_2_heatmaps.png\n');
     end
+end
+
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);
+
+%% Local functions
+
+function names = localKept(pm)
+    %localKept The attributes a density is built on: the pitch content and
+    %the voice encoding, not when the chord happens.
+    [~, ~, specs] = unpackPreMaet(pm);
+    all_ = cellfun(@(s) s.name, specs, 'UniformOutput', false);
+    names = all_(~strcmp(all_, 'onset'));
+end
+
+function events = localChordEvents(pm, t)
+    %localChordEvents The events of the chord sounding at T: one where the
+    %chord is bound, one per note where it is not.
+    [pAttr, ~, specs] = unpackPreMaet(pm);
+    all_ = cellfun(@(s) s.name, specs, 'UniformOutput', false);
+    onsets = pAttr{find(strcmp(all_, 'onset'), 1)}(1, :);
+    events = find(abs(onsets - t) < 1e-9);
 end

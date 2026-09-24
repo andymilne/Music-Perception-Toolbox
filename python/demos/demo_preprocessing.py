@@ -77,7 +77,7 @@ w = [metre.copy(), metre.copy()]
 
 # The three parts travel together as one pre-MAET, which every operator
 # below takes whole and returns whole.
-pm = mpt.pre_maet(p_attr, w)
+pm = mpt.pack_pre_maet(p_attr, w)
 
 is_rel  = [False, False]      # both attributes are absolute
 is_per  = [True, False]       # attribute 0 is periodic (PC), attribute 1 isn't
@@ -176,11 +176,11 @@ print(f"  absolute build: dim = {dBB_abs.dim}, "
 # specs, and below the values.
 specBB_out = [dict(specBB[0]), dict(specBB[1])]
 specBB_out[0]["rel"] = [0, 0, 1]                 # outermost unit on pitch
-pmBB_out = mpt.pre_maet(pmBB, specs=specBB_out)
+pmBB_out = mpt.pack_pre_maet(pmBB, specs=specBB_out)
 dBB_out = mpt.build_maet(pmBB_out, **kwBB)
-pmBB_T = mpt.pre_maet([pmBB["p_attr"][0] + 5.0, pmBB["p_attr"][1]],
+pmBB_T = mpt.pack_pre_maet([pmBB["p_attr"][0] + 5.0, pmBB["p_attr"][1]],
                       pmBB["w_attr"], specBB)   # transpose all pitches +5
-pmBB_out_T = mpt.pre_maet(pmBB_T, specs=specBB_out)
+pmBB_out_T = mpt.pack_pre_maet(pmBB_T, specs=specBB_out)
 dBB_out_T = mpt.build_maet(pmBB_out_T, **kwBB)
 dBB_abs_T = mpt.build_maet(pmBB_T, **kwBB)
 sim_out = float(mpt.sim_maet(dBB_out, dBB_out_T, verbose=False))
@@ -235,6 +235,52 @@ print("  input_attr = 1 (time); target_attr = 1; centre = 6; sd = 2; "
       "shape = 0 (Gaussian)")
 mpt.show_pre_maet(pmW, decimals=3, **KERNEL)
 print()
+
+
+# ===================================================================
+#  5b. select_pre_maet (S): keep some attributes and some events
+# ===================================================================
+
+print("=== 5b. select_pre_maet (S) ===")
+
+# A filter on the pre-MAET itself, as against selecting rows of the
+# attribute table it may have been built from, which is pandas' own job.
+# It reads only the two levels every pre-MAET has -- its attributes and
+# its events -- so it knows nothing of where the pre-MAET came from.
+# Here the cadence's three chords (events 4 to 6) on the pitch attribute
+# alone; the kept items come back in the order given, and each keeps its
+# tuple size and flags, so a selection cannot change what an attribute
+# means.
+pmS = mpt.select_pre_maet(pm, attributes=[0], events=[4, 5, 6])
+
+print("  attributes = [0] (pitch); events = [4, 5, 6] (the cadence)")
+mpt.show_pre_maet(pmS, decimals=3, sigma=0.5, is_per=True, period=12.0,
+                  names=["pitch"])
+print()
+
+
+# ===================================================================
+#  5c. bind_attributes and separate_attributes: one attribute from
+#      several, and several from one
+# ===================================================================
+
+print("=== 5c. bind_attributes and separate_attributes ===")
+
+# Binding along the attribute axis, as bind_events binds along the event
+# axis. Pitch and time describe the same events, so binding them gives
+# one attribute whose value at an event is the ordered pair, read whole
+# (r = 2, exch = False) rather than as the product of two attributes.
+pmBA = mpt.bind_attributes(pm, [0, 1], name="pitchTime", r=2, exch=False,
+                           sigma=0.5)
+mpt.show_pre_maet(pmBA, decimals=3, names=["pitchTime"])
+print()
+
+# separate_attributes is the inverse, splitting it back into one
+# attribute per slot.
+p_back, _, s_back = mpt.unpack_pre_maet(
+    mpt.separate_attributes(pmBA, "pitchTime"))
+print(f"  separated back into {len(p_back)} attributes: "
+      f"{', '.join(spec['name'] for spec in s_back)}\n")
 
 
 # ===================================================================

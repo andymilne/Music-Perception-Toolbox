@@ -44,7 +44,7 @@
 %
 %  Uses: simMaet, spectralEntropy, templateHarmonicity,
 %        tensorHarmonicity, addSpectra, roughness, transformAttributes,
-%        preMaet, flatSpecs, translateAttributes,
+%        packPreMaet, flatSpecs, translateAttributes,
 %        sweepSimMaet, buildMaet
 %  (from the Music Perception Toolbox).
 
@@ -265,7 +265,7 @@ itemOnsets = {[0 1 2],     [0 1 2 3],        [0 1 2],       [0 1 2]};
 items = cell(1, numel(itemPcs));
 for k = 1:numel(itemPcs)
     pk = {itemPcs{k}, itemOnsets{k}};
-    items{k} = preMaet(pk, [], flatSpecs(pk, ...
+    items{k} = packPreMaet(pk, [], flatSpecs(pk, ...
         'name', {'pitch class', 'onset'}, 'sigma', [35 0.25], ...
         'isPer', [true false], 'period', [1200 0]));
 end

@@ -7,8 +7,6 @@ function tf = isRootPosition(son)
 %   third above the bass with no fourth, no fifth, and no sixth. son is a
 %   vector of MIDI pitches (NaN entries ignored).
 %
-%   Twin of bwv_window.is_root_position in the Python demos.
-%
 %   See also JMM.ISSIXFOUR, JMM.SONAT.
     pcs = jmm.pcsAboveBass(son);
     if any(pcs == 7)

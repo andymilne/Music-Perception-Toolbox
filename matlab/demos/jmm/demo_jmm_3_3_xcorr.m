@@ -1,5 +1,6 @@
 %% demo_jmm_3_3_xcorr.m
-% Analysis 3.3 (Section 4.3.3 of the JMM article).
+% Analysis 3.3 (Online Supplement, Section 10): phase as lag, a windowed
+% cross-correlogram.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
@@ -30,12 +31,12 @@
 %     r = (1, 1); query = 12-event canonical cell; context = Piano 2;
 %     one-sided normalization (divide by the query self-overlap).
 %
-% The Python mirror is demos/jmm/demo_jmm_3_3_xcorr.py.
+% Data: jmm.pianoPhase (the rendered Piano Phase voices). Toolbox:
+% preMaetFromAttrTable, packPreMaet, windowedSimilarity. Runtime: half a
+% minute.
 
-% The demo folder is located from the toolbox root, which is always
-% reachable, rather than from the script itself: in a script neither
-% mfilename nor dbstack reports the file, and the current folder need not
-% be the script's own. Adding it puts the +jmm helper package in scope.
+% The demo folder is located from the toolbox root, and adding it puts
+% the +jmm helper package in scope.
 mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
@@ -46,11 +47,11 @@ thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
 
-% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% Set true to write the figures to a
 % figures/ folder beside this script; false leaves them on screen only.
 SAVE_FIGURES = false;
 
-mptDefaults('showHints', false, 'truncationSigmas', 4.0, 'kernelPrecision', 'double');
+prevDefaults = mptDefaults('showHints', false, 'truncationSigmas', 4.0);
 
 % --- parameters --------------------------------------------------------------
 SIGMA_PITCH = 0.15;
@@ -73,8 +74,12 @@ qTime  = (0:(pe.nc - 1)) * IOI;                 % 1 x 12
 queryPAttr = {qPitch, qTime};
 
 % --- context: Piano 2 ---------------------------------------------------------
-p2 = pe.voice2.pitch;
-t2 = pe.voice2.onset;
+context = preMaetFromAttrTable(pe.voice2Table, 'attributes', { ...
+    struct('column', 'pitch', 'sigma', sigma(1)), ...
+    struct('column', 'onset', 'name', 'time', 'sigma', sigma(2))}, ...
+    'time', 'seconds', 'chords', 'separate', 'weights', 'ones');
+ctxPAttr = unpackPreMaet(context);
+t2 = ctxPAttr{2};
 
 % --- anchors and lag grid -----------------------------------------------------
 nCells = pe.nRepsV1;
@@ -97,18 +102,15 @@ tauGrid = (0:(N_TAU - 1)) * (CELL_DUR / N_TAU);  % linspace without the endpoint
 HALF = CELL_DUR + 2 * IOI;
 muQ = mean(qTime);
 queryCentres = (anchors(:) - tauGrid) + muQ;    % (anchors, N_TAU)
-showPreMaet({p2, t2}, [], [], 'names', {'pitch', 'onset'}, ...
-    'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods, ...
-    'maxEvents', 4);
-showPreMaet(queryPAttr, [], [], 'names', {'pitch', 'onset'}, ...
-    'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods, ...
-    'maxEvents', 4);
+% The query is read under the context's geometry, so it carries the same
+% specs.
+[~, ~, ctxSpecs] = unpackPreMaet(context);
+query = packPreMaet(queryPAttr, [], ctxSpecs);
+showPreMaet(context, 'maxEvents', 4);
+showPreMaet(query, 'maxEvents', 4);
 
 R = windowedSimilarity( ...
-    {p2, t2}, [], ...
-    queryPAttr, [], ...
-    sigma, rVec, isRel, isPer, periods, ...
-    anchors, ...
+    context, query, anchors, ...
     'queryCentres', queryCentres, ...
     'contextWindow', {1.0, 2 * HALF}, ...       % rectangle, full support 2 * HALF
     'normalize', 'oneSidedDenom', ...
@@ -153,3 +155,7 @@ end
 Rf = R(~isnan(R));
 fprintf('R range %.3f-%.3f, %d anchors x %d lags\n', ...
         min(Rf), max(Rf), numel(anchors), N_TAU);
+
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);

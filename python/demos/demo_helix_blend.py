@@ -104,7 +104,7 @@ def helix_pre_maet(pitch_cents, time_sec, sigma_pc, sigma_time):
         {"name": "time",         "r": 1, "rel": False, "exch": True,
          "sigma": sigma_time, "is_per": False, "period": 0.0},
     ]
-    return mpt.pre_maet([p, p, t], [np.ones((1, n))] * 3, specs)
+    return mpt.pack_pre_maet([p, p, t], [np.ones((1, n))] * 3, specs)
 
 
 def sweep_profiles(q_cents, q_t, c_cents, c_t,

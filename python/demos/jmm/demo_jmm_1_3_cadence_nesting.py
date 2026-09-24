@@ -1,8 +1,10 @@
-"""demo_jmm_1_4_cadence_nesting.py — Analysis 1.4: cadence localization with nested multisets.
+"""demo_jmm_1_3_cadence_nesting.py — Analysis 1.3 (JMM article, Section
+4.1.3; its minor-mode rows Online Supplement, Section 6): cadence
+localization with nested multisets.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
-JMM article ("Cadence localization using nested multisets"; Analysis 1.4
-in the preprint's numbering), lightly edited from the article's own
+JMM article ("Cadence localization using nested multisets"), lightly
+edited from the article's own
 scripts. Data come from jmm_data (BWV 347 read from the bundled
 MusicXML); the figures stay on screen unless SAVE_FIGURES is set.
 
@@ -27,7 +29,7 @@ the fraction of the eighth each note sounds, merged and normalized by
 the 1.5 a beat carries — and the aligned span of L consecutive beats,
 the resolution on the last, is bound into one nested super-event
 (``bind_events``) and compared with the query under the one-sided
-similarity (``sim_maet(..., normalize='oneSidedDenom')``), so a
+similarity (``windowed_similarity(..., normalize='oneSidedDenom')``), so a
 peak of 1 is one isolated exact match. An optional inversion flag — a
 second, simplex-coded attribute at +/-0.5 with sigma_flag = 0.1 — marks
 whether a chosen chord is a root-position triad (the dyad skeleton's
@@ -44,18 +46,23 @@ five major-mode rows, the three minor-mode rows of the Online
 Supplement, and all eight together. The dyad rows are blank at r = 3,
 where a two-pitch chord has no inner triple.
 
-The encodings live in bwv_window.py: the windowed chorale events, the
-nested context and query builders, and the pitch-derived flags.
-Toolbox: ``bind_events``, ``flat_specs``, ``build_maet``,
-``sim_maet``. Runtime: a minute or two (eight queries, three
-inner tuple sizes, some sixty resolution moments each, every comparison a
-nested inner product).
+The encodings live in bwv_window.py: the beat aggregates, the nested
+context and query builders, and the pitch-derived flags.
+
+Data: ``jmm_data.bwv347_notes``. Toolbox: ``grid_attr_table`` (twice, the
+second regridding the first), ``pre_maet_from_attr_table``,
+``bind_events`` (with per-attribute orders, so the window's time and flag
+stay flat), ``windowed_similarity``, ``flat_specs``, ``select_pre_maet``.
+Runtime: a few seconds (eight queries at three inner tuple sizes, each
+sweep one call).
 """
 from __future__ import annotations
 import os
 from collections import OrderedDict
 
 import numpy as np
+
+import mpt
 try:
     import matplotlib
     matplotlib.use('Agg')
@@ -63,10 +70,13 @@ try:
 except ImportError:
     plt = None
 
-from bwv_window import (sim_maet, show_pre_maet, win_events,
-                        aggregate, build_pair,
-                        bound_density, query, son_at, is_root_position,
-                        is_six_four, b2bar, T0, T1, ROOT_YES, ROOT_NO)
+# The defaults this demo runs under, captured so that they can be put
+# back at the end. They are set before bwv_window is imported, since
+# that module builds the chorale's beat aggregates on import.
+_prev_defaults = mpt.set_default(show_hints=False)
+
+from bwv_window import (show_pre_maet, as_compared, bound_context, query,
+                        dyad_query, b2bar, T0, T1, ROOT_YES)
 
 # Set True to write the figures to a figures/ folder beside this script;
 # False shows them instead.
@@ -111,13 +121,20 @@ MUS = np.arange(2.0, 67.0 + 1e-9, STEP)          # candidate resolution moments
 WIN_BAR = b2bar(MUS)
 
 
-def _query_density(spec, r_inner):
-    aggs = [(np.asarray(c, float), np.ones(len(c))) for c in spec['chords']]
-    flag = ROOT_YES if spec['flagged'] else None
-    return bound_density(aggs, flag=flag, r_inner=r_inner)
+def _prototype_query(spec, r_inner):
+    """A prototype spec as a bound query; the one thing this adds over
+    ``query`` is the mapping from the spec's flagged to the flag value."""
+    return query(spec['chords'], flag=ROOT_YES if spec['flagged'] else None,
+                 r_inner=r_inner)
 
 
-NEST_NAMES = ['pitch', 'inversion flag']
+def _window_starts(lead):
+    """The window start times the sweep visits, and the MUS positions they
+    belong to: a window of L beats resolving at mu starts lead beats before
+    it, and must lie inside the piece."""
+    keep = [(k, mu - lead) for k, mu in enumerate(MUS)
+            if mu - lead >= T0 - 1e-9 and mu + 1.0 <= T1 + 1e-9]
+    return np.array([k for k, _ in keep], int), np.array([t for _, t in keep])
 
 
 def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
@@ -126,34 +143,34 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
     inner r: {query name: (len(MUS),) profile}. Positions whose windows lack
     events score 0. The chorale's aligned span at resolution moment mu is
     the three beat aggregates [mu-2, mu-1), [mu-1, mu), [mu, mu+1). One
-    batched density-list call per query."""
-    ctx_plain, ctx_flag, idxs = [], [], []
-    for k, mu in enumerate(MUS):
-        if mu - 2.0 < T0 - 1e-9 or mu + 1.0 > T1 + 1e-9:
-            continue
-        wins = [win_events(mu - 2.0, mu - 1.0), win_events(mu - 1.0, mu),
-                win_events(mu, mu + 1.0)]
-        if any(len(w[0]) < 2 for w in wins):
-            continue
-        aggs = [aggregate(w) for w in wins]
-        # The inversion flag is pitch-derived: a predicate on the sonority
-        # at the antepenult beat (no harmonic labels are consulted).
-        flag = ROOT_YES if is_six_four(son_at(mu - 2.0)) else ROOT_NO
-        ctx_plain.append(bound_density(aggs, flag=None, r_inner=r_inner))
-        ctx_flag.append(bound_density(aggs, flag=flag, r_inner=r_inner))
-        idxs.append(k)
+    windowed_similarity call per query."""
+    # One bind_events call nests every window of three beats across the
+    # whole chorale, carrying the window's own start time and the
+    # inversion flag flat alongside the nested pitch. The sweep is then
+    # one call: a rectangle of one beat admits exactly one window at each
+    # centre. The flag is pitch-derived --- a predicate on the sonority at
+    # the antepenult beat, which is the window's first, and no harmonic
+    # labels are consulted.
+    ctx_plain = bound_context(3, r_inner)
+    ctx_flag = bound_context(3, r_inner, flag='six_four')
+    idxs, centres = _window_starts(2.0)
     out = {}
     for name, spec in QUERIES.items():
-        qd = _query_density(spec, r_inner)
+        qd = _prototype_query(spec, r_inner)
         if show_input:
-            show_pre_maet(qd, names=NEST_NAMES[:qd.n_attrs],
+            show_pre_maet(as_compared(qd),
                           title=f'  query: {name} (r_inner = {r_inner})')
             print()
-        ctx = ctx_flag if spec['flagged'] else ctx_plain
-        vals = np.atleast_1d(sim_maet(ctx, qd, normalize=normalize,
-                                              verbose=False))
+        # A rectangle of full support one beat, centred on each window's
+        # own start time, admits exactly that window and no other --- its
+        # neighbours sit exactly a beat away. The time axis (attribute 1)
+        # is dropped from the comparison, having done its work in placing
+        # the window.
         prof = np.zeros(len(MUS))
-        prof[np.asarray(idxs, int)] = vals
+        prof[idxs] = np.asarray(mpt.windowed_similarity(
+            ctx_flag if spec['flagged'] else ctx_plain, qd, centres,
+            context_window=(1.0, 1.0), window_attr=1, drop_window_attr=True,
+            normalize=normalize, verbose=False)).ravel()
         out[name] = prof
     return out
 
@@ -161,32 +178,19 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
 def dyad_sweep(r_inner: int, use_flag: bool):
     """One-sided similarity of the dyad-skeleton query against the chorale,
     swept over candidate resolution moments mu (every beat)."""
-    qd = query(flag=(ROOT_YES if use_flag else None), r_inner=r_inner)
+    qd = dyad_query(flag=(ROOT_YES if use_flag else None), r_inner=r_inner)
+    # One bind_events call nests every pair of adjacent beats: the approach
+    # beat [mu-1, mu) and the resolution beat [mu, mu+1). The optional
+    # inversion attribute is pitch-derived --- a predicate on the sonority
+    # sounding at mu, which is the window's second beat --- and no harmonic
+    # labels are consulted.
+    ctx = bound_context(2, r_inner,
+                        flag='root_position_next' if use_flag else None)
+    idxs, centres = _window_starts(1.0)
     so = np.full(len(MUS), np.nan)
-    wins, idxs = [], []
-    for k, mu in enumerate(MUS):
-        if mu - 1.0 < T0 - 1e-9 or mu + 1.0 > T1 + 1e-9:
-            continue
-        # The two 1-QN halves either side of mu: the approach chord(s) in
-        # [mu-1, mu) and the resolution chord(s) in [mu, mu+1).
-        c1 = win_events(mu - 1.0, mu)
-        c2 = win_events(mu, mu + 1.0)
-        if len(c1[0]) < 2 or len(c2[0]) < 2:
-            so[k] = 0.0
-            continue
-        # The optional inversion attribute is pitch-derived: a predicate on
-        # the sonority sounding at mu (no harmonic labels are consulted).
-        flag = None
-        if use_flag:
-            flag = ROOT_YES if is_root_position(son_at(mu)) else ROOT_NO
-        wins.append(build_pair(c1, c2, flag=flag, r_inner=r_inner))
-        idxs.append(k)
-    # One batched call: density list vs single query, one-sided
-    # (query-normalized) similarity.
-    vals = np.atleast_1d(sim_maet(wins, qd, normalize=NORMALIZE,
-                                          verbose=False))
-    for k, v in zip(idxs, vals):
-        so[k] = float(v)
+    so[idxs] = np.asarray(mpt.windowed_similarity(
+        ctx, qd, centres, context_window=(1.0, 1.0), window_attr=1,
+        drop_window_attr=True, normalize=NORMALIZE, verbose=False)).ravel()
     return WIN_BAR, so
 
 
@@ -201,9 +205,9 @@ ROWS = [('d5/A4–M3/m6', 'dyad', False),
         (r'*$\mathrm{i_c}$–$\mathrm{V}$–$\mathrm{i}$', 'proto', qk[5])]
 
 VARIANTS = [
-    ('demo_jmm_1_4_cadence_sweeps.pdf', [0, 1, 2, 4, 5]),    # the article's figure
-    ('demo_jmm_1_4_cadence_sweeps_minor.pdf', [3, 6, 7]),    # Online Supplement
-    ('demo_jmm_1_4_cadence_sweeps_all8.pdf', list(range(len(ROWS)))),
+    ('demo_jmm_1_3_cadence_sweeps.pdf', [0, 1, 2, 4, 5]),    # the article's figure
+    ('demo_jmm_1_3_cadence_sweeps_minor.pdf', [3, 6, 7]),    # Online Supplement
+    ('demo_jmm_1_3_cadence_sweeps_all8.pdf', list(range(len(ROWS)))),
 ]
 
 
@@ -301,3 +305,7 @@ if __name__ == '__main__':
         plot(data)
     else:
         print('matplotlib not available; figures skipped.')
+
+# The demo leaves the toolbox as it found it: the defaults it set at the
+# top are restored here.
+mpt.set_default(**_prev_defaults)

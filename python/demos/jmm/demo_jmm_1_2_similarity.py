@@ -1,4 +1,6 @@
-"""demo_jmm_1_2_similarity.py — Analysis 1.2: voice-aware versus voice-agnostic similarity across the pitch–pitch-class blend.
+"""demo_jmm_1_2_similarity.py — Analysis 1.2 (JMM article, Section 4.1.2):
+voice-aware versus voice-agnostic similarity across the pitch–pitch-class
+blend.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article (Section 4.1.2, "Voice-aware versus voice-agnostic across
@@ -25,24 +27,29 @@ dominates. Voice information enters in one of three ways:
   (ii)  Simplex-voice: one event per note (N = 4 single-pitch events);
         pitch class and pitch height at r = 1, plus a voice attribute
         holding each note's vertex of a regular tetrahedron
-        (``simplex_vertices(4)``, its three coordinates taken in order:
+        (the ``simplex`` role, its three coordinates taken in order:
         [exch] = 0, r = 3, sigma_voice = 0.2), so matching accrues
         additive partial credit, voice by voice.
   (iii) Voice-agnostic: one event per note (N = 4, K = 1, r = 1) on the
         same two attributes -- the simplex-voice encoding without its
         voice attribute, so each note's pitch class stays bound to its
         own height; voice identity is not encoded.
-Each chord's density is built once per encoding and sigma_ph
-(``build_maet``), and the six pair similarities come from one
-batched ``sim_maet`` call on density lists (mode='pairwise').
+Each encoding is one ``pre_maet_from_attr_table`` call on the gridded
+chorale --- the voice enters through ``roles``, and ``chords`` sets the
+grain --- so the three differ only in those two arguments. A chord's
+density is then one ``select_pre_maet`` (its events, and the pitch
+attributes alone) and one ``build_maet``, whose ``sigma`` override
+carries the sweep; the six pair similarities come from one batched
+``sim_maet`` call on density lists (mode='pairwise').
 
 An appendix figure (``--heatmaps``) extends the same three encodings to
 every event of the chorale: N x N cosine-similarity matrices over the
 272 sixteenth-note grid points, one ``sim_maet`` call in
 mode='cartesian' per encoding, at three pitch-height widths.
 
-Data: ``jmm_data.bwv347_grid``. Toolbox: ``build_maet``,
-``sim_maet``, ``simplex_vertices``. Runtime: seconds for the
+Data: ``jmm_data.bwv347_notes``. Toolbox: ``grid_attr_table``,
+``pre_maet_from_attr_table``, ``select_pre_maet``, ``build_maet``,
+``sim_maet``. Runtime: seconds for the
 sweep; a few minutes more for the heat maps.
 """
 from __future__ import annotations
@@ -63,11 +70,10 @@ import mpt
 # script; False shows them instead.
 SAVE_FIGURES = False
 FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
-mpt.set_default(show_hints=False)
-from mpt import (build_maet, sim_maet, show_pre_maet,
-                 simplex_vertices)
+_prev_defaults = mpt.set_default(show_hints=False)
+from mpt import build_maet, sim_maet, show_pre_maet
 
-from jmm_data import bwv347_grid, GRID_STEP_QN
+from jmm_data import bwv347_notes, GRID_STEP_QN
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +88,7 @@ SIGMA_PH_SNAPSHOTS = [200.0, 600.0, 3000.0]      # heat-map widths
 # ---------------------------------------------------------------------------
 # Load chorale, identify reference chord pairs by score time
 # ---------------------------------------------------------------------------
-times, pitches_satb, _ = bwv347_grid()
-pitches_cents = mpt.transform_attributes(pitches_satb, None,
-                                         ('midi', 'cents'))
-N = len(times)
+grid = mpt.grid_attr_table(bwv347_notes(), GRID_STEP_QN)
 
 
 def event_at(t):
@@ -108,107 +111,103 @@ REFERENCE_PAIRS = [
 ]
 PAIR_COLOURS = ['#1f4eb8', '#2b8a3e', '#c25008', '#b03060', '#666666', '#aaaaaa']
 
-V_SIMPLEX = simplex_vertices(4)
-
-
 # ---------------------------------------------------------------------------
-# Three encoding builders
+# The three encodings
 # ---------------------------------------------------------------------------
-def build_voice_aware(satb_cents, sigma_pc, sigma_ph):
-    """Two attributes (PC, pitch height), each the ordered (S, A, T, B)
-    voicing: K = 4 per event, [exch] = 0 (ordered), r = 4. Numerically
-    identical to four r = 1 per-voice attributes."""
-    voicing = np.asarray(satb_cents, dtype=float).reshape(4, 1)   # K=4, N=1
-    p_attr = [voicing, voicing]
-    return build_maet(
-        p_attr, None,
-        [sigma_pc, sigma_ph],     # sigma per attribute
-        [4, 4],                    # r per attribute
-        [False, False],            # is_rel
-        [True, False],             # is_per: PC periodic, pitch height not
-        [1200.0, 0.0],             # period
-        [False, False],            # is_exch = 0 -> ordered (voice-aware)
-        verbose=False,
-    )
+# One conversion each, from the same gridded table and the same attributes.
+# Every pitch is routed through two attributes of the one pitch column, read
+# in cents: a periodic pitch-class attribute and a non-periodic pitch-height
+# attribute. The onset attribute locates a chord in the piece and is dropped
+# before any density is built, so its width never enters; the pitch-height
+# width is the sweep's, which build_maet overrides per call.
+ATTRIBUTES = (dict(column='pitch', name='pitchClass', sigma=SIGMA_PC,
+                   is_per=True, period=1200.0),
+              dict(column='pitch', name='pitchHeight', sigma=SIGMA_PHS[0]),
+              dict(column='onset', sigma=1.0))
+
+# The voice attribute the simplex role builds carries its own width rather
+# than taking one from the list above.
+VOICE = dict(role='simplex', sigma=SIGMA_VOICE)
 
 
-def build_simplex_voice(satb_cents, sigma_pc, sigma_ph, sigma_voice=SIGMA_VOICE):
-    """One event per voice (N = 4): PC and pitch-height attributes (r = 1)
-    plus a voice attribute carrying the simplex vertex as an ordered
-    categorical attribute (K = 3 coordinates, [exch] = 0, r = 3)."""
-    s, a, t, b = satb_cents
-    pitches = np.array([[s, a, t, b]], dtype=float)        # (1,4): K=1, N=4
-    voice = np.asarray(V_SIMPLEX, dtype=float).T           # (3,4): 3 coords x 4 voices
-    p_attr = [pitches, pitches, voice]
-    return build_maet(
-        p_attr, None,
-        [sigma_pc, sigma_ph, sigma_voice],
-        [1, 1, 3],
-        [False, False, False],
-        [True, False, False],
-        [1200.0, 0.0, 0.0],
-        [True, True, False],       # voice attribute ordered ([exch] = 0)
-        verbose=False,
-    )
+#: (title, pre-MAET, the sigmas of its kept attributes given sigma_ph).
+#: One conversion each, from the same table and the same attributes, the
+#: three differing only in ``roles`` and ``chords``. Voice-aware binds the
+#: chord into one event and reads it as the ordered (S, A, T, B) voicing on
+#: both pitch attributes (r = 4, exch = False); simplex-voice takes one
+#: event per note and adds the voice as a simplex vertex; voice-agnostic is
+#: the same grain with no voice attribute.
+ENCODINGS = [
+    ('Voice-aware encoding',
+     mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
+                                  pitch='cents', weights='ones',
+                                  roles={'part': 'ordered_multiset'}),
+     lambda sph: [SIGMA_PC, sph]),
+    (f'Simplex-voice encoding (σ$_{{voice}}$ = {SIGMA_VOICE})',
+     mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
+                                  pitch='cents', weights='ones',
+                                  chords='separate', roles={'part': VOICE}),
+     lambda sph: [SIGMA_PC, sph, SIGMA_VOICE]),
+    ('Voice-agnostic encoding',
+     mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
+                                  pitch='cents', weights='ones',
+                                  chords='separate'),
+     lambda sph: [SIGMA_PC, sph]),
+]
+
+#: The grid points, read off the voice-aware encoding, whose events are the
+#: grid points themselves.
+times = mpt.unpack_pre_maet(ENCODINGS[0][1])[0][2][0]
+N = len(times)
 
 
-def build_voice_agnostic(satb_cents, sigma_pc, sigma_ph):
-    """Two attributes (PC, pitch height), one event per note (N = 4, K = 1,
-    r = 1): the simplex-voice encoding without its voice attribute. Each
-    event binds a note's pitch class to its own pitch height; a single
-    K = 4 event on both attributes would instead tensor the PC of one note
-    with the height of another (16 cross terms) and lose that binding.
-    Voice identity is not encoded."""
-    p4 = np.asarray(satb_cents, dtype=float).reshape(1, 4)
-    return build_maet(
-        [p4, p4], None,
-        [sigma_pc, sigma_ph],
-        [1, 1],
-        [False, False],
-        [True, False],
-        [1200.0, 0.0],
-        [True, True],              # moot at K = 1, r = 1
-        verbose=False,
-    )
+def _kept(pm):
+    """The attributes a density is built on: the pitch content and the
+    voice encoding, not when the chord happens."""
+    return [spec['name'] for spec in mpt.unpack_pre_maet(pm)[2]
+            if spec['name'] != 'onset']
 
 
-PC_PH = ['pitch class', 'pitch height']
-BUILDERS = [('Voice-aware encoding', build_voice_aware, PC_PH),
-            (f'Simplex-voice encoding (σ$_{{voice}}$ = {SIGMA_VOICE})',
-             build_simplex_voice, PC_PH + ['voice']),
-            ('Voice-agnostic encoding', build_voice_agnostic, PC_PH)]
+def _chord_events(pm, t):
+    """The events of the chord sounding at ``t``: one where the chord is
+    bound, one per note where it is not."""
+    p_attr, _, specs = mpt.unpack_pre_maet(pm)
+    onsets = p_attr[[spec['name'] for spec in specs].index('onset')][0]
+    return np.nonzero(np.isclose(onsets, t))[0].tolist()
 
 
-# The three encodings carry the same chord differently, so each is shown
-# as the pre-MAET the cosine actually receives, on the cadence-1 tonic.
-for _label, _builder, _names in BUILDERS:
-    show_pre_maet(_builder(pitches_cents[event_at(7.0)], SIGMA_PC,
-                           SIGMA_PHS[0]), names=_names, title=_label)
+# The three encodings carry the same chord differently, so each is shown as
+# the pre-MAET the cosine actually receives, on the cadence-1 tonic.
+for _title, _pm, _ in ENCODINGS:
+    show_pre_maet(mpt.select_pre_maet(_pm, attributes=_kept(_pm),
+                                      events=_chord_events(_pm, 7.0)),
+                  title=_title)
     print()
 
 
 # ---------------------------------------------------------------------------
 # Sweep
 # ---------------------------------------------------------------------------
-def sweep():
-    """(3 encodings, 6 pairs, len(SIGMA_PHS)) cosine similarities."""
-    # The six pairs draw on eight distinct chords, several shared between
-    # pairs (the cadence-1 tonic at t = 7 QN appears in four of them), so
-    # each chord's density is built once per encoding and sigma_ph and the
-    # pair similarities are read from that cache.
-    chord_times = sorted({t for _, ti, tj in REFERENCE_PAIRS for t in (ti, tj)})
-    chords = {t: pitches_cents[event_at(t)] for t in chord_times}
-    sims = np.zeros((len(BUILDERS), len(REFERENCE_PAIRS), len(SIGMA_PHS)))
-    for sp_idx, sigma_ph in enumerate(SIGMA_PHS):
-        for b_idx, (_, build, _) in enumerate(BUILDERS):
-            dens = {t: build(chords[t], SIGMA_PC, sigma_ph) for t in chord_times}
-            # One batched call per encoding: list-vs-list pairwise mode
-            # returns all six pair similarities at once.
-            sims[b_idx, :, sp_idx] = sim_maet(
-                [dens[ti] for _, ti, _ in REFERENCE_PAIRS],
-                [dens[tj] for _, _, tj in REFERENCE_PAIRS],
-                mode='pairwise', verbose=False)
-    return sims
+# (3 encodings, 6 pairs, len(SIGMA_PHS)) cosine similarities.
+# The six pairs draw on eight distinct chords, several shared between
+# pairs (the cadence-1 tonic at t = 7 QN appears in four of them), so each
+# chord's density is built once per encoding and sigma_ph and the pair
+# similarities are read from that cache.
+chord_times = sorted({t for _, ti, tj in REFERENCE_PAIRS for t in (ti, tj)})
+sims = np.zeros((len(ENCODINGS), len(REFERENCE_PAIRS), len(SIGMA_PHS)))
+for sp_idx, sigma_ph in enumerate(SIGMA_PHS):
+    for b_idx, (_, pm, sigmas) in enumerate(ENCODINGS):
+        dens = {t: build_maet(
+                    mpt.select_pre_maet(pm, attributes=_kept(pm),
+                                        events=_chord_events(pm, t)),
+                    sigma=sigmas(sigma_ph), verbose=False)
+                for t in chord_times}
+        # One batched call per encoding: list-vs-list pairwise mode
+        # returns all six pair similarities at once.
+        sims[b_idx, :, sp_idx] = sim_maet(
+            [dens[ti] for _, ti, _ in REFERENCE_PAIRS],
+            [dens[tj] for _, _, tj in REFERENCE_PAIRS],
+            mode='pairwise', verbose=False)
 
 
 def report_sweep(sims):
@@ -217,7 +216,7 @@ def report_sweep(sims):
     cols = [100.0, 1200.0, 8000.0]
     print('cosine similarity at σ_ph = ' + ', '.join(f'{c:g}' for c in cols)
           + ' cents (σ_pc = 50 cents):')
-    for b_idx, (title, _, _) in enumerate(BUILDERS):
+    for b_idx, (title, _, _) in enumerate(ENCODINGS):
         print(f'  {title.split(" (")[0]}')
         for p_idx, (label, _, _) in enumerate(REFERENCE_PAIRS):
             vals = '  '.join(f'{sims[b_idx, p_idx, at(c)]:5.3f}' for c in cols)
@@ -226,7 +225,7 @@ def report_sweep(sims):
 
 def plot_sweep(sims):
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
-    for ax, (title, _, _), S in zip(axes, BUILDERS, sims):
+    for ax, (title, _, _), S in zip(axes, ENCODINGS, sims):
         for p_idx, ((label, _, _), colour) in enumerate(zip(REFERENCE_PAIRS, PAIR_COLOURS)):
             ax.plot(SIGMA_PHS, S[p_idx], color=colour, linewidth=2, label=label)
         ax.set_xscale('log')
@@ -255,21 +254,29 @@ def plot_sweep(sims):
         plt.show()
 
 
+report_sweep(sims)
+if plt is not None:
+    plot_sweep(sims)
+
+
 # ---------------------------------------------------------------------------
 # Appendix: N x N event-pair heat maps
 # ---------------------------------------------------------------------------
-def heatmaps():
-    """{(sigma_ph, encoding index): (N, N) cosine-similarity matrix}."""
-    out = {}
-    for sigma_ph in SIGMA_PH_SNAPSHOTS:
-        print(f'  σ_ph = {sigma_ph:g}: building {N} densities x 3 encodings ...')
-        for b_idx, (_, build, _) in enumerate(BUILDERS):
-            dens = [build(pitches_cents[i], SIGMA_PC, sigma_ph) for i in range(N)]
-            # One cartesian-mode call per encoding returns the full N x N
-            # matrix (unit diagonal, symmetric) directly.
-            out[(sigma_ph, b_idx)] = sim_maet(dens, dens, mode='cartesian',
-                                                      verbose=False)
-    return out
+#: {(sigma_ph, encoding index): (N, N) cosine-similarity matrix}, built
+#: only when the demo is run with --heatmaps.
+maps = {}
+for sigma_ph in (SIGMA_PH_SNAPSHOTS if '--heatmaps' in sys.argv else []):
+    print(f'  σ_ph = {sigma_ph:g}: building {N} densities x 3 encodings ...')
+    for b_idx, (_, pm, sigmas) in enumerate(ENCODINGS):
+        dens = [build_maet(
+                    mpt.select_pre_maet(pm, attributes=_kept(pm),
+                                        events=_chord_events(pm, t)),
+                    sigma=sigmas(sigma_ph), verbose=False)
+                for t in times]
+        # One cartesian-mode call per encoding returns the full N x N
+        # matrix (unit diagonal, symmetric) directly.
+        maps[(sigma_ph, b_idx)] = sim_maet(dens, dens, mode='cartesian',
+                                           verbose=False)
 
 
 def plot_heatmaps(maps):
@@ -281,7 +288,7 @@ def plot_heatmaps(maps):
 
     fig, axes = plt.subplots(3, 3, figsize=(16, 16), constrained_layout=True)
     for row, sigma_ph in enumerate(SIGMA_PH_SNAPSHOTS):
-        for col, (title, _, _) in enumerate(BUILDERS):
+        for col, (title, _, _) in enumerate(ENCODINGS):
             ax = axes[row, col]
             S = maps[(sigma_ph, col)]
             im = ax.imshow(S, cmap='magma', vmin=0, vmax=1, origin='lower',
@@ -325,14 +332,11 @@ def plot_heatmaps(maps):
         plt.show()
 
 
-if __name__ == '__main__':
-    sims = sweep()
-    report_sweep(sims)
-    if plt is not None:
-        plot_sweep(sims)
-    if '--heatmaps' in sys.argv:
-        maps = heatmaps()
-        if plt is not None:
-            plot_heatmaps(maps)
-    if plt is None:
-        print('matplotlib not available; figures skipped.')
+if maps and plt is not None:
+    plot_heatmaps(maps)
+if plt is None:
+    print('matplotlib not available; figures skipped.')
+
+# The demo leaves the toolbox as it found it: the defaults it set at the
+# top are restored here.
+mpt.set_default(**_prev_defaults)

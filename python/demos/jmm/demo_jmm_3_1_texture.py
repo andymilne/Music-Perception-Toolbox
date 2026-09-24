@@ -1,4 +1,5 @@
-"""demo_jmm_3_2_texture.py — Analysis 3.2 (Section 4.3.2 of the JMM article).
+"""demo_jmm_3_1_texture.py — Analysis 3.1 (JMM article, Section 4.3.1):
+phase as local texture in Piano Phase.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
@@ -6,7 +7,7 @@ from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
 (the rendered Piano Phase voices); the figures stay on screen unless
 SAVE_FIGURES is set.
 
-Analysis 3.2: phase as local texture in Reich's *Piano Phase*.
+Analysis 3.1: phase as local texture in Reich's *Piano Phase*.
 
 The two pianos are pooled into a single (pitch, time) event stream --- the
 voice label is *not* an attribute, so the measure reads the combined sounding
@@ -45,6 +46,10 @@ Pre-MAET structure (both panels)::
     r = (1, 1);  voices pooled (voice is not an attribute);
     window: Gaussian (shape 0) on the time attribute, s.d. 3 s, centred at the
     sweep offset, time retained (drop_window_attr=False); estimator: Renyi-2.
+
+Data: ``piano_phase`` (the rendered Piano Phase voices). Toolbox:
+``pre_maet_from_attr_table``, ``windowed_entropy``. Runtime: a few
+seconds.
 """
 
 import os
@@ -58,7 +63,7 @@ plt.rcParams.update({'font.size': 15, 'axes.titlesize': 17, 'axes.labelsize': 15
                      'font.family': 'DejaVu Sans'})
 
 import mpt
-mpt.set_default(show_hints=False, truncation_sigmas=3.0, kernel_precision='double')
+_prev_defaults = mpt.set_default(show_hints=False)
 from mpt import show_pre_maet, windowed_entropy
 
 import piano_phase as pe
@@ -77,7 +82,15 @@ SIGMAS_T    = [0.015, 0.100]   # coincidence (precedence/fusion window), redunda
 IOI         = pe.BASE_IOI
 
 # --- two-voice surface, voices pooled --------------------------------------
-pitch, onset, _voice = pe.render_piece()
+# Both pianos pooled, as an attribute table, converted to a pitch and a
+# time attribute with one event per note. The time width is the sweep's,
+# which windowed_entropy overrides per call.
+piece = mpt.pre_maet_from_attr_table(
+    pe.piece_table(),
+    attributes=(dict(column='pitch', sigma=SIGMA_PITCH),
+                dict(column='onset', name='time', sigma=SIGMAS_T[0])),
+    time='seconds', chords='separate', weights='ones')
+onset = mpt.unpack_pre_maet(piece)[0][1].ravel()
 t_lo, t_hi = onset.min(), onset.max()
 edge = 2 * WIN_SD                                   # unreliable near the ends
 centres = np.linspace(t_lo, t_hi, N_SWEEP)
@@ -98,15 +111,9 @@ def sweep(sigma_t, show_input=False):
     the prune would have removed, so the result is identical.
     """
     if show_input:
-        show_pre_maet([pitch.reshape(1, -1), onset.reshape(1, -1)], None,
-                      names=['pitch', 'onset'],
-                      sigma=[SIGMA_PITCH, sigma_t], is_per=[False, False],
-                      max_events=4)
+        show_pre_maet(piece, sigma=[SIGMA_PITCH, sigma_t], max_events=4)
     return windowed_entropy(
-        [pitch.reshape(1, -1), onset.reshape(1, -1)], None,
-        [SIGMA_PITCH, sigma_t], [1, 1],
-        [False, False], [False, False], [0.0, 0.0],
-        centres,
+        piece, centres, sigma=[SIGMA_PITCH, sigma_t],
         context_window=(0.0, WIN_SD * 2.0 * np.sqrt(3.0)),
         method='renyi2',
         window_attr=1, drop_window_attr=False,
@@ -152,8 +159,12 @@ fig.tight_layout()
 fig.subplots_adjust(hspace=0.10)
 if SAVE_FIGURES:
     os.makedirs(FIG_DIR, exist_ok=True)
-    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_3_2_texture.png'),
+    fig.savefig(os.path.join(FIG_DIR, 'demo_jmm_3_1_texture.png'),
                 dpi=140, bbox_inches='tight')
-    print('Saved figures/demo_jmm_3_2_texture.png')
+    print('Saved figures/demo_jmm_3_1_texture.png')
 else:
     plt.show()
+
+# The demo leaves the toolbox as it found it: the defaults it set at the
+# top are restored here.
+mpt.set_default(**_prev_defaults)

@@ -28,10 +28,9 @@
 sigma      = 12;    % Gaussian smoothing width for perceptual measures
 sigmaPeaks = 12;    % Gaussian smoothing width for peak extraction
 
-% Audio files to analyse. Paths are resolved relative to this script's
-% location (via mfilename), so the demo runs correctly regardless of
-% MATLAB's current working directory.
-demoDir  = fileparts(mfilename('fullpath'));
+% Audio files to analyse. Paths are resolved from the toolbox root, so
+% that the demo runs whatever MATLAB's current folder is.
+demoDir  = fullfile(fileparts(which('buildMaet')), 'demos');
 audioDir = fullfile(demoDir, '..', 'audio');
 
 audioFiles = {

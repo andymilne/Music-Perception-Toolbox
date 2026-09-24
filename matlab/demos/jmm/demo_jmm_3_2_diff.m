@@ -1,5 +1,6 @@
-%% demo_jmm_3_1_diff.m
-% Analysis 3.1 (Section 4.3.1 of the JMM article).
+%% demo_jmm_3_2_diff.m
+% Analysis 3.2 (Online Supplement, Section 9): joint differencing on pitch
+% and time in Piano Phase.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
@@ -7,7 +8,7 @@
 % jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
 % SAVE_FIGURES is set.
 %
-% Analysis 3.1: joint differencing on pitch and time in Reich's Piano Phase.
+% Analysis 3.2: joint differencing on pitch and time in Reich's Piano Phase.
 %
 % The phasing voice (Piano 2) is differenced jointly on pitch and time via
 % differenceEvents with per-attribute orders [1, 1, 0]: the pitch and onset
@@ -25,7 +26,7 @@
 %     excursion, below the JND), so at this width the (dp, dt) fingerprint
 %     is indistinguishable everywhere and the entropy is flat while the
 %     phase staircase climbs 0 -> 12 pulses --- the foil that motivates
-%     Analyses 3.2 (phase as texture) and 3.3 (phase as lag).
+%     Analyses 3.1 (phase as texture) and 3.3 (phase as lag).
 %
 %   * sigma_t = 0.1 ms --- far below the JND. At this super-human
 %     resolution the sub-JND IOI excursion is resolved: the entropy
@@ -47,12 +48,12 @@
 %
 %     r = (1, 1); estimator: windowed Renyi-2 (Gaussian window, s.d. 6 s).
 %
-% The Python mirror is demos/jmm/demo_jmm_3_1_diff.py.
+% Data: jmm.pianoPhase (the rendered Piano Phase voices). Toolbox:
+% preMaetFromAttrTable, differenceEvents, selectPreMaet, buildMaet,
+% evalMaet, windowedEntropy. Runtime: a few seconds.
 
-% The demo folder is located from the toolbox root, which is always
-% reachable, rather than from the script itself: in a script neither
-% mfilename nor dbstack reports the file, and the current folder need not
-% be the script's own. Adding it puts the +jmm helper package in scope.
+% The demo folder is located from the toolbox root, and adding it puts
+% the +jmm helper package in scope.
 mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
@@ -63,11 +64,11 @@ thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
 
-% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% Set true to write the figures to a
 % figures/ folder beside this script; false leaves them on screen only.
 SAVE_FIGURES = false;
 
-mptDefaults('showHints', false, 'truncationSigmas', 4.0, 'kernelPrecision', 'double');
+prevDefaults = mptDefaults('showHints', false);
 
 SIGMA_DP    = 0.5;           % semitones
 SIGMA_JND   = 0.006;         % seconds: IOI JND in an isochronous sequence
@@ -81,12 +82,18 @@ C_JND  = [0.122 0.306 0.722];   % blue   --- perceptual (JND-matched) line
 C_FINE = [0.557 0.184 0.620];   % purple --- sub-JND (super-human) line
 
 % --- joint differencing of the phasing voice --------------------------------
-pitch = pe.voice2.pitch;
-onset = pe.voice2.onset;
-pAttr = {pitch, onset, onset};                   % each 1 x N
+% The phasing voice as an attribute table, converted to three attributes:
+% its pitch, its onset, and a second reading of the same onset column,
+% which the differencing leaves alone to serve as the windowing axis.
+voice = preMaetFromAttrTable(pe.voice2Table, 'attributes', { ...
+    struct('column', 'pitch', 'name', 'dp', 'sigma', SIGMA_DP), ...
+    struct('column', 'onset', 'name', 'dt', 'sigma', SIGMA_JND), ...
+    struct('column', 'onset', 'name', 't', 'sigma', 1.0)}, ...
+    'time', 'seconds', 'chords', 'separate', 'weights', 'ones');
 % Per-attribute difference orders: pitch and onset first-differenced, the
 % third (onset copy) passed through at order 0 as the windowing axis.
-[pd, wd, ~] = unpackPreMaet(differenceEvents(pAttr, [], [1 1 0]));
+diffPm = differenceEvents(voice, [1 1 0]);
+[pd, ~, ~] = unpackPreMaet(diffPm);
 dp = pd{1}(:).'; dt = pd{2}(:).'; tAbs = pd{3}(:).';
 fprintf('Differenced events: %d; dp distinct: [%s]\n', numel(dp), ...
         strjoin(arrayfun(@(v) sprintf('%d', v), unique(round(dp)), ...
@@ -94,13 +101,16 @@ fprintf('Differenced events: %d; dp distinct: [%s]\n', numel(dp), ...
 fprintf('IOI (=dt) min/max: %.2f / %.2f ms  (excursion %.2f ms)\n', ...
         min(dt) * 1000, max(dt) * 1000, (max(dt) - min(dt)) * 1000);
 
-showPreMaet({pd{1}, pd{2}}, [], [], 'names', {'dp', 'dt'}, ...
-    'sigma', [SIGMA_DP, SIGMA_JND], 'isPer', [false false], ...
+% The two widths are stated for the differences themselves -- a pitch
+% interval, and an IOI against its JND -- so they are given rather than
+% inherited from the values the differencing started out from.
+DIFFERENCED = selectPreMaet(diffPm, 'attributes', {'dp', 'dt'});
+showPreMaet(DIFFERENCED, 'sigma', [SIGMA_DP, SIGMA_JND], ...
     'maxEvents', 4, 'decimals', 3);
 
 % --- (a) static (dp, dt) density over the whole voice (at the JND width) ---
-static = buildMaet({pd{1}, pd{2}}, [], [SIGMA_DP, SIGMA_JND], [1 1], ...
-                      [false false], [false false], [0 0], 'verbose', false);
+static = buildMaet(DIFFERENCED, 'sigma', [SIGMA_DP, SIGMA_JND], ...
+                   'verbose', false);
 dpGrid = linspace(min(dp) - 2, max(dp) + 2, 200);
 dtGrid = linspace(min(dt) - 0.04, max(dt) + 0.04, 120);
 [DP, DT] = meshgrid(dpGrid, dtGrid);
@@ -121,10 +131,7 @@ phaseAt = pe.lagAt(centres / (pe.nc * IOI));     % continuous lag
 % rectangular width 2*sqrt(3)*sd. (The placeholder onset sigma is unused:
 % that axis is dropped.)
 sweep = @(sig) windowedEntropy( ...
-    pd, wd, ...
-    [SIGMA_DP, sig, 1.0], [1 1 1], ...
-    [false false false], [false false false], [0 0 0], ...
-    centres, ...
+    diffPm, centres, 'sigma', [SIGMA_DP, sig, 1.0], ...
     'contextWindow', {0.0, WINDOW_SD * 2.0 * sqrt(3.0)}, ...
     'method', 'renyi2', ...
     'windowAttr', 3, 'dropWindowAttr', true, ...
@@ -186,6 +193,10 @@ ylabel(ax2, 'phase k (pulses)', 'Color', [0.6 0.6 0.6], 'FontSize', 15);
 figDir = fullfile(thisDir, 'figures');
 if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
 if SAVE_FIGURES
-    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_1_diff.png'));
-    fprintf('Saved figures/demo_jmm_3_1_diff.png\n');
+    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_2_diff.png'));
+    fprintf('Saved figures/demo_jmm_3_2_diff.png\n');
 end
+
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);

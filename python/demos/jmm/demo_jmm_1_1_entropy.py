@@ -1,4 +1,5 @@
-"""demo_jmm_1_1_entropy.py — Analysis 1.1: windowed pitch entropy across BWV 347.
+"""demo_jmm_1_1_entropy.py — Analysis 1.1 (JMM article, Section 4.1.1):
+windowed pitch entropy across BWV 347.
 
 Reproduces Analysis 1.1 of the JMM article (Section 4.1.1): the temporal
 evolution of pitch entropy across Bach's chorale BWV 347, read through a
@@ -12,10 +13,13 @@ the density and raise the entropy. Read at every grid point and grouped
 by metric class, the profile also shows the on-beat / off-beat contrast
 that the Online Supplement tests across a corpus of chorales.
 
-How it is computed. Every grid-point chord is spectrally augmented
-(``add_spectra``: twelve harmonics, partial h weighted h^-0.67), so the pitch
-attribute carries 48 partials per event. The chorale is then a two-
-attribute pre-MAET (pitch, time). ``windowed_entropy`` sweeps a
+How it is computed. The chorale is gridded (``grid_attr_table``) and
+converted to a two-attribute pre-MAET (pitch, time) in one call
+(``pre_maet_from_attr_table``): each grid point is an event holding its
+chord as an unordered pitch multiset in cents, alongside the point's own
+time. Every chord is then spectrally augmented (``add_spectra`` on that
+attribute: twelve harmonics, partial h weighted h^-0.67), so the pitch
+attribute carries 48 partials per event. ``windowed_entropy`` sweeps a
 window along the time attribute: at each centre the events are
 reweighted by the window (``weight_events`` under the hood, the window
 factor multiplied into the pitch weights), the time axis is dropped, and
@@ -25,9 +29,10 @@ in bits). Two windows are compared: a tight rectangle of one sixteenth
 note (one event per window, so the profile is the per-event entropy) and
 a Gaussian of one quarter note.
 
-Data: ``jmm_data.bwv347_grid`` (the score sampled on the sixteenth-note
-grid, repeats expanded). Toolbox: ``add_spectra``, ``windowed_entropy``.
-Runtime: a few minutes (the differential estimator refines its grid at
+Data: ``jmm_data.bwv347_notes`` (the bundled MusicXML read with
+``read_score``, repeats expanded). Toolbox: ``grid_attr_table``,
+``pre_maet_from_attr_table``, ``add_spectra``, ``windowed_entropy``.
+Runtime: under a minute (the differential estimator refines its grid at
 every centre). The figures stay on screen unless SAVE_FIGURES is set.
 """
 import os
@@ -39,11 +44,7 @@ except ImportError:          # the numbers print without a figure
 import time as _time
 
 import mpt
-mpt.set_default(
-    show_hints=False,
-    truncation_sigmas=3.0,          # truncate Gaussian tails at 3 sigma
-    kernel_precision='single',      # 32-bit kernel arithmetic
-)
+_prev_defaults = mpt.set_default(show_hints=False)
 from mpt import add_spectra, show_pre_maet, windowed_entropy
 
 # Set True to write the figures (and the checkpoint data) to a figures/ folder beside this
@@ -51,7 +52,7 @@ from mpt import add_spectra, show_pre_maet, windowed_entropy
 SAVE_FIGURES = False
 FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
-from jmm_data import bwv347_grid
+from jmm_data import GRID_STEP_QN, bwv347_notes
 
 
 # ---------------------------------------------------------------------------
@@ -81,31 +82,25 @@ WINDOWS = [
 # Load chorale, spectrally expand partials
 # ---------------------------------------------------------------------------
 print('Loading BWV 347 and expanding partials...')
-times, pitches_satb, _ = bwv347_grid()
+# The chorale on the sixteenth-note grid, converted to a two-attribute
+# pre-MAET: the grid point's chord as the pitch attribute, read in cents
+# as an unordered multiset, and the grid point's own time as the axis the
+# window will slide along. Each chord's four pitches then take their
+# partials, which multiplies the pitch attribute's K by twelve and leaves
+# the events alone.
+grid = mpt.grid_attr_table(bwv347_notes(), GRID_STEP_QN)
+pm = mpt.pre_maet_from_attr_table(
+    grid,
+    attributes=(dict(column='pitch', sigma=SIGMA_PITCH, r=1, exch=True),
+                dict(column='onset', name='time', sigma=1.0)),
+    time='beats', pitch='cents', weights='ones')
+pm = add_spectra(pm, *SPECTRUM, attribute='pitch')
+
+times = mpt.unpack_pre_maet(pm)[0][1][0]
 N = len(times)
-t_end = times[-1] + 0.25
-pitches_cents = mpt.transform_attributes(pitches_satb, None,
-                                         ('midi', 'cents'))          # (N, 4)
-K = 4 * H_PARTIALS                            # 48 partials per event
+t_end = times[-1] + GRID_STEP_QN
 
-# add_spectra operates on one weighted multiset (one event) at a time,
-# so the expansion runs as a per-event loop.
-p_partials = np.zeros((N, K))
-w_partials = np.zeros((N, K))
-for n in range(N):
-    p_aug, w_aug = add_spectra(pitches_cents[n], None, *SPECTRUM)
-    p_partials[n] = p_aug
-    w_partials[n] = w_aug
-
-# Pre-MAET inputs: 2 attributes (pitch K=48 partials, time K=1 events).
-# Pitch is attribute 0, time is attribute 1.
-p_attr_pre = [p_partials.T, times.reshape(1, N)]
-w_pre = [w_partials.T, np.ones((1, N))]
-
-
-show_pre_maet(p_attr_pre, w_pre, names=['pitch', 'time'],
-              sigma=[SIGMA_PITCH, 1.0], is_per=[False, False],
-              max_events=4, max_elements=4, decimals=2)
+show_pre_maet(pm, max_events=4, max_elements=4, decimals=2)
 
 
 # ---------------------------------------------------------------------------
@@ -134,10 +129,7 @@ for wi, window in enumerate(WINDOWS):
     print(f'Window {wi + 1}/{len(WINDOWS)}: {window["label"]}')
     width = window['value'] if window['kind'] == 'width' else window['value'] * RT3
     H[wi] = windowed_entropy(
-        p_attr_pre, w_pre,
-        [SIGMA_PITCH, 1.0], [1, 1],
-        [False, False], [False, False], [0.0, 0.0],
-        sweep_centres,
+        pm, sweep_centres,
         context_window=(window['shape'], width),
         method='differential',
         window_attr=1, drop_window_attr=True,
@@ -274,3 +266,7 @@ if SAVE_FIGURES:
     print('Saved figures/demo_jmm_1_1_entropy.png.')
 else:
     plt.show()
+
+# The demo leaves the toolbox as it found it: the defaults it set at the
+# top are restored here.
+mpt.set_default(**_prev_defaults)

@@ -1,9 +1,10 @@
-%% demo_jmm_1_4_cadence_nesting.m
-% Analysis 1.4: cadence localization with nested multisets.
+%% demo_jmm_1_3_cadence_nesting.m
+% Analysis 1.3 (JMM article, Section 4.1.3; its minor-mode rows Online
+% Supplement, Section 6): cadence localization with nested multisets.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
-% JMM article ("Cadence localization using nested multisets"; Analysis 1.4
-% in the preprint's numbering), lightly edited from the article's own
+% JMM article ("Cadence localization using nested multisets"), lightly
+% edited from the article's own
 % scripts. Data come from the jmm package (BWV 347 read from the bundled
 % MusicXML); the figures stay on screen unless SAVE_FIGURES is set.
 %
@@ -28,7 +29,7 @@
 % the 1.5 a beat carries — and the aligned span of L consecutive beats,
 % the resolution on the last, is bound into one nested super-event
 % (bindEvents) and compared with the query under the one-sided
-% similarity (simMaet(..., 'normalize', 'oneSidedDenom')), so a
+% similarity (windowedSimilarity(..., 'normalize', 'oneSidedDenom')), so a
 % peak of 1 is one isolated exact match. An optional inversion flag — a
 % second, simplex-coded attribute at +/-0.5 with sigma_flag = 0.1 — marks
 % whether a chosen chord is a root-position triad (the dyad skeleton's
@@ -45,22 +46,19 @@
 % Supplement, and all eight together. The dyad rows are blank at r = 3,
 % where a two-pitch chord has no inner triple.
 %
-% The encodings live in the jmm package (the twins of bwv_window.py):
-% the windowed chorale events (jmm.bwvWindowState, jmm.winEvents,
-% jmm.aggregate), the nested context and query builders
-% (jmm.boundDensity, jmm.buildPair, jmm.dyadQuery, jmm.queryDensity), the
-% pitch-derived flags (jmm.isRootPosition, jmm.isSixFour), and the sweeps
-% (jmm.prototypeSweep, jmm.dyadSweep). Toolbox: bindEvents, flatSpecs,
-% buildMaet, simMaet. Runtime: a minute or two (eight queries,
-% three inner tuple sizes, some sixty resolution moments each, every
-% comparison a nested inner product).
-%
-% The Python mirror is demos/jmm/demo_jmm_1_4_cadence_nesting.py.
+% The encodings live in the jmm package: the beat aggregates
+% (jmm.bwvWindowState), the nested context and query builders
+% (jmm.boundContext, jmm.query, jmm.windowStarts, jmm.asCompared,
+% jmm.dyadQuery, jmm.prototypeQuery), and the pitch-derived flags
+% (jmm.isRootPosition, jmm.isSixFour). The two sweeps are local
+% functions at the foot of this file. Toolbox: gridAttrTable (twice, the
+% second regridding the first), preMaetFromAttrTable, bindEvents (with
+% per-attribute orders, so the window's time and flag stay flat),
+% windowedSimilarity, flatSpecs, selectPreMaet. Runtime: a few seconds
+% (eight queries at three inner tuple sizes, each sweep one call).
 
-% The demo folder is located from the toolbox root, which is always
-% reachable, rather than from the script itself: in a script neither
-% mfilename nor dbstack reports the file, and the current folder need not
-% be the script's own. Adding it puts the +jmm helper package in scope.
+% The demo folder is located from the toolbox root, and adding it puts
+% the +jmm helper package in scope.
 mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
@@ -71,11 +69,11 @@ thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
 
-% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% Set true to write the figures to a
 % figures/ folder beside this script; false leaves them on screen only.
 SAVE_FIGURES = false;
 
-mptDefaults('showHints', false);
+prevDefaults = mptDefaults('showHints', false);
 
 % Similarity normalization for all sweeps: 'oneSidedDenom' (query
 % self-overlap alone) or 'cosine' (symmetric; penalizes context content
@@ -118,9 +116,9 @@ ROW_KINDS = {'dyad', 'dyad', 'proto', 'proto', 'proto', 'proto', 'proto', 'proto
 ROW_SPECS = {false, true, 1, 2, 3, 4, 5, 6};
 nRows = numel(ROW_LABELS);
 
-VARIANT_FILES = {'demo_jmm_1_4_cadence_sweeps', ...            % the article's figure
-                 'demo_jmm_1_4_cadence_sweeps_minor', ...      % Online Supplement
-                 'demo_jmm_1_4_cadence_sweeps_all8'};
+VARIANT_FILES = {'demo_jmm_1_3_cadence_sweeps', ...            % the article's figure
+                 'demo_jmm_1_3_cadence_sweeps_minor', ...      % Online Supplement
+                 'demo_jmm_1_3_cadence_sweeps_all8'};
 VARIANT_ROWS = {[1 2 3 5 6], [4 7 8], 1:nRows};
 
 % ---------------------------------------------------------------------------
@@ -130,17 +128,17 @@ protoProf = cell(1, numel(RS));
 for r = RS
     if r == RS(1)
         for qi = 1:numel(QUERIES)
-            qDens = jmm.queryDensity(QUERIES(qi).chords, ...
+            qPm = jmm.prototypeQuery(QUERIES(qi).chords, ...
                 QUERIES(qi).flagged, r);
-            NEST_NAMES = {'pitch', 'inversion flag'};
-            showPreMaet(qDens, [], [], ...
-                'names', NEST_NAMES(1:qDens.nAttrs), ...
+            % The query as the cosine receives it: the placement axis has
+            % done its work and is not part of the comparison.
+            showPreMaet(jmm.asCompared(qPm), ...
                 'title', sprintf('  query: %s (rInner = %d)', ...
                 QUERY_NAMES{qi}, r));
             fprintf('\n');
         end
     end
-    protoProf{r} = jmm.prototypeSweep(r, QUERIES, MUS, NORMALIZE);
+    protoProf{r} = localPrototypeSweep(r, QUERIES, MUS, NORMALIZE);
 end
 data = cell(nRows, numel(RS));
 for ri = 1:nRows
@@ -149,7 +147,7 @@ for ri = 1:nRows
             if r == 3
                 data{ri, r} = [];
             else
-                [x, y] = jmm.dyadSweep(r, ROW_SPECS{ri}, MUS, NORMALIZE);
+                [x, y] = localDyadSweep(r, ROW_SPECS{ri}, MUS, NORMALIZE);
                 data{ri, r} = {x, y};
             end
         else
@@ -248,4 +246,77 @@ for v = 1:numel(VARIANT_FILES)
         print(fig, '-dpng', '-r150', fullfile(figDir, [VARIANT_FILES{v}, '.png']));
         fprintf('Saved figures/%s.pdf\n', VARIANT_FILES{v});
     end
+end
+
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);
+
+
+%% Local functions
+
+function profiles = localPrototypeSweep(rInner, queries, mus, normalize)
+    %localPrototypeSweep One-sided similarity profiles of the three-chord
+    %queries at one inner r: a 1 x Q cell, entry q the (1 x numel(mus))
+    %profile of query q. queries is a 1 x Q struct array with fields
+    %.chords (1 x 3 cell of MIDI pitch vectors) and .flagged (logical);
+    %mus the candidate resolution moments (QN); normalize 'oneSidedDenom'
+    %or 'cosine'. Positions whose windows lack events score 0. The
+    %chorale's aligned span at resolution moment mu is the three beat
+    %aggregates [mu-2, mu-1), [mu-1, mu), [mu, mu+1).
+    %
+    % One bindEvents call nests every window of three beats across the
+    % whole chorale, carrying the window's own start time and the
+    % inversion flag flat alongside the nested pitch. The sweep is then
+    % one call per query: a rectangle of one beat admits exactly one
+    % window at each centre. The flag is pitch-derived --- a predicate on
+    % the sonority at the antepenult beat, which is the window's first ---
+    % and no harmonic labels are consulted.
+    ctxPlain = jmm.boundContext(3, rInner);
+    ctxFlag = jmm.boundContext(3, rInner, 'sixFour');
+    [idxs, centres] = jmm.windowStarts(mus, 2.0);
+    profiles = cell(1, numel(queries));
+    for q = 1:numel(queries)
+        qd = jmm.prototypeQuery(queries(q).chords, queries(q).flagged, rInner);
+        if queries(q).flagged, ctx = ctxFlag; else, ctx = ctxPlain; end
+        % A rectangle of full support one beat, centred on each window's
+        % own start time, admits exactly that window and no other --- its
+        % neighbours sit exactly a beat away. The time axis (attribute 2)
+        % is dropped from the comparison, having done its work in placing
+        % the window.
+        prof = zeros(1, numel(mus));
+        raw = windowedSimilarity(ctx, qd, centres(:).', ...
+            'contextWindow', {1.0, 1.0}, 'windowAttr', 2, ...
+            'dropWindowAttr', true, 'normalize', normalize, 'verbose', false);
+        prof(idxs) = raw(:).';
+        profiles{q} = prof;
+    end
+end
+
+function [x, so] = localDyadSweep(rInner, useFlag, mus, normalize)
+    %localDyadSweep One-sided similarity of the dyad-skeleton query
+    %(jmm.dyadQuery) against the chorale, swept over candidate resolution
+    %moments mus (every beat, QN); useFlag adds the pitch-derived
+    %root-position flag. Returns the played-through bar coordinate
+    %x = jmm.b2bar(mus) and the profile so (NaN where the sweep does not
+    %reach; 0 where a window lacks events).
+    %
+    % One bindEvents call nests every pair of adjacent beats --- the
+    % approach beat [mu-1, mu) and the resolution beat [mu, mu+1) ---
+    % carrying the window's own start time and the inversion flag flat
+    % alongside the nested pitch. The optional inversion attribute is
+    % pitch-derived: a predicate on the sonority sounding at mu, which is
+    % the window's second beat, and no harmonic labels are consulted.
+    S = jmm.bwvWindowState();
+    if useFlag, qFlag = S.rootYes; else, qFlag = []; end
+    qd = jmm.dyadQuery(qFlag, rInner);
+    if useFlag, flagName = 'rootPositionNext'; else, flagName = ''; end
+    ctx = jmm.boundContext(2, rInner, flagName);
+    [idxs, centres] = jmm.windowStarts(mus, 1.0);
+    so = nan(1, numel(mus));
+    raw = windowedSimilarity(ctx, qd, centres(:).', ...
+        'contextWindow', {1.0, 1.0}, 'windowAttr', 2, ...
+        'dropWindowAttr', true, 'normalize', normalize, 'verbose', false);
+    so(idxs) = raw(:).';
+    x = jmm.b2bar(mus);
 end

@@ -1,5 +1,6 @@
-%% demo_jmm_3_2_texture.m
-% Analysis 3.2 (Section 4.3.2 of the JMM article).
+%% demo_jmm_3_1_texture.m
+% Analysis 3.1 (JMM article, Section 4.3.1): phase as local texture in
+% Piano Phase.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
@@ -7,7 +8,7 @@
 % jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
 % SAVE_FIGURES is set.
 %
-% Analysis 3.2: phase as local texture in Reich's Piano Phase.
+% Analysis 3.1: phase as local texture in Reich's Piano Phase.
 %
 % The two pianos are pooled into a single (pitch, time) event stream ---
 % the voice label is not an attribute, so the measure reads the combined
@@ -50,12 +51,11 @@
 %     at the sweep offset, time retained ('dropWindowAttr', false);
 %     estimator: Renyi-2.
 %
-% The Python mirror is demos/jmm/demo_jmm_3_2_texture.py.
+% Data: jmm.pianoPhase (the rendered Piano Phase voices). Toolbox:
+% preMaetFromAttrTable, windowedEntropy. Runtime: a few seconds.
 
-% The demo folder is located from the toolbox root, which is always
-% reachable, rather than from the script itself: in a script neither
-% mfilename nor dbstack reports the file, and the current folder need not
-% be the script's own. Adding it puts the +jmm helper package in scope.
+% The demo folder is located from the toolbox root, and adding it puts
+% the +jmm helper package in scope.
 mptRoot = which('buildMaet');
 if isempty(mptRoot)
     error('demoJmm:toolboxNotFound', ...
@@ -66,11 +66,11 @@ thisDir = fullfile(fileparts(mptRoot), 'demos', 'jmm');
 addpath(thisDir);
 clear mptRoot
 
-% Set true to write the figures (and, in 1.1, the checkpoint data) to a
+% Set true to write the figures to a
 % figures/ folder beside this script; false leaves them on screen only.
 SAVE_FIGURES = false;
 
-mptDefaults('showHints', false, 'truncationSigmas', 3.0, 'kernelPrecision', 'double');
+prevDefaults = mptDefaults('showHints', false);
 
 % --- fixed parameters --------------------------------------------------------
 SIGMA_PITCH = 0.15;          % semitone (= 15 cents)
@@ -82,8 +82,15 @@ pe = jmm.pianoPhase();
 IOI = pe.baseIoi;
 
 % --- two-voice surface, voices pooled ----------------------------------------
-pitch = pe.piece.pitch;
-onset = pe.piece.onset;
+% Both pianos pooled, as an attribute table, converted to a pitch and a
+% time attribute with one event per note. The time width is the sweep's,
+% which windowedEntropy overrides per call.
+piece = preMaetFromAttrTable(pe.pieceTable, 'attributes', { ...
+    struct('column', 'pitch', 'sigma', SIGMA_PITCH), ...
+    struct('column', 'onset', 'name', 'time', 'sigma', SIGMAS_T(1))}, ...
+    'time', 'seconds', 'chords', 'separate', 'weights', 'ones');
+piecePAttr = unpackPreMaet(piece);
+onset = piecePAttr{2};
 tLo = min(onset); tHi = max(onset);
 edge = 2 * WIN_SD;                                  % unreliable near the ends
 centres = linspace(tLo, tHi, N_SWEEP);
@@ -99,15 +106,10 @@ phaseAt = pe.lagAt(centres / (pe.nc * IOI));        % continuous lag
 % unnecessary here: the global truncationSigmas (set to 3.0 above, tighter
 % than PRUNE = 4.0) already zeros every event the prune would have
 % removed, so the result is identical.
-showPreMaet({pitch, onset}, [], [], 'names', {'pitch', 'onset'}, ...
-    'sigma', [SIGMA_PITCH, SIGMAS_T(1)], 'isPer', [false false], ...
-    'maxEvents', 4);
+showPreMaet(piece, 'sigma', [SIGMA_PITCH, SIGMAS_T(1)], 'maxEvents', 4);
 
 sweep = @(sigmaT) windowedEntropy( ...
-    {pitch, onset}, [], ...
-    [SIGMA_PITCH, sigmaT], [1 1], ...
-    [false false], [false false], [0 0], ...
-    centres, ...
+    piece, centres, 'sigma', [SIGMA_PITCH, sigmaT], ...
     'contextWindow', {0.0, WIN_SD * 2.0 * sqrt(3.0)}, ...
     'method', 'renyi2', ...
     'windowAttr', 2, 'dropWindowAttr', false, ...
@@ -164,6 +166,10 @@ annotation(fig, 'textbox', [0.05 0.93 0.9 0.06], 'String', ...
 figDir = fullfile(thisDir, 'figures');
 if SAVE_FIGURES && ~exist(figDir, 'dir'), mkdir(figDir); end
 if SAVE_FIGURES
-    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_2_texture.png'));
-    fprintf('Saved figures/demo_jmm_3_2_texture.png\n');
+    print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_3_1_texture.png'));
+    fprintf('Saved figures/demo_jmm_3_1_texture.png\n');
 end
+
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);

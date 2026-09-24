@@ -53,10 +53,10 @@ specs = { struct('name', 'pitch', 'r', 2, 'rel', false, 'exch', true, ...
           struct('name', 'onset', 'r', 1, 'rel', false, 'exch', true, ...
                  'sigma', 0.1, 'isPer', false, 'period', 0) };
 
-% preMaet holds the three parts in one variable, which every function
+% packPreMaet holds the three parts in one variable, which every function
 % below then takes whole. The specs carry the kernel geometry, so nothing
 % further is needed here: the pre-MAET is complete as it stands.
-pm = preMaet(pAttr, [], specs);
+pm = packPreMaet(pAttr, [], specs);
 
 fprintf('  (a) markdown\n\n');
 showPreMaet(pm);
@@ -121,7 +121,7 @@ showPreMaet(pm, 'sigma', [0.6 0.1], 'title', '  with sigma = [0.6 0.1]:');
 
 % The effect of the width is visible against a semitone shift: the wider the
 % pitch kernel, the more nearly the shifted cadence matches the original.
-pmUp = preMaet({pm.pAttr{1} + 1, pm.pAttr{2}}, [], pm.specs);
+pmUp = packPreMaet({pm.pAttr{1} + 1, pm.pAttr{2}}, [], pm.specs);
 
 fprintf('\n');
 sigmasPitch = [0.05 0.15 0.6 2];
@@ -168,7 +168,7 @@ fprintf('=== 6. NA, where a step could not carry a parameter ===\n\n');
 % varies across the range, so no single value is the image of the old
 % sigma. NA marks the absence of a canonical choice, and the analyst
 % supplies the width the new units call for.
-pmLog = transformAttributes(preMaet({pAttr{2} + 1}, [], specs(2)), ...
+pmLog = transformAttributes(packPreMaet({pAttr{2} + 1}, [], specs(2)), ...
     {'log'});
 showPreMaet(pmLog);
 try
@@ -211,13 +211,17 @@ fprintf('=== 8. From a score ===\n\n');
 
 % The chorale the JMM demos analyse, which ships with the demos: a demo
 % should not reach into the test tree for its data.
-here = fileparts(mfilename('fullpath'));
+here = fullfile(fileparts(which('buildMaet')), 'demos');
 score = fullfile(here, 'jmm', 'data', 'bwv347.musicxml');
 if exist(score, 'file')
-    pmS = preMaetFromScore(score, ...
-        'attributes', {'pitch', 'onset'}, 'chords', 'bind');
-    % A score determines periodicity and not kernel widths, so sigma is
-    % left for the analyst; the table shows what is still missing.
+    % Each attribute names its column and the parameters under which it
+    % is read: the pitch of a bound chord as a periodic class taken two
+    % at a time, and the chord's onset singly.
+    pmS = preMaetFromAttrTable(readScore(score), 'attributes', { ...
+        struct('column', 'pitch', 'sigma', 0.5, 'r', 2, 'exch', true, ...
+               'isPer', true, 'period', 12), ...
+        struct('column', 'onset', 'sigma', 0.25)}, ...
+        'chords', 'bind');
     showPreMaet(pmS, 'maxEvents', 5, 'maxElements', 4);
     try
         buildMaet(pmS, 'verbose', false);

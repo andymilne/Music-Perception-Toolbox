@@ -1,4 +1,5 @@
-"""demo_jmm_3_3_xcorr.py — Analysis 3.3 (Section 4.3.3 of the JMM article).
+"""demo_jmm_3_3_xcorr.py — Analysis 3.3 (Online Supplement, Section 10):
+phase as lag, a windowed cross-correlogram.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
@@ -27,6 +28,10 @@ Pre-MAET structure::
 
     r = (1, 1); query = 12-event canonical cell; context = Piano 2;
     one-sided normalisation (divide by the query self-overlap).
+
+Data: ``piano_phase`` (the rendered Piano Phase voices). Toolbox:
+``pre_maet_from_attr_table``, ``pack_pre_maet``,
+``windowed_similarity``. Runtime: half a minute.
 """
 
 import os
@@ -40,7 +45,7 @@ plt.rcParams.update({'font.size': 15, 'axes.titlesize': 17, 'axes.labelsize': 15
                      'font.family': 'DejaVu Sans'})
 
 import mpt
-mpt.set_default(show_hints=False, truncation_sigmas=4.0, kernel_precision='double')
+_prev_defaults = mpt.set_default(show_hints=False, truncation_sigmas=4.0)
 from mpt import show_pre_maet, windowed_similarity
 
 import piano_phase as pe
@@ -67,10 +72,14 @@ r_vec    = [1, 1]
 # --- query: one canonical cell (Piano 1's pattern), cell starting at t = 0 --
 q_pitch = pe.CELL.astype(float).reshape(1, pe.NC)
 q_time  = (np.arange(pe.NC) * IOI).reshape(1, pe.NC)
-query_pattr = [q_pitch, q_time]
+query_pattr = [q_pitch, q_time]   # its specs are the context's, below
 
 # --- context: Piano 2 -------------------------------------------------------
-p2, t2 = pe.render_voice(2)
+context = mpt.pre_maet_from_attr_table(
+    pe.voice_table(2),
+    attributes=(dict(column='pitch', sigma=sigma[0]),
+                dict(column='onset', name='time', sigma=sigma[1])),
+    time='seconds', chords='separate', weights='ones')
 
 # --- anchors and lag grid ---------------------------------------------------
 n_cells = pe.N_REPS_V1
@@ -93,17 +102,16 @@ tau_grid = np.linspace(0.0, CELL_DUR, N_TAU, endpoint=False)
 HALF = CELL_DUR + 2 * IOI
 mu_q = float(query_pattr[1].mean())
 query_centres = (anchors[:, None] - tau_grid[None, :]) + mu_q   # (anchors, N_TAU)
-show_pre_maet([p2.reshape(1, -1), t2.reshape(1, -1)], None,
-              names=['pitch', 'onset'], sigma=sigma, is_rel=is_rel,
-              is_per=is_per, period=periods, max_events=4)
-show_pre_maet(query_pattr, None, names=['pitch', 'onset'], sigma=sigma,
-              is_rel=is_rel, is_per=is_per, period=periods, max_events=4)
+show_pre_maet(context, max_events=4)
+# The query is read under the context's geometry, so it carries the same
+# specs.
+query = mpt.pack_pre_maet(query_pattr, None,
+                          mpt.unpack_pre_maet(context)[2])
+show_pre_maet(query, max_events=4)
 
 R = windowed_similarity(
-    [p2.reshape(1, -1), t2.reshape(1, -1)], None,
-    query_pattr, None,
-    sigma, r_vec, is_rel, is_per, periods,
-    anchors,
+    context, query,
+    centres=anchors,
     query_centres=query_centres,
     context_window=(1.0, 2 * HALF),     # rectangle, full support 2 * HALF
     normalize='oneSidedDenom',
@@ -113,6 +121,7 @@ R = windowed_similarity(
 )
 # Reproduce the original sparse-context skip: blank anchors whose
 # localisation window holds fewer than one full cell of context events.
+t2 = mpt.unpack_pre_maet(context)[0][1].ravel()
 ctx_counts = np.array([((t2 >= a - HALF) & (t2 <= a + HALF)).sum()
                        for a in anchors])
 R[ctx_counts < pe.NC, :] = np.nan
@@ -150,3 +159,7 @@ else:
     plt.show()
 print(f'saved; R range {np.nanmin(R):.3f}-{np.nanmax(R):.3f}, '
       f'{len(anchors)} anchors x {N_TAU} lags')
+
+# The demo leaves the toolbox as it found it: the defaults it set at the
+# top are restored here.
+mpt.set_default(**_prev_defaults)

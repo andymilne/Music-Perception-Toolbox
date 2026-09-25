@@ -16,7 +16,7 @@ from mpt import (build_maet, sim_maet, pre_maet_from_attr_table,
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
 
-# The fixtures (see tools/gen_scores.py in the handover): a 3/4 MIDI file
+# The fixtures (see python/tools/gen_scores.py): a 3/4 MIDI file
 # at 120 bpm switching to 60 bpm at beat 4, with a melody track and a
 # chord track that uses running status and leaves two notes open; a
 # MusicXML score with a soprano (tie, rest, grace note, dynamics, two

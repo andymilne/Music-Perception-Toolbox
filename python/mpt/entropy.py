@@ -573,6 +573,10 @@ def entropy_maet(
         sum (the density-kernel image count of
         :func:`~mpt._wrapped_kernel._image_count_L`); a
         ``'single-image'`` attribute takes the minimum-image cell mass.
+        For ``method='renyi2'`` it is passed to the self inner product
+        ``sim_maet(dens, dens, normalize='none')``, so it sets the kernel
+        cutoff, image count, and route admissibility there exactly as it
+        does on a cosine.
 
     Returns
     -------
@@ -676,6 +680,8 @@ def entropy_maet(
     return _entropy_maet_renyi2_dispatch(
         p_or_dens, args,
         spectrum=spectrum, precision=precision, dedup=dedup, base=base,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
     )
 
 
@@ -855,6 +861,7 @@ def _entropy_maet_shannon_dispatch(
 def _entropy_maet_renyi2_dispatch(
     p_or_dens, args, *,
     spectrum, precision, dedup, base,
+    truncation_sigmas=None, kernel_precision=None,
 ):
     """Resolve input form and route to single-multiset / multi-attribute helper, Rényi-2 path.
 
@@ -912,7 +919,9 @@ def _entropy_maet_renyi2_dispatch(
         "entropy_maet", "mobius", "renyi2",
     )
     from ._tensor.aniso import density_has_kernel_cov, density_logdet_sum
-    val = _renyi2_maet_ma(dens, base=base)
+    val = _renyi2_maet_ma(dens, base=base,
+                          truncation_sigmas=truncation_sigmas,
+                          kernel_precision=kernel_precision)
     if density_has_kernel_cov(dens):
         # Whitened coordinates: H2(f_x) = H2(f_y) + (1/2) log det(Sigma),
         # the change-of-variables constant of the linear whitening map.
@@ -1511,7 +1520,8 @@ def _renyi2_finalise(ip_xx, Z, base):
     return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
 
 
-def _renyi2_maet_ma(dens, *, base: float) -> float:
+def _renyi2_maet_ma(dens, *, base: float, truncation_sigmas=None,
+                    kernel_precision=None) -> float:
     """Analytical Rényi-2 entropy of an MA expectation tensor.
 
     ``H_2 = -log_b(<T,T> / Z^2)``: the self inner product comes from the
@@ -1591,10 +1601,14 @@ def _renyi2_maet_ma(dens, *, base: float) -> float:
             wrap=(None if wrap is None else [wrap[a] for a in live]),
             verbose=False)
         ip_xx = float(sim_maet(sub, sub, normalize="none",
-                                       verbose=False))
+                               truncation_sigmas=truncation_sigmas,
+                               kernel_precision=kernel_precision,
+                               verbose=False))
     else:
         ip_xx = float(sim_maet(dens, dens, normalize="none",
-                                       verbose=False))
+                               truncation_sigmas=truncation_sigmas,
+                               kernel_precision=kernel_precision,
+                               verbose=False))
         # A matrix-valued kernel covariance: sim_maet returns the bare
         # value in the original coordinates (it carries the Jacobian
         # factor prod_a det(Sigma_a)^(1/2)), whereas the total masses

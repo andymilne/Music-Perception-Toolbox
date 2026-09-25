@@ -50,6 +50,8 @@ consumer wrappers, never directly by user code):
   Orbit-table access:
     get_orbit_table             load (or build and cache) the orbit
                                 table for tensor order r
+    orbit_count                 |Omega_r|, the table's length, without
+                                loading or building the table
 
 See :doc:`/ARCHITECTURE` (specifically the "orbit-table system" section)
 for the design rationale, the cost-model story underlying the dispatcher
@@ -567,6 +569,94 @@ def get_orbit_table(r: int) -> list[OrbitEntry]:
     return table
 
 
+# |Omega_r| for r = 0..12: the number of orbits of ordered pairs of set
+# partitions of an r-element set under simultaneous relabelling of its
+# elements. An orbit is fixed by the block-intersection matrix of the
+# pair up to row and column permutations, so |Omega_r| counts the
+# non-negative integer matrices with entries summing to r and no zero
+# row or column, up to row and column permutations (the bipartite
+# multigraphs with r edges and no isolated vertex). The values are those
+# of _orbit_count_burnside, and equal the shipped tables' lengths for
+# r <= 8 (both checked in tests/test_orbit_count.py).
+_ORBIT_COUNTS = (
+    1, 1, 4, 10, 33, 91, 298, 910, 3017, 9945, 34207, 119369, 429250,
+)
+
+
+def orbit_count(r: int) -> int:
+    """Return ``|Omega_r|``, the length of the orbit table at order r.
+
+    Cost models need only this count, so it is read from a closed table
+    rather than from the orbit table itself: pricing a route at an
+    order beyond the shipped tables must never trigger a build (hours
+    at r = 9). A table already in memory is measured directly.
+
+    Parameters
+    ----------
+    r : int
+        Tensor order, ``2 <= r <= 12``.
+    """
+    r = int(r)
+    if r < 2:
+        raise ValueError(f"Orbit table requires r >= 2; got r={r}.")
+    if r > _R_HARD_CAP:
+        raise ValueError(
+            f"Orbit count requested at r={r}, beyond hard cap "
+            f"_R_HARD_CAP={_R_HARD_CAP}."
+        )
+    if r in _orbit_cache:
+        return len(_orbit_cache[r])
+    return _ORBIT_COUNTS[r]
+
+
+def _orbit_count_burnside(n: int) -> int:
+    """``|Omega_n|`` by Burnside's lemma, independently of the tables.
+
+    Counts ``n x n`` non-negative integer matrices with entries summing
+    to ``n`` up to row and column permutations (zero rows and columns
+    are padding, so every pair of set partitions of an n-set appears
+    once). For row and column permutations of cycle types ``lam`` and
+    ``mu``, a pair of cycles of lengths ``a`` and ``b`` partitions its
+    cells into ``gcd(a, b)`` orbits of ``lcm(a, b)`` cells, so the fixed
+    matrices of total ``n`` are counted by the coefficient of ``x^n`` in
+    ``prod 1 / (1 - x^lcm(a, b))^gcd(a, b)``; averaging over the group
+    weights each cycle-type pair by ``1 / (z_lam z_mu)``.
+    """
+    from collections import Counter
+    from fractions import Fraction
+    from math import factorial, gcd
+
+    def parts(m, cap):
+        if m == 0:
+            yield ()
+            return
+        for k in range(min(m, cap), 0, -1):
+            for rest in parts(m - k, k):
+                yield (k,) + rest
+
+    def z(lam):
+        out = 1
+        for k, mult in Counter(lam).items():
+            out *= k ** mult * factorial(mult)
+        return out
+
+    types = list(parts(n, n))
+    total = Fraction(0)
+    for lam in types:
+        for mu in types:
+            poly = [1] + [0] * n
+            for a in lam:
+                for b in mu:
+                    L = a * b // gcd(a, b)
+                    if L > n:
+                        continue
+                    for _ in range(gcd(a, b)):
+                        for d in range(L, n + 1):
+                            poly[d] += poly[d - L]
+            total += Fraction(poly[n], z(lam) * z(mu))
+    return int(total)
+
+
 # Bell numbers B_r for r = 0..12; B_r is the number of set partitions
 # of an r-element set, and the orbit table at order r has roughly
 # B_r²/symmetry orbits. Tabulated up to the hard cap.
@@ -640,6 +730,10 @@ def _maybe_warn_build_cost(r: int) -> None:
     msg_lines.append(
         "     Result will be cached on disk; subsequent calls return"
         " instantly."
+    )
+    msg_lines.append(
+        "     The build may be interrupted (Ctrl-C); nothing is cached"
+        " until it completes."
     )
     msg_lines.append(
         "     Suppress this message by setting MPT_NO_BUILD_WARN=1."
@@ -1966,7 +2060,8 @@ def eval_orbit_rel(
       products are per-block FFTs chunked against the kernel budget.
     - **Direct** — each u-node costs one :func:`eval_orbit_abs`
       evaluation; per-query cost ``O(B_r · r · K · N_u)``.
-    - **Factored** (non-periodic only) — each partition block's factor
+    - **Factored** (periodic only where it separates; see below) — each
+      partition block's factor
       separates exactly as ``exp(-var(δ_B)/2σ²) · S_m(u + mean(δ_B))``
       with ``S_m(v) = Σ_i w_i^m exp(-m (v - p_i)²/2σ²)`` a
       query-independent smoothed event distribution at width ``σ/√m``.

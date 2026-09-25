@@ -258,8 +258,8 @@ def _orbit_budget():
 
 
 def _n_orbits(r):
-    from .._mobius import get_orbit_table
-    return len(get_orbit_table(r))
+    from .._mobius import orbit_count
+    return orbit_count(r)
 
 
 def _enum_work(Q, gx, gy, r):
@@ -1128,12 +1128,12 @@ def recipe_work(recipe: _Node):
     reduction's |Omega_r| * K^2 rather than the enumerated r! * C(K,r)^2,
     so the dispatch reflects the actual route taken at each level.
     """
-    from .._mobius import get_orbit_table
+    from .._mobius import orbit_count
 
     def node_combine_cost(node):
         if node.use_orbit:
             K = len(node.val_idx) if node.level == 0 else len(node.children)
-            return len(get_orbit_table(node.r)) * K * K * max(1, node.r)
+            return orbit_count(node.r) * K * K * max(1, node.r)
         return node.xtup.shape[0] * node.ytup.shape[0] * max(1, node.r)
 
     def w(node):

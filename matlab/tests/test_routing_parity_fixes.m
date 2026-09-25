@@ -1,4 +1,4 @@
-%% test_routing_parity_fixes.m — regressions from the routing-map parity audit
+%% test_routing_parity_fixes.m — regressions from the routing parity audit
 %
 %  Mirror of the Python tests/test_routing_parity_fixes.py, plus one
 %  MATLAB-side item.

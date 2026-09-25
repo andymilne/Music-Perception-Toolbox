@@ -89,7 +89,7 @@ function calibrateSweepRoute(outFile)
         cX = nchoosek(K, r); cY = nchoosek(K, r);
         nPairs = N * factorial(r) * cX * Ny * cY;
         if r >= 2
-            nOrb = numel(mobius.getOrbitTable(r));
+            nOrb = mobius.orbitCount(r);
             orbitTotal = M * N * Ny * nOrb * K * K * r;
         else
             nOrb = NaN; orbitTotal = NaN;

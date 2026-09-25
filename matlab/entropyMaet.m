@@ -199,14 +199,19 @@ function H = entropyMaet(varargin)
 %                         attribute's wrapped-Gaussian cell masses sum
 %                         (INTERNAL.WRAPPEDKERNELIMAGECOUNT, density
 %                         convention); a 'single-image' attribute takes
-%                         the minimum-image cell mass.
+%                         the minimum-image cell mass. Under
+%                         method='renyi2' it is passed to the self inner
+%                         product simMaet(T, T, 'normalize', 'none'), where
+%                         it sets the kernel cutoff, image count, and route
+%                         admissibility exactly as on a cosine.
 %                         [] (default) means use the global default
 %                         (factory: Inf).
 %       'kernelPrecision' - 'double' (default via mptDefaults), 'single',
 %                         or [] for the global default. Override the
 %                         toolbox-wide kernelPrecision setting for this
 %                         call. Passes through to the kernel evaluator
-%                         on the centres path (Shannon only); 'single'
+%                         on the centres path (Shannon) and to the self
+%                         inner product (Rényi-2); 'single'
 %                         casts the kernel matrix to float32 for a ~2x
 %                         speedup at ~7 sig fig precision.
 %       'verbose'       - Logical (default: true). If false, suppresses
@@ -1949,6 +1954,10 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     end
 
     base = nvArgs.base;
+    % The per-call kernel controls reach the self inner product exactly
+    % as they reach a cosine ([] leaves the global default in force).
+    ipKw = {'truncationSigmas', nvArgs.truncationSigmas, ...
+            'kernelPrecision', nvArgs.kernelPrecision};
 
     % --- Resolve input to a density struct ---
     if isstruct(firstArg) && isfield(firstArg, 'tag')
@@ -1960,7 +1969,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         switch firstArg.tag
             case 'MaetDensity'
                 localRaiseIfAnySigmaZero(firstArg, 'renyi2');
-                H = localRenyi2(firstArg, base);
+                H = localRenyi2(firstArg, base, ipKw);
                 H = localAnisoEntropyCorrection(H, firstArg, base);
                 return;
             otherwise
@@ -1982,7 +1991,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                             posArgs{5}, posArgs{6}, posArgs{7}, exchArgs{:}, ...
                             'verbose', false);
         localRaiseIfAnySigmaZero(dens, 'renyi2');
-        H = localRenyi2(dens, base);
+        H = localRenyi2(dens, base, ipKw);
         H = localAnisoEntropyCorrection(H, dens, base);
         return;
     end
@@ -2022,7 +2031,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         p, w, sigma, r, isRel, isPer, period, exchArgs{:}, ...
         'verbose', false);
     localRaiseIfAnySigmaZero(maet, 'renyi2');
-    H = localRenyi2(maet, base);
+    H = localRenyi2(maet, base, ipKw);
     H = localAnisoEntropyCorrection(H, maet, base);
 end
 
@@ -2065,7 +2074,7 @@ function H = localAnisoEntropyCorrection(H, dens, base)
 end
 
 
-function H = localRenyi2(dens, base)
+function H = localRenyi2(dens, base, ipKw)
 %LOCALRENYI2  Analytical Rényi-2 entropy of an expectation tensor.
 %
 %   H_2 = -log_b(<T,T> / Z^2): the self inner product comes from the
@@ -2092,6 +2101,9 @@ function H = localRenyi2(dens, base)
 %   is left out of the density handed to them, and with nothing else
 %   left <T,T> = N^2. A density whose only attribute is of this kind
 %   therefore has H_2 = 0. Twin of the Python _renyi2_maet_ma.
+%
+%   ipKw carries the caller's 'truncationSigmas' and 'kernelPrecision'
+%   through to the self inner product.
 
     dens = internal.prunedMaet(dens);
     A = double(dens.nAttrs);
@@ -2144,9 +2156,11 @@ function H = localRenyi2(dens, base)
         sub = buildMaet(dens.pAttr(live), dens.w(live), 'specs', specs, ...
                            'sigma', dens.sigma(live), 'isPer', logical(dens.isPer(live)), ...
                            'period', dens.period(live), bArgs{:}, 'verbose', false);
-        ip_xx = simMaet(sub, sub, 'normalize', 'none', 'verbose', false);
+        ip_xx = simMaet(sub, sub, 'normalize', 'none', ipKw{:}, ...
+                        'verbose', false);
     else
-        ip_xx = simMaet(dens, dens, 'normalize', 'none', 'verbose', false);
+        ip_xx = simMaet(dens, dens, 'normalize', 'none', ipKw{:}, ...
+                        'verbose', false);
         % A matrix-valued kernel covariance: simMaet returns the bare
         % value in the original coordinates (it carries the Jacobian
         % factor prod_a det(Sigma_a)^(1/2)), whereas the total masses

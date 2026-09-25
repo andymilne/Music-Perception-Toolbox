@@ -2607,7 +2607,7 @@ function w = recipeWork(node)
     % Python recipe_work).
     if node.useOrbit
         K = nodeSpan(node);
-        w = numel(mobius.getOrbitTable(node.r)) * K * K * max(1, node.r);
+        w = mobius.orbitCount(node.r) * K * K * max(1, node.r);
     else
         w = size(node.xtup, 1) * size(node.ytup, 1) * max(1, node.r);
     end

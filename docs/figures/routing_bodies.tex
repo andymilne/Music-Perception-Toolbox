@@ -1,18 +1,19 @@
-% The four routing decision trees. Each is drawn by its own routing_r*.tex
+% The five routing decision trees. Each is drawn by its own routing_r*.tex
 % driver; the prose that explains them is in ARCHITECTURE.md section 4.
 \newcommand{\figRone}{%
 \begin{forest} routing
 [{\textbf{cosine}(x, y, method, normalize)\\input forms: density pair; density lists;\\raw arrays; batched single-multiset rows}
   [{empty operand} [{\textit{any side has no events}\\$0$}, leaf]]
-  [{ordered attribute ([sym]=0, $r>1$)\\on either side}
-    [{\textit{overrides 'bulger'/'mobius' silently}\\centres}, leaf]]
   [{nested attribute present\\and method $\neq$ 'bulger'}
     [{\textit{auto / contract / mobius / centres}\\\textbf{nested plan} (Figure R3)}]]
+  [{no nested attribute}
+    [{'contract' on a non-nested density}, err, ovr={contract}]]
+  [{ordered attribute ([exch]=0, $r>1$)\\on either side}
+    [{\textit{overrides a forced 'mobius'/'centres' silently}\\Bulger (perm side = comb side)}, leaf]]
   [{method $\neq$ 'auto' (flat)}
     [{Bulger}, leaf, ovr={bulger}]
     [{unrestricted centres\\(perm $\times$ perm)}, leaf, ovr={centres}]
-    [{M\"obius per-attribute\\(Figure R2)}, leaf, ovr={mobius}]
-    [{'contract' on a non-nested density}, err, ovr={contract}]]
+    [{M\"obius per-attribute\\(Figure R2)}, leaf, ovr={mobius}]]
   [{\textbf{flat selector} ('auto'), rules in order}
     [{1. $r_a = 1$ on every attribute} [{Bulger}, leaf]]
     [{2. $r_{\max}>8$} [{Bulger; feasibility guard\\$n_J^x n_J^y\cdot 8 > $ budget $\to$ error}, leaf]]
@@ -38,15 +39,16 @@
     [{\textit{admissible and $c_\mathrm{centres}<c_\mathrm{grid}$ (or rel\_attr\_route='centres')}\\tuple-centres closed form\\comb-side restriction; $L=0$ short-circuit}, leaf]
     [{translation grid\\$N_u$ nodes; image sum on periodic}
       [{\textit{$2\le r\le4$, grid $\le 4\cdot10^6$, grid $\le 1100\,K_x^2\,N_xN_y$}\\spectral (Fourier) contraction}, leaf]
+      [{\textit{periodic, $K_xK_y\ge 2\cdot10^5$, nnz $\le 0.2K_xK_y$}\\sparse per-node orbit}, leaf]
       [{\textit{else}\\lattice contraction\\(orbit grid / pw-batched)}, leaf]]
-    [{'centres' requested above $\sigma/P$ threshold\\on a full-image attribute}, err]]
+    [{rel\_attr\_route='centres' with $\sigma/P > \mathrm{thr}(t_s)$\\(periodic) or $K < r_a$ on either side}, err]]
 ]
 \end{forest}}
 
 \newcommand{\figRthree}{%
 \begin{forest} routing
 [{\textbf{nested density}}
-  [{not covered: $A$ differs; per-level\\{[r]}/{[sym]} differ; inner {[rel]} unit}
+  [{not covered: $A$ differs; per-level\\{[r]}/{[exch]} differ; inner {[rel]} unit}
     [{\textit{'auto'}\\Bulger}, leaf] [{\textit{'contract'/'mobius'/'centres'}\\error}, err]]
   [{\textbf{admissible routes} per attribute (measure rule)}
     [{absolute} [{contract}, leaf]]
@@ -60,7 +62,7 @@
     [{\textit{$2\,\mathrm{enum} < \mathrm{plan}$ and 'auto'}\\Bulger}, leaf]
     [{\textit{else}\\run the plan}
       [{contract: per level, orbit reduction or enumeration\\(orbit cost model); accuracy guard $\to$ enumeration}, leaf]
-      [{materialised centres}, leaf]
+      [{materialized centres}, leaf]
       [{$\tau$-grid / line grid contraction}, leaf]]]
   [{nested-MA (nested $\otimes$ flat attributes)\\per attribute: nested $\to$ plan above; flat symmetric $\to$ M\"obius matrix (Figure R2);\\ordered flat $\to$ tuple-centres closed form}]
 ]
@@ -70,7 +72,7 @@
 \begin{forest} routing
 [{\textbf{eval}(dens, X, method)}
   [{centres branch}, ovr={centres}]
-  [{M\"obius branch}, ovr={mobius} [{\textit{raises}\\ordered attribute}, err]]
+  [{M\"obius branch}, ovr={mobius} [{\textit{ordered}\\\textit{attribute}\\error}, err]]
   [{\textbf{eval selector} ('auto'), rules in order}
     [{1. ordered attribute} [{centres}, leaf]]
     [{2. every attribute nested:\\nested cost row}
@@ -78,17 +80,46 @@
       [{\textit{else}\\tag-tree centres}, leaf]]
     [{2b. \textit{mixed} (nested $\otimes$ flat):\\priced at rule 6}]
     [{3. $r_a = 1$ on every attribute} [{centres}, leaf]]
-    [{4. $r>10$} [{centres; working-set guard $> 4$\,GB $\to$ error}, leaf]]
+    [{4. $r>10$ (flat attribute)} [{centres; feasibility guard\\joint working set $>$ budget $\to$ error}, leaf]]
     [{5. rel-per and $\sigma/P>\mathrm{thr}(t_s)$}
       [{\textit{wrap='single-image'}\\centres}, leaf] [{\textit{wrap='full-image'}\\M\"obius}, leaf]]
     [{6. cost: $c_\mathrm{M} < c_\mathrm{C}\cdot s$,\\$s=1.5$ if joint working set $> 256$\,MB else $1$}
       [{\textit{yes}\\M\"obius}, leaf] [{\textit{no}\\centres}, leaf]]]
   [{\textbf{centres branch}}
-    [{single multiset: kernel sum\\1-D vectorised | bucketed | circular | exact chunks\\chunk: $\theta$ product ($L>0$) | tabulated $\theta$ | nearest-image $Q$}, leaf]
+    [{single multiset: kernel sum\\1-D vectorized | bucketed | circular | exact chunks\\chunk: $\theta$ product ($L>0$) | tabulated $\theta$ | nearest-image $Q$}, leaf]
     [{MA, all $r\ge2$, no kernel covariance: factored\\(per-attribute kernel sums)}, leaf]
     [{MA otherwise: joint tuple centres\\(tabulated $\theta$ when values repeat)}, leaf]]
   [{\textbf{M\"obius branch}}
     [{absolute: partition sum, reduction rule}, leaf]
-    [{relative: $u$-grid; direct | factored (non-per) | Fourier ($2\le r\le4$)}, leaf]]
+    [{relative: $u$-grid; direct | factored | Fourier ($2\le r\le4$)\\(periodic: factored and Fourier only when window\\and query span fit in half the circle)}, leaf]
+    [{nested: per-level partition identity\\(dynamic programme at ordered levels)}, leaf]]
+]
+\end{forest}}
+
+\newcommand{\figRfive}{%
+\begin{forest} routing
+[{\textbf{sweep}(x, y, offsets, method, normalize)\\offsets $(A \times M)$; normalize: 'cosine' or 'oneSidedDenom'}
+  [{\textbf{contraction route} ('auto' or 'contract')\\a nested attribute on either side; every swept attribute\\absolute, isotropic, no inner or intermediate {[rel]} unit}
+    [{\textit{the nested plan covers the densities}\\contraction sweep: the nested plan (Figure R3)\\with the offsets on its batch axis}, leaf]
+    [{\textit{not covered}\\error}, err, ovr={contract}]
+    [{\textit{not covered, 'auto'}\\continue below}]]
+  [{\textbf{eligibility}}
+    [{mixture: every swept attribute absolute, non-periodic,\\no inner {[rel]} unit, isotropic; an unswept rel-per\\attribute within $\mathrm{thr}(t_s)$ or wrap='single-image';\\an unswept attribute may carry a kernel covariance}]
+    [{orbit: every attribute exchangeable, none nested,\\no swept relative, no kernel covariance; a rel-per\\attribute above $\mathrm{thr}(t_s)$ only under wrap='full-image'}]]
+  [{method $\neq$ 'auto'}
+    [{mixture}, leaf, ovr={mixture}]
+    [{orbit}, leaf, ovr={orbit}]
+    [{\textit{ineligible}\\error}, err]]
+  [{\textbf{route chooser} ('auto'), rules in order}
+    [{1. orbit ineligible} [{mixture\\(error if also ineligible)}, leaf]]
+    [{2. mixture ineligible} [{orbit}, leaf]]
+    [{3. a swept attribute with $r_a = 1$, or none swept} [{mixture}, leaf]]
+    [{4. mixture store $n_\mathrm{pairs}(n_\mathrm{swept}+2)\cdot 8 >$ kernel\_chunk\_bytes} [{orbit}, leaf]]
+    [{5. $n_\mathrm{pairs} < 10^6$} [{mixture}, leaf]]
+    [{6. work ratio\\$M N_x N_y \sum_{a\,\mathrm{swept}} |\Omega_{r_a}| K_x K_y r_a < 64\,n_\mathrm{pairs}$}
+      [{\textit{yes}\\orbit}, leaf] [{\textit{no}\\mixture}, leaf]]]
+  [{\textbf{routes}}
+    [{mixture: one pass over the tuple pairs, then\\a Gaussian mixture in the offset evaluated per offset}, leaf]
+    [{orbit: per-attribute M\"obius matrices (Figure R2) at the\\shifted values, (event pair, offset) on the batch axis}, leaf]]
 ]
 \end{forest}}

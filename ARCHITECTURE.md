@@ -2,7 +2,7 @@
 
 A developer-facing map of what is in the toolbox, how the pieces relate, and the design rationale for the parts that are not obvious from a casual reading of the source. For *user-facing* documentation – what the functions do and how to call them – see [USER_GUIDE.md](USER_GUIDE.md). This document assumes the reader has either read USER_GUIDE §3 and §7 or is comfortable with the expectation-tensor framework from the source papers (Milne et al. 2011, 2015, 2016, 2020).
 
-This document describes the toolbox as it currently exists. It was last verified line-by-line against the Python and MATLAB source in September 2026; §4 carries the routing decisions as figures, with the vocabulary they use; the exhaustive, source-verified version — every rule with the source line that implements it — is the routing map, `ROUTING_MAP.md`, kept with its supporting material in the companion `MPT-routing-notes/` folder outside this repository. The map is the reference wherever it and this document could be read differently.
+This document describes the toolbox as it currently exists. It was last verified line-by-line against the Python and MATLAB source in September 2026; §4 carries the routing decisions as figures, with the vocabulary they use. The two languages share every routing rule drawn there; only the fitted cost constants differ.
 
 ## Contents
 
@@ -77,7 +77,7 @@ Three core analytical quantities operate on density objects:
 
 - **Point evaluation** $T(\mathbf{x})$: the density's value at a query point. Single-density-single-query is the basic operation; batched evaluation (many queries, or many densities) is what most consumers actually need.
 
-- **Inner product** $\langle T_x, T_y \rangle = \int T_x T_y \, \mathrm{d}\mathbf{z}$: the integral of the pointwise product of two densities over their shared support. Cosine similarity normalizes this by the L2 norms of both operands (`'oneSidedDenom'` divides by one of them; `'none'` returns the bare value on the canonical scale, `_ip_canonical_scale` / `internal.ipCanonicalScale` restoring the per-attribute prefactors each route drops); Rényi-2 differential entropy is computed from that bare self inner product and the total mass.
+- **Inner product** $\langle T_x, T_y \rangle = \int T_x T_y \, \mathrm{d}\mathbf{z}$: the integral of the pointwise product of two densities over their shared support. Cosine similarity normalizes this by the L2 norms of both operands (`'oneSidedDenom'` divides by one of them; `'none'` returns the bare value on the canonical scale, `_ip_canonical_scale` / `internal.ipCanonicalScale` restoring the per-attribute prefactors each route drops, and an attribute with a kernel covariance contributing the Jacobian factor $\det(\Sigma_a)^{1/2}$ of its whitening); Rényi-2 differential entropy is computed from that bare self inner product and the total mass.
 
 - **Total mass** $Z = \int T \, \mathrm{d}\mathbf{z}$: a scalar normalizer. Used to convert $T$ to a probability density via $T/Z$ and as a denominator in normalized quantities.
 
@@ -93,13 +93,13 @@ Four decompositions of the same sums coexist:
 
 - **Nested contraction** (`_nested_contraction.py` / `internal.nestedContract`) is specific to attributes with a nested specification. Rather than enumerating every leaf-level tuple, it contracts the tag tree bottom-up: a recipe (tag tree plus per-node permutation/combination index arrays) is built once and reused across the three inner products and every quadrature node, and each symmetric level independently chooses the orbit reduction or explicit enumeration by a fitted cost model. The contraction composes with the Bulger and Möbius decompositions rather than replacing them. Absolute attributes need no quadrature; relative non-periodic attributes integrate the translation over a truncated line grid; relative-periodic attributes average over a $\tau$ grid on $[0, P)$ (the all-image measure, the one form in which the kernel factorizes per coordinate).
 
-The decompositions are alternatives for the same analytical integral; their results agree to the accuracy floor in the regimes where each is admissible. They are not combined within a single quantity except as the nested plan combines them level by level – the dispatchers pick one route per attribute per call. The user-facing `method` argument defaults to `'auto'`; the accepted values are `'auto' | 'bulger' | 'centres' | 'mobius' | 'contract'` on the cosine (Python additionally accepts an undocumented `'factored'` route), `'auto' | 'centres' | 'mobius'` on evaluation, `'auto' | 'mixture' | 'orbit'` on the translation sweep, and `'differential' | 'shannon' | 'normalized' | 'renyi2'` on entropy, where the value names the estimator rather than a route. There is no `'direct'` method.
+The decompositions are alternatives for the same analytical integral; their results agree to the accuracy floor in the regimes where each is admissible. They are not combined within a single quantity except as the nested plan combines them level by level – the dispatchers pick one route per attribute per call. The user-facing `method` argument defaults to `'auto'`; the accepted values are `'auto' | 'bulger' | 'centres' | 'mobius' | 'contract'` on the cosine, `'auto' | 'centres' | 'mobius'` on evaluation, `'auto' | 'mixture' | 'orbit' | 'contract'` on the translation sweep, and `'differential' | 'shannon' | 'normalized' | 'renyi2'` on entropy, where the value names the estimator rather than a route. There is no `'direct'` method.
 
 ### Tier 3: Consumer wrappers
 
 The consumer wrappers compose the tier-2 primitives into measures with musical interpretation:
 
-- **Similarity**: `sim_maet`, `sweep_sim_maet` (one density against uniformly translated copies of another, as a Gaussian mixture in the offset), and `windowed_similarity` (a pre-MAET sliding window over raw events – the window reweights the events before each build – with each position routed through `sim_maet`) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
+- **Similarity**: `sim_maet`, `sweep_sim_maet` (one density against uniformly translated copies of another, in one pass: as a Gaussian mixture in the offset, through the Möbius per-attribute matrices at the shifted values, or, for a nested density, through the nested contraction with the offsets on its batch axis), and `windowed_similarity` (a pre-MAET sliding window over raw events – the window reweights the events before each build – with each window position routed through `sim_maet`, except that where the window stays fixed while the query is translated, as in a correlogram or on a translated attribute that carries no window, the offsets at that position go through `sweep_sim_maet` in one pass) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
 
 - **Harmonicity and consonance**: `template_harmonicity` cross-correlates a chord's composite spectrum against a harmonic template; `tensor_harmonicity` queries the density of interval patterns within a single harmonic series; `spectral_entropy` computes Shannon entropy of a spectral density; `roughness` (sensory roughness) is a direct frequency-pair calculation independent of the tensor framework; `virtual_pitches` extracts likely fundamentals via template harmonicity.
 
@@ -136,25 +136,33 @@ mpt/
 │   │                      input forms; both produce a MaetDensity)
 │   ├── premaet.py         pack_pre_maet, unpack_pre_maet: the pre-MAET as one
 │   │                      object, and the argument front end the operators share
+│   ├── premaet_io.py      read_pre_maet, write_pre_maet (a pre-MAET as CSV)
+│   ├── show.py            show_pre_maet (a pre-MAET as a Markdown or LaTeX table)
 │   ├── transform.py       transform_attributes (scale conversions, log and other elementwise maps)
 │   ├── preprocessing.py   difference_events, bind_events, translate_attributes,
-│   │                      weight_events, select_pre_maet, flat_specs,
-│   │                      simplex_vertices
+│   │                      weight_events, select_pre_maet, bind_attributes,
+│   │                      separate_attributes, flat_specs, simplex_vertices
 │   ├── aniso.py           Anisotropic (matrix-valued) kernel covariance support
 │   ├── canonical.py       Canonical-form key helpers for batched dedup
 │   ├── dispatch.py        Cost models and selectors: the flat inner-product
-│   │                      selector, the eval selector and its cost model, the
-│   │                      σ/P admissibility threshold, feasibility guards, and
-│   │                      shared helpers (_normalize_density_input,
-│   │                      _resolve_list_list_mode, _compute_Q)
+│   │                      selector, the eval selector and its cost model
+│   │                      (with the nested cost row, _nested_eval_costs_ms,
+│   │                      and nested_tuple_count), the σ/P admissibility
+│   │                      threshold, feasibility guards, and shared helpers
+│   │                      (_normalize_density_input, _resolve_list_list_mode,
+│   │                      _compute_Q)
 │   ├── eval.py            eval_maet: input forms, the centres branch
 │   │                      (single-multiset leaf, factored MA, joint MA), and
 │   │                      normalization
-│   ├── _ma_eval_orbit.py  Factored Möbius point evaluator for a flat MAET
+│   ├── _ma_eval_orbit.py  Factored Möbius point evaluator for an MAET (one
+│   │                      Möbius evaluation per attribute, product per event)
+│   ├── _nested_mobius_eval.py
+│   │                      Per-level Möbius point evaluator for a nested
+│   │                      attribute
 │   ├── cosine.py          sim_maet: input forms, the flat MA
 │   │                      dispatcher, the Bulger, centres, and Möbius arms,
-│   │                      the nested plan (_try_nested_contract), self-IP
-│   │                      memoisation, and the deprecated shims
+│   │                      the nested plan (_try_nested_contract), and
+│   │                      self-IP memoization
 │   ├── _mobius_inner.py   Möbius per-attribute inner matrices: the absolute
 │   │                      orbit contraction (dense / sparse), the relative
 │   │                      translation grid, the spectral Gram matrix, the
@@ -168,9 +176,11 @@ mpt/
 │   │                      vs enumeration, the accuracy guard
 │   ├── _nested_cost.py    Fitted cost model for the nested plan and the
 │   │                      plan-vs-enumeration race
-│   ├── sweep.py           sweep_sim_maet: translation sweeps as a
-│   │                      Gaussian mixture in the offset, with an orbit route
-│   ├── windowed.py        Pre-MAET windowed sweeps: windowed_similarity,
+│   ├── sweep.py           sweep_sim_maet: translation sweeps on the
+│   │                      mixture, orbit, and contraction routes, and the
+│   │                      route chooser
+│   ├── windowed.py        Pre-MAET windowed sweeps: windowed_similarity
+│   │                      (fixed-window offsets through sweep_sim_maet),
 │   │                      windowed_entropy
 │   ├── explain.py         explain_dispatch: reports a call's routing and why
 │   └── _timeest.py        Self-calibrated up-front time estimate for eval
@@ -191,7 +201,9 @@ mpt/
 ├── spectra.py             add_spectra
 ├── audio.py               audio_peaks, AudioPeaksDetail
 ├── score.py               read_score, pre_maet_from_attr_table (MIDI, MusicXML)
-├── grid.py                grid_attr_table (sampling an attribute table on a grid)
+├── grid.py                grid_attr_table, ungrid_attr_table (sampling an
+│                          attribute table on a grid, and back)
+├── plot.py                plot_maet (matplotlib imported on first use)
 ├── _kernel.py             Gaussian-kernel sum helper: the single centres-path
 │                          numerical primitive (truncated 1-D, bucket-grid,
 │                          circular, and exact chunked branches)
@@ -219,13 +231,17 @@ matlab/
 │                          windowedSimilarity, explainDispatch, mptDefaults,
 │                          …) – MATLAB requires one top-level function per
 │                          file. The large entry points (simMaet.m,
-│                          evalMaet.m, entropyMaet.m) carry their
-│                          arms and kernel cores as local functions.
+│                          evalMaet.m, entropyMaet.m, sweepSimMaet.m)
+│                          carry their arms, routes, and kernel cores as
+│                          local functions.
 ├── +internal/             Helpers reachable only via internal.helperName,
 │                          mirroring Python's _-prefix convention: the
 │                          selectors (selectMaInnerProductMethod,
-│                          selectMaEval), cost models (relRouteCostMs,
-│                          predictOrbitCostMs, maEvalCostsMs, nestedCost,
+│                          selectMaEval) and their shared input builder
+│                          (flatSelectorInputs), cost models
+│                          (relRouteCostMs, predictOrbitCostMs,
+│                          maEvalCostsMs, nestedEvalCostsMs,
+│                          nestedTupleCount, nestedCost,
 │                          orbitCostModel), guards and thresholds
 │                          (relPerSigmaOverPThreshold, accuracyFloor,
 │                          guardForcedBulgerFeasible, dispatchMemBudget),
@@ -238,15 +254,16 @@ matlab/
 │                          call-scope guards (callGuard, dispatchScope,
 │                          kernelChunkBytesResolved)
 ├── +mobius/               Möbius machinery: orbit-table build/load
-│   │                      (getOrbitTable, buildOrbitTable, recipeVersion),
-│   │                      contraction recipes (buildContractRecipe,
-│   │                      executeRecipe), the orbit inner products, the
-│   │                      per-attribute matrices (maPerAttrInnerMatrix,
+│   │                      (getOrbitTable, orbitCount, buildOrbitTable,
+│   │                      recipeVersion), contraction recipes
+│   │                      (buildContractRecipe, executeRecipe), the orbit
+│   │                      inner products, the per-attribute matrices
+│   │                      (maPerAttrInnerMatrix,
 │   │                      relInnerBatched, spectralRelInnerMatrix,
 │   │                      closedFormAttrCentres / closedFormAttrMatrixFrom,
 │   │                      maRelAttrPrefersCentres), the point evaluators
-│   │                      (evalMaOrbit, evalOrbitAbs, evalOrbitRel), and
-│   │                      total mass
+│   │                      (evalMaOrbit, evalOrbitAbs, evalOrbitRel,
+│   │                      evalNestedAttrOrbit), and total mass
 │   └── _orbit_tables/     Shipped orbit tables (.mat, r = 2..8)
 ├── demos/                 Demo scripts
 ├── tools/                 Calibration and benchmark scripts
@@ -267,7 +284,7 @@ In MATLAB, the public surface is the set of top-level `.m` filenames. Anything i
 ### Test layout
 
 ```
-python/tests/              ~110 test_*.py files, flat, organized by feature
+python/tests/              ~130 test_*.py files, flat, organized by feature
                            area (see tests/README.md for the groupings)
 
 python/tests/precision_audit/   Numerical precision and incidence sweeps
@@ -278,7 +295,7 @@ python/tools/              Calibration scripts for the cost models
                            (calibrate_rel_ip_cost.py, fit_ma_eval_cost.py,
                            calibrate_nested_cost.py, …) and benches
 
-matlab/tests/              ~90 test_*.m files mirroring the Python tests
+matlab/tests/              ~110 test_*.m files mirroring the Python tests
                            where applicable, plus bench_*.m cross-language
                            and calibration benches (not CI)
 
@@ -302,7 +319,7 @@ Tests are predominantly organized by feature rather than by module – e.g. the 
 
 ## 4. The dispatcher pattern
 
-The dispatchers are the toolbox's most distinctive design feature. USER_GUIDE §5 ("Method selection") describes the user-facing API – the `method` keyword, the `wrap` declaration, `truncation_sigmas`, the kernel-evaluation controls, and when to override defaults. This section covers the *internals* that make `method='auto'` work, at architecture level; the routing map gives every rule, guard, and constant in full and is the reference when a detail here is not enough.
+The dispatchers are the toolbox's most distinctive design feature. USER_GUIDE §5 ("Method selection") describes the user-facing API – the `method` keyword, the `wrap` declaration, `truncation_sigmas`, the kernel-evaluation controls, and when to override defaults. This section covers the *internals* that make `method='auto'` work, at architecture level; the figures below draw every selector's rules in the order they fire, and the source is the reference when a detail here is not enough.
 
 Four points are useful to internalize before reading the dispatch code:
 
@@ -312,7 +329,7 @@ Four points are useful to internalize before reading the dispatch code:
 
 3. There is **no timing probe**. Routing is decided entirely from structure and the cost models; the hardware scale factor cancels in the cost *ratio*, which is why the dispatchers need no timing (the one place a timing is taken – `_timeest.py`'s self-calibration – serves the absolute up-front time estimate, not routing). The former `cancellation_threshold` keyword on `sim_maet` / `simMaet` has been removed; the alternating-sum cancellation it once guarded is handled by the accuracy floor (§6) and by the post-hoc guards below.
 
-4. Two guards act *after* a route has run. On the cosine Möbius arm, an *impossible value* – a non-finite inner product, a negative self-inner-product, or $|\langle X, Y \rangle| > 1.000001\sqrt{\langle X, X \rangle \langle Y, Y \rangle}$ – triggers a warning, purges the Möbius memo entries on both densities, and re-runs the call through Bulger's method. On the nested contraction, a per-level orbit reduction whose error bound exceeds the accuracy floor falls back to enumeration when the enumeration is affordable and otherwise keeps the value with a warning. On the point-evaluation Möbius route, non-finite output triggers a warning and a re-run through the centres branch, in both languages and for every density shape (the single-multiset corner inherits the guard from the general path). All post-hoc guards are disabled by the `post_hoc_guards` default.
+4. Two guards act *after* a route has run. On the cosine Möbius arm, an *impossible value* – a non-finite inner product, a negative self-inner-product, or $|\langle X, Y \rangle| > 1.000001\sqrt{\langle X, X \rangle \langle Y, Y \rangle}$ – triggers a warning, purges the Möbius memo entries on both densities, and re-runs the call through Bulger's method. On the nested contraction, a per-level orbit reduction whose error bound exceeds the accuracy floor falls back to enumeration when the enumeration is affordable and otherwise keeps the value with a warning. On the point-evaluation Möbius route, non-finite output triggers a warning and a re-run through the centres branch, in both languages and for every density shape (the single-multiset corner inherits the guard from the general path). All three are switched off together by setting the `post_hoc_guards` default (on by default) to false.
 
 ### The measure rule
 
@@ -326,15 +343,15 @@ The threshold is `_orbit_sigma_over_p_threshold` / `internal.relPerSigmaOverPThr
 
 The same pattern recurs in five places; the flat cosine selector is the canonical instance.
 
-**The flat selector** (`_select_ma_inner_product_method` / `internal.selectMaInnerProductMethod`) chooses among the Bulger, centres, and Möbius arms for a density pair without nested attributes. Its rules fire in order: (1) a user `method` other than `'auto'` is returned unchanged, bypassing everything below; (2) if every $r_a \leq 1$, Bulger; (3) if any $r_a$ exceeds the shipped-table ceiling of 8, Bulger, after a feasibility guard that raises `SingleImageInfeasibleError` / `mpt:dispatch:singleImageInfeasible` when the joint tuple-pair kernel would exceed the memory budget (4 GiB fixed in Python; half of available memory clamped to 1–4 GiB in MATLAB); (4) Python only: a working-set guard sends a large flat density to Möbius when its tuple-centres working set would exceed 256 MiB; (5) the measure rule above; (6) the cost race – the predicted Bulger cost from the fitted law against the predicted Möbius cost, which itself takes, per relative attribute, the cheaper of the tuple-centres and grid realizations, floored by a per-order set-up cost. Ties go to Bulger. After the selector, an *ordered* attribute (`is_exch == false`, $r_a > 1$) on either side silently overrides the answer to Bulger, including an explicit `'mobius'` or `'centres'`.
+**The flat selector** (`_select_ma_inner_product_method` / `internal.selectMaInnerProductMethod`) chooses among the Bulger, centres, and Möbius arms for a density pair without nested attributes. Its rules fire in order: (1) a user `method` other than `'auto'` is returned unchanged, bypassing everything below; (2) if every $r_a \leq 1$, Bulger; (3) if any $r_a$ exceeds the shipped-table ceiling of 8, Bulger, after a feasibility guard that raises `SingleImageInfeasibleError` / `mpt:dispatch:singleImageInfeasible` when the joint tuple-pair kernel would exceed the memory budget (4 GiB fixed in Python; half of available memory clamped to 1–4 GiB in MATLAB); (4) below the σ/P threshold, a working-set guard sends a large flat density to Möbius when either side's tuple-centres working set would exceed 256 MiB; (5) the measure rule above; (6) the cost race – the predicted Bulger cost from the fitted law against the predicted Möbius cost, which itself takes, per relative attribute, the cheaper of the tuple-centres and grid realizations, floored by a per-order set-up cost. Ties go to Bulger. After the selector, an *ordered* attribute (`is_exch == false`, $r_a > 1$) on either side silently overrides the answer to Bulger, including an explicit `'mobius'` or `'centres'`.
 
-**The Möbius arm** (`_sim_maet_ma_orbit` / `localCosSimMAOrbit`) decides, per relative attribute, between the tuple-centres closed form and the grid (`_ma_rel_attr_prefers_centres` / `mobius.maRelAttrPrefersCentres`): the closed form is inadmissible above the σ/P threshold (it carries the minimum-image reading) and when either side has fewer values than $r_a$; otherwise a small wall-time model races the two, an explicit `method='mobius'` pins the grid, and the calibration setting `rel_attr_route` pins either. Inside the grid branch a *spectral gate* substitutes the Fourier Gram matrix for $2 \leq r \leq 4$ when its mode grid is at most $4 \times 10^6$ points (a memory guard that is never bypassed) and cheaper than the grid by a cost gate (bypassed by `SPECTRAL_IP_FORCE` for testing). A *sparse gate* switches the absolute contraction and the periodic grid to sparse kernels when the kernel is large ($K_x K_y \geq 200{,}000$) and at most 20 % dense.
+**The Möbius arm** (`_sim_maet_ma_orbit` / `localCosSimMAOrbit`) decides, per relative attribute, between the tuple-centres closed form and the grid (`_ma_rel_attr_prefers_centres` / `mobius.maRelAttrPrefersCentres`): the closed form is inadmissible above the σ/P threshold (it carries the minimum-image reading) and when either side has fewer values than $r_a$; otherwise a small wall-time model races the two, an explicit `method='mobius'` pins the grid, and the calibration setting `rel_attr_route` pins either. Inside the grid branch a *spectral gate* substitutes the Fourier Gram matrix for $2 \leq r \leq 4$ when its mode grid is at most $4 \times 10^6$ points (a memory guard that is never bypassed) and cheaper than the grid by a cost gate (bypassed by `SPECTRAL_IP_FORCE` for testing). A *sparse gate* switches the absolute non-periodic contraction and the relative-periodic grid to sparse kernels when the kernel is large ($K_x K_y \geq 200{,}000$) and at most 20 % dense.
 
 **The nested plan** (`_try_nested_contract` / `internal.nestedContract`, with cost estimates from `_nested_cost.py` / `internal.nestedCost`) handles densities with a nested attribute. Per attribute it lists the admissible routes under the measure rule – `contract` for absolute attributes; `centres` and `contract_relnonper` for relative non-periodic; for relative-periodic, `centres` and `taugrid` below the threshold and, above it, whichever the `wrap` declaration admits – and picks by a fitted law with a 256 MiB memory guard on the centres route. It then races the whole plan against joint-tuple enumeration (Bulger), choosing enumeration only when it is predicted cheaper by a safety factor of 2 and is itself admissible. A forced `method` raises when the route it names has no carrier rather than silently substituting. Within a contraction, each symmetric level re-decides orbit-vs-enumeration with the power-law `orbit_cost_model` (`_orbit_cost.py` / `internal.orbitCostModel`), whose intercept is the `orbit_cost_intercept` default.
 
 **The eval selector** (`_select_ma_eval` / `internal.selectMaEval`) chooses between the centres branch and the Möbius evaluator for `eval_maet`: `'centres'` returns at once; `'mobius'` returns after rejecting ordered attributes (on a nested density it runs the per-level Möbius evaluator, `_nested_mobius_eval.py` / `mobius.evalNestedAttrOrbit`, which applies the set-partition identity at every symmetric level of the tag tree and a dynamic programme at every ordered one, integrating a co-transposition unit over its own translation grid inside the recursion; it touches no tuple centre); under `'auto'`, ordered or all-$r_a \leq 1$ densities go to centres, and a nested density is decided by its own cost row (`_nested_eval_costs_ms` / `internal.nestedEvalCostsMs`: the tag-tree centres enumeration, counted by `nested_tuple_count` / `internal.nestedTupleCount`, against the per-level evaluator, fitted by `tools/fit_nested_eval_cost.py` on the `bench_nested_eval` grid; a mixed density adds that row to the flat law); $r_a > 10$ goes to centres after a feasibility guard on the joint working set; the measure rule on the first relative-periodic attribute above the threshold forces the arm; otherwise the cost model `_ma_eval_costs_ms` / `internal.maEvalCostsMs` estimates both, and the Möbius route is taken when it is predicted cheaper by a safety factor of 1.5 (when the centres working set exceeds 256 MiB) or 1.0. Inside the centres branch the shape rules pick the single-multiset kernel-sum leaf, the factored per-attribute form (every $r_a \geq 2$, no kernel covariance), or the joint materialization.
 
-**The sweep chooser** (`_choose_sweep_route` in `sweep.py` / `sweepSimMaet`) decides between the mixture and orbit routes on eligibility and a work-ratio rule; it is the one selector whose routes have different admissibility sets rather than different costs alone.
+**The sweep chooser** (`sweep_sim_maet` with `_choose_sweep_route` in `sweep.py` / `sweepSimMaet` with its `localChooseRoute`) serves the translation sweep, and `windowed_similarity` wherever the window stays fixed while the query is translated. A density with a nested attribute goes first to the *contraction* route, the nested plan of Figure R3 with the offsets on its batch axis, when every swept attribute is absolute and isotropic with no inner or intermediate relative unit and the plan covers the densities; under `'auto'` an uncovered case falls through, and under `'contract'` it raises. The remaining two routes have different admissibility sets rather than different costs alone: the *mixture* route needs every swept attribute absolute, non-periodic, and isotropic (an attribute that is not swept may carry a kernel covariance), while the *orbit* route needs every attribute exchangeable and flat, no swept relative attribute, and no kernel covariance, and it covers a swept periodic attribute, which the mixture refuses. Where both are admissible the chooser takes the mixture when a swept attribute has $r_a = 1$, the orbit route when the mixture's stored components would exceed the `kernel_chunk_bytes` budget, the mixture below $10^6$ tuple pairs, and otherwise whichever a work-ratio rule favours (Figure R5).
 
 ### Vocabulary of the routes
 
@@ -360,19 +377,19 @@ The terms the selectors and the figures below use, in one place.
 - **Per-level Möbius evaluation** — point evaluation of a nested density by applying the partition identity at every symmetric level of the tag tree with children in place of values, an ordered level becoming a dynamic programme. It needs no orbit table.
 - **Direct kernel sum** — the $r = 1$ case: no tuples to form, so the density is a plain sum of kernels and every method degenerates to it.
 - **Factored centres** — point evaluation that multiplies per-attribute kernel sums per event instead of materializing the joint tuple set, available when every $r_a \ge 2$ and no attribute carries a kernel covariance.
-- **Mixture vs orbit sweep** — the two ways to score one density against many uniform translates of another: build the offset mixture once and evaluate it per offset, or reuse the per-attribute matrices of Figure R2.
+- **Mixture, orbit, and contraction sweeps** — the three ways to score one density against many uniform translates of another: build the offset mixture once and evaluate it per offset; reuse the per-attribute matrices of Figure R2 at the shifted values; or, for a nested density, run the nested plan of Figure R3 with the offsets as one more batch dimension.
 
-**Selectors, costs and guards.** The **flat selector** and the **eval selector** are the rule lists of Figures R1 and R4; within each, rules fire in the order drawn and the first that fires decides. A **cost race** estimates both routes in milliseconds from fitted laws and takes the lower estimate; the fits are judged by held-out **routing regret**, the time actually spent divided by the time the best choice would have taken. The **feasibility bounds** are two different ceilings for two different reasons: the inner product's Möbius arm needs an orbit table, and tables ship for $r \le 8$, so above that Bulger's method takes the call, while point evaluation needs no orbit table — with one side there is no joint symmetry to collapse — and is bounded instead by set-partition enumeration itself, at $r = 10$ ($B_{10} = 115\,975$, and $5 \times 10^{13}$ by $r = 20$). Falling back to enumeration above a bound is not the lesser evil it sounds: $B_r$ explodes with $r$ whatever the data, while $\binom{K_a}{r_a}$ is small whenever $r_a$ is close to $K_a$ — and $r_a > 10$ is only possible when $K_a > 10$ — so the shapes that reach the rule are often exactly the shapes where enumerating is cheap. Where it is not, the joint tuple set will not fit and, no cheaper route remaining, the call raises rather than exhausting memory. The **working-set rule** is a memory guard rather than a speed one: when the materialized tuple arrays would exceed a soft budget, the route that does not materialize them is taken even where the cost model prefers the other. A **post-hoc guard** checks the returned value — non-finite, or a cosine outside $[-1, 1]$ — which signals a defect rather than inaccuracy, and diverts to enumeration.
+**Selectors, costs and guards.** The **flat selector**, the **eval selector**, and the **sweep route chooser** are the rule lists of Figures R1, R4, and R5; within each, rules fire in the order drawn and the first that fires decides. A **cost race** estimates both routes in milliseconds from fitted laws and takes the lower estimate; the fits are judged by held-out **routing regret**, the time actually spent divided by the time the best choice would have taken. The **feasibility bounds** are two different ceilings for two different reasons: the inner product's Möbius arm needs an orbit table, and tables ship for $r \le 8$, so above that Bulger's method takes the call, while point evaluation needs no orbit table — with one side there is no joint symmetry to collapse — and is bounded instead by set-partition enumeration itself, at $r = 10$ ($B_{10} = 115\,975$, and $5 \times 10^{13}$ by $r = 20$). Falling back to enumeration above a bound is not the lesser evil it sounds: $B_r$ explodes with $r$ whatever the data, while $\binom{K_a}{r_a}$ is small whenever $r_a$ is close to $K_a$ — and $r_a > 10$ is only possible when $K_a > 10$ — so the shapes that reach the rule are often exactly the shapes where enumerating is cheap. Where it is not, the joint tuple set will not fit and, no cheaper route remaining, the call raises rather than exhausting memory. The **working-set rule** is a memory guard rather than a speed one: when the materialized tuple arrays would exceed a soft budget, the route that does not materialize them is taken even where the cost model prefers the other. A **post-hoc guard** checks the returned value — non-finite, or a cosine outside $[-1, 1]$ — which signals a defect rather than inaccuracy, and diverts to enumeration.
 
 **Measure and accuracy.** On a periodic attribute there are two defensible readings of distance, and they are different quantities rather than approximations of one another: **full-image** (the default) integrates the wrapped Gaussian, so every image of every value contributes, while **single-image** takes the nearest image only. Below the $\sigma/P$ threshold $\mathrm{thr}(t_s)$ the two agree within the truncation floor; above it they diverge, so the declared `wrap` decides the route rather than the cost model. The **wrapped Gaussian** $\theta$ is the periodic kernel itself, summed over images or over Fourier modes, whichever is cheaper at the requested accuracy. `truncation_sigmas` ($t_s$) is where the Gaussian kernel is cut off, in standard deviations, and it sets the kernel cutoff, the image and mode counts, the grid-node densities, and the admissibility thresholds together, so that work never exceeds what the requested precision requires. The **accuracy floor** ($\approx 7.43\sigma$) is the widest cutoff worth taking, beyond which the answer is at the noise level of the arithmetic itself.
 
 ### The routing figures
 
-The four figures below are the selectors as decision trees, generated from `docs/figures/routing_r*.tex`; `build.sh` beside them rebuilds the PNGs and PDFs. Every rule drawn is the rule in the source, and the two implementations share all of them — only fitted cost constants differ.
+The five figures below are the selectors as decision trees, generated from `docs/figures/routing_r*.tex` (the tree bodies are in `routing_bodies.tex` and the shared style in `routing_style.tex`); `build.sh` beside them rebuilds the PNGs and PDFs. Every rule drawn is the rule in the source, and the two implementations share all of them — only fitted cost constants differ.
 
 Reading them: a **rounded blue box** is a decision, stating a predicate or naming a group of rules expanded to its right; a **grey square box in typewriter type** is a leaf, the routine that finally does the arithmetic; a **white box with a red edge** is an error, where the call raises rather than routing anywhere. A **solid arrow** is an `'auto'` rule — within one selector the rules are tested top to bottom, and a rule below another is reached only when the one above did not fire — and a **dashed purple arrow** is a `method` override, labelled with the value that takes it, skipping the rules it is drawn past but not the structural guards. *Italic text on a child* gives the condition under which that branch is taken, or a remark about it.
 
-**Figure R1. Cosine similarity** (`sim_maet` / `simMaet`). The three rules above the flat selector are structural: an empty operand short-circuits, an ordered attribute removes the symmetry both decompositions exploit, and a nested attribute goes to the plan of Figure R3, which under `'auto'` may decline back to enumeration and under a named method raises instead. `normalize` does not appear in the tree because it does not choose a route: it chooses the denominator, and with it which self inner products are formed. A self product already memoized on its density is not recomputed, and rule 5 estimates only the work the call will actually do.
+**Figure R1. Cosine similarity** (`sim_maet` / `simMaet`). The rules above the flat selector are structural: an empty operand short-circuits; a nested attribute goes to the plan of Figure R3, which under `'auto'` may decline back to enumeration and under a named method raises instead; `'contract'` on a density with no nested attribute is an error; and an ordered attribute removes the symmetry both decompositions exploit, so the call takes Bulger's method whatever the selector or a forced method said. A nested density is tested before an ordered attribute, so a nested density that also carries an ordered flat attribute is served by the plan, which gives that attribute the tuple-centres closed form. `normalize` does not appear in the tree because it does not choose a route: it chooses the denominator, and with it which self inner products are formed. A self product already memoized on its density is not recomputed, and rule 5 estimates only the work the call will actually do.
 
 ![Figure R1: the cosine similarity dispatcher](docs/figures/routing_r1.png)
 
@@ -396,13 +413,19 @@ The decline conditions named in the first node are the shapes the contraction do
 
 Rule 2 prices a nested attribute on its own fitted row — tag-tree centres as $\text{setup} + \text{per-tuple}\cdot T + n_q\,\text{per-query}\,T^{\gamma} d^{\delta}$ in the tuple count $T$, against per-level Möbius as $\text{setup} + N(\text{per-event} + n_q\,\text{per-op}\,(Ks)^{\alpha} n_u)$ — and a density mixing nested and flat attributes adds that row to the flat law at rule 6 instead of deciding here.
 
-For the entropies, `'differential'` takes an adaptive grid of point evaluations through the eval selector; `'shannon'` and `'normalized'` take erf cell masses on absolute densities, a periodic axis integrating the wrapped Gaussian under `wrap='full-image'` and the nearest image under `'single-image'`, and the eval grid otherwise; `'renyi2'` takes $\langle T, T\rangle$ from the cosine itself under `normalize='none'` (Figure R1, by whatever route the selector picks) divided by a closed-form total mass, so no entropy-specific route remains. Every window position of a windowed similarity is a cosine call under `'auto'`. The sweep chooses between the mixture (deduplicated pairs) and the orbit sweep by pair count and chunk budget, the orbit sweep reusing Figure R2's per-attribute matrices.
+For the entropies, `'differential'` takes an adaptive grid of point evaluations through the eval selector; `'shannon'` and `'normalized'` take erf cell masses on absolute densities, a periodic attribute integrating the wrapped Gaussian under `wrap='full-image'` and the nearest image under `'single-image'`, and the eval grid otherwise; `'renyi2'` takes $\langle T, T\rangle$ from the cosine itself under `normalize='none'` (Figure R1, by whatever route the selector picks) divided by a closed-form total mass, so no entropy-specific route remains. `windowed_entropy` calls `entropy_maet` at every window position.
+
+**Figure R5. The translation sweep** (`sweep_sim_maet` / `sweepSimMaet`). One density is compared with $M$ uniformly translated copies of another in a single pass; an attribute is *swept* when its offset is non-zero at any of the $M$ positions. `windowed_similarity` reaches this tree under `'auto'` wherever the window stays fixed while the query is translated (a correlogram, or a translated attribute that carries no window), comparing position by position through Figure R1 where no route applies; every other window position is a cosine call under `'auto'`. In Python, a list tagged by `translate_attributes` (a `TranslatedSweep`) passed to `sim_maet` under `'auto'` is also reduced to this sweep.
+
+![Figure R5: the translation-sweep dispatcher](docs/figures/routing_r5.png)
+
+In rule 6, $n_\mathrm{pairs}$ is the tuple-pair count the mixture enumerates and stores, and the left-hand side counts the orbit route's contractions over the value kernel; the factor 64 converts between the two units and, like the $10^6$ floor of rule 5, is a measured crossover rather than a fitted law. The self inner products do not depend on the offset, so each route forms them once for the whole sweep. An attribute with a kernel covariance is held on whitened values at unit σ, so when it is not swept the mixture takes its factor exactly; a swept one is refused, since a uniform translation of the original values is not uniform in the whitened coordinates. The two operands must share their kernel covariances on every route, as in the inner product.
 
 ### Cost models
 
-Every "fastest" decision reads a fitted cost model rather than an operation count. The models share one shape: for each route and coarse structure key (tuple order for the flat model, total tuple order for the nested model) a power law $t_{\mathrm{ms}} = e^{a} \cdot \mathrm{term}^{b}$ in the quantity the route actually works over – tuple-pair entries for Bulger and the tuple-centres route, node count times value count for the grid – with the exponents fitted rather than pinned at their structural values, because they absorb amortization that an explicit overhead term does not capture. Around the laws sit floors (a per-order set-up cost the Möbius route cannot go under, applied with `max`, which matters only at $r = 2$), memory guards (the 4 GiB feasibility budget, the 256 MiB working-set soft budget), and safety factors (2.0 on the nested enumeration race, 1.5 on the eval race when memory is tight).
+Every "fastest" decision but one reads a fitted cost model rather than an operation count; the exception is the sweep chooser, which compares work units against a measured crossover ratio (Figure R5). The inner-product models share one shape: for each route and coarse structure key (tuple order for the flat model, total tuple order for the nested model) a power law $t_{\mathrm{ms}} = e^{a} \cdot \mathrm{term}^{b}$ in the quantity the route actually works over – tuple-pair entries for Bulger and the tuple-centres route, node count times value count for the grid – with the exponents fitted rather than pinned at their structural values, because they absorb amortization that an explicit overhead term does not capture. Around the laws sit floors (a per-order set-up cost the Möbius route cannot go under, applied with `max`, which matters only at $r = 2$), memory guards (the feasibility budget – 4 GiB in Python, half of available memory clamped to 1–4 GiB in MATLAB – and the 256 MiB working-set soft budget), and safety factors (2.0 on the nested enumeration race, 1.5 on the eval race when memory is tight).
 
-The constants are per-language by design: the two implementations amortize differently, so each carries its own fitted row (`_REL_COST_LAW` / `internal.relRouteCostMs`, `_NESTED_COST_LAW` / `internal.nestedCost`, the eval constants in `dispatch.py` / `internal.maEvalCostsMs`), while the rule structure that consumes them is identical. The rows were fitted on the maintainer's machine from timed sweeps (the flat law on 666 cells across orders, value counts, event counts, widths, periodicities, and weight profiles, each route timed in isolation) and cross-validated on the *routing decision* – held-out routing regret over random halves – rather than on absolute time, so that they generalize to other hardware: the hardware factor scales every route alike and cancels in the comparison. The calibration scripts under `python/tools/` and `matlab/tools/` regenerate them, and their header comments record the validation figures and the earlier fits that scored well and shipped badly because an axis was missing from the sweep.
+The constants are per-language by design: the two implementations amortize differently, so each carries its own fitted row (`_REL_COST_LAW` / `internal.relRouteCostMs`, `_NESTED_COST_LAW` / `internal.nestedCost`, the eval constants in `dispatch.py` / `internal.maEvalCostsMs`, and the nested eval row `_NESTED_COST_*` / `internal.nestedEvalCostsMs`), while the rule structure that consumes them is identical. The rows were fitted on the maintainer's machine from timed sweeps (the flat law on 666 cells across orders, value counts, event counts, widths, periodicities, and weight profiles, each route timed in isolation) and cross-validated on the *routing decision* – held-out routing regret over random halves – rather than on absolute time, so that they generalize to other hardware: the hardware factor scales every route alike and cancels in the comparison. The calibration scripts under `python/tools/` and `matlab/tools/` regenerate them, and their header comments record the validation figures and the earlier fits that scored well and shipped badly because an axis was missing from the sweep.
 
 ### Self-inner-product memoization
 
@@ -410,7 +433,7 @@ Both self inner products are memoized on their densities (`_self_ip_cache` / the
 
 ### `explain_dispatch`
 
-`explain_dispatch` / `explainDispatch` is a diagnostic, not a decision: it calls the same selectors and cost models with the same inputs and reports the chosen route, the predicted time for each candidate, the accuracy floor in force, the σ/P limit that follows from it and which test set it, and where the call sits relative to them. On the flat cosine path it builds the selector's inputs with the same helper the call itself uses (`_flat_selector_inputs` / `internal.flatSelectorInputs`: the `wrap` vector, the geometry-derived node counts, the periodicity and symmetry vectors, and the memo flags read from the densities' caches) and applies the empty-operand and ordered-attribute rules first, so the route it names is the route the call takes; a test in each language pins the agreement.
+`explain_dispatch` / `explainDispatch` is a diagnostic, not a decision: it calls the same selectors and cost models with the same inputs and reports the chosen route, the predicted time for each candidate, the accuracy floor in force, the σ/P limit that follows from it and which test set it, and where the call sits relative to them. It covers the cosine and point evaluation; the sweep chooser has no report. On the flat cosine path it builds the selector's inputs with the same helper the call itself uses (`_flat_selector_inputs` / `internal.flatSelectorInputs`: the `wrap` vector, the geometry-derived node counts, the periodicity and exchangeability vectors, and the memo flags read from the densities' caches), applies the empty-operand rule before the selector and the ordered-attribute override after it, as the call does, so the route it names is the route the call takes; a test in each language pins the agreement. On a nested density it reports the plan of Figure R3 against the joint-tuple enumeration instead, with each nested attribute's route and priced alternatives. With one density and a query count it reports the eval selector's decision and both estimates.
 
 ### The user-facing `method` argument
 
@@ -473,8 +496,8 @@ Orbit tables for $r = 2 \ldots 8$ ship pre-built in the toolbox:
 
 - Default cache location: `~/.mpt/orbit_tables/` (overridable via the `MPT_CACHE_DIR` environment variable). The two languages share the directory but not the files (`.pkl` vs `.mat`); they do not interoperate. A freshly built table is written to the cache only for $r \geq 5$, and only best-effort.
 - Build cost scales with $B_r^2$. The estimates embedded in the code put the shipped $r = 8$ table at a few minutes and $r = 9$ at an hour or more in Python (MATLAB's extrapolation is more optimiztic at about eight minutes); $r \geq 10$ runs to days.
-- Each build beyond the shipped range is preceded by a cost preview on stderr giving $B_r$ and the estimated build time. `MPT_NO_BUILD_WARN=1` suppresses it (intended for automation contexts where the warning is noise).
-- The hard cap is $r = 12$; beyond that the build cost is prohibitive even for one-off use, and the toolbox refuses to attempt it. Only the inner-product routes (layer 2, below) read orbit tables; the flat cosine selector never routes to Möbius above $r = 8$ on its own, and the nested contraction uses the orbit reduction only for $2 \leq r \leq 8$ per level (§4), so a build beyond the shipped range happens only under a user-forced `'mobius'` at $9 \leq r \leq 12$. The Möbius point evaluator and total mass use the set-partition lists (layer 1) and need no orbit table, which is why the eval selector's own ceiling is $r = 10$.
+- Each build beyond the shipped range is preceded by a cost preview on stderr giving $B_r$ and the estimated build time, and noting that the build may be interrupted (nothing is cached until it completes). It is printed whatever `verbose` and `show_hints` say; `MPT_NO_BUILD_WARN=1` suppresses it (intended for automation contexts where the warning is noise).
+- The hard cap is $r = 12$; beyond that the build cost is prohibitive even for one-off use, and the toolbox refuses to attempt it. Only the inner-product routes (layer 2, below) read orbit tables; the flat cosine selector never routes to Möbius above $r = 8$ on its own, and the nested contraction uses the orbit reduction only for $2 \leq r \leq 8$ per level (§4), so on the cosine a build beyond the shipped range happens only under a user-forced `'mobius'` at $9 \leq r \leq 12$. The translation sweep is the exception: its orbit route has no order ceiling below the hard cap, so a sweep that takes the orbit route (forced, or chosen under `'auto'`) with an attribute above $r = 8$ builds a table beyond the cache, after the cost preview. Choosing the route never builds one: the chooser, like every cost model, prices the orbit route from the orbit count $|\Omega_r|$ alone, which `orbit_count` / `mobius.orbitCount` read from a closed table without touching the orbit tables. $|\Omega_r|$ is the number of orbits of ordered pairs of set partitions of an $r$-element set under simultaneous relabelling, that is, of non-negative integer matrices with entries summing to $r$ and no zero row or column up to row and column permutations (4, 10, 33, 91, 298, 910, 3017 for $r = 2, \ldots, 8$, and 9945 at $r = 9$); the closed table is checked against a Burnside count and against the shipped tables. The Möbius point evaluator and total mass use the set-partition lists (layer 1) and need no orbit table, which is why the eval selector's own ceiling is $r = 10$.
 
 The pickle format is chosen for speed and structural fidelity (each `OrbitEntry` holds tuples and numpy-compatible paths). If a future Python upgrade breaks the shipped pickles, the build path is available to regenerate them, and the loader's augmentation step means an older table layout is repaired rather than rejected.
 
@@ -497,6 +520,7 @@ This distinction matters for development: the eval-side Möbius code (`eval_orbi
 | Function | Layer | Purpose |
 |:---|:---|:---|
 | `get_orbit_table(r)` | – | Load or build the orbit table for tensor order $r$ |
+| `orbit_count(r)` | – | $\lvert\Omega_r\rvert$, the orbit table's length, without loading or building the table |
 | `inner_product_orbit(K, w_A, w_B, r, ...)` | 1+2 | Distinct-index inner product from one kernel matrix, single pair |
 | `inner_product_orbit_grid(K, w_A, w_B, r, ...)` | 1+2 | Inner product over a stack of kernel matrices (translation nodes), shared weights |
 | `inner_product_orbit_pw_batched(...)` | 1+2 | Batched inner product over a stack of kernel matrices with per-batch weights (event pairs) |
@@ -506,7 +530,7 @@ This distinction matters for development: the eval-side Möbius code (`eval_orbi
 | `total_mass_abs(p, w, sigma, r)` | 1 | Total-mass scalar in absolute mode |
 | `total_mass_rel(p, w, sigma, r)` | 1 | Total-mass scalar in relative mode |
 
-The per-attribute matrices that the cosine path consumes (`_ma_per_attr_inner_matrix`, `_rel_inner_batched`, `_spectral_rel_inner_matrix`, `_closed_form_attr_matrix_from`) live in `_tensor/_mobius_inner.py` and call these entry points. The MATLAB twin `+mobius` package has matching entry points (`mobius.getOrbitTable`, `mobius.innerProductOrbit`, `mobius.maPerAttrInnerMatrix`, etc.); semantics match.
+The per-attribute matrices that the cosine path consumes (`_ma_per_attr_inner_matrix`, `_rel_inner_batched`, `_spectral_rel_inner_matrix`, `_closed_form_attr_matrix_from`) live in `_tensor/_mobius_inner.py` and call these entry points. The MATLAB twin `+mobius` package has matching entry points (`mobius.getOrbitTable`, `mobius.orbitCount`, `mobius.innerProductOrbit`, `mobius.maPerAttrInnerMatrix`, etc.); semantics match.
 
 ---
 
@@ -516,11 +540,11 @@ The toolbox's numerical commitments fall into four categories.
 
 ### The accuracy floor and `truncation_sigmas`
 
-Every kernel-based computation takes its accuracy from a single parameter, `truncation_sigmas` (factory default 6; supplied per call or as a toolbox default). A kernel centred more than `truncation_sigmas · σ` from an evaluation point is dropped; at that radius the kernel has decayed to $\exp(-k^2/2)$ of its peak, which is therefore the scale of the relative error a truncated sum can incur ($1.5 \times 10^{-8}$ at the default). The value `inf` does *not* mean exhaustive summation into the denormal tail: it resolves to the finite width (≈ 7.43 σ) at which the kernel reaches the toolbox's **accuracy floor** of $10^{-12}$ (`_ACCURACY_FLOOR_EPS` / `internal.accuracyFloor`), the tightest meaningful accuracy the toolbox targets, below which the Möbius decomposition's own cancellation error would dominate a true value already far below the floor. `truncation_floor(ts)` returns the tolerance that follows from a width – $\exp(-k^2/2)$, or exactly $10^{-12}$ at the floor width – and is the single tolerance every truncation path reads.
+Every kernel-based computation takes its accuracy from a single parameter, `truncation_sigmas` (factory default 6; supplied per call or as a toolbox default). A kernel centred more than `truncation_sigmas · σ` from an evaluation point is dropped, on every route, including the exhaustive every-pair branch of the kernel-sum helper; on an attribute with a kernel covariance the distance is the Mahalanobis distance, which is the Euclidean distance at σ = 1 in the whitened coordinates. At that radius the kernel has decayed to $\exp(-k^2/2)$ of its peak, which is therefore the scale of the relative error a truncated sum can incur ($1.5 \times 10^{-8}$ at the default). The value `inf` does *not* mean exhaustive summation into the denormal tail: it resolves to the finite width (≈ 7.43 σ) at which the kernel reaches the toolbox's **accuracy floor** of $10^{-12}$ (`_ACCURACY_FLOOR_EPS` / `internal.accuracyFloor`), the tightest meaningful accuracy the toolbox targets, below which the Möbius decomposition's own cancellation error would dominate a true value already far below the floor. `truncation_floor(ts)` returns the tolerance that follows from a width – $\exp(-k^2/2)$, or exactly $10^{-12}$ at the floor width – and is the single tolerance every truncation path reads.
 
-The governing principle is that *work never exceeds what the requested precision needs*. The same width sets the kernel cutoff of the centres and Bulger routes, the image count $L$ and mode count of the wrapped Gaussian, the σ/P admissibility threshold (§4), the grid-node density of the translation grid (`resolve_samples_per_sigma`), the quadrature tolerance of the nested contraction, the accuracy guard on per-level orbit reductions, and the convergence tolerance of differential entropy. A tighter width requires more images, more nodes, and a stricter threshold; nothing is computed beyond that. A few places still read the *global* default rather than the per-call width (the τ-node count `auto_ntau_default`, the selector's node-count margin, the centres-vs-grid estimate, the Rényi-2 path, and in Python the whole nested path); ROUTING_MAP §1.10 and §10 list them.
+The governing principle is that *work never exceeds what the requested precision needs*. The same width sets the kernel cutoff of the centres and Bulger routes, the image count $L$ and mode count of the wrapped Gaussian, the σ/P admissibility threshold (§4), the grid-node density of the translation grid (`resolve_samples_per_sigma`), the quadrature tolerance of the nested contraction, the accuracy guard on per-level orbit reductions, and the convergence tolerance of differential entropy. A tighter width requires more images, more nodes, and a stricter threshold; nothing is computed beyond that. The per-call width reaches every route, including the Rényi-2 path of `entropy_maet` / `entropyMaet`, which passes the caller's `truncation_sigmas` and `kernel_precision` to its self inner product.
 
-`kernel_precision` (`'double'` default, or `'single'`) casts the hot-loop arrays of the kernel-sum helper to single precision for speed. It is honoured on the centres-path routes that go through `gaussian_kernel_sum` / `internal.gaussianKernelSum` and on the joint evaluation route; which secondary forms forward it differs between the languages (ROUTING_MAP A-9).
+`kernel_precision` (`'double'` default, or `'single'`) casts the hot-loop arrays of the kernel-sum helper to single precision for speed. It is honoured, in both languages, on the routes that go through `gaussian_kernel_sum` / `internal.gaussianKernelSum` (the centres-path routes, and the single-attribute route of the cosine's kernel core), and on the joint evaluation route; Rényi-2 entropy forwards it, with `truncation_sigmas`, to its self inner product.
 
 ### Post-hoc guards
 
@@ -540,7 +564,7 @@ At very small σ relative to the period $P$, the Gaussian kernel approaches a de
 
 The cross-language golden tests (`test_cross_language_golden.py` and `.m`) hard-code the outputs of a fixed set of deterministic cases – single-multiset and multi-attribute cosine similarity on the Möbius method, Rényi-2 entropy, orbit-path `tensor_harmonicity`, orbit-path `eval_maet`, and Shannon entropy – and require both languages to reproduce them to $10^{-8}$ relative ($10^{-12}$ absolute), the standard tolerance used throughout the v3 suite for orbit-vs-pairwise agreement on shared regimes. The cosine cases force `method='mobius'` so that the Möbius route is genuinely exercised rather than the cost model's fallback. Either language drifting fails its own suite.
 
-Beyond the goldens, the parity commitment is that the two languages apply the *same rules and routes* to the same input (§7); the cases where they currently do not are enumerated with evidence in ROUTING_MAP §10.
+Beyond the goldens, the parity commitment is that the two languages apply the *same rules and routes* to the same input (§7); they currently share every routing rule, and no divergence is known beyond the fitted cost constants and the idiomatic shape rules listed under "When languages should diverge" (§7).
 
 ---
 
@@ -550,7 +574,7 @@ The MATLAB and Python implementations are intentionally parallel. USER_GUIDE §5
 
 ### The parity principle
 
-Parity is defined at the level of *decisions*, not of constants. Every selector, guard, override, and post-hoc check exists in both languages with the same predicate and fires in the same order; every route computes the same measure; and the leaf that finally does the arithmetic may differ in implementation (a vectorized kernel here, a log-kernel product there) provided the numbers agree within the accuracy floor. The fitted constants of the cost models are *per-language by design* – the two implementations amortize differently – but they are measured the same way, on the maintainer's machine by twin calibration scripts, and cross-validated on held-out routing regret so that they generalize to other hardware. A parity audit therefore compares rule structure first and constants last; the routing map and its `routing_parity.md` are the record of the most recent audit.
+Parity is defined at the level of *decisions*, not of constants. Every selector, guard, override, and post-hoc check exists in both languages with the same predicate and fires in the same order; every route computes the same measure; and the leaf that finally does the arithmetic may differ in implementation (a vectorized kernel here, a log-kernel product there) provided the numbers agree within the accuracy floor. The fitted constants of the cost models are *per-language by design* – the two implementations amortize differently – but they are measured the same way, on the maintainer's machine by twin calibration scripts, and cross-validated on held-out routing regret so that they generalize to other hardware. A parity audit therefore compares rule structure first and constants last; the twin tests `test_routing_parity_*` and `test_method_parity` (both languages) pin the outcome of the most recent one.
 
 ### Naming
 
@@ -602,7 +626,7 @@ The same rules apply to MAET inputs at the per-attribute level. The full mapping
 
 ### Call-scope guards
 
-Both languages wrap every user-facing entry point in a scope guard (`_dispatch_scope` / `_with_dispatch_scope` in `_defaults.py`; `internal.callGuard`, combining `internal.dispatchScope` and the kernel-chunk-bytes pin, in MATLAB). On the outermost entry the guard resets the once-per-call throttle on dispatch messages and pins the `kernel_chunk_bytes` resolution (`'auto'` = half of currently available physical memory) so that recursive inner calls neither repeat announcements nor re-query the operating system. New entry points must take the guard as their first executable line.
+Both languages wrap every user-facing entry point in a scope guard (`_dispatch_scope` / `_with_dispatch_scope` in `_defaults.py`; `internal.callGuard`, combining `internal.dispatchScope` and the kernel-chunk-bytes pin, in MATLAB). On the outermost entry the guard resets the once-per-call throttle on dispatch messages (which are gated by the `show_hints` default, not by per-call `verbose`) and pins the `kernel_chunk_bytes` resolution (`'auto'` = half of currently available physical memory) so that recursive inner calls neither repeat announcements nor re-query the operating system. New entry points must take the guard as their first executable line.
 
 ### Kernel-path culls
 
@@ -643,7 +667,7 @@ Twin-language parity is the default but not a rule. Acceptable divergences:
 
 - Parallelism the runtime provides in one language and not the other. MATLAB threads elementwise transcendental arithmetic in the runtime and gives each `parfor` worker a single computational thread; NumPy's `exp` is single-threaded whatever the environment, so the Python kernel paths spread that arithmetic over a thread pool themselves and expose the count as the `kernel_threads` default, which MATLAB has no use for. The split is by contiguous spans of evaluation points, and every point keeps its serial arithmetic, so the values are bit-identical at any thread count (`test_kernel_threads.py`). Measured on sixteen cores: about 7× on the kernel portion of a call, which is the bulk of most evaluations.
 
-Divergences that *do* change semantics or output values are never acceptable without explicit documentation; the ones that currently exist are recorded in ROUTING_MAP §10 with the side whose behaviour the other should adopt.
+Divergences that *do* change semantics or output values are never acceptable without explicit documentation. None is currently known; one that arises is recorded here, with the side whose behaviour the other should adopt, until it is resolved.
 
 ---
 
@@ -706,7 +730,7 @@ If the measure has obvious teaching value, add a demo to `matlab/demos/` (and a 
 
 ### 12. Architecture and routing documents
 
-If the new measure adds new structural patterns (e.g., a new selector, a new caching system, a new route through the primitives), update this document *and* the routing map. Routine additions (consumer wrappers that compose existing primitives) need neither.
+If the new measure adds new structural patterns (e.g., a new selector, a new caching system, a new route through the primitives), update this document, including the routing figures of §4 where a rule changes. Routine additions (consumer wrappers that compose existing primitives) need neither.
 
 ---
 
@@ -761,4 +785,4 @@ A release includes:
 - Updated CHANGELOG and MIGRATION docs.
 - Updated CITATION.cff with the new version metadata.
 - USER_GUIDE updated for new features.
-- ARCHITECTURE and the routing map updated if new structural patterns or routes are introduced.
+- ARCHITECTURE (and its routing figures) updated if new structural patterns or routes are introduced.

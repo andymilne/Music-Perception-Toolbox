@@ -71,7 +71,8 @@ function [s, densXOut, densYOut] = sweepSimMaet(densX, densY, offsets, nvArgs)
 %                 A row of zeros leaves that attribute untranslated.
 %
 %   Name-value pairs
-%       'method'            - 'auto' (default), 'mixture', or 'orbit'.
+%       'method'            - 'auto' (default), 'mixture', 'orbit', or
+%                             'contract'.
 %                             Which decomposition carries the sweep.
 %                             'mixture' is the placement/shape split
 %                             described above: one pass over the tuple
@@ -127,7 +128,9 @@ function [s, densXOut, densYOut] = sweepSimMaet(densX, densY, offsets, nvArgs)
 %   periodic attribute (the wrapped kernel admits no such split, and the
 %   reduction is untested on the torus), a relative-and-periodic
 %   attribute above the sigma/P limit whose wrap does not name this
-%   measure, or an anisotropic kernel covariance. Translate the query
+%   measure, or a swept attribute with an anisotropic kernel covariance
+%   (an attribute with a kernel covariance that is not swept is
+%   supported by the mixture and contraction routes). Translate the query
 %   with translateAttributes and compare offset by offset in those
 %   cases.
 %
@@ -175,6 +178,15 @@ densYOut = densYIn;
 
 densX = internal.prunedMaet(densX);
 densY = internal.prunedMaet(densY);
+
+% Inner products need a shared kernel per attribute, on every route.
+if ~internal.kernelCovsCompatible(densX, densY)
+    error('sweepSimMaet:kernelCovMismatch', ...
+          ['The two densities were built with different kernel ' ...
+           'covariances (or one with a matrix-valued sigma and one ' ...
+           'without); inner products require a shared kernel per ' ...
+           'attribute.']);
+end
 
 if isempty(nvArgs.truncationSigmas)
     tsResolved = mptDefaults('truncationSigmas');
@@ -367,14 +379,38 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
                    'difference, so there is nothing to sweep.'], a);
         end
     end
+    % A kernel covariance is carried on whitened values at sigma = 1, so
+    % an attribute that is not swept splits exactly as an isotropic one
+    % (its placement term is constant and folds into the fixed weight).
+    % A swept one is refused: a uniform translation of the original
+    % values is not uniform in the whitened coordinates, so the
+    % placement/shape split does not hold there.
     for d = {densX, densY}
         dd = d{1};
-        if internal.densityHasKernelCov(dd)
-            error('sweepSimMaet:anisotropicKernel', ...
-                  ['An operand carries an anisotropic kernel ' ...
-                   'covariance; the split assumes an isotropic ' ...
-                   'kernel per attribute.']);
+        for a = 1:A
+            if swept(a) && localHasKernelCovOn(dd, a)
+                error('sweepSimMaet:anisotropicKernel', ...
+                      ['Attribute %d carries an anisotropic kernel ' ...
+                       'covariance and is swept; a uniform translation ' ...
+                       'is not uniform in the whitened coordinates, so ' ...
+                       'the split does not hold (the attribute is ' ...
+                       'supported when it is not translated).'], a);
+            end
         end
+    end
+end
+
+
+function tf = localHasKernelCovOn(dd, a)
+%LOCALHASKERNELCOVON  Whether attribute a of dd carries a kernel covariance.
+    tf = false;
+    if ~isfield(dd, 'kernelCov') || isempty(dd.kernelCov)
+        return;
+    end
+    if iscell(dd.kernelCov)
+        tf = numel(dd.kernelCov) >= a && ~isempty(dd.kernelCov{a});
+    else
+        tf = true;
     end
 end
 
@@ -438,7 +474,16 @@ function chosen = localChooseRoute(densX, densY, off, A, mixtureOk, orbitOk)
             % mixture handles that shape at least as cheaply.
             chosen = 'mixture'; return;
         end
-        nOrb = double(numel(mobius.getOrbitTable(r_a)));
+        if r_a > 12
+            % Beyond the hard cap no orbit table can exist, so the
+            % orbit route cannot run.
+            chosen = 'mixture'; return;
+        end
+        % Pricing needs only |Omega_r|, which MOBIUS.ORBITCOUNT reads
+        % without the table, so choosing a route never builds one: a
+        % table beyond the shipped range is built only if the orbit
+        % route is then taken.
+        nOrb = double(mobius.orbitCount(r_a));
         kX = double(size(densX.pAttr{a}, 1));
         kY = double(size(densY.pAttr{a}, 1));
         orbitWork = orbitWork + nOrb * kX * kY * r_a;
@@ -579,16 +624,8 @@ function ok = localContractSupported(densX, densY, off, A)
                 || localInnerBlock(densY, a) > 0)
             return;
         end
-        for d = {densX, densY}
-            dd = d{1};
-            if isfield(dd, 'kernelCov') && iscell(dd.kernelCov) ...
-                    && numel(dd.kernelCov) >= a && ~isempty(dd.kernelCov{a})
-                return;
-            end
-            if isfield(dd, 'kernelCov') && ~iscell(dd.kernelCov) ...
-                    && ~isempty(dd.kernelCov)
-                return;
-            end
+        if localHasKernelCovOn(densX, a) || localHasKernelCovOn(densY, a)
+            return;
         end
     end
     ok = true;

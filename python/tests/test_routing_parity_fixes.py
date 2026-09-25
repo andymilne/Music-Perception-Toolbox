@@ -1,4 +1,4 @@
-"""Regressions from the routing-map parity audit (September 2026).
+"""Regressions from the routing parity audit (September 2026).
 
 Two Python routes dropped an attribute's declared ``wrap`` and so computed
 the full-image measure for an absolute-periodic attribute declared

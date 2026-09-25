@@ -17,11 +17,14 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
 %   Gaussian-supported window extending 8*sigma beyond the alignment of
 %   source positions and query trajectory.
 %
-%   Two integrand-evaluation strategies are available:
+%   Two integrand-evaluation strategies are available on the u-grid
+%   (at r = 2..4 a spectral strategy, which needs no u-grid, is engaged
+%   automatically above calibrated query and value counts):
 %
 %   * Direct — each u-node costs one MOBIUS.EVALORBITABS evaluation;
 %     per-query cost O(B_r * r * K * N_u).
-%   * Factored (non-periodic only) — each partition block's factor
+%   * Factored (periodic only where it separates; see below) — each
+%     partition block's factor
 %     separates exactly as exp(-var(δ_B)/2σ²) * S_m(u + mean(δ_B)),
 %     with S_m(v) = Σ_i w_i^m exp(-m (v - p_i)²/2σ²) a query-
 %     independent smoothed event distribution at width σ/√m. Tabulating
@@ -40,10 +43,11 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
 %
 %   By default ('factored', 'auto') a cost gate picks the cheaper
 %   strategy per call (direct for a single query at modest K, factored
-%   for batches or large K). Periodic relative mode always uses the
-%   direct strategy: with per-component wrapping a block whose offsets
-%   straddle an image boundary does not separate into variance and mean
-%   parts, so the factorisation identity does not hold on the circle.
+%   for batches or large K). In periodic relative mode the factored
+%   strategy is valid only where the truncation window and every
+%   query's position span fit inside half the circle, since a block
+%   whose offsets straddle an image boundary does not separate into
+%   variance and mean parts; elsewhere the direct strategy is used.
 %
 %   VALS = MOBIUS.EVALORBITREL(..., 'is_per', true, 'period', P) selects
 %   periodic mode.
@@ -56,7 +60,7 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
 %
 %   VALS = MOBIUS.EVALORBITREL(..., 'factored', F) with F one of
 %   'auto' (default; cost gate), 'on' (force factored; errors in
-%   periodic mode), 'off' (force direct). Intended for testing and
+%   periodic mode where it does not separate), 'off' (force direct). Intended for testing and
 %   benchmarking; the gate is the supported default.
 %
 %   [VALS, RATIOS] = MOBIUS.EVALORBITREL(..., 'returnCancellationRatio', true)

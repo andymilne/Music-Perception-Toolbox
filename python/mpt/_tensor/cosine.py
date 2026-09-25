@@ -471,11 +471,13 @@ def sim_maet(*args,
     -----
     Accuracy is governed by ``truncationSigmas``: the Möbius method's
     agreement with enumeration tracks the truncation budget, and how
-    close each ``K_a`` is to its ``r_a`` does not bear on it. The
-    dispatcher routes to Bulger's method when ``σ/P > 0.03`` in
-    periodic-relative mode, or when the σ → 0 fallback triggers;
-    otherwise it chooses on cost. Pass ``method='bulger'`` to bypass
-    the Möbius method entirely.
+    close each ``K_a`` is to its ``r_a`` does not bear on it. Above the
+    σ/P threshold (0.03 at the default ``truncation_sigmas``) on a
+    relative-periodic attribute, the declared ``wrap`` decides:
+    ``'single-image'`` routes to Bulger's method and ``'full-image'``
+    (the default) to the Möbius method; otherwise the dispatcher
+    chooses on cost. Pass ``method='bulger'`` to bypass the Möbius
+    method entirely.
 
     See Also
     --------

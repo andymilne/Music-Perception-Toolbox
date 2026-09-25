@@ -139,6 +139,11 @@ def sweep_eligibility(dens_x, dens_y, offsets, truncation_sigmas=None):
                 f"every block and there is nothing to sweep (the attribute "
                 f"is supported when it is not translated)"
             )
+    # A kernel covariance is carried on whitened values at sigma = 1, so
+    # an attribute that is not swept enters the fixed weight exactly (by
+    # the generic log-kernel). A swept one is refused: a uniform
+    # translation of the original values is not uniform in the whitened
+    # coordinates, so the placement/shape split does not hold there.
     for d, nm in ((dens_x, "context"), (dens_y, "query")):
         if getattr(d, "kernel_cov", None) is not None:
             kc = d.kernel_cov
@@ -780,7 +785,10 @@ def _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok):
         return "mixture"
     if not mixture_ok:
         return "orbit"
-    from .._mobius import get_orbit_table
+    # Pricing needs only |Omega_r|, which orbit_count reads without the
+    # table, so choosing a route never builds one: a table beyond the
+    # shipped range is built only if the orbit route is then taken.
+    from .._mobius import _R_HARD_CAP, orbit_count
 
     n_pairs = float(dx.n_j) * float(dy.n_k)
     M = float(off.shape[1])
@@ -795,7 +803,11 @@ def _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok):
         # shape at least as cheaply.
         if r_a < 2:
             return "mixture"
-        n_orb = float(len(get_orbit_table(r_a)))
+        # Beyond the hard cap no orbit table can exist, so the orbit
+        # route cannot run.
+        if r_a > _R_HARD_CAP:
+            return "mixture"
+        n_orb = float(orbit_count(r_a))
         k_x = float(dx.p_attr[a].shape[0])
         k_y = float(dy.p_attr[a].shape[0])
         orbit_work += n_orb * k_x * k_y * r_a
@@ -1044,8 +1056,11 @@ def sweep_sim_maet(
     ------
     ValueError
         When the sweep cannot be reduced --- a swept attribute that is
-        relative, or anisotropic, or periodic or nested where the route
-        taken does not cover it. The message names
+        relative, or carries an anisotropic kernel covariance, or is
+        periodic or nested where the route taken does not cover it (an
+        attribute with a kernel covariance that is not swept is carried
+        by the mixture and contraction routes) --- or when the two
+        densities do not share their kernel covariances. The message names
         the attribute and the reason. Sweeping a *relative* attribute is
         a no-op by construction; sweeping a *periodic* one is untested
         on the torus and is refused rather than approximated.
@@ -1085,6 +1100,16 @@ def sweep_sim_maet(
         )
     if not np.all(np.isfinite(off)):
         raise ValueError("offsets must be finite.")
+    # Inner products need a shared kernel per attribute, on every route.
+    from .aniso import density_has_kernel_cov, density_kernel_covs_compatible
+    if ((density_has_kernel_cov(dens_x) or density_has_kernel_cov(dens_y))
+            and not density_kernel_covs_compatible(dens_x, dens_y)):
+        raise ValueError(
+            "The two densities were built with different kernel "
+            "covariances (or one with a matrix-valued sigma and one "
+            "without); inner products require a shared kernel per "
+            "attribute."
+        )
 
     from .._defaults import resolve_truncation_sigmas as _rts
 

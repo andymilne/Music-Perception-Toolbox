@@ -637,6 +637,89 @@ results{end+1,1} = 'sweep: routes agree at the default truncation';
 results{end,2} = max(abs(vMixD - vOrbD)) <= 1e-8;
 
 
+% --- The orbit route declines an absolute nested attribute -------------
+% A bound, spectrally enriched pitch attribute is nested and absolute at
+% every level, rel = (0, 0). The orbit route must decline it, and 'auto'
+% must then carry the sweep on another route (the contraction) and agree
+% with translate-and-compare. It once took such an attribute for a flat
+% unordered one and returned 2.0 at the exact match. Mirror of Python's
+% test_orbit_declines_absolute_nested_attribute.
+pN  = [56 59 56 61 58 61 58 63];
+pmN = packPreMaet({pN}, [], flatSpecs({pN}, 'sigma', 0.15, 'isPer', false, ...
+                                      'period', 0));
+pmN = addSpectra(pmN, 'harmonic', 12, 'powerlaw', 0.67, 'attribute', 1, ...
+                 'units', 12);
+ctxN = bindEvents(pmN, 4);
+[pcN, wcN, scN] = unpackPreMaet(ctxN);
+pqN = {pcN{1}(:, 1)};  wqN = {wcN{1}(:, 1)};
+dxN = buildMaet(pcN, wcN, 'specs', scN, 'verbose', false);
+dyN = buildMaet(pqN, wqN, 'specs', scN, 'verbose', false);
+offN = -4:0.5:4;
+gotN = sweepSimMaet(dxN, dyN, offN, 'normalize', 'oneSidedDenom', ...
+                    'verbose', false);
+refN = zeros(size(offN));
+for iN = 1:numel(offN)
+    [ptN, wtN, stN] = unpackPreMaet(translateAttributes(pqN, wqN, {offN(iN)}, ...
+        'specs', scN));
+    refN(iN) = simMaet(dxN, buildMaet(ptN, wtN, 'specs', stN, 'verbose', false), ...
+        'normalize', 'oneSidedDenom', 'verbose', false);
+end
+results{end+1,1} = 'sweep: orbit route declines an absolute nested attribute';
+results{end,2} = max(abs(gotN(:) - refN(:))) <= 1e-10;
+
+% --- Contraction route: densities with a nested attribute ---------------
+% A bound, spectrally enriched pitch attribute (nested) with an onset
+% attribute; the query is events 3..6 of the context. The route must agree
+% with translate-and-compare when the nested attribute is swept (ordered
+% or exchangeable, periodic or not, both normalizations) and when a flat
+% attribute is swept beside the fixed nested one. Mirror of Python's
+% test_contract_route_* tests.
+pC = [60 62 64 67 64 62 60 59 57];
+tC = [0 0.5 1.5 2 3 3.5 4 5.5 6];
+okC = true;
+for isPerC = [false true]
+    for exchC = [false true]
+        for normC = {'oneSidedDenom', 'cosine'}
+            if exchC, ordC = [3 1]; else, ordC = [4 1]; end
+            ctxC = localSpectralPm(pC, tC, isPerC, ordC, exchC);
+            qryC = localSpectralPm(pC(3:6) - 2, tC(3:6), isPerC, ordC, exchC);
+            muC = -4:0.25:6;
+            offC = [muC; zeros(size(muC))];
+            [gotC, refC] = localContractVsPerOffset(ctxC, qryC, offC, normC{1});
+            autoC = sweepSimMaet(localDensC(ctxC), localDensC(qryC), offC, ...
+                'normalize', normC{1}, 'verbose', false);
+            [~, iC] = max(gotC);
+            okC = okC && max(abs(gotC(:) - refC(:))) <= 1e-12 ...
+                && muC(iC) == 2 && isequal(autoC, gotC);
+        end
+    end
+end
+results{end+1,1} = 'sweep: contraction route sweeps a nested attribute';
+results{end,2} = okC;
+
+okF = true;
+for ordF = {[4 1], [4 4]}
+    ctxF = localSpectralPm(pC, tC, false, ordF{1}, false);
+    qryF = localSpectralPm(pC(3:6), tC(3:6) + 1.5, false, ordF{1}, false);
+    muF = -3:0.25:1;
+    offF = [zeros(size(muF)); muF];
+    [gotF, refF] = localContractVsPerOffset(ctxF, qryF, offF, 'oneSidedDenom');
+    [~, iF] = max(gotF);
+    okF = okF && max(abs(gotF(:) - refF(:))) <= 1e-12 && muF(iF) == -1.5;
+end
+results{end+1,1} = 'sweep: contraction route sweeps a flat attribute beside a nested one';
+results{end,2} = okF;
+
+flatC = buildMaet({[0 1]}, [], 0.1, 1, false, false, 0, 'verbose', false);
+try
+    sweepSimMaet(flatC, flatC, 0:2, 'method', 'contract', 'verbose', false);
+    okR = false;
+catch errR
+    okR = strcmp(errR.identifier, 'sweepSimMaet:contractUnsupported');
+end
+results{end+1,1} = 'sweep: contraction route refuses a density with no nested attribute';
+results{end,2} = okR;
+
 % --- Standalone summary ---
 if standalone
     nPass = sum([results{:, 2}]);
@@ -653,5 +736,41 @@ if standalone
     clear cleanupDefaults
     if nFail > 0
         error('test_sweep_reduction:failed', '%d test(s) failed.', nFail);
+    end
+end
+
+
+% =========================================================================
+function pm = localSpectralPm(p, t, isPer, orders, exch)
+%LOCALSPECTRALPM  Pitch (six harmonic partials, then bound) and onset.
+    if isPer, per = 12; else, per = 0; end
+    sp = flatSpecs({p, t}, 'sigma', [0.15 0.125], 'isPer', [isPer false], ...
+                   'period', [per 0]);
+    pm = packPreMaet({p, t}, [], sp);
+    pm = addSpectra(pm, 'harmonic', 6, 'powerlaw', 0.67, 'attribute', 1, ...
+                    'units', 12);
+    pm = bindEvents(pm, orders, 'relOuter', [false false], ...
+                    'exchOuter', [exch false]);
+end
+
+
+function d = localDensC(pm)
+    [p, w, s] = unpackPreMaet(pm);
+    d = buildMaet(p, w, 'specs', s, 'verbose', false);
+end
+
+
+function [got, ref] = localContractVsPerOffset(ctx, qry, off, normalize)
+%LOCALCONTRACTVSPEROFFSET  The contraction route against translate-and-
+%   compare, offset by offset.
+    dx = localDensC(ctx);
+    got = sweepSimMaet(dx, localDensC(qry), off, 'method', 'contract', ...
+        'normalize', normalize, 'verbose', false);
+    ref = zeros(1, size(off, 2));
+    for m = 1:size(off, 2)
+        [pt, wt, st] = unpackPreMaet(translateAttributes(qry, ...
+            {off(1, m), off(2, m)}));
+        ref(m) = simMaet(dx, buildMaet(pt, wt, 'specs', st, 'verbose', false), ...
+            'normalize', normalize, 'verbose', false);
     end
 end

@@ -1,4 +1,4 @@
-"""Binding along the attribute axis, and its inverse.
+"""Binding across attributes, and its inverse.
 
 ``bind_attributes`` gathers several attributes into one whose value at
 an event is the tuple of all of them; ``separate_attributes`` splits one

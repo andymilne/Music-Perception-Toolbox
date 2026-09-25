@@ -4,26 +4,49 @@ function pm = differenceEvents(varargin)
 %   PM = differenceEvents(PM0, diffOrders, ...) and
 %   PM = differenceEvents(pAttr, wAttr, diffOrders, ...) are cross-event
 %   preprocessing on the pre-MAET. The k_a-th finite difference is applied
-%   along the event axis to each attribute; the returned pre-MAET chains
+%   across events to each attribute a; the returned pre-MAET chains
 %   into another pre-MAET operation or straight into buildMaet.
+%
+%   Choosing which attributes are differenced. diffOrders gives one order
+%   per attribute, and k_a = 0 leaves attribute a's values unchanged. To
+%   difference pitch but not time, in a pre-MAET whose attributes are
+%   {pitch, time}:
+%
+%     pmD = differenceEvents(pm, [1 0]);    % pitch intervals; onset times
+%
+%   A scalar diffOrders applies to every attribute, so
+%   differenceEvents(pm, 1) differences time as well.
+%
+%   Alignment of events. Each differenced event is end-aligned: the value
+%   k_a-th differenced at event n is timed with event n, the later of the
+%   events it spans. With 'circular' false (default), the leading
+%   max_a k_a events are dropped from every attribute, those with k_a = 0
+%   included, so all attributes share N' = N - max_a k_a events; an
+%   undifferenced time attribute then carries, for each pitch interval,
+%   the onset of the interval's second note. With 'circular' true the
+%   difference wraps at the sequence boundary and every attribute keeps N.
 %
 %   The pre-MAET may be passed whole, as packPreMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
 %
-%   Differencing pairs positions row by row: event i's position at
-%   position k differences against event
-%   i+1's value at position k. This is well-defined exactly when the positions
-%   have stable
-%   identity --- an ordered attribute ([exch] = 0) or a singleton (K = 1).
-%   A symmetric multiset (K > 1, [exch] = 1) is a bag with no positional
+%   Differencing pairs positions row by row: event i's position at position
+%   k differences against event i+1's value at position k. This is
+%   well-defined exactly when the positions have stable identity --- an
+%   ordered attribute ([exch] = 0) or a singleton (K = 1). A symmetric
+%   multiset (K > 1, [exch] = 1) is a bag with no positional
 %   correspondence, so differencing it is undefined and errors. The rule
 %   extends per level for a nested attribute: every level must be ordered
 %   (or of size 1). Ragged ordered data (events of differing length) is
 %   represented by NaN-padding to a common K; a difference touching a NaN
-%   value is NaN, so absence propagates rather than fabricating an interval.
+%   value is NaN, so absence propagates rather than fabricating an
+%   interval.
 %
-%   Differencing changes values only; the spec (tags, r, exch, rel) passes
+%   Differencing changes the values and, where the spec carries one, the
+%   kernel width: sigma on an attribute of order k_a is scaled by
+%   sqrt(nchoosek(2*k_a, k_a)) (sqrt(2) for a first difference), the width
+%   of a difference of independent values, and the scaling is announced
+%   while showHints is on (User Guide 7.4.3). The level structure (tags, r, exch, rel) passes
 %   through unchanged. Output values are raw; periodic wrapping is the
 %   kernel's job in buildMaet.
 %
@@ -33,7 +56,9 @@ function pm = differenceEvents(varargin)
 %       wAttr     - Weights ([], scalar, or 1 x A cell); rolling product
 %                   over the k_a + 1 constituent events per differenced
 %                   attribute.
-%       diffOrders- Scalar or 1 x A non-negative differencing orders.
+%       diffOrders- 1 x A non-negative differencing orders, one per
+%                   attribute (0 leaves the attribute undifferenced), or a
+%                   scalar applied to every attribute.
 %
 %   Name-value pairs
 %       'circular' - false (default) or true (wrap; N' = N).
@@ -44,7 +69,8 @@ function pm = differenceEvents(varargin)
 %   Output
 %       pm - Pre-MAET: pAttr holds the differenced matrices, each
 %            K_a x N'; wAttr the transformed weights; specs the attribute
-%            specifications, unchanged from input (or synthesised).
+%            specifications (or synthesised ones), with sigma scaled on
+%            each differenced attribute as above.
 %
 %   See also PACKPREMAET, BUILDMAET, BINDEVENTS, FLATSPECS,
 %            TRANSLATEATTRIBUTES.
@@ -213,7 +239,8 @@ for a = 1:A
         firstK = k; firstF = factor;
     end
 end
-if ~isempty(scaledNames)
+if ~isempty(scaledNames) && mptDefaults('showHints')
+    % An informational note, gated like the toolbox's other hints.
     joined = scaledNames{1};
     for i = 2:numel(scaledNames)
         joined = [joined ', ' scaledNames{i}]; %#ok<AGROW>

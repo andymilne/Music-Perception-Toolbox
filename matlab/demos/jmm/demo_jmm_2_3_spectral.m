@@ -1,6 +1,6 @@
 %% demo_jmm_2_3_spectral.m
 % Analysis 2.3 (Online Supplement, Section 8.2): windowed similarity of the
-% motif, with spectral augmentation.
+% motif, with spectral enrichment.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from
 % the JMM article; lightly edited from the article's own script. Data
@@ -9,10 +9,10 @@
 % SAVE_FIGURES is set.
 %
 % Analysis 2.3: windowed similarity of the "A Love Supreme" motif across
-% Coltrane's Acknowledgement, with and without spectral augmentation.
+% Coltrane's Acknowledgement, with and without spectral enrichment.
 %
 % Analyses 2.1 and 2.2 recover the motif from the passage. Here it is
-% supplied instead, as a query, and slid along the time axis: at each
+% supplied instead, as a query, and slid along the time attribute: at each
 % position it is compared with the passage in the surrounding window.
 % Query and passage are encoded alike, as bound super-events of four
 % consecutive notes, with two attributes bound at order 4 --- the
@@ -47,11 +47,11 @@
 %
 % Pre-MAET structure:
 %
-%     attribute  order   sigma      rel       per
-%     ---------  ------  ---------  --------  ---
-%     pitch      4       0.15 st    0 or 1    no    fundamental
-%     pitch      (1, 4)  0.15 st    (0, 0/1)  no    spectral
-%     onset      4       0.125 QN   yes       no    dropped (A1, A2, B1, B2)
+%     attribute  r       sigma           rel       per
+%     ---------  ------  --------------  --------  ---
+%     pitch      4       0.15 semitones  0 or 1    no    fundamental
+%     pitch      (1, 4)  0.15 semitones  (0, 0/1)  no    spectral
+%     onset      4       0.125 QN        yes       no    dropped (A1, A2, B1, B2)
 %
 %     Ordered (exch = 0) at the outer level, the spectral inner multiset
 %     unordered. Estimator: windowed similarity, rectangular window of
@@ -80,7 +80,7 @@ clear mptRoot
 % false leaves them on screen only.
 SAVE_FIGURES = false;
 
-% The kernels here are narrow (0.15 semitones), so the article truncates
+% The kernels here are narrow (0.15 semitones), so this demo truncates
 % them at four standard deviations rather than the toolbox's six: past
 % 0.6 semitones the kernel bears on nothing musical, and the spectral
 % sweeps are the heaviest calls in these demos.
@@ -160,7 +160,7 @@ showPreMaet(qryRelFund, 'maxEvents', 1);
 showPreMaet(qryRelSpec, 'maxEvents', 1, 'decimals', 2);
 
 % --- A1 and A2: transposition-invariant similarity against time ------------
-% The swept axis is time, attribute 2: a rectangular window of full support
+% The window attribute is time, attribute 2: a rectangular window of full support
 % WIN slides over the passage. Onset time is dropped from the comparison
 % ('dropWindowAttr', true), so it only places the window, on the group's
 % first onset ('locate', 'start'), which lands each peak on the statement's
@@ -177,25 +177,22 @@ A2 = windowedSimilarity(ctxRelSpec, qryRelSpec, centres, ...
     'normalize', 'oneSidedDenom');
 
 % --- B1 and B2: pitch offset by time ---------------------------------------
-% One multi-axis sweep slides the query over both attributes at once: pitch
-% (axis 1) over the transposition offsets, compared ('drop' false); time
-% (axis 2) over the window centres, carrying the window and dropped, exactly
-% as in A1 and A2. The pitch positions start from the query's own pitch
-% centroid, so that offset 0 reads as the untransposed query.
-[qpFund, ~, ~] = unpackPreMaet(qryAbsFund);
-[qpSpec, ~, ~] = unpackPreMaet(qryAbsSpec);
-qPitchFund = mean(qpFund{1}(:), 'omitnan');
-qPitchSpec = mean(qpSpec{1}(:), 'omitnan');
+% One call moves the query over both attributes at once: pitch
+% (attribute 1) is translated by the transposition offsets and compared,
+% with no window; time (attribute 2) is the window attribute, the window
+% placed at each centre and time then marginalized, exactly as in A1 and
+% A2. An offset is measured from the query as written, so offset 0 is the
+% untransposed query (root 56). Pitch has no window, so at each centre
+% the offsets are computed in one pass (for the nested spectral attribute
+% of B2, level by level).
 fprintf('computing B1 (fundamental, absolute) ...\n');
 B1 = windowedSimilarity(ctxAbsFund, qryAbsFund, [], ...
-    'sweep', {1, qPitchFund + OFFSETS; 2, centres}, ...
-    'drop', {1, false; 2, true}, ...
+    'offsets', {1, OFFSETS}, 'sweep', {2, centres}, 'drop', {2, true}, ...
     'contextWindow', {2, struct('shape', 'rect', 'width', WIN)}, ...
     'locate', {2, 'start'}, 'normalize', 'oneSidedDenom');
 fprintf('computing B2 (spectral, absolute) ...\n');
 B2 = windowedSimilarity(ctxAbsSpec, qryAbsSpec, [], ...
-    'sweep', {1, qPitchSpec + OFFSETS; 2, centres}, ...
-    'drop', {1, false; 2, true}, ...
+    'offsets', {1, OFFSETS}, 'sweep', {2, centres}, 'drop', {2, true}, ...
     'contextWindow', {2, struct('shape', 'rect', 'width', WIN)}, ...
     'locate', {2, 'start'}, 'normalize', 'oneSidedDenom');
 
@@ -212,7 +209,7 @@ fprintf('A1 vs A2 correlation: %.4f; max|A2 - A1| = %.3f\n', ...
 
 % --- the rhythm-aware reading -----------------------------------------------
 % A1's call again, with the onset attribute compared rather than dropped
-% ('dropWindowAttr', false): a match must now reproduce the motif's rhythm,
+% ('dropWindowAttr', false): a match must then reproduce the motif's rhythm,
 % which the query carries, as well as its pitch pattern.
 Aj = windowedSimilarity(ctxRelFund, qryRelFund, centres, ...
     'contextWindow', {'rect', WIN}, 'windowAttr', 2, ...
@@ -221,14 +218,15 @@ Aj = windowedSimilarity(ctxRelFund, qryRelFund, centres, ...
 early = centres < 250;
 [bestEarly, iEarly] = max(A1(early));
 earlyCentres = centres(early);
-fprintf(['\nthe early statement, bar %.0f: pitch-only match %.3f, match ' ...
+fprintf(['\nthe early statement, bar %d: pitch-only match %.3f, match ' ...
          'with the rhythm compared %.3f\n'], ...
-        earlyCentres(iEarly) / BEATS_PER_BAR, bestEarly, max(Aj(early)));
+        floor(earlyCentres(iEarly) / BEATS_PER_BAR) + 1, bestEarly, max(Aj(early)));
 fprintf(['whole passage: %d unit matches on pitch alone, %d with the ' ...
          'rhythm compared\n'], sum(A1 > 0.99), sum(Aj > 0.99));
 
 % --- figure -----------------------------------------------------------------
-bars = centres / BEATS_PER_BAR;
+% Bar numbers from 1: bar b spans the axis from b to b + 1.
+bars = centres / BEATS_PER_BAR + 1;
 fig = figure('Position', [50 50 1300 620], 'Color', 'w');
 axA1 = axes('Parent', fig, 'Position', [0.09 0.62 0.38 0.29]);
 axA2 = axes('Parent', fig, 'Position', [0.55 0.62 0.38 0.29]);
@@ -247,8 +245,13 @@ ylabel(axA1, 'similarity', 'FontSize', 13);
 vmaxB = max(max(B1(:)), max(B2(:)));
 localScatter(axB1, bars, OFFSETS, B1, vmaxB, 'B1  fundamental, absolute');
 localScatter(axB2, bars, OFFSETS, B2, vmaxB, 'B2  spectral, absolute');
-ylabel(axB1, 'pitch offset from query root (st)', 'FontSize', 13);
+ylabel(axB1, 'pitch offset from query root (semitones)', 'FontSize', 13);
+% The colour bar sits in its own column to the right, and the B2 axes keep
+% their position (colorbar would otherwise narrow them), so each bottom panel
+% shares its x-axis with the panel above.
 cb = colorbar(axB2);
+set(axB2, 'Position', [0.55 0.10 0.38 0.42]);
+set(cb, 'Position', [0.945 0.10 0.012 0.42]);
 ticks = [0 0.1 0.25 0.5 0.75 1] * vmaxB;
 set(cb, 'Ticks', sqrt(ticks), 'TickLabels', ...
     arrayfun(@(v) sprintf('%.2f', v), ticks, 'UniformOutput', false));

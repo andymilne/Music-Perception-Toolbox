@@ -1,17 +1,17 @@
 function pm = packPreMaet(pAttr, wAttr, specs)
 %PACKPREMAET Build a validated pre-MAET.
 %
-%   PM = PACKPREMAET(PATTR) and PM = PACKPREMAET(PATTR, WATTR, SPECS) return the
-%   pre-MAET (Milne 2026, Def. 2.6) as a single struct with the fields
-%   pAttr, wAttr, and specs. A pre-MAET is an event sequence together with
-%   the elements each event contributes to each attribute and the
-%   parameters that turn those elements into a density; those three parts
-%   always travel together and always describe the same pre-MAET, so the
-%   struct lets one variable hold the whole of it.
+%   PM = PACKPREMAET(PATTR) and PM = PACKPREMAET(PATTR, WATTR, SPECS)
+%   return the pre-MAET (Milne 2026, Def. 2.6) as a single struct with the
+%   fields pAttr, wAttr, and specs. A pre-MAET is an event sequence
+%   together with the elements each event contributes to each attribute and
+%   the parameters that turn those elements into a density; those three
+%   parts always travel together and always describe the same pre-MAET, so
+%   the struct lets one variable hold the whole of it.
 %
-%   PM = PACKPREMAET(PM0) validates an existing pre-MAET and returns a fresh
-%   one; PM = PACKPREMAET(PM0, WATTR, SPECS) replaces the parts given, leaving
-%   the rest of PM0 in place.
+%   PM = PACKPREMAET(PM0) validates an existing pre-MAET and returns a
+%   fresh one; PM = PACKPREMAET(PM0, WATTR, SPECS) replaces the parts
+%   given, leaving the rest of PM0 in place.
 %
 %   It is a plain struct, not an object: its parts remain ordinary cells
 %   and numerics, and every function that takes a pre-MAET equally takes

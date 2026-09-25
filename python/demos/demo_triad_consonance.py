@@ -19,16 +19,20 @@ about the diagonal.
 Interactive transform-mode selector (Off / Gamma / Saturation) is
 provided alongside an adaptive slider whose meaning depends on the
 chosen mode:
-  - 'gamma' applies v -> v.^gamma in [0.01, 1] (linear scale)
-  - 'sat'   applies v -> 1 - exp(-v / eta) with eta in [0.001, 5]
-            (log10 scale; data normalised to [0, 1] then rescaled).
+  - 'gamma' applies v -> v**gamma with gamma in [0.01, 1] (linear
+            scale), to data normalized to [0, 1].
+  - 'sat'   applies v -> 1 - exp(-v / eta) with eta in [0.002, 5]
+            (log10 scale), to data normalized to [0, 1]; the curve is
+            renormalized so that the output also lies in [0, 1].
 Both gamma and eta have per-mode memory. A separate cmap-shift
 slider, also with per-mode memory, adjusts the colour scale.
 
-Port of demo_triadConsonance.m from the MATLAB Music Perception
-Toolbox v3.
+Uses: template_harmonicity, spectral_entropy, roughness, add_spectra,
+      eval_maet, transform_attributes.
 
 Requires: matplotlib (pip install matplotlib)
+
+The MATLAB mirror is demo_triadConsonance.m.
 """
 
 import time
@@ -37,8 +41,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, RadioButtons
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import sys
+
 import mpt
 
 # ===================================================================
@@ -81,7 +85,7 @@ def apply_transform(vals, mode, gamma, eta):
     """Dispatch on mode.
 
     'off'   identity; output range = input range.
-    'gamma' power compression: data normalised by the empirical
+    'gamma' power compression: data normalized by the empirical
             (min, max), then raised to gamma. Output is in [0, 1].
             Gamma is a display-cosmetic knob with no perceptual
             interpretation tied to absolute scale, so anchoring at
@@ -162,24 +166,16 @@ if do_tensor:
 # ===================================================================
 #  Compute features
 # ===================================================================
-# Exploit symmetry: features are invariant to swapping interval1 and
-# interval2, so we build a linear list of unordered (int1, int2) pairs
-# (one per upper-triangle entry, j >= i) and compute each feature once
-# per unique pair, then mirror into the symmetric output matrix.
-# Loop structure: each unique triad {0, ints[i], ints[j]} (j >= i) is
-# computed once and mirrored into the symmetric (n_ints, n_ints) result
-# grids. The upper-triangle pattern is recommended for *roughness*,
-# which has no batched-input dispatch and no internal dedup — every
-# iteration of its loop does the full computation from scratch, so
-# halving the iteration count halves the actual work. For the three
-# batched features (tensor harmonicity, template harmonicity, and
-# spectral entropy), the upper triangle is a code-organization choice
-# only: passing the full (n_ints**2) grid of chord rows would do the
-# same amount of internal work, because the canonical-form dedup in
-# the batched dispatch collapses permutation-equivalent chords (i, j)
-# and (j, i) onto a single cached result. Keeping the upper-triangle
-# pattern across all four features makes the unique-triad structure
-# explicit in the demo code.
+# Each unique triad {0, ints[i], ints[j]} (j >= i) is computed once and
+# mirrored into the symmetric (n_ints, n_ints) result grids, since every
+# feature is invariant to swapping interval1 and interval2. For roughness,
+# which has no batched mode and no internal deduplication, and for tensor
+# harmonicity, queried directly through eval_maet (see below), this halves
+# the actual work. For template harmonicity and spectral entropy it is a
+# code-organization choice only: their batched modes deduplicate rows by
+# canonical form, so passing the full (n_ints**2) grid of chord rows would
+# collapse (i, j) and (j, i) onto a single cached result and do the same
+# internal work.
 
 n_upper = n_ints * (n_ints + 1) // 2
 
@@ -263,10 +259,13 @@ if do_tmpl:
 # unbounded, and lower where the spectrum is more concentrated, so it is
 # plotted negated and peaks mark consonance.
 #
-# Milne et al. (2017) and Smit et al. (2019) used the grid-normalised
+# Milne et al. (2017) and Smit et al. (2019) used the grid-normalized
 # Shannon entropy H / log_b(N) in [0, 1], available as method='normalized'
-# and required to reproduce their absolute values; it ranks these chords
-# similarly (Pearson 0.95, Spearman 0.81 over 1225 triads). On a
+# and required to reproduce their absolute values. Its agreement with
+# Rényi-2 depends on the range of chords: over this demo's default grid
+# (29161 triads spanning two octaves at 10-cent steps) it is moderate
+# (Pearson 0.81, Spearman 0.56); over one octave at 25-cent steps (1225
+# triads) it is closer (Pearson 0.95, Spearman 0.81). On a
 # continuous domain that form is defined relative to its grid and does not
 # converge under refinement: H_disc and log N both grow like log(1/Delta)
 # as the cell width goes to zero, so the ratio tends to 1 for every
@@ -275,11 +274,13 @@ if do_tmpl:
 # set --- since N is then fixed by the domain and H / log_b(N) is flatness
 # as a proportion of that domain's maximum.
 #
-# The third option, 'differential', converges (nested grids with
-# Richardson extrapolation) but is much slower and impractical at this
-# grid size. Rényi-2 is the fastest of the three and tracks the
-# differential entropy more closely than the normalised grid does
-# (Spearman 0.96 against 0.72).
+# Of the other two methods, 'shannon' is the unnormalized discrete entropy
+# H on the same grid as 'normalized', and 'differential' converges (nested
+# grids with Richardson extrapolation) but is much slower and impractical
+# at this grid size. Rényi-2 is the fastest of the four and tracks the
+# differential entropy far more closely than the normalized grid form does
+# (Spearman 0.92 against 0.33 over the default grid; 0.96 against 0.72
+# over the one-octave grid).
 if do_spec_ent:
     chord_mat_se = np.column_stack([
         np.zeros(n_upper), int1_lin, int2_lin
@@ -330,26 +331,28 @@ print(f"All features computed in {time.time() - t0_total:.1f} s.")
 #  Assemble measures for plotting
 # ===================================================================
 
-spec_str = ', '.join(str(x) for x in spec_tmpl)
+def spec_label(spec):
+    return ', '.join(str(x) for x in spec)
+
 
 all_data = []
 all_titles = []
 
 if do_tmpl_max:
     all_data.append(tmpl_harm_max)
-    all_titles.append(f'Template harmonicity: hMax\n{spec_str}, σ={sigma_tmpl}')
+    all_titles.append(f'Template harmonicity: hMax\n{spec_label(spec_tmpl)}, σ={sigma_tmpl}')
 if do_tmpl_ent:
     all_data.append(-tmpl_harm_ent)
-    all_titles.append(f'Template −hEntropy\n{spec_str}, σ={sigma_tmpl}')
+    all_titles.append(f'Template −hEntropy\n{spec_label(spec_tmpl)}, σ={sigma_tmpl}')
 if do_tensor:
     all_data.append(tens_harm)
-    all_titles.append(f'Tensor harmonicity\n{spec_str}, σ={sigma_tens}, dup={dup}')
+    all_titles.append(f'Tensor harmonicity\n{spec_label(spec_tens)}, σ={sigma_tens}, dup={dup}')
 if do_spec_ent:
     all_data.append(-spec_ent_grid)
-    all_titles.append(f'−Spectral Rényi-2 entropy\n{spec_str}, σ={sigma_ent}')
+    all_titles.append(f'−Spectral Rényi-2 entropy\n{spec_label(spec_ent)}, σ={sigma_ent}')
 if do_rough:
     all_data.append(-rough_grid)
-    all_titles.append(f'−Roughness\n{spec_str}, f₀={f0:.1f} Hz')
+    all_titles.append(f'−Roughness\n{spec_label(spec_rough)}, f₀={f0:.1f} Hz')
 
 n_plots = len(all_data)
 
@@ -425,7 +428,7 @@ def make_triad_figure(all_data, all_titles, max_int, step,
     ax_xform = fig.add_axes([0.20, 0.085, 0.50, 0.025])
     # Slider is internally 0..1; the meaning depends on mode:
     #   gamma mode: 0 -> gamma=0.01, 1 -> gamma=1
-    #   sat mode:   0 -> log10(eta)=-3 (eta=0.001),
+    #   sat mode:   0 -> log10(eta)=log10(0.002) (eta=0.002),
     #               1 -> log10(eta)=log10(5) (eta=5)
     s_xform = Slider(ax_xform, '', 0.0, 1.0, valinit=1.0)
     s_xform.valtext.set_text('')

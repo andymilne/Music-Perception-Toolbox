@@ -6,16 +6,17 @@
 %  chord's composite spectrum and a harmonic template, plotted against
 %  pitch. Peaks indicate strong virtual pitches — candidate
 %  fundamentals that are well-supported by the chord's spectral
-%  content. Peaks below the lowest chord tone (marked by dashed
-%  vertical lines) are the subharmonic virtual pitches that are most
-%  characteristic of the chord's identity.
+%  content. Peaks below the lowest chord tone (the chord tones are
+%  marked by dashed vertical lines) are subharmonic virtual pitches.
 %
-%  The six example chords include three 12-TET triads and their
-%  just-intonation counterparts, illustrating how mistuning broadens
-%  and reduces virtual pitch peaks.
+%  The example chords include 12-TET triads and their just-intonation
+%  counterparts, illustrating how mistuning broadens and reduces
+%  virtual pitch peaks.
 %
 %  Uses: virtualPitches, transformAttributes
 %  (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_virtual_pitches.py.
 
 %% === User-adjustable parameters ===
 

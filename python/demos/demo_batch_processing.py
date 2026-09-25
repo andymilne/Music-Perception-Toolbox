@@ -20,38 +20,52 @@ by a canonical key, so the 144 chord rows here cost 4 chord-type
 computations, and the 144 (scale, chord) pairs only as many distinct
 pairs as there are. No manual unique() step is needed.
 
-The deduplication is fully automatic in the sense that matters: the key
-is built from the density the call would form, so it follows the
-analysis parameters (sigma, r, is_rel, is_per, period) rather than
-guessing. Two rows collapse only when their densities are structurally
-identical under those settings. Here, with is_per = True and
-is_rel = False, the twelve transpositions of a chord type share a
-pitch-class multiset and collapse to one computation; under
-is_per = False they would be twelve distinct chords and none would
-collapse, and under is_rel = True every transposition would collapse
-whether periodic or not. The analyst changes the mode flags and the
-saving follows, with no change to the calling code. The one feature
-without a batched form, roughness (which depends on absolute frequency
-and so cannot share work across transpositions), is looped over the
-distinct rows.
+The deduplication follows the analysis: each feature keys its rows by
+what its value depends on. The single-set features (spectral entropy,
+and template and tensor harmonicity) are transposition-invariant
+measures of a chord and take no mode flags, so their key ignores
+transposition and pitch order: the twelve transpositions of a chord type
+collapse to one computation, and the 144 chord rows to 4. SPCS depends
+on where the chord lies against its scale, so its key is the (scale,
+chord) pair, up to transposing both together, under the analysis
+parameters (sigma, r, is_rel, is_per, period). Here, with is_per = True,
+pitch is read as pitch class, so the augmented triad's transpositions by
+a major third, which give one pitch-class set, collapse, and the 144
+pairs cost 120 computations; under is_rel = True (which needs r >= 2)
+every transposition of a chord would collapse, a relative density being
+transposition-invariant. The analyst changes the flags and the saving
+follows, with no change to the calling code. The one feature without a
+batched form, roughness (which depends on absolute frequency and so
+cannot share work across transpositions), is looped over the distinct
+rows.
 
 Workflow 3 shows a second, quite different sense of "batch". Rows of a
 2-D pitch matrix are single multisets over one attribute, and what
 Workflows 1 and 2 exploit is deduplication *within* such a matrix. A
-multi-attribute analysis has no row axis to deduplicate: each item is a
+multi-attribute analysis has no rows to deduplicate: each item is a
 whole pre-MAET. Batching there means passing a *list* of them where a
 list of densities would go, which loops rather than collapses — the
 saving is in the calling code, not in the arithmetic.
 
+Uses: sim_maet, spectral_entropy, template_harmonicity,
+      tensor_harmonicity, add_spectra, roughness, transform_attributes,
+      pack_pre_maet, flat_specs, translate_attributes, sweep_sim_maet,
+      build_maet, set_default.
+
 Requires: matplotlib (pip install matplotlib)
+
+The MATLAB mirror is demo_batchProcessing.m.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import mpt
+
+# The toolbox's one-time informational hints (which route a call took,
+# and the like) are switched off for a tidy printout, and restored at
+# the end.
+prev_defaults = mpt.set_default(show_hints=False)
 
 # ===================================================================
 #  User-adjustable parameters
@@ -138,6 +152,10 @@ spcs = mpt.sim_maet(
 )
 spcs = np.round(spcs, 3)
 
+# The rows were laid out scale by chord type by root, so the profile
+# reshapes straight into a scale x chord x root array.
+spcs_grid = spcs.reshape(n_scales, n_chords, n_roots)
+
 # Display as scale × chord × root tables
 for si in range(n_scales):
     print(f"\n  {scale_names[si]}:")
@@ -145,10 +163,8 @@ for si in range(n_scales):
     print(header)
 
     for ci in range(n_chords):
-        row = f'  {chord_type_names[ci]:8s}'
-        for ri in range(n_roots):
-            mask = (scale_idx == si) & (chord_idx == ci) & (root_vals == roots[ri])
-            row += f'{spcs[mask][0]:6.3f}'
+        row = f'  {chord_type_names[ci]:8s}' + ''.join(
+            f'{v:6.3f}' for v in spcs_grid[si, ci])
         print(row)
 
 # ===================================================================
@@ -216,13 +232,7 @@ if n_scales == 1:
 
 for si in range(n_scales):
     ax = axes[si]
-    S = np.full((n_chords, n_roots), np.nan)
-    for ci in range(n_chords):
-        for ri in range(n_roots):
-            mask = (scale_idx == si) & (chord_idx == ci) & (root_vals == roots[ri])
-            S[ci, ri] = spcs[mask][0]
-
-    im = ax.imshow(S, aspect='auto', origin='upper',
+    im = ax.imshow(spcs_grid[si], aspect='auto', origin='upper',
                    extent=[-50, 1150, n_chords - 0.5, -0.5],
                    cmap='viridis')
     ax.set_yticks(range(n_chords))
@@ -231,7 +241,7 @@ for si in range(n_scales):
     ax.set_title(scale_names[si])
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
-fig.suptitle('SPCS: chord fit at each scale degree', fontweight='bold')
+fig.suptitle('SPCS: chord fit at each root', fontweight='bold')
 plt.tight_layout()
 
 # ===================================================================
@@ -254,10 +264,11 @@ plt.tight_layout()
 #
 #  The exception that proves the rule is a translation sweep. Its
 #  entries DO share one geometry and differ only by an offset, so
-#  sim_maet reads the offsets translate_attributes carried and
-#  reduces the sweep to a mixture in the offset — a genuine collapse,
-#  and the one place where a multi-attribute batch is cheaper than the
-#  loop it replaces.
+#  sweep_sim_maet computes the whole sweep in one pass rather than one
+#  inner product per offset — a genuine collapse, and the one place
+#  where a multi-attribute batch is cheaper than the loop it replaces.
+#  translate_attributes attaches its offsets to the list it returns, so
+#  sim_maet takes that pass at the call site itself.
 # ===================================================================
 
 print("\n=== Workflow 3: A list of pre-MAETs (batching, other sense) ===\n")
@@ -290,18 +301,32 @@ print("  Each entry was built and compared in turn -- four densities,")
 print("  four inner products. Nothing collapsed: the items differ in")
 print("  event count and content, so there is no repeated work to find.")
 
-# The sweep is the exception: one geometry, M offsets, carried through
-# from translate_attributes, so the comparison reduces to a mixture.
-pm_sweep = mpt.translate_attributes(
-    reference, [np.array([[0.0, 100.0, 200.0, 300.0]]), None])
-sweep_sims = mpt.sim_maet(reference, pm_sweep, verbose=False)
-print("\n  sim_maet(reference, translate_attributes(reference, ...))")
-print("    offsets 0, 100, 200, 300 cents ->",
-      ", ".join(f"{float(s):.4f}" for s in sweep_sims))
-print("  Here the entries DO share a geometry and differ by a known")
-print("  offset, so the sweep reduces to a mixture in the offset rather")
-print("  than one inner product per entry.")
+# The sweep is the exception: one geometry, M offsets. sim_maet reads
+# the offsets translate_attributes attached to its list, and
+# sweep_sim_maet, given them directly, computes the same sweep. It
+# chooses its route by cost and coverage: here, the swept attribute
+# (pitch class) being periodic, the orbit route.
+offsets = np.array([[0.0, 100.0, 200.0, 300.0]])
+pm_sweep = mpt.translate_attributes(reference, [offsets, None])
+tagged_sims = mpt.sim_maet(reference, pm_sweep, verbose=False)
 
+dens_ref = mpt.build_maet(reference, verbose=False)
+sweep_sims = mpt.sweep_sim_maet(
+    dens_ref, dens_ref, np.vstack([offsets, np.zeros_like(offsets)]),
+    verbose=False)
 
+print("\n  translate_attributes(reference, [[0, 100, 200, 300], None])")
+print("    sim_maet on the tagged list ->",
+      " ".join(f"{float(s):.4f}" for s in tagged_sims))
+print("    sweep_sim_maet, one pass    ->",
+      " ".join(f"{float(s):.4f}" for s in sweep_sims))
+print(f"  The two agree to "
+      f"{np.max(np.abs(np.asarray(tagged_sims, dtype=float) - sweep_sims)):.1e}. "
+      "Here the entries DO share a geometry")
+print("  and differ by a known offset, so the sweep is a genuine")
+print("  collapse — the one place where a multi-attribute batch is")
+print("  cheaper than the loop it replaces.")
+
+mpt.set_default(**prev_defaults)
 print("\nDone.")
 plt.show()

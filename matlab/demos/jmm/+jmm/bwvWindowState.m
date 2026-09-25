@@ -36,8 +36,9 @@ function S = bwvWindowState()
 %     (+/-0.5, sigmaFlag = 0.1) carried by query and context alike.
 %
 %   Every step is a toolbox call: readScore, gridAttrTable twice (the
-%   second regridding the first), preMaetFromAttrTable, selectPreMaet,
-%   bindEvents, buildMaet, and simMaet.
+%   second regridding the first), and preMaetFromAttrTable here;
+%   flatSpecs, bindEvents, and selectPreMaet in the helpers built on this
+%   state; the demo then compares with windowedSimilarity.
 %
 %   Fields
 %     .sigmaPitch (0.15 semitones), .period (12), .sigmaFlag (0.1),
@@ -51,9 +52,11 @@ function S = bwvWindowState()
 %     .sixteenths    - the chorale on the sixteenth-note grid, for the
 %                      sonority lookups of jmm.sonAt.
 %     .flags         - the pitch-derived inversion predicates, one value
-%                      per beat: .sixFour (read at a three-beat window's
-%                      first beat) and .rootPositionNext (the predicate one
-%                      beat on, for a two-beat window's resolution).
+%                      per beat, each stored at the beat on which the
+%                      window it describes resolves: .antepenultSixFour
+%                      (the predicate two beats earlier, a three-beat
+%                      window's first chord) and .rootPosition (the
+%                      predicate at that beat, a two-beat window's final).
 %     .beatsPm       - the beat aggregates as a pre-MAET: the pitch
 %                      attribute of each beat, NaN-padded where beats hold
 %                      unequal numbers of notes, with the beat's own time
@@ -114,33 +117,35 @@ function S = localBuild()
     % --- the pitch-derived inversion predicates, one value per beat ---------
     % Rows rather than columns because the flag is a property of the beat,
     % not of each note in it: a column on the attribute table would arrive
-    % with one value per note. Each pairs with the window that reads it -- a
-    % three-beat window starts at its own antepenult, so sixFour is read at
-    % the window's first beat, while a two-beat window resolves on its
-    % second, so rootPositionNext is the predicate one beat on.
+    % with one value per note. Binding is end-aligned, so an attribute bound
+    % over one event carries the value at the window's last beat, its
+    % resolution; each flag is therefore stored at the beat on which the
+    % window it describes resolves. rootPosition is the predicate at that
+    % beat itself (a two-beat window's final); antepenultSixFour is the
+    % predicate two beats earlier (a three-beat window's first chord).
     [beatPAttr, ~, beatSpecs] = unpackPreMaet(S.beatsPm);
     beatNames = cellfun(@(sp) sp.name, beatSpecs, 'UniformOutput', false);
     beatTimes = beatPAttr{find(strcmp(beatNames, 'onset'), 1)}(1, :);
-    sixFour = zeros(1, numel(beatTimes));
-    rootNext = zeros(1, numel(beatTimes));
+    anteSixFour = zeros(1, numel(beatTimes));
+    rootPos = zeros(1, numel(beatTimes));
     % The sonority is read from the local table rather than through
     % jmm.sonAt, which would call back into this function while it is still
-    % being built. The last beat has no successor, so its rootPositionNext
-    % reads an empty sonority, which is not root position; no window of the
-    % sweep starts there.
+    % being built. The first two beats have no antepenult; they take rootNo,
+    % and no window of the sweep resolves there.
     for i = 1:numel(beatTimes)
-        if jmm.isSixFour(localSonAt(S.sixteenths, beatTimes(i)))
-            sixFour(i) = S.rootYes;
+        if any(abs(beatTimes - (beatTimes(i) - 2.0)) < 1e-9) ...
+                && jmm.isSixFour(localSonAt(S.sixteenths, beatTimes(i) - 2.0))
+            anteSixFour(i) = S.rootYes;
         else
-            sixFour(i) = S.rootNo;
+            anteSixFour(i) = S.rootNo;
         end
-        if jmm.isRootPosition(localSonAt(S.sixteenths, beatTimes(i) + 1.0))
-            rootNext(i) = S.rootYes;
+        if jmm.isRootPosition(localSonAt(S.sixteenths, beatTimes(i)))
+            rootPos(i) = S.rootYes;
         else
-            rootNext(i) = S.rootNo;
+            rootPos(i) = S.rootNo;
         end
     end
-    S.flags = struct('sixFour', sixFour, 'rootPositionNext', rootNext);
+    S.flags = struct('antepenultSixFour', anteSixFour, 'rootPosition', rootPos);
 
     % --- the minimal cadential prototype (dyad skeleton) --------------------
     S.dyadChords = {[59 65], [60 64]};     % B-F -> C-E

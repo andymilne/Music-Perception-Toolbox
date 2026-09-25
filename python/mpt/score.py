@@ -982,8 +982,8 @@ def pre_maet_from_attr_table(table, *, attributes,
                 dict(column="pitch", name="pitchHeight", sigma=8.0),
                 dict(column="onset", sigma=0.5)), time="beats")
 
-        Of the ten, the last four need a column the source carries, and
-        raise where it does not. On a gridded table ``'onset'`` reads the grid's
+        Each of the ten needs a column the source carries, and raises
+        where it does not. On a gridded table ``'onset'`` reads the grid's
         onset, the event there being the grid point rather than any one
         note.
     pitch : {'midi', 'cents', 'hz', 'octave', ...}
@@ -1062,7 +1062,8 @@ def pre_maet_from_attr_table(table, *, attributes,
         bar number that comes round again after a repeat gives two events
         rather than one.
         The default is the grid position where the table has been
-        gridded, and otherwise the onset within ``chord_tolerance``.
+        gridded, and otherwise the onset within ``chord_tolerance``; a
+        table with neither makes each row its own event, in table order.
     chord_tolerance : float
         Onset tolerance for binding, in the chosen time unit.
     names : bool
@@ -1178,7 +1179,8 @@ def pre_maet_from_attr_table(table, *, attributes,
     # Of the ten names, these need a column the source carries. A table
     # that never saw a score carries few of them, and asks for none of
     # them, so each is read only where something names it.
-    _NEEDS_COLUMN = {"sounding_duration": f"sounding_duration_{unit}",
+    _NEEDS_COLUMN = {"pitch": "pitch",
+                     "sounding_duration": f"sounding_duration_{unit}",
                      "duration": f"duration_{unit}", "weight": "weight",
                      "note_number": "note_number", "fermata": "fermata",
                      "velocity": "velocity", "part": "part",
@@ -1239,9 +1241,17 @@ def pre_maet_from_attr_table(table, *, attributes,
     def _optional(name):
         return _col(name) if name in table.columns else np.zeros(n_kept)
 
-    onset = _col(onset_column)
+    # Neither onset nor pitch is required of the table: a table that
+    # never saw a score converts too. Onset is needed only where it is
+    # named as an attribute, or where it groups rows into chords.
+    has_onset = onset_column in table.columns
+    if "onset" in attributes and not has_onset:
+        raise ValueError(
+            f"The table has no {onset_column!r} column, so 'onset' cannot "
+            "be an attribute; this source does not carry it.")
+    onset = _optional(onset_column)
     dur = _optional(f"duration_{unit}")
-    midi = _col("pitch")
+    midi = _optional("pitch")
     vel = _optional("velocity")
     part = (part_codes.astype(np.float64)[keep] if part_codes is not None
             else np.zeros(n_kept))
@@ -1250,10 +1260,10 @@ def pre_maet_from_attr_table(table, *, attributes,
     note_number = _optional("note_number")
     weight_col = _optional("weight")
     fermata = _optional("fermata")
-    n_notes = int(midi.size)
+    n_notes = n_kept
 
-    pitch_vals = (midi if pitch.lower() == "midi"
-                  else _convert_scale(midi, "midi", pitch))
+    pitch_vals = (midi if pitch.lower() == "midi" or "pitch" not in
+                  table.columns else _convert_scale(midi, "midi", pitch))
     per_note = {"pitch": pitch_vals, "onset": onset, "duration": dur,
                 "sounding_duration": sounding, "velocity": vel,
                 "weight": weight_col, "note_number": note_number,
@@ -1278,7 +1288,10 @@ def pre_maet_from_attr_table(table, *, attributes,
             "have.")
     key_column = group_by or ("grid_index" if "grid_index" in table.columns
                               else None)
-    if chords == "separate" or n_notes == 0:
+    # Where the table carries no onset and no key, nothing says that two
+    # rows sound together, so each row is its own event, in table order.
+    if chords == "separate" or n_notes == 0 or \
+            (key_column is None and not has_onset):
         groups = [[i] for i in range(n_notes)]
     elif key_column is not None:
         key = table[key_column].astype(object).to_numpy()[keep]

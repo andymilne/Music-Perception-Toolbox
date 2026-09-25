@@ -25,9 +25,14 @@ encoded them.
   (`grid_attr_table`). The encoding is note-for-note the one the article
   used from music21. `bwv347_fermata_spans` gives the spans the cadence
   analysis weights, from the attribute table's `fermata` column.
-* **Reich, *Piano Phase*** (`piano_phase.py`): both voices rendered from
-  the article's constants (the twelve-note cell, base inter-onset
-  interval, peak tempo deviation, smoothstep accelerandi).
+* **Reich, *Piano Phase*** (`piano_phase.py`): both voices rendered as
+  the article specifies them (the twelve-note cell, a 138 ms pulse,
+  smoothstep accelerandi), with a base inter-onset interval and peak
+  tempo deviation chosen to give the article's 2.4 ms excursion of
+  Piano 2's inter-onset interval. The article transcribes its schedule
+  of holds and accelerandi from a recording; the rendering replaces it
+  with a uniform schedule, so the figures follow the article's in shape
+  but place the accelerandi at the uniform schedule's times.
 * **Coltrane, *Acknowledgement*** (the solo, `acknowledgement`): the
   melody is read from `data/AwakeningSolo.mid` with `mpt.read_score`. The
   transcription is not distributed; place your own monophonic MIDI
@@ -50,17 +55,17 @@ document carries it.
 
 | Demo | Analysis | Question | Toolbox functions |
 |:--|:--|:--|:--|
-| `demo_jmm_1_1_entropy.py` | Analysis 1.1 — article §4.1.1 | Where is the chorale's spectral pitch content most and least concentrated, per event and under a smooth window? | `add_spectra`, `windowed_entropy` (`method='differential'`) |
-| `demo_jmm_1_2_similarity.py` | Analysis 1.2 — article §4.1.2 | When do two chords count as alike? Six chord pairs under voice-aware, simplex-voice, and voice-agnostic encodings across the pitch–pitch-class blend (`--heatmaps` adds the N × N event-pair matrices). | `build_maet`, `sim_maet` (density lists, `mode='pairwise'` / `'cartesian'`), `simplex_vertices` |
-| `demo_jmm_1_3_cadence_nesting.py` | Analysis 1.3 — article §4.1.3, supplement §6 | Where do cadences of each type occur, in any key? Nested two- and three-chord prototypes (chords unordered within an ordered, outer-relative succession) swept across the beat aggregates of the chorale, with pitch-derived inversion flags. Helper: `bwv_window.py`. | `bind_events`, `flat_specs`, `build_maet`, `sim_maet` (`normalize='oneSidedDenom'`) |
-| `demo_jmm_1_4_tonic_tuple_size.py` | Analysis 1.4 — supplement §7 | How does raising the tuple size sharpen chord matching, across absolute/relative and periodic/non-periodic readings? | `build_maet`, `sim_maet` |
-| `demo_jmm_2_1_joint.py` | Analysis 2.1 — article §4.2.1 | Which four-note cell recurs most in *Acknowledgement*, as a joint object: which interval pattern and rhythm recur together? Rhythm marginalized and conditioned on the motif's intervals. | `difference_events`, `bind_events` (both attributes in step), `select_pre_maet`, `build_maet`, `eval_maet` |
-| `demo_jmm_2_2_motif.py` | Analysis 2.2 — supplement §8.1 | The same cell from pitch alone: interval triples against relative pitch quadruples, ranked by the density at each cell. | `difference_events`, `bind_events`, `build_maet`, `eval_maet` |
-| `demo_jmm_2_3_spectral.py` | Analysis 2.3 — supplement §8.2 | Where is the motif stated, and in which key? The motif as a query slid across the passage, under bare fundamentals and twelve harmonic partials. Runs for a few minutes. | `add_spectra` (pre-MAET form), `bind_events`, `windowed_similarity` (single-axis and multi-axis sweeps) |
-| `demo_jmm_3_1_texture.py` | Analysis 3.1 — article §4.3.1 | How does the pooled texture's local entropy track the phase, at a fusing and a resolving time kernel? | `windowed_entropy` (`method='renyi2'`) |
-| `demo_jmm_3_2_diff.py` | Analysis 3.2 — supplement §9 | Does joint differencing of pitch and time expose the accelerandi of the phasing voice at the timing JND? | `difference_events`, `build_maet`, `eval_maet`, windowed Rényi-2 entropy |
-| `demo_jmm_3_3_xcorr.py` | Analysis 3.3 — supplement §10 | Can the running phase between the pianos be read as the ridge of a lag cross-correlogram? | `windowed_similarity` (one-sided matched filter) |
-| `demo_jmm_4_1_parse.py` | Analysis 4.1 — supplement §11 | What can the framework do with an expert analysis it is given? A rule-labelled derivation carried as a nested attribute: retrieval of a configuration, partial match on the label simplex, reduction by graded weights, and depth as a further coordinate. | `simplex_vertices`, `pack_pre_maet`, `flat_specs`, `bind_attributes`, `bind_events` (`group_by`), `select_pre_maet`, `build_maet`, `sim_maet` (`normalize='oneSidedDenom'`) |
+| `demo_jmm_1_1_entropy.py` | Analysis 1.1 — article §4.1.1 | Where is the chorale's spectral pitch content most and least concentrated, per event and under a smooth window? | `grid_attr_table`, `pre_maet_from_attr_table`, `add_spectra`, `windowed_entropy` (`method='differential'`) |
+| `demo_jmm_1_2_similarity.py` | Analysis 1.2 — article §4.1.2 | When do two chords count as alike? Six chord pairs under voice-aware, simplex-voice, and voice-agnostic encodings across the pitch–pitch-class blend (`--heatmaps` adds the N × N event-pair matrices). | `grid_attr_table`, `pre_maet_from_attr_table` (the `'simplex'` role), `select_pre_maet`, `build_maet`, `sim_maet` (density lists, `mode='pairwise'` / `'cartesian'`) |
+| `demo_jmm_1_3_cadence_nesting.py` | Analysis 1.3 — article §4.1.3, supplement §6 | Where do cadences of each type occur, in any key? Nested two- and three-chord prototypes (chords unordered within an ordered, outer-relative succession) swept across the beat aggregates of the chorale, with pitch-derived inversion flags. Helper: `bwv_window.py`. | `grid_attr_table`, `pre_maet_from_attr_table`, `bind_events`, `flat_specs`, `select_pre_maet`, `windowed_similarity` (`normalize='oneSidedDenom'`) |
+| `demo_jmm_1_4_tonic_tuple_size.py` | Analysis 1.4 — supplement §7 | How does raising the tuple size sharpen chord matching, across absolute/relative and periodic/non-periodic readings? | `grid_attr_table`, `pre_maet_from_attr_table`, `select_pre_maet`, `build_maet`, `sim_maet` |
+| `demo_jmm_2_1_joint.py` | Analysis 2.1 — article §4.2.1 | Which four-note cell recurs most in *Acknowledgement*, as a joint object: which interval pattern and rhythm recur together? Rhythm marginalized and conditioned on the motif's intervals. | `pre_maet_from_attr_table`, `difference_events`, `bind_events` (both attributes in step), `select_pre_maet`, `build_maet`, `eval_maet` |
+| `demo_jmm_2_2_motif.py` | Analysis 2.2 — supplement §8.1 | The same cell from pitch alone: interval triples against relative pitch quadruples, ranked by the density at each cell. | `pre_maet_from_attr_table`, `difference_events`, `bind_events`, `build_maet`, `eval_maet` |
+| `demo_jmm_2_3_spectral.py` | Analysis 2.3 — supplement §8.2 | Where is the motif stated, and in which key? The motif as a query slid across the passage, under bare fundamentals and twelve harmonic partials. Runs for a few minutes. | `pre_maet_from_attr_table`, `add_spectra` (pre-MAET form), `bind_events`, `windowed_similarity` (one window attribute, and pitch offsets by time) |
+| `demo_jmm_3_1_texture.py` | Analysis 3.1 — article §4.3.1 | How does the pooled texture's local entropy track the phase, at a fusing and a resolving time kernel? | `pre_maet_from_attr_table`, `windowed_entropy` (`method='renyi2'`) |
+| `demo_jmm_3_2_diff.py` | Analysis 3.2 — supplement §9 | Does joint differencing of pitch and time expose the accelerandi of the phasing voice at the timing JND? | `pre_maet_from_attr_table`, `difference_events`, `select_pre_maet`, `build_maet`, `eval_maet`, `windowed_entropy` (`method='renyi2'`) |
+| `demo_jmm_3_3_xcorr.py` | Analysis 3.3 — supplement §10 | Can the running phase between the pianos be read as the ridge of a lag cross-correlogram? | `pre_maet_from_attr_table`, `pack_pre_maet`, `build_maet`, `sweep_sim_maet` (`normalize='oneSidedDenom'`) |
+| `demo_jmm_4_1_parse.py` | Analysis 4.1 — supplement §11 | What can the framework do with an expert analysis it is given? A rule-labelled derivation carried as a nested multiset: retrieval of a configuration, partial match on the label simplex, reduction by graded weights, and depth as a further coordinate; then, unrolled to one event per path position across the corpus, rule frequencies and rule–quality shares read as marginals. | `simplex_vertices`, `pack_pre_maet`, `flat_specs`, `bind_attributes`, `bind_events` (`group_by`), `select_pre_maet`, `build_maet`, `sim_maet` (`normalize='oneSidedDenom'`) |
 
 The corpus study of the Online Supplement (all 4/4 four-part
 chorales, mixed-effects models) depends on the music21 corpus and

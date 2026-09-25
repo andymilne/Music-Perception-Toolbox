@@ -565,7 +565,17 @@ def orbit_sweep_supported(dens_x, dens_y, offsets=None,
     is_exch = getattr(dens_x, "is_exch", None)
     if is_exch is not None and not all(bool(v) for v in np.atleast_1d(is_exch)):
         return False
+    # A nested attribute of any kind is declined. ``inner_r`` flags only
+    # one relative at an inner or intermediate level; a nested attribute
+    # that is absolute at every level has ``inner_r == 0`` and reports the
+    # inner level's exchangeability, so neither test above catches it, and
+    # the route would then compute the flat symmetrised quantity in its
+    # place (a spectrally enriched, bound pitch attribute gave 2.0 where
+    # translate-and-compare gives 1.0).
+    nested = getattr(dens_x, "nested", None)
     for a in range(A):
+        if nested is not None and a < len(nested) and nested[a] is not None:
+            return False
         if inner_r is not None and int(inner_r[a]) > 0:
             return False
         if bool(dens_x.is_rel[a]) and swept[a]:
@@ -816,6 +826,148 @@ def _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok):
 
 
 # -------------------------------------------------------------------
+#  Contraction route (densities with a nested attribute)
+# -------------------------------------------------------------------
+
+
+def contract_sweep_supported(dens_x, dens_y, offsets=None):
+    """Whether the contraction route can carry this sweep.
+
+    The route serves densities with at least one nested attribute, on
+    either side; that is where the mixture must enumerate the nested
+    tuples (every combination of the elements at every bound position)
+    and the orbit route declines. It keeps the factorization across
+    attributes of the nested inner product --- one ``(N_x, N_y)`` matrix
+    per attribute, multiplied element-wise and summed (JMM Eq. 3.4) ---
+    and forms, at each offset, only the matrices of the swept attributes.
+    A swept attribute must be absolute (translation cancels in a relative
+    one, so there is nothing to sweep), with no inner or intermediate
+    relative unit, and isotropic; flat and nested, periodic or not, are
+    all admitted. Attributes that are not swept are unconstrained here
+    (the contraction itself declines what it does not cover, and the
+    caller then falls back).
+    """
+    if not isinstance(dens_x, MaetDensity) or not isinstance(dens_y, MaetDensity):
+        return False
+    A = int(dens_x.n_attrs)
+    if int(dens_y.n_attrs) != A:
+        return False
+    nx = getattr(dens_x, "nested", None) or [None] * A
+    ny = getattr(dens_y, "nested", None) or [None] * A
+    if all(v is None for v in nx) and all(v is None for v in ny):
+        return False
+    if offsets is None:
+        return True
+    off = np.asarray(offsets, dtype=np.float64)
+    if off.ndim != 2 or off.shape[0] != A:
+        return False
+    from .dispatch import _inner_r_vec
+    irx, iry = _inner_r_vec(dens_x), _inner_r_vec(dens_y)
+    swept = np.any(off != 0.0, axis=1)
+    for a in range(A):
+        if not swept[a]:
+            continue
+        if bool(dens_x.is_rel[a]):
+            return False
+        if (nx[a] is None) != (ny[a] is None):
+            return False
+        if nx[a] is not None and (int(irx[a]) or int(iry[a])):
+            return False
+        for d in (dens_x, dens_y):
+            kc = getattr(d, "kernel_cov", None)
+            if kc is not None and kc[a] is not None:
+                return False
+    return True
+
+
+def _contract_sweep(dx, dy, off, *, normalize, truncation_sigmas):
+    """The sweep on the contraction route, or ``None`` where the nested
+    contraction declines these densities.
+
+    The self inner products are translation-invariant, so they are taken
+    once from the ordinary contraction (and memoised there); the attributes
+    that are not swept contribute one offset-independent matrix; each swept
+    attribute contributes an ``(N_x, N_y, M)`` stack --- a nested one from
+    :func:`~._nested_contraction.nested_attr_matrix_sweep`, a flat one from
+    its per-attribute matrix at the translated values.
+    """
+    from . import cosine as C
+    from ._nested_contraction import build_recipe, nested_attr_matrix_sweep
+
+    ts = truncation_sigmas
+    try:
+        trip = C._try_nested_contract(dx, dy, normalize=normalize,
+                                      verbose=False, force=True,
+                                      truncation_sigmas=ts)
+    except ValueError:
+        return None
+    if trip is None:
+        return None
+    _, ip_xx, ip_yy = trip
+    A = int(dx.n_attrs)
+    M = int(off.shape[1])
+    nx = getattr(dx, "nested", None) or [None] * A
+    ny = getattr(dy, "nested", None) or [None] * A
+    exch = np.asarray(getattr(dx, "is_exch", np.ones(A, dtype=bool))).ravel()
+    swept = np.any(off != 0.0, axis=1)
+    Nx, Ny = int(dx.n), int(dy.n)
+
+    def ordered_flat(a):
+        return (nx[a] is None and not bool(exch[a]) and int(dx.r[a]) > 1)
+
+    def flat_matrix(a, shift):
+        wrap_a = C._declared_wrap(dx, dy, a)
+        if ordered_flat(a):
+            cy = list(C._closed_form_attr_centres(dy, a))
+            if shift:
+                cy[0] = cy[0] + shift
+            return C._closed_form_attr_matrix_from(
+                C._closed_form_attr_centres(dx, a), tuple(cy), ts, wrap_a)
+        return C._ma_per_attr_inner_matrix(
+            dx.p_attr[a], dx.w[a], np.asarray(dy.p_attr[a]) + shift,
+            dy.w[a], float(dx.sigma[a]), int(dx.r[a]),
+            bool(dx.is_rel[a]), bool(dx.is_per[a]), float(dx.period[a]),
+            truncation_sigmas=ts, wrap=wrap_a)
+
+    F = np.ones((Nx, Ny), dtype=np.float64)
+    for a in range(A):
+        if swept[a]:
+            continue
+        if nx[a] is not None:
+            route, taus = C._nested_attr_plan(dx, dy, a, ts=ts)
+            F *= C._nested_attr_matrix(dx, dy, a, route, taus,
+                                       truncation_sigmas=ts)
+        else:
+            F *= flat_matrix(a, 0.0)
+    G = np.repeat(F[:, :, None], M, axis=2)
+    for a in range(A):
+        if not swept[a]:
+            continue
+        if nx[a] is not None:
+            sx, sy = nx[a], ny[a]
+            r_lv = np.asarray(sx["r"]).ravel()
+            e_lv = np.asarray(sx["exch"]).ravel()
+            tx, ty = np.asarray(sx["tags"]), np.asarray(sy["tags"])
+            is_per = bool(dx.is_per[a])
+            rx = build_recipe(r_lv, e_lv, tx, False, is_per)
+            same = tx.shape == ty.shape and bool(np.array_equal(tx, ty))
+            ry = rx if same else build_recipe(r_lv, e_lv, ty, False, is_per)
+            G *= nested_attr_matrix_sweep(
+                rx, ry, dx.p_attr[a], dy.p_attr[a], dx.w[a], dy.w[a],
+                float(dx.sigma[a]), is_per, float(dx.period[a]), ts, off[a],
+                wrap_a=C._declared_wrap(dx, dy, a))
+        else:
+            for m in range(M):
+                G[:, :, m] *= flat_matrix(a, float(off[a, m]))
+    ip_xy = G.sum(axis=(0, 1))
+    return np.array(
+        [C._finalise_normalisation(float(v), ip_xx, ip_yy, normalize)
+         for v in ip_xy],
+        dtype=np.float64,
+    )
+
+
+# -------------------------------------------------------------------
 #  Public entry point
 # -------------------------------------------------------------------
 
@@ -856,7 +1008,7 @@ def sweep_sim_maet(
         ``(A, M)`` array of per-attribute translations, or a 1-D
         length-``M`` vector when ``A == 1``. One column per sweep index.
         A row of zeros leaves that attribute untranslated.
-    method : {'auto', 'mixture', 'orbit'}, default 'auto'
+    method : {'auto', 'mixture', 'orbit', 'contract'}, default 'auto'
         Which decomposition carries the sweep. ``'mixture'`` is the
         placement/shape split described above: one pass over the tuple
         pairs, then a mixture evaluation per offset. ``'orbit'``
@@ -868,6 +1020,13 @@ def sweep_sim_maet(
         two costs and picks. The orbit route also covers a swept
         *periodic* attribute, which the mixture refuses: it never forms
         the split, so the wrapped kernel absorbs the periodicity.
+        ``'contract'`` serves densities with a nested attribute: the
+        per-level contraction of the nested inner product, with the
+        offsets riding its batch axis, so no nested tuple is enumerated;
+        the mixture would enumerate them all (every combination of the
+        elements at every bound position), and the orbit route declines
+        them. ``'auto'`` takes it wherever a nested attribute is present
+        and the contraction covers the densities.
     normalize : {'cosine', 'oneSidedDenom'}, default 'cosine'
         As in :func:`~mpt.sim_maet`. Both self inner products
         are translation-invariant here, so each is computed once for the
@@ -885,7 +1044,8 @@ def sweep_sim_maet(
     ------
     ValueError
         When the sweep cannot be reduced --- a swept attribute that is
-        relative, periodic, nested, or anisotropic. The message names
+        relative, or anisotropic, or periodic or nested where the route
+        taken does not cover it. The message names
         the attribute and the reason. Sweeping a *relative* attribute is
         a no-op by construction; sweeping a *periodic* one is untested
         on the torus and is refused rather than approximated.
@@ -910,9 +1070,10 @@ def sweep_sim_maet(
             f"offsets must be 1-D or 2-D; got ndim = {off.ndim}."
         )
 
-    if method not in ("auto", "mixture", "orbit"):
+    if method not in ("auto", "mixture", "orbit", "contract"):
         raise ValueError(
-            f"method must be 'auto', 'mixture', or 'orbit'; got {method!r}."
+            f"method must be 'auto', 'mixture', 'orbit', or 'contract'; "
+            f"got {method!r}."
         )
     # Shape and finiteness are contract violations, not routing
     # questions, so they are checked before any route is considered.
@@ -924,6 +1085,26 @@ def sweep_sim_maet(
         )
     if not np.all(np.isfinite(off)):
         raise ValueError("offsets must be finite.")
+
+    from .._defaults import resolve_truncation_sigmas as _rts
+
+    # A density with a nested attribute goes to the contraction route: the
+    # mixture would enumerate the nested tuples, and the orbit route
+    # declines them. Where the contraction does not cover the densities,
+    # 'auto' falls through to the routes below.
+    if method in ("auto", "contract"):
+        if contract_sweep_supported(dens_x, dens_y, off):
+            vals = _contract_sweep(dens_x, dens_y, off, normalize=normalize,
+                                   truncation_sigmas=_rts(truncation_sigmas))
+            if vals is not None:
+                return vals
+        if method == "contract":
+            raise ValueError(
+                "The contraction route needs a nested attribute, and every "
+                "swept attribute absolute, isotropic, and with no inner or "
+                "intermediate relative unit; and the nested contraction "
+                "must cover the densities."
+            )
 
     dx = dens_x.pruned()
     dy = dens_y.pruned()

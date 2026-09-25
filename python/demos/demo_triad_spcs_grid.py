@@ -8,16 +8,28 @@ An example of this type of plot appears as Figure 3 in:
   Modelling the similarity of pitch collections with expectation tensors.
   Journal of Mathematics and Music, 5(1), 1-20.
 
-Port of demo_triadSpcsGrid.m from the MATLAB Music Perception Toolbox v3.
+Each comparison triad has two degrees of freedom:
+  - The root of the fifth (which determines the fifth = root + 700)
+  - The position of the remaining note (the "third")
+
+These two parameters form the axes of a 12 x 12 grid, centred on the
+reference triad. The shade at each grid point indicates the SPCS with
+the reference triad. Distance on the grid indicates the Euclidean
+voice-leading distance between the corresponding triads, except that a
+horizontal step moves two voices (the root and the fifth), so it
+corresponds to a voice-leading distance sqrt(2) times as large as a
+vertical step of the same size.
+
+Uses: sim_maet (batched-raw, broadcast form, with spectrum).
 
 Requires: matplotlib (pip install matplotlib)
+
+The MATLAB mirror is demo_triadSpcsGrid.m.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import mpt
 
 # ===================================================================
@@ -25,19 +37,21 @@ import mpt
 # ===================================================================
 
 # Reference triad (in cents). The plot is centred on this chord.
-ref_pitches = [0, 400, 700]   # C major
+#   [0, 400, 700] = C major
+#   [0, 300, 700] = C minor
+ref_pitches = [0, 400, 700]
 ref_name = 'C major'
 
 # Spectral parameters
-n_harm = 24
-rho = 1
+n_harm = 24      # number of harmonics
+rho = 1          # power-law rolloff exponent (1/n)
 
 # Expectation tensor parameters
-sigma = 10
-r = 1
-is_rel = False
-is_per = True
-period = 1200
+sigma = 10       # Gaussian smoothing width in cents
+r = 1            # monad expectation tensor
+is_rel = False   # absolute (not transposition-invariant)
+is_per = True    # periodic (pitch-class equivalence)
+period = 1200    # one octave in cents
 
 # Display options
 show_labels = True

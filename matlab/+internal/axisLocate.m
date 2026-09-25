@@ -1,11 +1,11 @@
 function v = axisLocate(locate, axis)
-%AXISLOCATE  The locating rule for one swept axis.
+%AXISLOCATE  The locating rule for one window attribute.
 %
-%   v = internal.axisLocate(locate, axis) reads a per-axis map
-%   {axis, value; ...} --- the twin of the Python dict --- and returns
-%   that axis's rule, or 'centroid' where the map does not name it.
+%   v = internal.axisLocate(locate, a) reads a per-attribute map
+%   {a, rule; ...} --- the twin of the Python dict --- and returns
+%   attribute a's rule, or 'centroid' where the map does not name it.
 %   Anything else (a char rule or a function handle) applies to every
-%   axis and is returned unchanged.
+%   window attribute and is returned unchanged.
     if iscell(locate) && ismatrix(locate) && size(locate, 2) == 2 && ...
             ~isempty(locate) && ...
             all(cellfun(@(x) isnumeric(x) && isscalar(x), locate(:, 1)))

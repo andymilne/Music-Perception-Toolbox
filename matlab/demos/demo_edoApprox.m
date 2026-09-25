@@ -13,12 +13,16 @@
 %  classes include good approximations to the chord's intervals will have
 %  higher similarity.
 %
-%  Because r = 2 and isRel = 1, the effective dimensionality is 1 (i.e.,
-%  the expectation tensor is a one-dimensional density over intervals).
-%  This is what makes these "one-dimensional approximations."
+%  An n-EDO is a one-dimensional tuning: every interval is a multiple of a
+%  single generator (1200/n cents). This is why the paper calls these
+%  "one-dimensional approximations". Separately, because r = 2 and
+%  isRel = 1, the expectation tensor itself is a one-dimensional density
+%  over intervals (dim = 1).
 %
 %  Uses: simMaet (batched-raw, broadcast form)
 %  (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_edo_approx.py.
 
 %% === User-adjustable parameters ===
 
@@ -26,6 +30,9 @@
 %   4:5:6 major triad: [0, 386.31, 701.96]
 %   5:6:7 subminor triad: [0, 315.64, 582.51]
 %   4:5:6:7 dominant seventh: [0, 386.31, 701.96, 968.83]
+% The pitches below are 1:3:5, which has the same pitch classes as
+% 4:5:6; the tensor is periodic at the octave, so the two give identical
+% results.
 refPitches = [0, log2(3), log2(5)] * 1200;
 refWeights = [];   % weights for reference pitches (empty = all ones;
                    % if specified, must be same length as refPitches)
@@ -66,15 +73,12 @@ s = simMaet(refPitches, refWeights, pMatB, [], ...
     'verbose', true);
 fprintf('Done.\n');
 
-% Round to 3 decimal places for display
-s = round(s, 3);
-
 %% === Plot ===
 
 figure('Name', 'EDO approximation quality', ...
        'Position', [100, 100, 900, 400]);
 
-% Stem plot: emphasises the discrete nature of EDOs
+% Stem plot: emphasizes the discrete nature of EDOs
 stem(edoRange, s, 'filled', 'MarkerSize', 4, 'LineWidth', 0.8, ...
     'Color', [0.2 0.2 0.6]);
 xlabel('n-EDO');

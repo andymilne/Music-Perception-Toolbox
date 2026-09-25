@@ -15,7 +15,7 @@ import pytest
 
 import mpt
 from mpt import build_maet, eval_maet, flat_specs, unpack_pre_maet
-from mpt._tensor.preprocessing import bind_events
+from mpt._tensor.preprocessing import bind_events, difference_events
 
 
 def _ev(d, x):
@@ -119,15 +119,58 @@ def test_circular_vs_noncircular_sizes():
 
 
 def test_per_attribute_orders_and_alignment():
-    """Per-attribute L: smaller-L attribute keeps leading N' windows."""
+    """Per-attribute L: each super-event is end-aligned to the last event of
+    its span, so an attribute bound over fewer events contributes the span's
+    last L_a events (manuscript, Sec. 3: "end-aligned to its last event")."""
     p = [np.array([[0.0, 1.0, 2.0, 3.0, 4.0]]),
          np.array([[10.0, 11.0, 12.0, 13.0, 14.0]])]
     pb, _, specs = unpack_pre_maet(bind_events(p, None, [1, 3]))
     n_prime = 5 - 3 + 1
     assert "tags" not in specs[0] and "tags" in specs[1]
-    assert pb[0].shape == (1, n_prime)        # L=1 flat, trailing-aligned
+    assert pb[0].shape == (1, n_prime)        # L=1 flat, end-aligned
     assert pb[1].shape == (3, n_prime)        # L=3 nested
-    np.testing.assert_allclose(pb[0], p[0][:, :n_prime])
+    np.testing.assert_allclose(pb[0], p[0][:, 3 - 1:])       # [2, 3, 4]
+    np.testing.assert_allclose(pb[1][2], p[1][0, 3 - 1:])    # last of each span
+
+
+def test_end_alignment_values_weights_and_circular():
+    """End-alignment holds for values and weights alike, for any L_a below
+    max_a L_a, non-circular and circular: the attribute contributes the last
+    L_a events of each super-event's span."""
+    t = np.array([[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]])
+    wt = np.array([10.0, 11.0, 12.0, 13.0, 14.0, 15.0])
+    p = [np.array([[60.0, 62.0, 64.0, 65.0, 67.0, 69.0]]), t]
+    for L_small in (1, 2):
+        for circular in (False, True):
+            pm = bind_events(p, [None, wt], [3, L_small], circular=circular)
+            pb, wb, _ = unpack_pre_maet(pm)
+            n_prime = pb[0].shape[1]
+            for j in range(n_prime):
+                span = [(j + ell) % 6 for ell in range(3)]       # the span's events
+                want = span[3 - L_small:]                        # its last L_small
+                np.testing.assert_allclose(pb[1][:, j], t[0, want])
+                np.testing.assert_allclose(np.asarray(wb[1])[:, j], wt[want])
+                np.testing.assert_allclose(pb[0][:, j], p[0][0, span])
+
+
+@pytest.mark.parametrize("circular", [False, True])
+def test_bind_difference_commute(circular):
+    """D-then-B equals B-then-D for every tested combination of per-attribute
+    L and k, with end-aligned binding and end-aligned differencing."""
+    rng = np.random.default_rng(3)
+    N = 9
+    p = [rng.integers(50, 70, (1, N)).astype(float),
+         np.cumsum(rng.random((1, N)), axis=1)]
+    for L in ([3, 1], [1, 3], [2, 1], [3, 2], [2, 2]):
+        for k in ([1, 0], [0, 1], [1, 1], [2, 0]):
+            db = unpack_pre_maet(bind_events(
+                difference_events(p, None, k, circular=circular), L,
+                circular=circular))[0]
+            bd = unpack_pre_maet(difference_events(
+                bind_events(p, None, L, circular=circular), k,
+                circular=circular))[0]
+            for x, y in zip(db, bd):
+                np.testing.assert_allclose(x, y, atol=1e-12)
 
 
 def test_k_a_greater_than_one_tags():
@@ -215,7 +258,7 @@ def test_n_tuple_entropy_still_works():
 
 
 # ---------------------------------------------------------------------------
-#  step: hop between consecutive bound windows along the event axis
+#  step: hop between consecutive bound windows across events
 # ---------------------------------------------------------------------------
 
 def test_step_default_is_overlapping_slide():

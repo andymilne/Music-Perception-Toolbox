@@ -36,7 +36,7 @@ query  = {[60, 64, 67], [0, 0.5, 1.0]};
 muQ    = mean(query{2});
 qExt   = max(query{2}) - min(query{2});
 
-% ----- 1. entropy, drop the time axis (differential & renyi2) -----
+% ----- 1. entropy, drop the time attribute (differential & renyi2) -----
 methodsShapes = {'differential', 0.0; 'renyi2', 0.0; 'renyi2', 1.0};
 for k = 1:size(methodsShapes, 1)
     method = methodsShapes{k, 1};
@@ -58,10 +58,10 @@ for k = 1:size(methodsShapes, 1)
         'contextWindow', {shape, WW}, 'method', method, ...
         'windowAttr', 2, 'dropWindowAttr', true, 'verbose', false);
     ok = max(abs(got(:) - ref(:))) < tol;
-    results(end+1, :) = {sprintf('windowedEntropy drop window axis %s shape=%g', method, shape), ok}; %#ok<SAGROW>
+    results(end+1, :) = {sprintf('windowedEntropy drop window attribute %s shape=%g', method, shape), ok}; %#ok<SAGROW>
 end
 
-% ----- 2. entropy, retain the time axis (joint pitch-time renyi2) --------
+% ----- 2. entropy, retain the time attribute (joint pitch-time renyi2) --------
 ref = zeros(1, numel(centres));
 for i = 1:numel(centres)
     [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
@@ -73,7 +73,7 @@ end
 got = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
     [false, false], [0.0, 0.0], centres, ...
     'contextWindow', {1.0, WW}, 'method', 'renyi2', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
-results(end+1, :) = {'windowedEntropy joint (retain axis)', ...
+results(end+1, :) = {'windowedEntropy joint (retain attribute)', ...
     max(abs(got(:) - ref(:))) < tol}; %#ok<SAGROW>
 
 % ----- 3. similarity, locked template sweep (oneSidedDenom & cosine) -----
@@ -96,7 +96,7 @@ for nm = {'oneSidedDenom', 'cosine'}
     results(end+1, :) = {sprintf('windowedSimilarity locked %s', normalize), ok}; %#ok<SAGROW>
 end
 
-% ----- 4. similarity, decoupled 2-D correlogram (lag sweep) --------------
+% ----- 4. similarity, offsets correlogram (lag sweep) --------------------
 anchors = centres(2:8);
 tau     = linspace(-1.0, 1.0, 9);
 half    = 1.5;
@@ -113,13 +113,13 @@ for ia = 1:numel(anchors)
             'normalize', 'oneSidedDenom', 'verbose', false);
     end
 end
-qc2d = anchors(:) - tau(:).';        % nA x nTau absolute query centres
+qc2d = anchors(:) - tau(:).';        % nA x nTau query positions
 got = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
     [false, false], [false, false], [0.0, 0.0], anchors, ...
-    'queryCentres', qc2d, 'contextWindow', {1.0, 2 * half}, ...
+    'offsets', qc2d - muQ, 'contextWindow', {1.0, 2 * half}, ...
     'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
 ok = isequal(size(got), size(ref)) && max(abs(got(:) - ref(:))) < tol;
-results(end+1, :) = {'windowedSimilarity decoupled correlogram (2-D)', ok}; %#ok<SAGROW>
+results(end+1, :) = {'windowedSimilarity offsets correlogram (2-D)', ok}; %#ok<SAGROW>
 
 % ----- 5. generative sweep matches explicit centres ----------------------
 explicit = onset(1):1.0:onset(end);
@@ -140,16 +140,20 @@ gotR2 = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 2], [false, false], ...
 okR2 = isequal(size(gotR2), [1, numel(centres)]) && all(isfinite(gotR2(:)));
 results(end+1, :) = {'windowedEntropy drop r>=2 now allowed', okR2}; %#ok<SAGROW>
 
-threwMarg = false;
-try
-    windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
-        [false, false], [0.0, 0.0], centres, 'contextWindow', {1.0, WW}, ...
-        'windowAttr', 2, 'dropWindowAttr', false, 'marginalise', 1, ...
-        'verbose', false);
-catch
-    threwMarg = true;
+threwMarg = true;
+for spellMarg = {'marginalize', 'marginalise'}
+    try
+        windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+            [false, false], [0.0, 0.0], centres, 'contextWindow', {1.0, WW}, ...
+            'windowAttr', 2, 'dropWindowAttr', false, spellMarg{1}, 1, ...
+            'verbose', false);
+        threwMarg = false;
+    catch errMarg
+        threwMarg = threwMarg && strcmp(errMarg.identifier, ...
+            'windowedEntropy:marginalizeNotImplemented');
+    end
 end
-results(end+1, :) = {'windowedEntropy marginalise not implemented', threwMarg}; %#ok<SAGROW>
+results(end+1, :) = {'windowedEntropy marginalize not implemented (either spelling)', threwMarg}; %#ok<SAGROW>
 
 threwWidth = false;
 try
@@ -171,7 +175,7 @@ catch
 end
 results(end+1, :) = {'windowedSimilarity centres+step errors', threwBoth}; %#ok<SAGROW>
 
-% ----- 7. single-axis == one-entry multi-axis sweep ---------------------
+% ----- 7. one-window-attribute == one-entry multi-window-attribute sweep ---------------------
 sgl = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
     [false, false], [false, false], [0.0, 0.0], centres, ...
     'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
@@ -182,7 +186,7 @@ mlt = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
 ok = isequal(size(sgl), size(mlt)) && max(abs(sgl(:) - mlt(:))) < tol;
 results(end+1, :) = {'windowedSimilarity single == one-entry sweep', ok}; %#ok<SAGROW>
 
-% ----- 8. multi-axis two-axis map (pitch swept+compared, time dropped) ---
+% ----- 8. multi-window-attribute two-attribute map (pitch swept+compared, time dropped) ---
 patP = [60, 63, 60, 65]; patT = [0, 0.5, 1.5, 2.0];
 PP = [patP, patP + 5]; TT = [patT, patT + 10];
 [pb8, wb8, sb8] = unpackPreMaet(bindEvents({PP, TT}, [], [4, 4], 'step', 1, 'relOuter', [false, false]));
@@ -192,12 +196,12 @@ R8 = windowedSimilarity(pb8, wb8, qb8, qw8, [SIGP, SIGT], [1, 1], [false, false]
     'drop', {2, true; 1, false}, 'specs', sb8, 'verbose', false);
 ok = isequal(size(R8), [2, 2]) && R8(1,1) > 0.99 && R8(2,2) > 0.99 ...
      && R8(1,2) < 0.5 && R8(2,1) < 0.5;
-results(end+1, :) = {'windowedSimilarity two-axis map', ok}; %#ok<SAGROW>
+results(end+1, :) = {'windowedSimilarity two-attribute map', ok}; %#ok<SAGROW>
 
-% ----- 8b. locate as a per-axis map -------------------------------------
-% A map {axis, rule; ...} names each swept axis's rule, and an axis the map
-% does not name takes 'centroid'. So a map naming only the time axis must
-% reproduce the scalar default on the pitch axis, and differ from the
+% ----- 8b. locate as a per-attribute map -------------------------------------
+% A map {a, rule; ...} names each window attribute's rule, and an attribute the map
+% does not name takes 'centroid'. So a map naming only the time attribute must
+% reproduce the scalar default on the pitch attribute, and differ from the
 % scalar rule applied to both.
 common8b = {'sweep', {2, [1.0, 11.0]; 1, [62.0, 67.0]}, ...
             'drop', {2, true; 1, false}, 'specs', sb8, 'verbose', false};
@@ -228,7 +232,7 @@ results(end+1, :) = {'windowedSimilarity locate wired', ok}; %#ok<SAGROW>
 
 % ---- Query window is applied ------------------------------------------
 %  Regression: queryWindow was accepted, validated, and threaded to the
-%  single-axis worker, but never read, so a caller asking for a windowed
+%  one-window-attribute worker, but never read, so a caller asking for a windowed
 %  query silently got an unwindowed one. The query is deliberately
 %  asymmetric --- two close events plus one far one --- so a narrow window
 %  reshapes it rather than rescaling it uniformly, which a scale-invariant

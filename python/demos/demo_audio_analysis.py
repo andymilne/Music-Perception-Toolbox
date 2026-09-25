@@ -13,23 +13,34 @@ Two peak-extraction passes are shown:
      but produces many spurious peaks for sounds with vibrato or
      frequency jitter (violin, complex music).
   2. With Gaussian smoothing (sigma_peaks cents) — collapses
-     vibrato-spread energy into single peaks, giving a cleaner
-     representation for all sources.
+     vibrato-spread energy into single peaks, giving a far sparser
+     representation for sounds with vibrato or jitter, at little cost
+     for steady-state sounds.
 
 Perceptual features are computed from the smoothed peaks.
 
 The audio files are in the audio/ subfolder (one level up from
 demos/).
 
+Uses: audio_peaks, transform_attributes, spectral_entropy,
+      template_harmonicity, roughness, virtual_pitches, sim_maet,
+      set_default.
+
 Requires: soundfile (pip install soundfile)
+
+The MATLAB mirror is demo_audioAnalysis.m.
 """
 
-import numpy as np
+import sys
 from pathlib import Path
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import numpy as np
+
 import mpt
+
+# The toolbox's informational hints (which route a call took, and the
+# like) are switched off for a tidy printout, and restored at the end.
+prev_defaults = mpt.set_default(show_hints=False)
 
 # ===================================================================
 #  User-adjustable parameters
@@ -98,7 +109,8 @@ for filename, label in audio_files:
 
 if len(smooth_results) == 0:
     print("No audio files found. Check the audio/ folder.")
-    exit()
+    mpt.set_default(**prev_defaults)
+    sys.exit()
 
 # ===================================================================
 #  Peak count comparison
@@ -143,7 +155,7 @@ print(f"\n=== Pairwise SPCS (smoothed peaks, sigma = {sigma}) ===\n")
 
 labels = [r['label'] for r in smooth_results]
 col_w = 12
-print(' ' * 26 + ''.join(f"{l[:col_w]:<{col_w}s}" for l in labels))
+print(' ' * 26 + ''.join(f"{l[:col_w - 1]:<{col_w}s}" for l in labels))
 
 for i, res_i in enumerate(smooth_results):
     row_str = f"{res_i['label']:<25s} "
@@ -179,4 +191,5 @@ for res in smooth_results:
     print(f"{res['label']:<25s}  {best_cents:10.1f}  {best_midi:10.2f}  "
           f"{vp_w[max_idx]:10.3f}")
 
+mpt.set_default(**prev_defaults)
 print("\nDone.")

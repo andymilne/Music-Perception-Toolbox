@@ -5,6 +5,8 @@ works through the three choices it takes: the step, what a slice takes
 from a note that overlaps it, and what to do with a slice where nothing
 sounds. demo_score_workflow.py makes one of each in passing -- a
 sixteenth step, the default weighting -- and points here.
+
+The MATLAB mirror is demo_scoreGrid.m.
 """
 
 import os
@@ -37,6 +39,9 @@ PITCH_CLASS = dict(column="pitch", name="pitchClass", sigma=0.5,
 
 
 def main():
+    # Keep the dispatcher's per-call announcements out of the printed
+    # results (show_hints gates only those); restored at the end.
+    prev_defaults = mpt.set_default(show_hints=False)
     table = mpt.read_score(SCORE)
     end = (table["onset_beats"] + table["duration_beats"]).max()
     print(f"{len(table)} notes over {end:g} beats\n")
@@ -53,10 +58,10 @@ def main():
     print("\nthe first six rows at a step of one beat:")
     print(mpt.grid_attr_table(table, 1.0)[COLUMNS].head(6).to_string())
     print("""
-A step at or below the shortest note value gives one row per note, and
-the grid is then a re-indexing of the score by time. A coarser step
-gathers several notes of a voice into one event, and the weighting below
-then applies.
+A step that divides every note value gives slices that each lie wholly
+inside the notes sounding in them, so coverage and presence (below)
+agree, weighing every row 1. A coarser step gathers several notes of a
+voice into one slice, and the weighting below then applies.
 """)
 
     # --- 2. The weighting ----------------------------------------------
@@ -80,9 +85,9 @@ then applies.
             counts once however many slices it spans.
 """)
 
-    # Two of the three are re-weightings of the ungridded attribute table: on an
-    # attribute constant over the note and read at r = 1, each gives back
-    # a density the ungridded table already had.
+    # Two of the three are re-weightings of the ungridded attribute
+    # table: on an attribute constant over the note and read at r = 1,
+    # each gives back a density the ungridded table already had.
     def gridded(policy):
         return mpt.build_maet(mpt.pre_maet_from_attr_table(
             mpt.grid_attr_table(table, 1.0, weights=policy),
@@ -112,7 +117,7 @@ event index to be a uniform index of time.
     # uniform, and downstream it is an event contributing no tuple while
     # keeping its position. Selecting the fermata notes and gridding the
     # selection makes plenty of them.
-    fermatas = table[table["fermata"] == True]      # noqa: E712
+    fermatas = table[table["fermata"]]
     grid = mpt.grid_attr_table(fermatas, 1.0)
     empty = int(grid["note_id"].isna().sum())
     print(f"{len(fermatas)} fermata notes over {grid['grid_index'].nunique()}"
@@ -141,23 +146,25 @@ event index to be a uniform index of time.
     # The grid steps in one unit but its points have a time in both, so a
     # metrical grid can be read on a clock: slices of a sixteenth, and a
     # sigma in milliseconds. The unit the grid did not step in is
-    # interpolated from the attribute table's note samples, so it is exact wherever
-    # the tempo is constant and approximate only across a tempo change.
-    beat_grid = mpt.grid_attr_table(table, 0.25)
-    print("\na beat grid's first four points in each unit:")
-    print(beat_grid[["grid_onset_beats", "grid_onset_seconds"]]
+    # interpolated from the attribute table's note samples, so it is
+    # exact wherever the tempo is constant and approximate only across a
+    # tempo change.
+    sixteenth_grid = mpt.grid_attr_table(table, 0.25)
+    print("\na sixteenth grid's first four points in each unit:")
+    print(sixteenth_grid[["grid_onset_beats", "grid_onset_seconds"]]
           .drop_duplicates().head(4).to_string(index=False))
 
     # ungrid_attr_table is the inverse: note_id says which row of the
     # source each grid row came from, so keeping the first of each and
-    # removing what the grid wrote returns the attribute table it came from. Which
-    # columns those are is not a fixed list -- the grid adds weight to a
-    # table that had none and overwrites the weight of one that did --
-    # which is why this is a toolbox function and not four lines of
-    # pandas in the caller.
-    back = mpt.ungrid_attr_table(beat_grid)
+    # removing what the grid wrote returns the attribute table it came
+    # from. Which columns those are is not a fixed list -- the grid adds
+    # weight to a table that had none and folds the weight of one that
+    # did into a per-slice one -- which is why this is a toolbox function
+    # and not four lines of pandas in the caller.
+    back = mpt.ungrid_attr_table(sixteenth_grid)
     print(f"\nungridded: {len(back)} rows, against the {len(table)} read;"
           " identical:", back["pitch"].equals(table["pitch"]))
+    mpt.set_default(**prev_defaults)
 
 
 if __name__ == "__main__":

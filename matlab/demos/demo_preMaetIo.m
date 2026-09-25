@@ -30,12 +30,16 @@
 %       7. An anisotropic kernel, carried as its three generating scalars.
 %       8. A pre-MAET from a score, which supplies what a score determines.
 %
-% The Python mirror is demos/demo_pre_maet_io.py.
-%
 % See also SHOWPREMAET, READPREMAET, WRITEPREMAET, BUILDMAET.
+%
+% The Python mirror is demo_pre_maet_io.py.
 
 clear; clc;
 outDir = tempname; mkdir(outDir);
+
+% The toolbox's one-time informational hints are switched off for a
+% tidy printout, and restored at the end.
+prevDefaults = mptDefaults('showHints', false);
 
 %% ===================================================================
 %  1. One pre-MAET, four renderings
@@ -45,7 +49,7 @@ fprintf('=== 1. One pre-MAET, four renderings ===\n\n');
 
 % Three chords of a cadence, with their onsets. Pitch is an unordered
 % multiset read at r = 2 (shared pitch pairs) and periodic at the octave;
-% time is a single value per event on an unbounded axis.
+% time is a single value per event, and not periodic.
 pAttr = { [62 55 60; 65 59 64; 69 62 67; 72 65 NaN], ...
           [0 1 2] };
 specs = { struct('name', 'pitch', 'r', 2, 'rel', false, 'exch', true, ...
@@ -146,16 +150,22 @@ fprintf(['  A nested attribute''s r, rel and exch are per-level, so an ' ...
 
 fprintf('=== 5. A nested attribute, with weights ===\n\n');
 
-% Bind the three chords into one super-event: an ordered run of unordered
-% chords, the shape the cadence prototypes of the article use. The kernel
-% geometry crosses to the nested spec intact.
-pmB = bindEvents(pm, [3 3]);
+% Give the cadence metrical weights, the middle chord on a weak beat
+% (0.6), and bind the three chords into one super-event: an ordered run
+% of unordered chords, the shape the cadence prototypes of the article
+% use. The kernel geometry crosses to the nested spec intact, and each
+% element keeps its weight inside the nest.
+metre = [1 0.6 1];
+pmB = bindEvents(packPreMaet(pm, {metre, metre}), [3 3]);
 showPreMaet(pmB);
 fprintf('\n');
-fprintf('%s', showPreMaet(pmB, 'format', 'csv', 'verbose', false));
+csvB = showPreMaet(pmB, 'format', 'csv', 'verbose', false);
+fprintf('%s', csvB);
 fprintf(['\n  The brackets are the level structure: readPreMaet rebuilds ' ...
          'the\n  tags from them, so a file never has to write them ' ...
-         'down.\n\n']);
+         'down.\n']);
+fprintf('  Round trip, weights and nesting included: %d\n\n', ...
+        strcmp(writePreMaet([], readPreMaet(csvB)), csvB));
 
 %% ===================================================================
 %  6. NA, where a step could not carry a parameter
@@ -163,7 +173,7 @@ fprintf(['\n  The brackets are the level structure: readPreMaet rebuilds ' ...
 
 fprintf('=== 6. NA, where a step could not carry a parameter ===\n\n');
 
-% A log is non-linear. A width is still meaningful on the log axis -- it
+% A log is non-linear. A width is still meaningful on the log scale -- it
 % expresses a ratio rather than a difference -- but the local scaling
 % varies across the range, so no single value is the image of the old
 % sigma. NA marks the absence of a canonical choice, and the analyst
@@ -223,22 +233,27 @@ if exist(score, 'file')
         struct('column', 'onset', 'sigma', 0.25)}, ...
         'chords', 'bind');
     showPreMaet(pmS, 'maxEvents', 5, 'maxElements', 4);
+    % Some events hold a single note (the second, at onset 0.25, is one
+    % voice moving alone), and a single note holds no pair of pitches,
+    % so an r = 2 reading of pitch cannot be built from the passage as
+    % it stands: buildMaet refuses and names the event.
     try
         buildMaet(pmS, 'verbose', false);
     catch err
-        fprintf('\n  %s\n', err.message);
-    end
-    sigmas = [0.15, 0.1];
-    for a = 1:numel(pmS.specs)
-        pmS.specs{a}.sigma = sigmas(a);
+        fprintf('\n  build refuses it: %s\n', err.message);
     end
     outCsv = fullfile(outDir, 'from_score.csv');
     writePreMaet(outCsv, pmS);
-    fprintf('\n  widths chosen and exported to from_score.csv\n');
-    fprintf(['  -- the analysis is now a spreadsheet a colleague can ' ...
-             'edit.\n']);
+    fprintf('\n  exported to from_score.csv\n');
+    fprintf(['  -- the analysis is then a spreadsheet a colleague can ' ...
+             'edit,\n  to read pitch at r = 1, say, or to set the lone ' ...
+             'notes aside.\n']);
 else
     fprintf('  (score fixture not found; skipping)\n');
 end
 
 fprintf('\nFiles written to %s\n', outDir);
+
+% The demo leaves the toolbox as it found it: the defaults it set at the
+% top are restored here.
+mptDefaults(prevDefaults);

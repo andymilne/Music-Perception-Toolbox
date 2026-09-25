@@ -31,7 +31,7 @@ PER  = [0.0, 0.0];
 
 % Deterministic passage with a clean (+3, -3, +5) statement at 1-based
 % notes 9..12, bound into ordered relative four-note super-events plus a
-% flat onset-time axis.
+% flat onset-time attribute.
 N     = 16;
 pitch = [0 2 4 5 7 5 4 2 0 3 0 5 7 9 7 5] + 60;
 onset = cumsum(repmat(0.5, 1, N));
@@ -160,7 +160,9 @@ results(end+1, :) = {'windowedSimilarity specs=[] == flat', isequal(aRes, bRes)}
 eIv  = [0 3 0 5];
 ePit = [60 + eIv, 60 + eIv];
 eOn  = [0 1 2 3, 40 41 42 43];                 % wide rest around t = 20
-eCtr = [0 20 40];                              % 20 falls in the rest
+% Each super-event is timed at its span's last onset (end-aligned
+% binding), so the two statements sit at t = 3 and t = 43.
+eCtr = [3 20 43];                              % 20 falls in the rest
 eNe  = numel(ePit);
 % plain
 [epbP, ewbP, esbP] = unpackPreMaet(bindEvents({ePit, eOn}, [], [4 1], 'step', 1, 'relOuter', true));

@@ -11,13 +11,18 @@
 %    - The root of the fifth (which determines the fifth = root + 700)
 %    - The position of the remaining note (the "third")
 %
-%  These two parameters form the axes of a 12x12 grid, centred on the
-%  reference triad. The colour at each grid point indicates the SPCS with
-%  the reference triad. The Euclidean distance between any two grid points
-%  equals the voice-leading distance between the corresponding triads.
+%  These two parameters form the axes of a 12 x 12 grid, centred on the
+%  reference triad. The shade at each grid point indicates the SPCS with
+%  the reference triad. Distance on the grid indicates the Euclidean
+%  voice-leading distance between the corresponding triads, except that a
+%  horizontal step moves two voices (the root and the fifth), so it
+%  corresponds to a voice-leading distance sqrt(2) times as large as a
+%  vertical step of the same size.
 %
 %  Uses: simMaet (batched-raw, broadcast form, with 'spectrum')
 %  (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_triad_spcs_grid.py.
 
 %% === User-adjustable parameters ===
 

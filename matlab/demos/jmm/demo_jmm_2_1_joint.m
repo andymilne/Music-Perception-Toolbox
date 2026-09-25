@@ -11,7 +11,8 @@
 % Analysis 2.1: the motif of Coltrane's Acknowledgement as a joint
 % object --- the interval pattern together with the rhythm it is set in.
 %
-% Analysis 2.2 recovers the four-note cell from pitch alone. Adding onset
+% Analysis 2.2 (Online Supplement, Section 8.1) recovers the four-note
+% motif from pitch alone. Adding onset
 % time as a second attribute asks for agreement in pitch and rhythm at
 % once: the two attributes are joined by the tensor product, so the joint
 % density over interval and inter-onset-interval super-events ranks a
@@ -43,21 +44,21 @@
 % intervals.
 %
 % A relative density is read in translation-reduced coordinates: an
-% r-tuple minus its first value, so a cell's coordinates are its
-% cumulative intervals. Both the cells and the slice grids are written
+% r-tuple minus its first value, so a super-event's coordinates are its
+% cumulative intervals. Both the super-events and the slice grids are written
 % that way for the relative route below.
 %
 % Pre-MAET structure:
 %
-%     attribute    order  sigma                rel  per
-%     ----------   -----  -------------------  ---  ---
-%     dp           3      sqrt(2) * 0.15 st    no   no   differenced route
-%     dt           3      sqrt(2) * 0.125 QN   no   no   differenced route
-%     pitch        4      0.15 st              yes  no   relative route
-%     onset        4      0.125 QN             yes  no   relative route
+%     attribute    r      sigma                       rel  per
+%     ----------   -----  --------------------------  ---  ---
+%     dp           3      sqrt(2) * 0.15 semitones    no   no   differenced route
+%     dt           3      sqrt(2) * 0.125 QN          no   no   differenced route
+%     pitch        4      0.15 semitones              yes  no   relative route
+%     onset        4      0.125 QN                    yes  no   relative route
 %
 %     Ordered (exch = 0) throughout; the two attributes are tensored.
-%     Estimator: the density read at each cell.
+%     Estimator: the density read at each super-event.
 %
 % Data: jmm.acknowledgement (the solo, from your own MIDI transcription at
 % data/AwakeningSolo.mid). Toolbox: preMaetFromAttrTable, differenceEvents,
@@ -84,10 +85,10 @@ prevDefaults = mptDefaults('showHints', false);
 
 SIGMA_PITCH = 0.15;            % semitones (15 cents): the per-pitch uncertainty
 SIGMA_TIME  = 0.125;           % QN (a thirty-second note): the per-onset one
-R_DIFF      = 3;               % bound interval triples (a four-note cell)
-R_REL       = 4;               % bound pitch quadruples (the same cell)
+R_DIFF      = 3;               % bound interval triples (a four-note motif)
+R_REL       = 4;               % bound pitch quadruples (the same motif)
 TOP         = 6;               % motifs shown in the ranking
-ALS_IV      = [3 -3 5];        % +m3, -m3, +P4: the "A Love Supreme" cell
+ALS_IV      = [3 -3 5];        % +m3, -m3, +P4: the "A Love Supreme" motif
 ALS_RHYTHM  = [0.5 1.0 0.5];   % its rhythm: eighth, quarter, eighth
 FIRST_IOI   = 0.5;             % the motif's first IOI: the slice's fixed value
 
@@ -128,9 +129,9 @@ densR = evalMaet(jointR, {cumsum(ivR, 1), cumsum(ioiR, 1)}, 'verbose', false);
 [classR, rhythmR, countR, meanR] = localRank(ivR, ioiR, densR);
 
 % --- report -----------------------------------------------------------------
-fprintf('\ndifferenced: %d cells, %d distinct (interval, rhythm) classes\n', ...
+fprintf('\ndifferenced: %d super-events, %d distinct (interval, rhythm) classes\n', ...
         size(ivD, 2), size(classD, 1));
-fprintf('relative:    %d cells, %d distinct classes\n\n', ...
+fprintf('relative:    %d super-events, %d distinct classes\n\n', ...
         size(pr{1}, 2), size(classR, 1));
 fprintf('%4s  %16s  %14s  %5s  %11s  %9s\n', 'rank', 'interval class', ...
         'rhythm (QN)', 'count', 'differenced', 'relative');
@@ -147,7 +148,7 @@ for i = 1:TOP
             countD(i), meanD(i), meanR(j), mark);
 end
 isAls = ismember(classD, ALS_IV, 'rows');
-fprintf('\nthe cell %s is stated %d times, in %d rhythms: %s\n', ...
+fprintf('\nthe motif %s is stated %d times, in %d rhythms: %s\n', ...
         localTriple(ALS_IV), sum(countD(isAls)), sum(isAls), ...
         strjoin(arrayfun(@(k) sprintf('(%s) x %d', ...
             localRhythm(rhythmD(k, :)), countD(k)), find(isAls).', ...
@@ -220,9 +221,9 @@ mptDefaults(prevDefaults);
 
 
 function [classes, rhythms, counts, means] = localRank(intervals, iois, density)
-%LOCALRANK  Group cells by interval triple and rhythm, and rank the classes.
+%LOCALRANK  Group super-events by interval triple and rhythm, and rank the classes.
 %
-%   The density at a cell already equals the class's recurrence --- every
+%   The density at a super-event already equals its class's recurrence --- every
 %   member of a class sits at the same point, so each sees all c copies.
 %   Summing over the members would square that, so the class mean is what
 %   recovers the count. Inter-onset intervals are grouped to the sixteenth
@@ -245,7 +246,7 @@ function s = localTriple(k)
 end
 
 function s = localRhythm(k)
-%LOCALRHYTHM  A cell's inter-onset intervals in QN, compactly.
+%LOCALRHYTHM  A motif's inter-onset intervals in QN, compactly.
     s = strjoin(arrayfun(@(v) sprintf('%g', v), k, ...
                          'UniformOutput', false), char(183));
 end

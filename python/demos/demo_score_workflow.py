@@ -56,6 +56,8 @@ grid_attr_table, pre_maet_from_attr_table, select_pre_maet, build_maet,
 sim_maet: it grids because the structural role of step 4 needs every
 event to hold the same voices, and it selects because the question is
 about two chords out of the 272.
+
+The MATLAB mirror is demo_scoreWorkflow.m.
 """
 
 import os
@@ -69,6 +71,10 @@ SCORE = os.path.join(os.path.dirname(__file__), "jmm", "data",
 
 
 def main():
+    # Keep the dispatcher's per-call announcements out of the printed
+    # results (show_hints gates only those); restored at the end.
+    prev_defaults = mpt.set_default(show_hints=False)
+
     # --- 1. Read -------------------------------------------------------
     # One row per sounding note. A column is present only where the
     # source carries it: this is MusicXML, so it has voice, staff,
@@ -97,7 +103,7 @@ def main():
     # A grid makes the event index a uniform index of time, and gives
     # every event the same voices, which the structural encoding of
     # step 4 needs. A sixteenth is the shortest note value here.
-    # -> demo_score_grid.py for the step and the weight policies.
+    # See demo_score_grid.py for the step and the weight policies.
     grid = mpt.grid_attr_table(table, 0.25)
     print(f"gridded: {grid['grid_index'].nunique()} points, {len(grid)}"
           " rows; the first five:")
@@ -105,15 +111,15 @@ def main():
                 "pitch", "part", "duration_beats"]].head().to_string(), "\n")
 
     # --- 4. Convert to a pre-MAET --------------------------------------
-    # An attribute is a column of the table read under a set of
-    # parameters, so each entry names both. Three things worth knowing
-    # happen here.
+    # An attribute is a column of the attribute table read under a set of
+    # parameters (specs), so each entry names both. Three things worth
+    # knowing happen here.
     #
     # 'pitch' is listed twice, so the same values become two attributes
-    # under different kernels: one reads pitch class, wrapping at the
+    # under different specs: one reads pitch class, wrapping at the
     # octave, and the other pitch height, which does not. Their product
-    # is Shepard's helix, so how much two chords agree can be asked
-    # separately of their pitch classes and of their registers.
+    # is Shepard's helix, and widening or narrowing pitchHeight's sigma
+    # loosens or tightens how much register counts.
     #
     # A score fixes what the values are and not how tolerant a match is,
     # nor how many of an event's values a tuple takes, so sigma, r, and
@@ -122,12 +128,14 @@ def main():
     # r and exch under a structural role, and 'read as written' for rel
     # and is_per.
     #
-    # The part is given a role, which says how a categorical column
-    # reaches the pre-MAET. There are three:
+    # A categorical column reaches the pre-MAET only through a role,
+    # which determines how its levels are represented; a column with no
+    # role is left out. Here part (Soprano, Alto, Tenor, Bass) is given
+    # a role. There are three roles:
     #   'ordered_multiset'    structural: the level becomes a position
     #                         within one attribute, so the four voices
     #                         occupy four slots and matching is voice by
-    #                         voice. Used here, and it fixes r = 4 and
+    #                         voice. Used here, and it sets r = 4 and
     #                         exch = False, which is why neither is given.
     #   'separate_attributes' structural: the level becomes an attribute
     #                         of its own, one per voice.
@@ -135,9 +143,11 @@ def main():
     #                         of a simplex vertex on an attribute of its
     #                         own, so two chords can match on some voices
     #                         and not others.
-    # -> demo_score_categoricals.py for what each asks of the same music.
+    # See demo_score_categoricals.py for how these differ when applied to
+    # the same music.
     #
-    # The arguments after the attributes carry the rest of the reading.
+    # The keyword arguments after the attributes carry the rest of the
+    # reading.
     # time="beats" puts the onset attribute's values in quarter notes
     # rather than in the default seconds, matching the unit the grid of
     # step 3 was built over.
@@ -147,7 +157,6 @@ def main():
         dict(column="pitch", name="pitchHeight", sigma=8.0),
         dict(column="onset", sigma=0.5)),
         time="beats", roles={"part": "ordered_multiset"})
-    p_attr, w_attr, specs = mpt.unpack_pre_maet(pm)
     mpt.show_pre_maet(pm, max_events=4, title="the pre-MAET, first events")
     print()
 
@@ -164,23 +173,22 @@ def main():
     # which fall on beats 7 and 15. The onset attribute is searched for
     # those two beats to get their event indices; on this grid of
     # sixteenths they are not events 7 and 15.
-    full = mpt.pack_pre_maet(p_attr, w_attr, specs)
-    onsets = p_attr[2][0]
+    onsets = mpt.unpack_pre_maet(pm)[0][2][0]
     events = [int(np.nonzero(np.isclose(onsets, b))[0][0])
               for b in (7.0, 15.0)]
     cadence = [mpt.select_pre_maet(
-        full, attributes=["pitchClass", "pitchHeight"], events=[n])
+        pm, attributes=["pitchClass", "pitchHeight"], events=[n])
         for n in events]
     for k, pm_k in enumerate(cadence, start=1):
         mpt.show_pre_maet(pm_k, title=f"cadence {k} tonic")
         print()
 
-    # --- 6. Ask something ----------------------------------------------
+    # --- 6. Run a MAET analysis ----------------------------------------
     # The two tonic chords are the same four pitch classes, differing
     # only in the octave of the bass. Whether that counts as the same
-    # chord is what the pitch-height width decides, the two attributes
-    # being separate. build_maet's sigma overrides the specs', so the
-    # sweep needs no rebuild.
+    # chord is what the pitch-height sigma decides. build_maet's sigma
+    # overrides the specs', so the sweep over pitch height's sigma needs
+    # no new pre-MAET.
     print("similarity of the two, against the pitch-height width:")
     for sigma_height in (1.0, 4.0, 16.0, 64.0):
         densities = [mpt.build_maet(pm_k, sigma=[0.5, sigma_height],
@@ -191,6 +199,7 @@ def main():
     print("\nnarrow: two different chords, the bass octave counting."
           "\nwide:   one chord, the octave forgiven and the pitch classes"
           " agreeing.")
+    mpt.set_default(**prev_defaults)
 
 
 if __name__ == "__main__":

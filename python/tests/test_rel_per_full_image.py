@@ -1,6 +1,6 @@
 """Tests for the full-image relative-periodic inner product.
 
-The relative-periodic inner product marginalises a rigid common shift.
+The relative-periodic inner product marginalizes a rigid common shift.
 Taking that average over a kernel carrying every periodic image yields
 the lattice-sum (full-image) measure exactly; taking it over a
 nearest-image kernel yields a third measure, which is neither the
@@ -304,7 +304,7 @@ def test_eval_departs_from_the_nearest_image_kernel_as_sigma_grows():
 # Non-periodic relative: the translation window must cover its support
 # ---------------------------------------------------------------------
 #
-# In non-periodic relative mode every pair marginalises a translation
+# In non-periodic relative mode every pair marginalizes a translation
 # over a window of shared width, positioned per pair. The support of the
 # cross integrand runs from (min_y - max_x) to (max_y - min_x), so its
 # midpoint is the midrange offset. Centring the window on the weighted

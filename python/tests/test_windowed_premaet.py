@@ -4,9 +4,9 @@ Each new-function result is checked against the equivalent inline pipeline
 (``weight_events`` / ``translate_attributes`` / ``build_maet`` /
 ``entropy_maet`` / ``sim_maet``) it replaces, so the functions
 are pinned to the hand-written composition rather than to remembered
-numbers. Both argument surfaces are exercised: the single-axis form
-(``window_attr`` / ``centres`` / ``drop_window_attr``, plus the decoupled
-``query_centres`` correlogram) and the multi-axis form (``sweep`` / ``drop``).
+numbers. Both argument forms are exercised: the one-window-attribute form
+(``window_attr`` / ``centres`` / ``drop_window_attr``, plus the ``offsets``
+correlogram) and the multi-window-attribute form (``sweep`` / ``drop``).
 """
 
 import numpy as np
@@ -77,7 +77,7 @@ def test_entropy_retain_axis(triple):
 
 
 def test_entropy_drop_r_ge_2_now_allowed(triple):
-    """Dropping a bundled axis is allowed: the centroid `locate` reduces it
+    """Dropping a bundled attribute is allowed: the centroid `locate` reduces it
     for the window, then it is removed from the density (deletion is no
     longer restricted to r = 1)."""
     p_attr, centres = triple
@@ -89,14 +89,17 @@ def test_entropy_drop_r_ge_2_now_allowed(triple):
     assert np.all(np.isfinite(got))
 
 
-def test_entropy_marginalise_not_implemented(triple):
-    """marginalise (integrate out a retained axis) is reserved but unimplemented."""
+@pytest.mark.parametrize("spelling", ["marginalize", "marginalise"])
+def test_entropy_marginalize_not_implemented(triple, spelling):
+    """marginalize (integrate out a compared attribute), under either
+    spelling, is reserved but unimplemented."""
     p_attr, centres = triple
     with pytest.raises(NotImplementedError):
         windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                          [False, False], [0.0, 0.0], centres,
                          context_window=(1.0, W_WIDTH), window_attr=1,
-                         drop_window_attr=False, marginalise=0, verbose=False)
+                         drop_window_attr=False, verbose=False,
+                         **{spelling: 0})
 
 
 def test_entropy_requires_width(triple):
@@ -111,7 +114,7 @@ def test_entropy_requires_width(triple):
 
 
 # --------------------------------------------------------------------------
-# windowed_similarity: single-axis surface
+# windowed_similarity: one-window-attribute form
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize("normalize", ["oneSidedDenom", "cosine"])
 def test_similarity_locked(triple, query, normalize):
@@ -133,8 +136,8 @@ def test_similarity_locked(triple, query, normalize):
 
 
 def test_similarity_decoupled_correlogram(triple, query):
-    """2-D ``query_centres`` fixes the window at each anchor while the query
-    slides across the lags: the anchor x lag correlogram surface."""
+    """``offsets`` with ``centres`` fix the window at each anchor while the
+    query slides across the lags: the anchor x lag correlogram surface."""
     p_attr, centres = triple
     pitch, onset = p_attr
     mu_q = float(query[1].mean())
@@ -153,7 +156,7 @@ def test_similarity_decoupled_correlogram(triple, query):
     qc2d = anchors[:, None] - tau[None, :]
     got = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
                               [False, False], [False, False], [0.0, 0.0], anchors,
-                              query_centres=qc2d, context_window=(1.0, 2 * half),
+                              offsets=qc2d - mu_q, context_window=(1.0, 2 * half),
                               normalize="oneSidedDenom", window_attr=1, drop_window_attr=False, verbose=False)
     assert got.shape == (len(anchors), len(tau))
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True)
@@ -183,10 +186,10 @@ def test_centres_and_generative_mutually_exclusive(triple, query):
 
 
 # --------------------------------------------------------------------------
-# windowed_similarity: multi-axis surface and locate
+# windowed_similarity: multi-window-attribute form and locate
 # --------------------------------------------------------------------------
 def test_single_axis_equals_one_entry_sweep(triple, query):
-    """The single-axis surface is exactly the one-entry multi-axis form."""
+    """The one-window-attribute form is exactly the one-entry multi-window-attribute form."""
     p_attr, centres = triple
     single = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
                                  [False, False], [False, False], [0.0, 0.0], centres,

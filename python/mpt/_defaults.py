@@ -69,7 +69,7 @@ Usage::
     >>> mpt.get_defaults()
     {'truncation_sigmas': 6.0, 'kernel_precision': 'double'}
 
-    >>> mpt.set_default(truncation_sigmas=math.inf)   # exact (untruncated)
+    >>> mpt.set_default(truncation_sigmas=math.inf)   # the accuracy floor (1e-12)
     >>> mpt.get_default('truncation_sigmas')
     inf
 
@@ -425,7 +425,7 @@ def _validate_one(name: str, value: Any) -> Any:
             )
         if not (v > 0):
             raise ValueError(
-                f"'truncation_sigmas' must be positive (math.inf to disable); "
+                f"'truncation_sigmas' must be positive (math.inf for the accuracy floor); "
                 f"got {value!r}"
             )
         return v
@@ -565,7 +565,8 @@ def show_defaults() -> None:
         "Current MPT defaults:",
         "",
         f"  truncation_sigmas: {trunc_str:<12}  Gaussian kernel truncation radius, in sigmas.",
-        "                                   inf = exact; larger is more accurate, slower.",
+        "                                   inf = the accuracy floor (~7.43, 1e-12);",
+        "                                   larger is more accurate, slower.",
         "                                   Relative error exp(-k^2/2): 4 -> 3.4e-4,",
         "                                   5 -> 3.7e-6, 6 (default) -> 1.5e-8.",
         f"  kernel_precision : {prec_str:<12}  Kernel-matrix arithmetic precision.",

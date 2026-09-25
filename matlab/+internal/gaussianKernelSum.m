@@ -22,11 +22,14 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %   each discarded entry, sits below the floor. Omit when the per-query
 %   values are consumed individually rather than summed.
 %
-%   opts.truncationSigmas (Inf default): if finite, centres beyond a
-%   Q-ball of squared radius (truncationSigmas * sigma)^2 are skipped
-%   via a grid-bucket spatial index. Discarded centres' kernel value
+%   opts.truncationSigmas (default from mptDefaults): centres beyond a
+%   Q-ball of squared radius (truncationSigmas * sigma)^2 contribute
+%   nothing: they are skipped via a grid-bucket spatial index where one
+%   pays, and masked out on the exhaustive path otherwise, so the result
+%   does not depend on which is taken. Discarded centres' kernel value
 %   is bounded by exp(-truncationSigmas^2 / 2) (e.g. ~1.5e-8 at the
-%   recommended truncationSigmas=6). At Inf the computation is exact.
+%   recommended truncationSigmas=6). Inf resolves to the finite
+%   accuracy-floor width (floor 1e-12) via internal.accuracyFloor.
 %
 %   opts.kernelPrecision ('double' default): 'single' casts the hot-loop
 %   intermediate arrays to single precision (~2x speedup on most
@@ -36,7 +39,9 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %   Periodic mode (opts.isPer = true), 1-D abs: truncates on the circle
 %   when the window is narrower than half the circumference
 %   (2*truncationSigmas*sigma < period); otherwise, and for the rel or
-%   multi-axis periodic cases, the exact wrapped path is taken.
+%   multi-axis periodic cases, the exhaustive wrapped path is taken,
+%   which applies the same rule (the full-image image sum per image,
+%   every other form by masking pairs outside the Q-ball).
 %
 %   Inputs:
 %     C       (dim, nJ) double - centres
@@ -141,6 +146,17 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
     end
     inv2s2 = 1 / (2 * sigma_w^2);
 
+    % Squared Q-ball radius of the truncation rule, for the exhaustive
+    % branches below: a pair with Q > (k sigma)^2 has kernel value below
+    % exp(-k^2/2) and is dropped, exactly as the bucketed paths drop it
+    % (the abs-per full-image image sum applies the rule inside
+    % internal.wrappedGaussian1d instead). Empty disables the mask. Twin
+    % of the Python gaussian_kernel_sum q_cutoff.
+    qCutoff = [];
+    if useTruncation
+        qCutoff = (double(opts.truncationSigmas) * double(sigma))^2;
+    end
+
     if useTruncation && ~opts.isPer
         % 1-D abs case: vectorised path via sorted-centres +
         % searchsorted, much faster than the general per-query loop.
@@ -157,11 +173,15 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
             % dimension the (dim, 3^dim, nQ) neighbour expansion alone
             % can exhaust memory (r = 8 tuple centres against 9 centres).
             % The exact path visits every pair, chunked to the kernel
-            % budget, and agrees with the bucketed sum inside the
-            % truncation floor, the only scale either is stated on.
+            % budget, and applies the same Q-ball cutoff as the bucketed
+            % sum, so the two agree exactly rather than only to within
+            % the floor. Without the cutoff this branch -- the one every
+            % small multi-dimensional case takes, including every
+            % matrix-valued kernel covariance after whitening -- would
+            % silently skip truncation.
             v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
                 opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
-                opts.wrap, opts.truncationSigmas);
+                opts.wrap, opts.truncationSigmas, qCutoff);
         end
     elseif useTruncation && opts.isPer && opts.isRel ...
             && localRelPerCullWorthwhile(size(C_w, 1), nJ, nQ, opts.r, ...
@@ -185,12 +205,12 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         else
             v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
                 opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
-                opts.wrap, opts.truncationSigmas);
+                opts.wrap, opts.truncationSigmas, qCutoff);
         end
     else
         v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
             opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
-            opts.wrap, opts.truncationSigmas);
+            opts.wrap, opts.truncationSigmas, qCutoff);
     end
 
     if strcmp(opts.kernelPrecision, 'single')
@@ -224,7 +244,13 @@ end
 
 
 function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, ...
-                                  inv2s2, sigma, wrap, truncationSigmas)
+                                  inv2s2, sigma, wrap, truncationSigmas, ...
+                                  qCutoff)
+%LOCALEXACTKERNELSUM  Visit every centre-query pair, chunked to the budget.
+%   qCutoff, when non-empty, is the squared Q-ball radius (k*sigma)^2 of
+%   the truncation rule: pairs with Q above it contribute zero, exactly
+%   as in the bucketed path. The abs-per full-image image sum truncates
+%   inside internal.wrappedGaussian1d and ignores it.
     dim = size(C, 1);
     nJ  = size(C, 2);
     nQ  = size(X, 2);
@@ -256,7 +282,7 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, ...
     v = zeros(1, nQ, 'like', C);
     if bytesNeeded <= memLimit
         v = evalChunk(C, wJ, X, nQ, dim, nJ, isRel, r, isPer, period, ...
-            inv2s2, sigma, wrap, truncationSigmas, uVals, uInv);
+            inv2s2, sigma, wrap, truncationSigmas, uVals, uInv, qCutoff);
     else
         chunkSize = max(1, floor(memLimit / ...
             ((2 * dim + 2) * double(nJ) * bytesPerScalar)));
@@ -265,14 +291,14 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, ...
             idx = c0:c1;
             v(idx) = evalChunk(C, wJ, X(:, idx), numel(idx), ...
                 dim, nJ, isRel, r, isPer, period, inv2s2, sigma, ...
-                wrap, truncationSigmas, uVals, uInv);
+                wrap, truncationSigmas, uVals, uInv, qCutoff);
         end
     end
 end
 
 function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
                         inv2s2, sigma, wrap, truncationSigmas, ...
-                        uVals, uInv) %#ok<INUSL>
+                        uVals, uInv, qCutoff) %#ok<INUSL>
     % Abs-per: full-image via the shared wrapped-Gaussian helper
     % (image-sum or Fourier by cost; density-kernel convention with
     % exponent_denominator = 2). Single-image opt-in reduces to the
@@ -364,6 +390,11 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
     % v2.0 evalFull implementation (in all modes except
     % periodic+relative, where v2.X uses the pairwise-wrap form).
     E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJ, nQc);
+    if ~isempty(qCutoff)
+        % Truncation rule on the exhaustive path: drop every pair outside
+        % the Q-ball, matching the bucketed path's keep mask.
+        E(reshape(Qvec(:), nJ, nQc) > qCutoff) = 0;
+    end
     v = wJ(:)' * E;
 end
 

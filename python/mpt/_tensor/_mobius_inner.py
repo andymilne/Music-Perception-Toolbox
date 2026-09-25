@@ -7,7 +7,7 @@ contribution to the inner product between every pair of events, which the
 cosine path then combines across attributes.
 
 The routines divide by the attribute's mode. Absolute attributes contract
-their orbit tables directly. Relative attributes marginalise a translation
+their orbit tables directly. Relative attributes marginalize a translation
 over a grid, periodic ones over the shared uniform grid on [0, P) and
 non-periodic ones over a truncated line grid; spectra get a dedicated
 branch that exploits the shared partial structure. The closed-form
@@ -685,7 +685,7 @@ def _rel_per_image_count(sigma, period, truncation_sigmas):
     """Number of periodic images each side needed for the relative-periodic
     kernel to reach the caller's own accuracy floor.
 
-    The relative-periodic inner product marginalises a rigid common shift.
+    The relative-periodic inner product marginalizes a rigid common shift.
     Taking that average over a kernel that carries every periodic image
     yields the lattice-sum (full-image) measure exactly; taking it over a
     nearest-image kernel yields a different measure, which departs from it
@@ -905,7 +905,7 @@ def _rel_inner_batched(
     """Batched relative-mode case of ``_ma_per_attr_inner_matrix``
     (periodic and non-periodic), all (event_X, event_Y) pairs at once.
 
-    Every pair's inner product marginalises a translation u over a
+    Every pair's inner product marginalizes a translation u over a
     grid. In periodic mode the grid is the shared uniform grid over
     ``[0, P)`` with ``auto_ntau_default(period, sigma)`` nodes — the
     single node-count source shared with the flat single-multiset and

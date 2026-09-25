@@ -11,9 +11,9 @@
 % Analysis 2.2: data-driven motif discovery in Coltrane's Acknowledgement.
 %
 % The melody is read as one event per note carrying pitch. The recurring
-% four-note cell is then recovered as a peak in the density of short
+% four-note motif is then recovered as a peak in the density of short
 % interval patterns, without being supplied in advance. Two routes reach
-% the same transposition-invariant cell.
+% the same transposition-invariant motif.
 %
 % Differenced route. Pitch is first-differenced to melodic intervals,
 % collapsing every transposition of a figure onto the same interval
@@ -24,7 +24,7 @@
 % triple stands out as a local maximum. Reading the density at every
 % observed triple and ranking turns motif discovery into peak finding.
 %
-% Relative route. The same cell is reached without differencing, by
+% Relative route. The same motif is reached without differencing, by
 % binding four consecutive pitches into an ordered super-event taken
 % relative: the common transposition is removed, so transposed statements
 % again coincide, and three degrees of freedom remain --- the dimension
@@ -39,18 +39,18 @@
 % relative density's slice, absent from the differenced one.
 %
 % A relative density is read in translation-reduced coordinates: an
-% r-tuple minus its first value, so a cell's coordinates are its
-% cumulative intervals. Both the cells and the slice grid are written
+% r-tuple minus its first value, so a super-event's coordinates are its
+% cumulative intervals. Both the super-events and the slice grid are written
 % that way for the relative route below.
 %
 % Pre-MAET structure:
 %
-%     attribute    order  sigma              rel  per
-%     ----------   -----  -----------------  ---  ---
-%     dp           3      sqrt(2) * 0.15 st  no   no     differenced route
-%     pitch        4      0.15 st            yes  no     relative route
+%     attribute    r      sigma                     rel  per
+%     ----------   -----  ------------------------  ---  ---
+%     dp           3      sqrt(2) * 0.15 semitones  no   no     differenced route
+%     pitch        4      0.15 semitones            yes  no     relative route
 %
-%     Ordered (exch = 0) in both. Estimator: the density read at each cell.
+%     Ordered (exch = 0) in both. Estimator: the density read at each super-event.
 %
 % Data: jmm.acknowledgement (the solo, from your own MIDI transcription at
 % data/AwakeningSolo.mid). Toolbox: preMaetFromAttrTable, differenceEvents,
@@ -75,13 +75,13 @@ SAVE_FIGURES = false;
 prevDefaults = mptDefaults('showHints', false);
 
 SIGMA_PITCH = 0.15;        % semitones (15 cents): the per-pitch uncertainty
-R_DIFF      = 3;           % bound interval triples (a four-note cell)
-R_REL       = 4;           % bound pitch quadruples (the same cell)
+R_DIFF      = 3;           % bound interval triples (a four-note motif)
+R_REL       = 4;           % bound pitch quadruples (the same motif)
 TOP         = 6;           % motifs shown in the ranking
-ALS         = [3 -3 5];    % +m3, -m3, +P4: the "A Love Supreme" cell
+ALS         = [3 -3 5];    % +m3, -m3, +P4: the "A Love Supreme" motif
 
-C_ALS   = [0.761 0.314 0.031];   % the recurring "A Love Supreme" cell
-C_OTHER = [0.122 0.306 0.722];   % the surrounding recurring cells
+C_ALS   = [0.761 0.314 0.031];   % the recurring "A Love Supreme" motif
+C_OTHER = [0.122 0.306 0.722];   % the surrounding recurring motifs
 
 % --- the melody as a pre-MAET, one event per note ---------------------------
 notes = jmm.acknowledgement();
@@ -98,7 +98,7 @@ melody = preMaetFromAttrTable(notes, 'attributes', { ...
 diffRoute = bindEvents(differenceEvents(melody, 1), R_DIFF, 'step', 1);
 showPreMaet(diffRoute, 'maxEvents', 3);
 [pd, ~, ~] = unpackPreMaet(diffRoute);
-cellsD = pd{1};                                   % 3 x nCells intervals
+cellsD = pd{1};                                   % 3 x n intervals, one per super-event
 densD = evalMaet(buildMaet(diffRoute, 'verbose', false), cellsD, ...
                  'verbose', false);
 [classD, countD, meanD] = localRank(cellsD, densD);
@@ -107,7 +107,7 @@ densD = evalMaet(buildMaet(diffRoute, 'verbose', false), cellsD, ...
 relRoute = bindEvents(melody, R_REL, 'step', 1, 'relOuter', true);
 showPreMaet(relRoute, 'maxEvents', 3);
 [pr, ~, ~] = unpackPreMaet(relRoute);
-cellsR = pr{1};                                   % 4 x nCells pitches
+cellsR = pr{1};                                   % 4 x n pitches, one per super-event
 ivR = diff(cellsR, 1, 1);                         % its interval triples
 densR = evalMaet(buildMaet(relRoute, 'verbose', false), cumsum(ivR, 1), ...
                  'verbose', false);
@@ -124,7 +124,7 @@ for i = 1:TOP
     k = classD(i, :);
     [~, j] = ismember(k, classR, 'rows');
     if isequal(k, ALS)
-        mark = '  <- A Love Supreme cell';
+        mark = '  <- A Love Supreme motif';
     else
         mark = '';
     end
@@ -136,11 +136,11 @@ same = isempty(setdiff(classD(1:TOP + 2, :), classR(1:TOP + 2, :), 'rows'));
 fprintf('\ntop-%d interval-class set identical: %d\n', TOP + 2, same);
 [~, rankD] = ismember(ALS, classD, 'rows');
 [~, rankR] = ismember(ALS, classR, 'rows');
-fprintf('A Love Supreme cell %s: rank %d (differenced), rank %d (relative)\n', ...
+fprintf('A Love Supreme motif %s: rank %d (differenced), rank %d (relative)\n', ...
         localTriple(ALS), rankD, rankR);
 
 % --- the (+3, i2, i3) slice of each density ---------------------------------
-% The plane of cells sharing the leading motif's first interval. The grid
+% The plane of super-events sharing the leading motif's first interval. The grid
 % is written as interval triples for the differenced route and as their
 % cumulative sums for the relative one.
 gridStep = SIGMA_PITCH * sqrt(2) / 3;
@@ -188,9 +188,9 @@ mptDefaults(prevDefaults);
 
 
 function [classes, counts, means] = localRank(intervals, density)
-%LOCALRANK  Group cells by their interval triple and rank the classes.
+%LOCALRANK  Group super-events by their interval triple and rank the classes.
 %
-%   The density at a cell already equals the class's recurrence --- every
+%   The density at a super-event already equals its class's recurrence --- every
 %   member of a class sits at the same point, so each sees all c copies.
 %   Summing over the members would square that, so the class mean is what
 %   recovers the count.

@@ -9,16 +9,27 @@ An example of this type of plot appears as Example 6.3 / Figure 4 in:
   Modelling the similarity of pitch collections with expectation tensors.
   Journal of Mathematics and Music, 5(1), 1-20.
 
-Port of demo_edoApprox.m from the MATLAB Music Perception Toolbox v3.
+For each value of n, the n-EDO multiset {0, 1200/n, 2*1200/n, ...,
+(n-1)*1200/n} is compared to the reference chord. EDOs whose pitch
+classes include good approximations to the chord's intervals will have
+higher similarity.
+
+An n-EDO is a one-dimensional tuning: every interval is a multiple of a
+single generator (1200/n cents). This is why the paper calls these
+"one-dimensional approximations". Separately, because r = 2 and
+is_rel = True, the expectation tensor itself is a one-dimensional
+density over intervals (dim = 1).
+
+Uses: sim_maet (batched-raw, broadcast form).
 
 Requires: matplotlib (pip install matplotlib)
+
+The MATLAB mirror is demo_edoApprox.m.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import mpt
 
 # ===================================================================
@@ -29,7 +40,12 @@ import mpt
 #   4:5:6 major triad: [0, 386.31, 701.96]
 #   5:6:7 subminor triad: [0, 315.64, 582.51]
 #   4:5:6:7 dominant seventh: [0, 386.31, 701.96, 968.83]
-ref_pitches = [0, 1200 * np.log2(5 / 4), 1200 * np.log2(6 / 4)]
+# The pitches below are 1:3:5, which has the same pitch classes as
+# 4:5:6; the tensor is periodic at the octave, so the two give identical
+# results.
+ref_pitches = np.array([0, np.log2(3), np.log2(5)]) * 1200
+ref_weights = None   # weights for reference pitches (None = all ones;
+                     # if specified, must be same length as ref_pitches)
 ref_name = '4:5:6 JI major triad'
 
 # Range of EDOs to test
@@ -37,11 +53,11 @@ n_min = 2
 n_max = 102
 
 # Expectation tensor parameters
-sigma = 10
-r = 2
-is_rel = True
-is_per = True
-period = 1200
+sigma = 6         # Gaussian smoothing width (cents)
+r = 2             # dyad expectation tensor
+is_rel = True     # relative (transposition-invariant)
+is_per = True     # periodic (pitch-class equivalence)
+period = 1200     # one octave in cents
 
 # ===================================================================
 #  Build pitch matrices
@@ -49,12 +65,11 @@ period = 1200
 
 edo_range = np.arange(n_min, n_max + 1)
 n_edos = len(edo_range)
-max_n = n_max
+max_n = n_max     # maximum number of pitches in any EDO
 
 # Reference: a single 1-D vector — broadcast across all EDO rows of
 # p_mat_b by sim_maet.
-
-# EDO multisets: NaN-padded
+# EDO multisets: NaN-padded to max_n columns
 p_mat_b = np.full((n_edos, max_n), np.nan)
 for i, n in enumerate(edo_range):
     edo = np.arange(n) * (1200 / n)
@@ -66,11 +81,10 @@ for i, n in enumerate(edo_range):
 
 print(f"Computing PCS of {n_edos} EDOs against {ref_name}...")
 s = mpt.sim_maet(
-    ref_pitches, None, p_mat_b, None,
+    ref_pitches, ref_weights, p_mat_b, None,
     sigma, r, is_rel, is_per, period,
     verbose=True,
 )
-s = np.round(s, 3)
 print("Done.")
 
 # ===================================================================
@@ -79,7 +93,7 @@ print("Done.")
 
 fig, ax = plt.subplots(figsize=(12, 5))
 
-# Stem plot
+# Stem plot: emphasizes the discrete nature of EDOs
 markerline, stemlines, baseline = ax.stem(
     edo_range, s, linefmt='-', markerfmt='o', basefmt=' '
 )

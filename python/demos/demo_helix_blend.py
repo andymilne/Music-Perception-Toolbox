@@ -1,12 +1,12 @@
 """demo_helix_blend.py
 
-Helix blend: routing pitch through two groups of a MAET.
+Helix blend: routing pitch through two attributes of a MAET.
 
 Demonstrates a multi-attribute expectation tensor pattern in which the
 same pitch values are routed simultaneously through a periodic
-pitch-class group and a linear pitch-height group. Sweeping the
-pitch-height-group sigma while holding the pitch-class-group sigma fixed
-morphs the similarity profile of a motif against a longer stream from
+pitch-class (pc) attribute and a linear pitch-height (ph) attribute.
+Sweeping the pitch-height attribute's sigma while holding the
+pitch-class attribute's sigma fixed morphs the similarity profile of a motif against a longer stream from
 
   * "matches every octave-displaced recurrence equally"   (large sigma_ph)
   * through graded octave tolerance                       (medium)
@@ -20,12 +20,12 @@ Equivalence with Shepard's model. The factored Gaussian
 is equivalent to a Gaussian kernel of width sigma = sigma_pc on the
 pitch-class-cum-height cylinder with stretch h = sigma_pc/sigma_ph.
 Shepard's helix itself has no built-in smoothing; this MAET pattern
-adds it, parametrised naturally in two pitch-domain sigma values.
+adds it, parametrized naturally in two pitch-domain sigma values.
 
 Two technical points. First, the sigmas are density widths (MPT's
 convention throughout the toolbox); the pairwise inner-product kernel
 between two smeared events has effective standard deviation
-sqrt(2)*sigma. Second, the MAET pitch-class group uses shortest-arc
+sqrt(2)*sigma. Second, the pitch-class attribute uses shortest-arc
 distance, so the geometry is the pc cylinder rather than the literal
 3-D Shepard helix (a Euclidean embedding that uses chord distance).
 At sigma_pc values typical of tonal perception the two are
@@ -37,7 +37,7 @@ Two parts:
           heights, with non-pitch-class-overlapping filler between
           instances.
 
-  Part 2. Fugal texture in C minor (BWV 847-inspired, stylised; not
+  Part 2. Fugal texture in C minor (BWV 847-inspired, stylized; not
           transcribed from the score). A six-note subject stated in
           bass, alto, and soprano, with short counter-material
           between entries.
@@ -47,8 +47,10 @@ Each part produces three stacked panels:
   (b) a similarity heatmap over (time offset, sigma_ph),
   (c) three overlaid profile curves at representative sigma_ph values.
 
-Uses: windowed_similarity (event weighting over a raw pre-MAET),
+Uses: windowed_similarity (event weighting of a pre-MAET),
 transform_attributes.
+
+The MATLAB mirror is demo_helixBlend.m.
 """
 
 import numpy as np
@@ -61,14 +63,14 @@ import mpt
 # ==================================================================
 
 # -- Common --
-SIG_PC           = 30.0                                    # pc group sigma (cents)
+SIG_PC           = 30.0                                    # pitch-class attribute sigma (cents)
 SIG_PH_SWEEP    = np.logspace(np.log10(100), np.log10(8000), 25)
 SIG_PH_PROFILES = [200.0, 600.0, 3000.0]                  # three overlaid profiles
-WIN_MIX          = 0.5                                     # rectangular x Gaussian
+WIN_MIX          = 0.5                                     # window shape: 0 Gaussian, 1 rectangular
 
 # -- Part 1 (synthetic) --
 SIG_TIME_1       = 0.10                                    # sec
-WIN_SIZE_TIME_1  = 6.0                                     # effective sd in units of sigma_time
+WIN_SIZE_TIME_1  = 6.0                                     # window sd in units of sigma_time
 OFFSETS_1        = np.arange(-0.5, 12.5 + 1e-9, 0.02)
 
 # -- Part 2 (fugal texture) --
@@ -78,14 +80,14 @@ OFFSETS_2        = np.arange(-0.5, 8.5 + 1e-9, 0.02)
 
 
 # ==================================================================
-#  Core: two-group (pc, ph) + time MAET, and sigma_ph sweep
+#  Core: (pc, ph, time) MAET, and sigma_ph sweep
 # ==================================================================
 
 def helix_pre_maet(pitch_cents, time_sec, sigma_pc, sigma_time):
     """The same pitch values routed through two attributes, plus time.
 
     Attributes: (pitch, pitch, time), read as (pc, ph, time): the first
-    pitch copy is periodic at 1200 cents, the second and the time axis
+    pitch copy is periodic at 1200 cents, the second and the time attribute
     are linear. All r = 1.
 
     The pre-MAET carries its own geometry, so nothing has to be threaded
@@ -115,22 +117,20 @@ def sweep_profiles(q_cents, q_t, c_cents, c_t,
     context).
 
     Windowing is event weighting: at each sweep position the window,
-    centred on that position along the time axis, multiplies the
+    centred on that position along the time attribute, multiplies the
     per-event weights of the context before its density is built, and
-    the query is translated so that its time centroid lands on the same
-    position. The window has standard deviation win_size_time * sigma_time
-    and shape win_mix (0 Gaussian, 1 rectangular).
+    the query is translated by the offset, the window travelling with it
+    (centred on the translated query). The window has standard deviation
+    win_size_time * sigma_time and shape win_mix (0 Gaussian, 1
+    rectangular; between them, a rectangle convolved with a Gaussian of
+    the same total variance).
     """
-    TIME = 2                                     # the swept (window) axis
+    TIME = 2                                     # the window attribute
 
     # The window family has fixed variance sd^2 for every shape; the
     # width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
     sd_time = win_size_time * sigma_time
     context_window = (win_mix, 2.0 * np.sqrt(3.0) * sd_time)
-
-    # Sweep positions are absolute times on the context axis; the plotted
-    # offset is the position relative to the query's time centroid.
-    centres = np.asarray(offsets, dtype=float) + float(np.mean(q_t))
 
     # Only the pitch-height width varies across the sweep, so the two
     # pre-MAETs are built once and each call names that one parameter.
@@ -145,13 +145,16 @@ def sweep_profiles(q_cents, q_t, c_cents, c_t,
         mpt.show_pre_maet(pm_c, max_events=4)
         print()
 
+    # Each call would announce its routing decision; the announcements
+    # are switched off for the loop and restored after it.
+    prev_hints = mpt.set_default(show_hints=False)
     out = np.empty((len(sigma_ph_values), len(offsets)))
     for i, sig_ph in enumerate(sigma_ph_values):
         out[i, :] = mpt.windowed_similarity(
-            pm_c, pm_q, centres, sigma=[None, sig_ph, None],
-            window_attr=TIME, drop_window_attr=False,
-            context_window=context_window, locate="centroid",
+            pm_c, pm_q, offsets=offsets, sigma=[None, sig_ph, None],
+            window_attr=TIME, context_window=context_window,
             normalize="oneSidedDenom", verbose=False)
+    mpt.set_default(**prev_hints)
     return out
 
 
@@ -189,15 +192,16 @@ def build_part1_stream():
 
 
 # ==================================================================
-#  Part 2 -- Fugal texture (BWV 847-inspired, stylised)
+#  Part 2 -- Fugal texture (BWV 847-inspired, stylized)
 # ==================================================================
 
 def build_part2_stream():
     """Six-note subject stated in bass, alto, and soprano.
 
     Between entries, three counter-material notes in a voice other than
-    the entering one; this produces partial pc-overlap (one shared pc
-    per group) that gives a visible but clearly subordinate background.
+    the entering one; this produces partial pitch-class overlap (one
+    shared pitch class with the first counter-material, two with the second) that
+    gives a visible but clearly subordinate background.
     """
     subj_ref = np.array([60, 63, 65, 63, 62, 60])           # C Eb F Eb D C
     cnt1     = np.array([57, 55, 53])                       # A3 G3 F3
@@ -312,7 +316,7 @@ def plot_part(fig, suptitle,
         ax.axvline(po, color="#888", linestyle="--",
                    linewidth=0.7, alpha=0.6)
     ax.set_xlabel("Query time offset (s)")
-    ax.set_ylabel("Cosine similarity")
+    ax.set_ylabel("Windowed similarity")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=9)
     ax.set_title(r"(c) Profiles at three representative $\sigma_{\mathrm{ph}}$")
@@ -332,7 +336,7 @@ def plot_part(fig, suptitle,
 def report_peaks(prof, offsets, sigma_phs, true_peaks):
     """Print, per profile sigma_ph, the similarity at each true statement
     offset: as sigma_ph widens, octave-displaced statements rise from
-    near zero towards the same-height value of 1."""
+    near zero towards the same-height value."""
     for row, sr in zip(prof, sigma_phs):
         vals = [row[int(np.argmin(np.abs(offsets - pk)))] for pk in np.atleast_1d(true_peaks)]
         print(f"  sigma_ph = {sr:6.0f} cents: similarity at the statements = "
@@ -365,7 +369,7 @@ def main():
               label_unmarked="filler events")
 
     # -- Part 2 --
-    print("Part 2: fugal texture (BWV 847-inspired, stylised).")
+    print("Part 2: fugal texture (BWV 847-inspired, stylized).")
     (ctx2_midi, ctx2_t, q2_midi, q2_t,
      subj_idx2, subj_cent2) = build_part2_stream()
     ctx2_cents = mpt.transform_attributes(ctx2_midi, None, ('midi', 'cents'))
@@ -381,7 +385,7 @@ def main():
     report_peaks(prof2, OFFSETS_2, SIG_PH_PROFILES, peak2)
 
     fig2 = plt.figure("Helix blend: fugal texture", figsize=(9.8, 8.0))
-    plot_part(fig2, "Helix blend (BWV 847-inspired, stylised): subject in bass, alto, soprano",
+    plot_part(fig2, "Helix blend (BWV 847-inspired, stylized): subject in bass, alto, soprano",
               ctx2_midi, ctx2_t, subj_idx2, peak2, float(np.mean(q2_t)),
               heat2, prof2, OFFSETS_2, SIG_PH_SWEEP, SIG_PH_PROFILES,
               label_marked="subject events",

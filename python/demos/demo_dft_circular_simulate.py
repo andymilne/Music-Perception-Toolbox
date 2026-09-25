@@ -1,6 +1,6 @@
 """demo_dft_circular_simulate.py
 
-Soft (sigma > 0) and Monte Carlo extensions of the Argand-DFT
+Soft (sigma > 0) and Monte Carlo (MC) extensions of the Argand-DFT
 measures of rhythm structure (balance, evenness, proj_centroid).
 
 Features demonstrated:
@@ -13,7 +13,7 @@ Features demonstrated:
     smoothing damping (alpha_1 factor); no Monte Carlo needed for the
     projection because it is linear in F(0).
 
-The deterministic dft_circular function is unchanged.
+The MATLAB mirror is demo_dftCircularSimulate.m.
 """
 import numpy as np
 
@@ -46,9 +46,11 @@ print("  values are recovered exactly and SD = 0.")
 
 print("\n=== Augmented triad: deterministically balanced (F(0) = 0) ===")
 print("Under jitter, |F(0)| picks up a positive bias from the underlying")
-print("Rayleigh distribution (sum of two independent N(0, V) components).")
-print(f"{'sigma':>6} {'b':>10} {'closed-form mean':>20}")
-print("  " + "-" * 36)
+print("Rayleigh distribution (the magnitude of a vector whose two components")
+print("are independent N(0, V)). Balance b is 1 - |F(0)|, so the MC estimate")
+print("of E[|F(0)|] is 1 - b.")
+print(f"{'sigma':>6} {'b':>10} {'MC E|F(0)|':>12} {'closed form':>12}")
+print("  " + "-" * 44)
 period = 1200
 K = 3
 for s in [0, 10, 25, 50, 100]:
@@ -60,9 +62,9 @@ for s in [0, 10, 25, 50, 100]:
     else:
         alpha1 = np.exp(-2 * np.pi**2 * s**2 / period**2)
         closed = np.sqrt((1 - alpha1**2) * np.pi / (4 * K))
-    print(f"{s:>6} {b:>10.4f} {closed:>20.4f}")
-print("  MC estimate of E[|F(0)|] tracks the closed-form Rayleigh mean")
-print("  sqrt((1 - alpha_1^2) * pi / (4K)) very accurately.")
+    print(f"{s:>6} {b:>10.4f} {mc_mag:>12.4f} {closed:>12.4f}")
+print("  The MC estimate of E[|F(0)|] tracks the closed-form Rayleigh mean")
+print("  sqrt((1 - alpha_1^2) * pi / (4K)) closely.")
 
 
 # ===== 3. Full DFT distribution via dft_circular_simulate =====
@@ -80,9 +82,11 @@ print("  " + "-" * 51)
 for k in range(len(clave)):
     cv = s[k] / m[k] if m[k] > 1e-10 else float('inf')
     print(f"  {k:>3} {mag_det[k]:>12.4f} {m[k]:>12.4f} {s[k]:>12.4f} {cv:>10.3f}")
-print("  Note that low-order coefficients (k = 1: evenness) have the")
-print("  smallest CV under jitter — Milne & Herff (2020) Fig 13 reports")
-print("  this is the most jitter-robust of the magnitudes.")
+print("  CV is the coefficient of variation, SD / mean. Here k = 1 (evenness)")
+print("  has by far the smallest CV. Averaged over many rhythms, Milne & Herff")
+print("  (2020, Fig. 13) find k = 1 the most jitter-robust magnitude, followed")
+print("  by k = 0 (balance) and k = 2; for a single, nearly balanced rhythm")
+print("  such as this one, the near-zero |F(0)| has a large CV.")
 
 
 # ===== 4. proj_centroid with analytical sigma damping =====
@@ -114,7 +118,7 @@ print("  balance returns: 1 - balance(p, w, T, sigma) = E[|F(0)|].")
 
 # ===== 5. Full distribution via return_samples =====
 
-print("\n=== Full distribution: histogram of |F(1)| under jitter ===")
+print("\n=== Full distribution: |F(1)| under jitter ===")
 diat = [0, 200, 400, 500, 700, 900, 1100]
 sigma = 50
 m, s, samples = dft_circular_simulate(

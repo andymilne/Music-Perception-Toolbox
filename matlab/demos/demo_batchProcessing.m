@@ -19,25 +19,29 @@
 %  computations, and the 144 (scale, chord) pairs only as many distinct
 %  pairs as there are. No manual unique() step is needed.
 %
-%  The deduplication is fully automatic in the sense that matters: the
-%  key is built from the density the call would form, so it follows the
-%  analysis parameters (sigma, r, isRel, isPer, period) rather than
-%  guessing. Two rows collapse only when their densities are
-%  structurally identical under those settings. Here, with isPer = 1 and
-%  isRel = 0, the twelve transpositions of a chord type share a
-%  pitch-class multiset and collapse to one computation; under
-%  isPer = 0 they would be twelve distinct chords and none would
-%  collapse, and under isRel = 1 every transposition would collapse
-%  whether periodic or not. The analyst changes the mode flags and the
-%  saving follows, with no change to the calling code. The one feature
-%  without a batched form, roughness (which depends on absolute frequency
-%  and so cannot share work across transpositions), is looped over the
-%  distinct rows.
+%  The deduplication follows the analysis: each feature keys its rows by
+%  what its value depends on. The single-set features (spectral
+%  entropy, and template and tensor harmonicity) are
+%  transposition-invariant measures of a chord and take no mode flags,
+%  so their key ignores transposition and pitch order: the twelve
+%  transpositions of a chord type collapse to one computation, and the
+%  144 chord rows to 4. SPCS depends on where the chord lies against its
+%  scale, so its key is the (scale, chord) pair, up to transposing both
+%  together, under the analysis parameters (sigma, r, isRel, isPer,
+%  period). Here, with isPer = 1, pitch is read as pitch class, so the
+%  augmented triad's transpositions by a major third, which give one
+%  pitch-class set, collapse, and the 144 pairs cost 120 computations;
+%  under isRel = 1 (which needs r >= 2) every transposition of a chord
+%  would collapse, a relative density being transposition-invariant.
+%  The analyst changes the flags and the saving follows, with no change
+%  to the calling code. The one feature without a batched form,
+%  roughness (which depends on absolute frequency and so cannot share
+%  work across transpositions), is looped over the distinct rows.
 %
 %  Workflow 3 shows a second, quite different sense of "batch". Rows of a
 %  2-D pitch matrix are single multisets over one attribute, and what
 %  Workflows 1 and 2 exploit is deduplication *within* such a matrix. A
-%  multi-attribute analysis has no row axis to deduplicate: each item is
+%  multi-attribute analysis has no rows to deduplicate: each item is
 %  a whole pre-MAET. Batching there means passing a *cell* of them where
 %  a cell of densities would go, which loops rather than collapses — the
 %  saving is in the calling code, not in the arithmetic.
@@ -45,8 +49,15 @@
 %  Uses: simMaet, spectralEntropy, templateHarmonicity,
 %        tensorHarmonicity, addSpectra, roughness, transformAttributes,
 %        packPreMaet, flatSpecs, translateAttributes,
-%        sweepSimMaet, buildMaet
+%        sweepSimMaet, buildMaet, mptDefaults
 %  (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_batch_processing.py.
+
+% The toolbox's one-time informational hints (which route a call took,
+% and the like) are switched off for a tidy printout, and restored at
+% the end.
+prevDefaults = mptDefaults('showHints', false);
 
 %% === User-adjustable parameters ===
 
@@ -126,21 +137,20 @@ spcs = simMaet(pMatA, [], pMatB, [], ...
 
 spcs = round(spcs, 3);
 
+% The rows were laid out scale by chord type by root (root fastest), so
+% the profile reshapes straight into a scale x chord x root array.
+spcsGrid = permute(reshape(spcs, nRoots, nChords, nScales), [3 2 1]);
+
 % Display as scale × chord × root tables
 for si = 1:nScales
     fprintf('\n  %s:\n', scaleNames{si});
     fprintf('  %-8s', '');
-    for ri = 1:nRoots
-        fprintf('%6d', roots(ri));
-    end
+    fprintf('%6d', roots);
     fprintf('\n');
 
     for ci = 1:nChords
         fprintf('  %-8s', chordTypeNames{ci});
-        for ri = 1:nRoots
-            mask = scaleIdx == si & chordIdx == ci & rootVals == roots(ri);
-            fprintf('%6.3f', spcs(mask));
-        end
+        fprintf('%6.3f', squeeze(spcsGrid(si, ci, :)));
         fprintf('\n');
     end
 end
@@ -207,23 +217,14 @@ fprintf('\n  (The batched features received all %d rows and computed %d chord ty
 figure('Name', 'Batch processing demo');
 for si = 1:nScales
     subplot(1, nScales, si);
-
-    S = NaN(nChords, nRoots);
-    for ci = 1:nChords
-        for ri = 1:nRoots
-            mask = scaleIdx == si & chordIdx == ci & rootVals == roots(ri);
-            S(ci, ri) = spcs(mask);
-        end
-    end
-
-    imagesc(roots, 1:nChords, S);
+    imagesc(roots, 1:nChords, squeeze(spcsGrid(si, :, :)));
     set(gca, 'YTick', 1:nChords, 'YTickLabel', chordTypeNames);
     xlabel('Root (cents)');
     title(scaleNames{si});
     colorbar;
 end
 
-sgtitle('SPCS: chord fit at each scale degree');
+sgtitle('SPCS: chord fit at each root');
 colormap(parula);
 
 %% === WORKFLOW 3: A cell of pre-MAETs — batching of a different kind ===
@@ -244,14 +245,15 @@ colormap(parula);
 %  one value per item — not arithmetic.
 %
 %  The exception that proves the rule is a translation sweep. Its
-%  entries DO share one geometry and differ only by an offset, so the
-%  comparison reduces to a mixture in the offset — a genuine collapse,
-%  and the one place where a multi-attribute batch is cheaper than the
-%  loop it replaces. The offsets are what make that possible, and a
-%  MATLAB cell cannot carry them alongside the entries, so a swept
-%  pre-MAET passed as a cell still loops: the collapse is spelled
-%  sweepSimMaet(densX, densY, sweep.offsets), with the offsets
-%  taken from translateAttributes' second output.
+%  entries DO share one geometry and differ only by an offset, so
+%  sweepSimMaet computes the whole sweep in one pass rather than one
+%  inner product per offset -- a genuine collapse, and the one place
+%  where a multi-attribute batch is cheaper than the loop it replaces.
+%  The offsets are what make that possible, and a MATLAB cell cannot
+%  carry them alongside the entries, so a swept pre-MAET passed as a
+%  cell still loops: the collapse is spelled
+%  sweepSimMaet(densX, densY, sweep.offsets), with the offsets taken
+%  from translateAttributes' second output.
 
 fprintf('\n=== Workflow 3: A cell of pre-MAETs (batching, other sense) ===\n\n');
 
@@ -283,13 +285,15 @@ fprintf('  Each entry was built and compared in turn — four densities,\n');
 fprintf('  four inner products. Nothing collapsed: the items differ in\n');
 fprintf('  event count and content, so there is no repeated work to find.\n');
 
-% The sweep is the exception: one geometry, M offsets, so the comparison
-% reduces to a mixture in the offset rather than one inner product per
-% entry. A sweep pre-MAET passed as a cell is still only the loop — the
-% collapse needs the offsets, and a MATLAB cell cannot carry them, so
-% translateAttributes returns them as a second output and
-% sweepSimMaet takes them. (Python attaches them to the returned
-% list, so there simMaet picks them up at the call site itself.)
+% The sweep is the exception: one geometry, M offsets, computed in one
+% pass rather than one inner product per entry. A swept pre-MAET passed
+% as a cell is still only the loop -- the one pass needs the offsets,
+% and a MATLAB cell cannot carry them, so translateAttributes returns
+% them as a second output and sweepSimMaet takes them. (Python attaches
+% them to the returned list, so there simMaet picks them up at the call
+% site itself.) sweepSimMaet chooses its route by cost and coverage:
+% here, the swept attribute (pitch class) being periodic, the orbit
+% route.
 [pmSweep, sweep] = translateAttributes(reference, {[0 100 200 300], []});
 loopSims = simMaet(reference, pmSweep, 'verbose', false);
 
@@ -300,13 +304,14 @@ sweepSims = sweepSimMaet(densRef, densRef, sweep.offsets, ...
 fprintf('\n  translateAttributes(reference, {[0 100 200 300], []})\n');
 fprintf('    as a cell, one inner product per offset ->');
 fprintf(' %.4f', cell2mat(loopSims));
-fprintf('\n    as a sweep, one mixture in the offset  ->');
+fprintf('\n    as a sweep, sweepSimMaet in one pass    ->');
 fprintf(' %.4f', sweepSims);
 fprintf('\n');
 fprintf('  The two agree to %.1e. Here the entries DO share a geometry\n', ...
         max(abs(cell2mat(loopSims(:))' - sweepSims(:)')));
 fprintf('  and differ by a known offset, so the sweep is a genuine\n');
-fprintf('  collapse — the one place where a multi-attribute batch is\n');
+fprintf('  collapse -- the one place where a multi-attribute batch is\n');
 fprintf('  cheaper than the loop it replaces.\n');
 
+mptDefaults(prevDefaults);
 fprintf('\nDone.\n');

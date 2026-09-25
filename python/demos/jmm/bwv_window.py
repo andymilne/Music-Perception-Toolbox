@@ -13,7 +13,7 @@ nested multisets"):
   (multiplicities across voices are preserved — a doubled pitch stays
   doubled), and the result is normalized by the 1.5 a beat carries. A
   pitch sustained through the beat thus has weight 1 (1.5 under a
-  fermata); an off-beat passing chord enters at half weight.
+  fermata); an off-beat passing chord enters at a third of that.
 * A context window pair (or triple, for the three-chord prototypes) is
   one bound pitch attribute: the inner level is each aggregate's pitch
   multiset ([exch] = 1, r = r_inner), the outer level the ordered
@@ -22,9 +22,9 @@ nested multisets"):
   inversion flag is a second, simplex-coded attribute (+/-0.5,
   sigma_flag = 0.1) carried by query and context alike.
 
-All densities are built with the toolbox's ``bind_events`` ->
-``build_maet`` pipeline; similarities use ``sim_maet``
-(re-exported for the caller). Data come from ``jmm_data`` (the bundled
+Context and queries are bound with the toolbox's ``bind_events``; the
+demo compares them with ``windowed_similarity``. ``show_pre_maet`` is
+re-exported for the demo. Data come from ``jmm_data`` (the bundled
 MusicXML read with ``mpt.read_score``).
 """
 from __future__ import annotations
@@ -33,8 +33,8 @@ import pandas as pd
 
 import mpt
 from mpt import unpack_pre_maet
-from mpt import (bind_events, flat_specs, build_maet,  # noqa: F401
-                 grid_attr_table, sim_maet, show_pre_maet)
+from mpt import (bind_events, flat_specs, grid_attr_table,
+                 show_pre_maet)  # noqa: F401 (show_pre_maet re-exported)
 
 from jmm_data import (bwv347_notes, bwv347_fermata_spans, GRID_STEP_QN)
 
@@ -110,18 +110,21 @@ def _onsets(pm):
 #: The pitch-derived inversion predicates, as one value per beat. They are
 #: rows rather than columns because the flag is a property of the beat, not
 #: of each note in it: a column on the attribute table would arrive with one
-#: value per note. Each pairs with the window that reads it --- a
-#: three-beat window starts at its own antepenult, so ``six_four`` is read
-#: at the window's first beat, while a two-beat window resolves on its
-#: second, so ``root_position_next`` is the predicate one beat on.
+#: value per note. Binding is end-aligned, so an attribute bound over one
+#: event carries the value at the window's last beat, its resolution; each
+#: flag is therefore stored at the beat on which the window it describes
+#: resolves. ``root_position`` is the predicate at that beat itself (the
+#: two-beat window's final); ``antepenult_six_four`` is the predicate two
+#: beats earlier (the three-beat window's first chord).
 def _flag_rows():
     beats = _onsets(_BEATS)
-    six_four = [ROOT_YES if is_six_four(son_at(t)) else ROOT_NO for t in beats]
-    root_next = [ROOT_YES if is_root_position(son_at(t + 1.0)) else ROOT_NO
-                 if np.any(np.isclose(beats, t + 1.0)) else ROOT_NO
-                 for t in beats]
-    return {"six_four": np.array([six_four], dtype=float),
-            "root_position_next": np.array([root_next], dtype=float)}
+    root_pos = [ROOT_YES if is_root_position(son_at(t)) else ROOT_NO
+                for t in beats]
+    ante_64 = [ROOT_YES if np.any(np.isclose(beats, t - 2.0))
+               and is_six_four(son_at(t - 2.0)) else ROOT_NO
+               for t in beats]
+    return {"antepenult_six_four": np.array([ante_64], dtype=float),
+            "root_position": np.array([root_pos], dtype=float)}
 
 
 def _flag_spec(values):
@@ -139,8 +142,10 @@ def bound_context(L: int, r_inner: int = 1, flag: str | None = None):
     beats ([exch] = 0, r = L), relative at the outer level alone.
 
     Per-attribute bind orders keep everything but the pitch flat at one
-    value per window: the window's own start time, which locates it for a
-    sweep, and the named inversion flag where one is asked for.
+    value per window. Binding is end-aligned, so that value is the one at
+    the window's last beat: its time, the resolution moment, which
+    locates it for a sweep, and the named inversion flag where one is
+    asked for (stored at the resolution beat; see ``_flag_rows``).
     """
     p_attr, w_attr, specs = unpack_pre_maet(_BEATS)
     p_attr, w_attr, specs = list(p_attr), list(w_attr or []), list(specs)
@@ -185,9 +190,9 @@ def query(chords, flag=None, r_inner: int = 1):
 
 
 def as_compared(pm):
-    """A bound pre-MAET without its placement axis: what the cosine
-    actually receives, once the sweep has used the time to place the
-    window."""
+    """A bound pre-MAET without its time attribute, the window
+    attribute: what the comparison actually receives, once the sweep has
+    used the time to place the window."""
     kept = [spec["name"] for spec in unpack_pre_maet(pm)[2]
             if spec["name"] != "onset"]
     return mpt.select_pre_maet(pm, attributes=kept)
@@ -211,9 +216,9 @@ def _pcs_above_bass(son) -> list[int]:
 
 
 def is_root_position(son) -> bool:
-    """Pitch-derived root-position test, per the specified rules: a fifth
-    above the bass; or a major or minor third above the bass with no
-    fourth, no fifth, and no sixth."""
+    """Pitch-derived root-position test, read from the intervals above
+    the bass: a fifth above the bass; or a major or minor third above the
+    bass with no fourth, no fifth, and no sixth."""
     pcs = _pcs_above_bass(son)
     if 7 in pcs:
         return True

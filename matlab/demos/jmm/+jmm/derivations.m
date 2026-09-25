@@ -6,8 +6,11 @@ function t = derivations(tunes, jsonPath)
 %   t = jmm.derivations(tunes, jsonPath)
 %
 %   Columns: tune, chord (the surface chord's index within its tune,
-%   from 0), level (the position's depth, the root at 1), and label (the
-%   rule applied there). Reading a derivation as a table of positions is
+%   from 0), level (the position's depth, the root at 1), label (the rule
+%   applied there), governed (the number of surface chords the position's
+%   node governs), and quality (the surface chord's quality as the corpus
+%   records it, a stack of thirds such as 'Maj Min Min', the dominant
+%   seventh). Reading a derivation as a table of positions is
 %   what lets the demo bind them: the positions of one chord are
 %   consecutive rows sharing a chord index.
 %
@@ -61,21 +64,25 @@ function t = derivations(tunes, jsonPath)
     chordCol = [];
     levelCol = [];
     labelCol = {};
+    governedCol = [];
+    qualityCol = {};
     for i = wanted
         entry = corpus{i};
         paths = localPaths(entry{2});
         for c = 1:numel(paths)
-            labels = paths{c};
+            labels = paths{c}.labels;
             for ell = 1:numel(labels)
                 tuneCol{end + 1, 1} = allNames{i};       %#ok<AGROW>
                 chordCol(end + 1, 1) = c - 1;            %#ok<AGROW>
                 levelCol(end + 1, 1) = ell;              %#ok<AGROW>
                 labelCol{end + 1, 1} = labels{ell};      %#ok<AGROW>
+                governedCol(end + 1, 1) = paths{c}.governed(ell); %#ok<AGROW>
+                qualityCol{end + 1, 1} = paths{c}.quality;         %#ok<AGROW>
             end
         end
     end
-    t = table(tuneCol, chordCol, levelCol, labelCol, ...
-        'VariableNames', {'tune', 'chord', 'level', 'label'});
+    t = table(tuneCol, chordCol, levelCol, labelCol, governedCol, qualityCol, ...
+        'VariableNames', {'tune', 'chord', 'level', 'label', 'governed', 'quality'});
 end
 
 
@@ -83,15 +90,24 @@ function out = localPaths(tree)
 %LOCALPATHS  The root-to-leaf rule paths of one derivation, one per chord.
 %   A node's contents are {chord, rule, children}; a leaf carries its chord
 %   and no rule. The terminating rule directly above a leaf ends every path
-%   and says nothing about structure, so it is dropped.
+%   and says nothing about structure, so it is dropped. Each path is a
+%   struct: .labels, the rule labels; .governed, for each position the
+%   number of surface chords its node governs (the leaves below it); and
+%   .quality, its own chord's quality.
     out = {};
-    out = localWalk(tree, {}, out);
+    out = localWalk(tree, {}, [], out);
 end
 
 
-function out = localWalk(node, path, out)
+function out = localWalk(node, path, governed, out)
     if isfield(node, 'tag') && strcmp(node.tag, 'Leaf')
-        out{end + 1} = path(~strcmp(path, 'Term'));
+        keep = ~strcmp(path, 'Term');
+        quality = '';
+        if isfield(node.contents, 'quality') && ~isempty(node.contents.quality)
+            quality = strjoin(reshape(cellstr(node.contents.quality), 1, []), ' ');
+        end
+        out{end + 1} = struct('labels', {path(keep)}, ...
+                              'governed', governed(keep), 'quality', quality);
         return
     end
     contents = node.contents;
@@ -102,12 +118,32 @@ function out = localWalk(node, path, out)
         label = rule.tag;
     end
     children = contents{3};
+    m = localLeaves(node);
     for c = 1:numel(children)
         if iscell(children)
             child = children{c};
         else
             child = children(c);
         end
-        out = localWalk(child, [path, {label}], out);
+        out = localWalk(child, [path, {label}], [governed, m], out);
+    end
+end
+
+
+function n = localLeaves(node)
+%LOCALLEAVES  The number of surface chords (leaves) below a node.
+    if isfield(node, 'tag') && strcmp(node.tag, 'Leaf')
+        n = 1;
+        return
+    end
+    children = node.contents{3};
+    n = 0;
+    for c = 1:numel(children)
+        if iscell(children)
+            child = children{c};
+        else
+            child = children(c);
+        end
+        n = n + localLeaves(child);
     end
 end

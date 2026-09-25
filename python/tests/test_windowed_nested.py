@@ -26,7 +26,7 @@ AXIS, TARGET = 1, 0          # window on time (1), target the bound pitch (0)
 def _triple(spectral):
     """A short monophonic passage with a clean (+3, -3, +5) statement, bound
     into ordered relative four-note super-events (inner partial multiset when
-    spectral), plus a flat onset-time axis. Returns (ctx, w_ctx, specs)."""
+    spectral), plus a flat onset-time attribute. Returns (ctx, w_ctx, specs)."""
     N = 16
     pit = (np.array([0, 2, 4, 5, 7, 5, 4, 2, 0, 3, 0, 5, 7, 9, 7, 5],
                     dtype=float) + 60.0)        # notes 8..11 are (+3, -3, +5)
@@ -179,7 +179,9 @@ def test_similarity_empty_window_scores_zero(spectral):
                                     [4, 1], step=1, rel_outer=True))
     qry = [ctx[0][:, 0:1], ctx[1][:, 0:1]]
     w_qry = [w_ctx[0][:, 0:1] if w_ctx[0] is not None else None, None]
-    centres = np.array([0.0, 20.0, 40.0])               # 20.0 falls in the rest
+    # Each super-event is timed at its span's last onset (end-aligned
+    # binding), so the two statements sit at t = 3 and t = 43.
+    centres = np.array([3.0, 20.0, 43.0])               # 20.0 falls in the rest
     got = np.asarray(windowed_similarity(
         ctx, w_ctx, qry, w_qry,
         [SIG_P, SIG_T], [1, 1], [True, False], [False, False], [0.0, 0.0],

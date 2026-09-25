@@ -6,6 +6,8 @@ they are related. Voice is the example, but the same three carry any
 category an attribute table holds -- instrument, articulation, an
 experimental condition, a cluster label. demo_score_workflow.py makes
 one of these choices in passing and points here.
+
+The MATLAB mirror is demo_scoreCategoricals.m.
 """
 
 import os
@@ -40,6 +42,9 @@ def _chord_events(pm, beat, per_chord):
 
 
 def main():
+    # Keep the dispatcher's per-call announcements out of the printed
+    # results (show_hints gates only those); restored at the end.
+    prev_defaults = mpt.set_default(show_hints=False)
     grid = mpt.grid_attr_table(mpt.read_score(SCORE), 0.25)
 
     def convert(**kw):
@@ -116,10 +121,8 @@ def main():
     # --- the family relation -------------------------------------------
     # The agnostic encoding is the simplex one with its voice attribute
     # removed, which is one selection rather than another conversion.
-    # The attributes are selected by index rather than by name, because
-    # the two pitch attributes share a name and a name selects the first
-    # of them.
-    without_voice = mpt.select_pre_maet(simplex, attributes=[0, 1, 2])
+    without_voice = mpt.select_pre_maet(
+        simplex, attributes=["pitchClass", "pitchHeight", "onset"])
     same = all(np.array_equal(a, b) for a, b in
                zip(mpt.unpack_pre_maet(without_voice)[0],
                    mpt.unpack_pre_maet(agnostic)[0]))
@@ -140,6 +143,7 @@ def main():
           mpt.unpack_pre_maet(bound)[0][0].shape,
           "- a chord per event, but each attribute unordered and so"
           " unpaired with the other")
+    mpt.set_default(**prev_defaults)
 
 
 if __name__ == "__main__":

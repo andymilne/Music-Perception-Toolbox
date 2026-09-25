@@ -3,9 +3,8 @@ differencing on pitch and time in Piano Phase.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
-from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
-(the rendered Piano Phase voices); the figures stay on screen unless
-SAVE_FIGURES is set.
+from piano_phase (the rendered Piano Phase voices); the figures stay on
+screen unless SAVE_FIGURES is set.
 
 Analysis 3.2: joint differencing on pitch and time in Reich's *Piano Phase*.
 
@@ -21,7 +20,7 @@ The analysis is run at two values of the time-difference kernel width:
 
   * sigma_t = 6 ms --- the just-noticeable difference for inter-onset
     intervals in an isochronous sequence (Friberg & Sundberg 1995). The
-    accelerandi shift the IOI over a 135.4-137.8 ms range (a 2.4 ms
+    accelerandi shift the IOI over a 135.5-137.9 ms range (a 2.4 ms
     excursion, below the JND), so at this width the (dp, dt) fingerprint is
     indistinguishable everywhere and the entropy is flat while the phase
     staircase climbs 0 -> 12 pulses --- the foil that motivates Analyses 3.1
@@ -31,7 +30,7 @@ The analysis is run at two values of the time-difference kernel width:
     the sub-JND IOI excursion is resolved: the entropy fluctuates strongly,
     rising where Piano 2's tempo is modulating (the accelerandi by which it
     advances its phase). This is voice 2's own tempo change becoming visible,
-    not the inter-voice phase (which single-voice differencing quotients out).
+    not the inter-voice phase (which single-voice differencing removes).
 
 Plotting both on a shared scale shows that matching sigma_t to the perceptual
 JND is what aligns the analysis with what a listener hears.
@@ -42,7 +41,7 @@ Pre-MAET structure (after differencing)::
     ---------   -----  ---------------  -----  -----
     dp          1      0.5 semitone     no     no
     dt          1      6 ms / 0.1 ms    no     no
-    abs onset   0      --- (window axis, deleted after weighting)
+    abs onset   0      --- (window attribute, removed after windowing)
 
     r = (1, 1); estimator: windowed Renyi-2 (Gaussian window, s.d. 6 s).
 
@@ -56,9 +55,10 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
-plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19, 'axes.labelsize': 17,
-                     'xtick.labelsize': 15, 'ytick.labelsize': 15, 'figure.titlesize': 22,
-                     'font.family': 'DejaVu Sans'})
+if plt is not None:
+    plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19, 'axes.labelsize': 17,
+                         'xtick.labelsize': 15, 'ytick.labelsize': 15, 'figure.titlesize': 22,
+                         'font.family': 'DejaVu Sans'})
 
 import mpt
 from mpt import unpack_pre_maet
@@ -87,7 +87,7 @@ C_FINE = '#8e2f9e'          # purple --- sub-JND (super-human) line
 # --- joint differencing of the phasing voice ------------------------------
 # The phasing voice as an attribute table, converted to three attributes:
 # its pitch, its onset, and a second reading of the same onset column,
-# which the differencing leaves alone to serve as the windowing axis.
+# which the differencing leaves alone to serve as the window attribute.
 voice = mpt.pre_maet_from_attr_table(
     pe.voice_table(2),
     attributes=(dict(column='pitch', name='dp', sigma=SIGMA_DP),
@@ -95,11 +95,10 @@ voice = mpt.pre_maet_from_attr_table(
                 dict(column='onset', name='t', sigma=1.0)),
     time='seconds', chords='separate', weights='ones')
 # Per-attribute difference orders: pitch and onset first-differenced, the
-# third (onset copy) passed through at order 0 as the windowing axis.
+# third (onset copy) passed through at order 0 as the window attribute.
 diff = difference_events(voice, [1, 1, 0])
 pd, wd, _ = unpack_pre_maet(diff)
 dp, dt, t_abs = pd[0].ravel(), pd[1].ravel(), pd[2].ravel()
-N = len(dp) + 1
 print(f'Differenced events: {len(dp)}; dp distinct: '
       f'{sorted(set(np.round(dp).astype(int).tolist()))}')
 print(f'IOI (=dt) min/max: {dt.min()*1000:.2f} / {dt.max()*1000:.2f} ms  '
@@ -123,18 +122,18 @@ print('static density evaluated')
 
 # --- (b) windowed (dp, dt) Renyi-2 entropy across the piece, two widths ---
 centres = np.linspace(t_abs.min(), t_abs.max(), N_SWEEP)
-phase_at = np.array([pe.lag_at(c / (pe.NC * IOI)) for c in centres])   # continuous lag
+phase_at = pe.lag_at(centres / (pe.NC * IOI))      # continuous lag
 
 def sweep(sig):
     """Windowed (dp, dt) Renyi-2 entropy at each sweep centre.
 
     A single windowed_entropy sweep: a Gaussian window (shape 0) on the
-    absolute-onset axis (attribute index 2) modulates the event weights,
-    and that onset axis is dropped from the entropy density
+    absolute-onset attribute (attribute index 2) modulates the event weights,
+    and that onset attribute is dropped from the entropy density
     (drop_window_attr=True), leaving the two-attribute (dp, dt) density
     whose Renyi-2 entropy is returned. The window standard deviation
     WINDOW_SD maps to the variance-matched rectangular width 2*sqrt(3)*sd.
-    (The placeholder onset sigma is unused: that axis is dropped.)
+    (The placeholder onset sigma is unused: that attribute is dropped.)
     """
     return windowed_entropy(
         diff, centres, sigma=[SIGMA_DP, sig, 1.0],
@@ -153,6 +152,7 @@ for tag, h in [('6 ms (JND)', H_jnd), ('0.1 ms', H_fine)]:
 # --- figure ---------------------------------------------------------------
 if plt is None:
     print('matplotlib not available; skipping the figure.')
+    mpt.set_default(**_prev_defaults)
     raise SystemExit(0)
 
 fig, (axD, axH) = plt.subplots(1, 2, figsize=(15, 4.4),

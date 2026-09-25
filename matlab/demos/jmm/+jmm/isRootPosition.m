@@ -3,7 +3,7 @@ function tf = isRootPosition(son)
 %
 %   tf = jmm.isRootPosition(son)
 %
-%   Per the specified rules: a fifth above the bass; or a major or minor
+%   Read from the intervals above the bass: a fifth above the bass; or a major or minor
 %   third above the bass with no fourth, no fifth, and no sixth. son is a
 %   vector of MIDI pitches (NaN entries ignored).
 %

@@ -2147,6 +2147,17 @@ function H = localRenyi2(dens, base)
         ip_xx = simMaet(sub, sub, 'normalize', 'none', 'verbose', false);
     else
         ip_xx = simMaet(dens, dens, 'normalize', 'none', 'verbose', false);
+        % A matrix-valued kernel covariance: simMaet returns the bare
+        % value in the original coordinates (it carries the Jacobian
+        % factor prod_a det(Sigma_a)^(1/2)), whereas the total masses
+        % below are formed on the whitened values at sigma = 1. Divide
+        % the factor out so both are whitened; the caller then adds the
+        % change-of-variables term log det(Sigma) / 2 once. (The
+        % sub-density above is rebuilt from the whitened values with
+        % the isotropic sigma, so it is already on the whitened scale.)
+        if internal.densityHasKernelCov(dens)
+            ip_xx = ip_xx / exp(0.5 * internal.densityLogdetSum(dens));
+        end
     end
 
     % ---- Z = sum_n prod_a Z_a^(n) ----

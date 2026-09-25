@@ -22,8 +22,8 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   s = simMaet(dens_x, dens_y, 'verbose', false):
 %   Cosine similarity using precomputed density structs from buildMaet.
 %   This avoids recomputing tuple indices and weight products on each call,
-%   and is the preferred calling convention when comparing a fixed reference
-%   against many other sets.
+%   and is the preferred calling convention when comparing a fixed
+%   reference against many other sets.
 %
 %   [s, dens_x, dens_y] = simMaet(dens_x, dens_y, ...):
 %   As above, additionally returning the two operand structs with their
@@ -674,12 +674,15 @@ elseif nArgs == 9
         % Matrix-valued kernel covariance: whiten both operands here, at
         % the batched-raw entry, and fall through to the isotropic
         % machinery with sigma = 1 (the prefactors cancel under either
-        % normalization). This is the Python route (cosine.py whitens
+        % ratio normalization; the bare value under 'none' is multiplied
+        % by the Jacobian factor det(Sigma)^(1/2) on return). This is
+        % the Python route (cosine.py whitens
         % before its batched dispatch); the per-row density builds below
         % then see ordinary whitened values. The mode constraints
         % (ordered, absolute, non-periodic, r == K) are enforced per
         % operand first, so a bad covariance raises the same mpt:aniso:*
         % error as the scalar-raw form.
+        kcScale = 1.0;
         if internal.isKernelCov(sigmaBatched)
             if spectrumGiven
                 error('mpt:aniso:spectrumUnsupported', ...
@@ -709,6 +712,7 @@ elseif nArgs == 9
             end
             [~, Rw] = internal.validateKernelCov(sigmaBatched, round(rIn), ...
                                                  'sigma');
+            kcScale = prod(diag(Rw));   % det(Sigma)^(1/2)
             % whitenValues works on (dim x n) columns: rows are tuples
             % here, so whiten the transpose and transpose back; a vector
             % operand is one tuple and keeps its orientation.
@@ -761,6 +765,9 @@ elseif nArgs == 9
             precisionGiven, precisionOpt, ...
             dedupGiven, dedupOpt, ...
             truncationSigmas, kernelPrecision);
+        if strcmp(normalize, 'none') && kcScale ~= 1.0
+            s = s * kcScale;
+        end
         return;
     end
     % --- Single-multiset raw: numeric vectors. Builds a MaetDensity at
@@ -1311,13 +1318,21 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     % ip_xx is legal only under 'oneSidedDenom', whose denominator does
     % not consume it; reaching 'cosine' with it empty is an internal
     % routing defect. Under 'none' the bare cross term is returned on
-    % the canonical scale (internal.ipCanonicalScale).
+    % the canonical scale (internal.ipCanonicalScale). A density built
+    % with a matrix-valued kernel covariance holds whitened values at
+    % sigma = 1, so its bare value also takes the Jacobian factor
+    % prod_a det(Sigma_a)^(1/2) of the change of variables (the two
+    % densities share their covariances, checked above); the factor
+    % cancels under 'cosine' and 'oneSidedDenom'.
     switch normalize
         case 'none'
             if ~isempty(contractTriple)
                 s = ip_xy * internal.ipCanonicalScale(dens_x, 'contract', contractRoutes);
             else
                 s = ip_xy * internal.ipCanonicalScale(dens_x, chosen, {});
+            end
+            if internal.densityHasKernelCov(dens_x)
+                s = s * exp(0.5 * internal.densityLogdetSum(dens_x));
             end
             return;
         case 'cosine'

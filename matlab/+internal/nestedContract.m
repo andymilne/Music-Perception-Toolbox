@@ -53,6 +53,14 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
 %                 see INTERNAL.NESTEDCENTRESMEMOISED); returned updated.
 %     routesOnly  true to plan and return ROUTES without computing
 %                 anything (used by EXPLAINDISPATCH).
+%     sweepOffsets
+%                 an A x M matrix of per-attribute translations of densY
+%                 (the contraction route of SWEEPSIMMAET). TRIPLE.xy is
+%                 then the 1 x M cross inner product at each column; xx
+%                 and yy, invariant under a uniform translation, are the
+%                 ordinary ones, computed once. A swept nested attribute
+%                 must be absolute (SWEEPSIMMAET checks). Twin of the
+%                 Python _tensor.sweep._contract_sweep.
 %
 %   Route set (per nested attribute, decided once so xy, xx and yy share one
 %   measure and one quadrature grid):
@@ -128,6 +136,23 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         triple = localNestedTerms(densX, densY, double(termsAttr), ...
             internal.accuracyFloor('resolve', truncationSigmas), ...
             termsSkipXX, termsSkipYY);
+        return;
+    end
+    sweepOffsets = localOptField(opts, 'sweepOffsets', []);
+    if ~isempty(sweepOffsets)
+        % The self inner products (and every decline) come from the
+        % ordinary plan; the cross term is then formed at every offset.
+        opts = rmfield(opts, 'sweepOffsets');
+        [triple, routes, cacheX, cacheY] = internal.nestedContract( ...
+            densX, densY, normalize, truncationSigmas, force, opts);
+        if isempty(triple) || routesOnly
+            return;
+        end
+        ts = internal.accuracyFloor('resolve', truncationSigmas);
+        orbitGuard('begin', ts);
+        guardCleanup = onCleanup(@() orbitGuard('end', []));  %#ok<NASGU>
+        triple.xy = sweepCrossIp(densX, densY, double(sweepOffsets), ts, ...
+                                 cacheX, cacheY);
         return;
     end
     if ~any(strcmp(normalize, {'cosine', 'oneSidedDenom', 'none'}))
@@ -1249,6 +1274,158 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
     % enumeration computes the minimum-image reading of a
     % relative-periodic attribute.
     triple = struct('xy', sum(P_xy(:)), 'xx', ip_xx, 'yy', ip_yy);
+end
+
+
+function ipxy = sweepCrossIp(densX, densY, off, ts, cacheX, cacheY)
+%SWEEPCROSSIP  1 x M cross inner product with densY translated by each
+%   column of OFF (A x M). The factorization across attributes holds at
+%   every offset: the attributes that are not swept contribute one
+%   offset-independent matrix, formed as in NESTEDCONTRACTMA; a swept
+%   nested attribute contributes an N_x x N_y x M stack from
+%   SWEEPATTRINNERSTACK, and a swept flat one its per-attribute matrix at
+%   each translated value. Twin of the Python _tensor.sweep._contract_sweep.
+    A = double(densX.nAttrs);
+    M = size(off, 2);
+    swept = any(off ~= 0, 2);
+    N_x = densX.N;
+    N_y = densY.N;
+    F = ones(N_x, N_y);
+    for a = 1:A
+        if swept(a)
+            continue;
+        end
+        F = F .* localAttrMatrix(densX, densY, a, 0, ts, cacheX, cacheY);
+    end
+    G = repmat(F, [1, 1, M]);
+    for a = 1:A
+        if ~swept(a)
+            continue;
+        end
+        if isfield(densX, 'nested') && iscell(densX.nested) ...
+                && numel(densX.nested) >= a && ~isempty(densX.nested{a})
+            G = G .* sweepAttrInnerStack(densX, densY, a, off(a, :), ts);
+        else
+            for m = 1:M
+                G(:, :, m) = G(:, :, m) .* localAttrMatrix(densX, densY, ...
+                    a, off(a, m), ts, cacheX, cacheY);
+            end
+        end
+    end
+    ipxy = reshape(sum(sum(G, 1), 2), 1, M);
+end
+
+
+function I = localAttrMatrix(densX, densY, a, shift, ts, cacheX, cacheY)
+%LOCALATTRMATRIX  The N_x x N_y inner matrix of attribute A with densY's
+%   values translated by SHIFT (0 for an attribute that is not swept; a
+%   swept attribute reaching here is flat). The kinds and routes are those
+%   of NESTEDCONTRACTMA.
+    wrapA = wrapPair(densX, densY, a);
+    isNested = isfield(densX, 'nested') && iscell(densX.nested) ...
+        && numel(densX.nested) >= a && ~isempty(densX.nested{a});
+    if isNested
+        [route, quad] = nestedAttrPlan(densX, densY, a, '', ts, true, true);
+        I = nestedAttrMatrices(densX, densY, a, route, quad, ts, ...
+                               false, false, cacheX, cacheY);
+        return;
+    end
+    if localIsOrderedFlat(densX, a) || localIsOrderedFlat(densY, a)
+        cxB = internal.nestedCentresMemoised(cacheX, densX, a);
+        cyB = internal.nestedCentresMemoised(cacheY, densY, a);
+        if shift ~= 0
+            cyB.Centres = cyB.Centres + shift;
+        end
+        I = mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA, ts);
+        return;
+    end
+    I = mobius.maPerAttrInnerMatrix(densX.pAttr{a}, densX.w{a}, ...
+        densY.pAttr{a} + shift, densY.w{a}, densX.sigma(a), densX.r(a), ...
+        logical(densX.isRel(a)), logical(densX.isPer(a)), ...
+        densX.period(a), 'truncationSigmas', ts, 'wrap', wrapA);
+end
+
+
+function S = sweepAttrInnerStack(densX, densY, a, mus, ts)
+%SWEEPATTRINNERSTACK  N_x x N_y x M inner matrices of an absolute nested
+%   attribute with densY's values translated by each of MUS. Translating
+%   every value keeps the leaf kernel a one-body product per coordinate,
+%   now of k(v_x - v_y - mu), so the offsets ride the contraction's batch
+%   axis --- the axis the relative modes use for their tau nodes --- and
+%   each node is kept rather than reduced. Every entry is the value
+%   NESTEDATTRINNERMATRIX returns for the translated operand, by the same
+%   kernel, truncation and per-level reduction. Twin of the Python
+%   _nested_contraction.nested_attr_matrix_sweep.
+    specX = densX.nested{a};
+    specY = densY.nested{a};
+    isPer  = logical(densX.isPer(a));
+    sigma  = densX.sigma(a);
+    period = densX.period(a);
+    PXa = double(densX.pAttr{a});
+    PYa = double(densY.pAttr{a});
+    rLevels   = double(specX.r(:)).';
+    exchLevels = logical(specX.exch(:)).';
+    tagsX = orientTags(double(specX.tags), size(PXa, 1), numel(rLevels));
+    tagsY = orientTags(double(specY.tags), size(PYa, 1), numel(rLevels));
+    sameStruct = isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY);
+    WXa = densX.w{a}; if isempty(WXa); WXa = ones(size(PXa)); end
+    WYa = densY.w{a}; if isempty(WYa); WYa = ones(size(PYa)); end
+    WXa = double(WXa);
+    WYa = double(WYa);
+    mXa = isnan(PXa);
+    mYa = isnan(PYa);
+    if any(mXa(:)) || any(mYa(:))
+        fillVal = min(min(PXa(:), [], 'omitnan'), ...
+            min(PYa(:), [], 'omitnan'));
+        PXa(mXa) = fillVal;  WXa(mXa | isnan(WXa)) = 0;
+        PYa(mYa) = fillVal;  WYa(mYa | isnan(WYa)) = 0;
+    end
+    recipeX = buildRecipe(rLevels, exchLevels, tagsX, false, isPer);
+    if sameStruct
+        recipeY = recipeX;
+    else
+        recipeY = buildRecipe(rLevels, exchLevels, tagsY, false, isPer);
+    end
+    quad = makeQuadrature(false, isPer, sigma, period, 0, 0, ts, ...
+                          wrapPair(densX, densY, a));
+    na = size(PXa, 2);
+    nb = size(PYa, 2);
+    mus = double(mus(:)).';
+    T = numel(mus);
+    [mi, ni] = pairIndices(na, nb, false);
+    nPairs = numel(mi);
+    nX = size(PXa, 1);
+    nY = size(PYa, 1);
+    V = zeros(nPairs, T);
+    chunk = max(1, min(nPairs, floor(16e6 / max(T * nX * nY, 1))));
+    for c0 = 1:chunk:nPairs
+        c1 = min(c0 + chunk - 1, nPairs);
+        nbc = c1 - c0 + 1;
+        cm = mi(c0:c1);
+        cn = ni(c0:c1);
+        vx = PXa(:, cm).';
+        vy = PYa(:, cn).';
+        wx = WXa(:, cm).';
+        wy = WYa(:, cn).';
+        d = reshape(vx, [nbc, nX, 1, 1]) ...
+            - (reshape(vy, [nbc, 1, nY, 1]) + reshape(mus, [1, 1, 1, T]));
+        K = absKernel(d, sigma, period, ts, quad);
+        K = K .* (reshape(wx, [nbc, nX, 1, 1]) .* reshape(wy, [nbc, 1, nY, 1]));
+        % (nb, nX, nY, T) -> (nb, T, nX, nY) -> (nb*T, nX, nY), the pair
+        % index running fastest, as in the relative-periodic branch of
+        % PAIRVALUESBATCHED.
+        K = permute(K, [1, 4, 2, 3]);
+        K = reshape(K, [nbc * T, nX, nY]);
+        K = truncK(K, ts);
+        vc = contractNode(recipeX, recipeY, K);
+        V(c0:c1, :) = reshape(vc, [nbc, T]);
+    end
+    S = zeros(na, nb, T);
+    for t = 1:T
+        St = zeros(na, nb);
+        St(sub2ind([na, nb], mi, ni)) = V(:, t);
+        S(:, :, t) = St;
+    end
 end
 
 

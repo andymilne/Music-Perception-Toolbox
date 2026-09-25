@@ -1,7 +1,7 @@
-"""phase_encoding.py
+"""piano_phase.py
 
 Symbolic rendering of Reich's *Piano Phase* (1967) for Analyses 3.1-3.3,
-to the manuscript's specification (Section on the Piano Phase encoding):
+to the specification of the JMM article (Section 4.3):
 
 * Both pianos play the twelve-note cell E5, F#5, B5, C#6, D6, F#5, E5,
   C#6, B5, F#5, D6, C#6 in even notes. Piano 1 holds a fixed inter-onset
@@ -13,17 +13,21 @@ to the manuscript's specification (Section on the Piano Phase encoding):
   ending with zero slope. Piano 2's instantaneous inter-onset interval,
   set by the phase's rate of change, dips below the base interval while
   k is moving and returns to it on each hold.
-* The base inter-onset interval is 137.85 ms, the piece ~617 s
-  (~8,965 events over the two voices), and the peak tempo deviation
-  1.75% -- which fixes the shift duration: the smoothstep's peak slope
-  is 1.5/T, so T = 1.5 * BASE_IOI / 0.0175 ~= 11.8 s.
+* The base inter-onset interval is 137.85 ms and the peak tempo
+  deviation 1.75%, chosen to reproduce the article's 138 ms pulse and
+  its 2.4 ms excursion of Piano 2's inter-onset interval (here
+  135.5-137.9 ms). The deviation fixes the shift duration: the
+  smoothstep's peak slope is 1.5/T, so T = 1.5 * BASE_IOI / 0.0175
+  ~= 11.8 s. The piece lasts ~617 s (8,964 events over the two voices;
+  the article gives ~8,965).
 
-The manuscript's schedule of hold and accelerando lengths is transcribed
+The article's schedule of hold and accelerando lengths is transcribed
 from a reference recording (Steve Reich Ensemble, *Early Works*,
 Nonesuch 1987); that transcription is not reproduced here, so this
-reconstruction approximates it with a uniform schedule (LEAD_S, GAP_S
-below) matching the published figures' shift centres. All other
-quantities follow the manuscript exactly.
+rendering approximates it with a uniform schedule (LEAD_S, GAP_S below)
+matching the published figures' shift centres. The figures of the demos
+therefore follow the article's in shape, and their accelerandi fall at
+the uniform schedule's times.
 
 Exports
 -------
@@ -33,6 +37,7 @@ BASE_IOI : float -- steady inter-onset interval, seconds (0.13785).
 N_REPS_V1 : int -- Piano-1 cells in the rendered piece (373).
 render_voice(v) -> (pitch, onset) for v in {1, 2}.
 render_piece() -> (pitch, onset, voice) -- both voices pooled, sorted.
+voice_table(v), piece_table() -> the same, as attribute tables.
 lag_at(x) -> phase k (in pulses) at time x measured in CELLS.
 shift_centre_times() -> (12,) ndarray of accelerando centres, seconds.
 """
@@ -44,14 +49,14 @@ import pandas as pd
 CELL = np.array([76, 78, 83, 85, 86, 78, 76, 85, 83, 78, 86, 85], dtype=int)
 NC = 12
 
-# --- manuscript constants ----------------------------------------------------
-BASE_IOI  = 0.13785         # seconds; base inter-onset interval (manuscript)
-PEAK_DEV  = 0.0175          # peak tempo deviation (manuscript: 1.75%)
+# --- constants -----------------------------------------------------------------
+BASE_IOI  = 0.13785         # seconds; base inter-onset interval
+PEAK_DEV  = 0.0175          # peak tempo deviation (1.75%)
 N_SHIFTS  = 12              # one whole cell of phase across the piece
 N_REPS_V1 = 373             # Piano-1 cells: 373 * 12 * 137.85 ms ~= 617 s
 
 # Smoothstep peak slope is 1.5/T, and the peak tempo deviation is
-# BASE_IOI * (dk/dt)_max, so the shift duration follows from the manuscript:
+# BASE_IOI * (dk/dt)_max, so the shift duration follows from the two:
 SHIFT_DUR = 1.5 * BASE_IOI / PEAK_DEV        # ~= 11.8 s per accelerando
 
 # Uniform stand-in for the recording-transcribed schedule (see docstring):

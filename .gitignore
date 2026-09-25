@@ -43,3 +43,6 @@ matlab/demos/jmm/data/AwakeningSolo.mid
 # not ours to redistribute; the demo says where to fetch it.
 python/demos/jmm/data/ParseTrees.json
 matlab/demos/jmm/data/ParseTrees.json
+
+# Working notes and scratch output from Claude sessions.
+Claude outputs/

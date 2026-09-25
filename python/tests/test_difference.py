@@ -1,6 +1,6 @@
 """Tests for difference_events on the (p_attr, w, specs) triple (3c-iv-b).
 
-difference_events applies the k-th finite difference along the event axis,
+difference_events applies the k-th finite difference across events,
 position by position. It is well-defined exactly when the positions have stable
 identity --- an
 ordered attribute ([exch]=0) or a singleton (K=1) --- so a symmetric multiset

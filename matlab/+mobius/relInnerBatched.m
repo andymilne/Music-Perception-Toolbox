@@ -5,7 +5,7 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
 %   I = MOBIUS.RELINNERBATCHED(PX, WX, PY, WY, SIGMA, R, ISPER, PERIOD)
 %   returns the (N_x, N_y) matrix of relative-mode inner products
 %   between the two densities' events: every pair's inner product
-%   marginalises a translation u over a grid. This is the single
+%   marginalizes a translation u over a grid. This is the single
 %   relative-mode evaluator: the single-multiset form (one event per
 %   side) is its N = 1 specialisation via MOBIUS.ORBITINNERRELSINGLEMULTISET.
 %

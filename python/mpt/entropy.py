@@ -411,6 +411,7 @@ def _cell_masses_ma_absolute(dens, axes: list,
     return _contract_cell_axes(w_j, axis_specs, truncation_sigmas)
 
 
+@_with_dispatch_scope
 def entropy_maet(
     p_or_dens,
     *args,
@@ -1594,6 +1595,16 @@ def _renyi2_maet_ma(dens, *, base: float) -> float:
     else:
         ip_xx = float(sim_maet(dens, dens, normalize="none",
                                        verbose=False))
+        # A matrix-valued kernel covariance: sim_maet returns the bare
+        # value in the original coordinates (it carries the Jacobian
+        # factor prod_a det(Sigma_a)^(1/2)), whereas the total masses
+        # below are formed on the whitened values at sigma = 1. Divide
+        # the factor out so both are whitened; the caller then adds the
+        # change-of-variables term log det(Sigma) / 2 once. (The
+        # sub-density above is rebuilt from the whitened values with
+        # the isotropic sigma, so it is already on the whitened scale.)
+        from ._tensor.aniso import density_ip_scale
+        ip_xx = ip_xx / density_ip_scale(dens)
 
     inner_r = _inner_r_vec(dens)
     Z_per_event_attr = np.empty((N, A), dtype=np.float64)
@@ -1811,6 +1822,7 @@ def _broadcast_bounds(v, A, name):
 # ===================================================================
 
 
+@_with_dispatch_scope
 def n_tuple_entropy(
     p,
     period: float,
@@ -1821,6 +1833,7 @@ def n_tuple_entropy(
     method: str = "normalized",
     base: float = 2.0,
     n_points_per_dim: int | None = None,
+    verbose: bool = True,
 ) -> tuple[float, np.ndarray]:
     """Entropy of n-tuples of consecutive step sizes.
 
@@ -1873,6 +1886,13 @@ def n_tuple_entropy(
         ``None`` (default) selects ``period``, which (with integer
         centres and a periodic kernel) gives the Milne & Dean (2016)
         mass-conserving Gaussian-confusion grid.
+    verbose : bool
+        If True (default), the underlying :func:`entropy_maet` evaluation
+        may print its progress and time notes; ``False`` suppresses them.
+        The dispatch announcement (which evaluation path ran) is gated
+        not by ``verbose`` but by the toolbox-wide ``show_hints`` default,
+        and appears at most once per call, batched input included;
+        ``mpt.set_default(show_hints=False)`` silences it.
 
     Sigma semantics
     ---------------
@@ -1972,7 +1992,7 @@ def n_tuple_entropy(
             p_arr, period, n,
             sigma=sigma, sigma_space=sigma_space,
             method=method, base=base,
-            n_points_per_dim=n_points_per_dim,
+            n_points_per_dim=n_points_per_dim, verbose=verbose,
         )
 
     p = p_arr.ravel()
@@ -2073,20 +2093,20 @@ def n_tuple_entropy(
     if method == "shannon":
         H = entropy_maet(
             T, method="shannon",
-            base=base, n_points_per_dim=n_grid,
+            base=base, n_points_per_dim=n_grid, verbose=verbose,
         )
     elif method == "normalized":
         H = entropy_maet(
             T, method="normalized",
-            base=base, n_points_per_dim=n_grid,
+            base=base, n_points_per_dim=n_grid, verbose=verbose,
         )
     elif method == "differential":
         H = entropy_maet(
-            T, method="differential", base=base,
+            T, method="differential", base=base, verbose=verbose,
         )
     else:  # method == "renyi2"
         H = entropy_maet(
-            T, method="renyi2", base=base,
+            T, method="renyi2", base=base, verbose=verbose,
         )
 
     return H, tuples_out
@@ -2095,7 +2115,7 @@ def n_tuple_entropy(
 def _n_tuple_entropy_batched(
     P, period, n,
     *,
-    sigma, sigma_space, method, base, n_points_per_dim,
+    sigma, sigma_space, method, base, n_points_per_dim, verbose,
 ):
     """Batched dispatch for ``n_tuple_entropy``.
 
@@ -2126,7 +2146,7 @@ def _n_tuple_entropy_batched(
             p_valid, period, n,
             sigma=sigma, sigma_space=sigma_space,
             method=method, base=base,
-            n_points_per_dim=n_points_per_dim,
+            n_points_per_dim=n_points_per_dim, verbose=verbose,
         )
         H_out[i] = H_i
         tuples_list[i] = t_i

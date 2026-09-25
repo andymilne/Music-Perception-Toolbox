@@ -18,23 +18,35 @@ function H = windowedEntropy(varargin)
 %   entries keep what the spec carries: 'sigma', {[], s, []} sweeps the
 %   second attribute's width and leaves the rest to the pre-MAET.
 %
-%   Shares the placement, window, 'locate', and 'drop' machinery of
-%   windowedSimilarity, with the same single-axis ('windowAttr' + 'centres'
-%   + 'dropWindowAttr') and multi-axis ('sweep' + 'drop') surfaces; there is
-%   no query, so at each position the windowed (and, for a dropped axis,
-%   axis-reduced) density is built and its entropy taken. Because there is
-%   no query to size a default window from, an explicit 'contextWindow'
-%   width (or sd) is required for every swept axis. 'isExch' is the
-%   per-attribute exchangeability vector of the flat surface ([] keeps the
+%   Terms (article, Sec. 3, event weighting). A WINDOW, a non-negative
+%   profile h centred at a value c, multiplies each event's weights on one
+%   attribute ('targetAttr') by h(p_S(n) - c). The WINDOW ATTRIBUTE is the
+%   attribute S the window is defined over, and each CENTRE is a value of
+%   it at which the window is placed.
+%
+%   Takes the window attribute, centres, window and 'locate' as
+%   windowedSimilarity does: one window attribute ('windowAttr' with
+%   'centres' and 'dropWindowAttr') or several ('sweep' with 'drop').
+%   There is no query, so at each centre (or combination of centres) the
+%   windowed density is built, with any window attribute whose drop is
+%   true first marginalized by removing it from the pre-MAET, and its
+%   entropy taken. With no query to size a default window from,
+%   'contextWindow' must give a width (or sd) for every window attribute.
+%   'isExch' is the
+%   per-attribute exchangeability vector of the raw positional form ([] keeps the
 %   unordered default); required, in particular, for ordered attributes
-%   carrying a matrix-valued kernel covariance (see kernelCov);
-%   mutually exclusive with 'specs'. 'marginalise' is
-%   reserved for integrating a retained axis out of the density and is not
-%   yet implemented.
+%   carrying a matrix-valued kernel covariance (see kernelCov); mutually
+%   exclusive with 'specs'. 'marginalize' (also accepted as 'marginalise')
+%   is reserved for integrating a
+%   compared attribute out of the density and is not yet implemented.
 %
 %
 %   See also PACKPREMAET, WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDMAET,
 %            ENTROPYMAET.
+
+% Top-level call guard: dispatch throttle + kernelChunkBytes pin, so the
+% per-centre inner calls announce once per sweep. See internal.callGuard.
+guard = internal.callGuard(); %#ok<NASGU>
 
 varargin = internal.windowedPreMaetArgs(varargin, 'windowedEntropy', 1);
 H = localWindowedEntropy(varargin{:});
@@ -63,6 +75,7 @@ arguments
     nv.locate = 'centroid'
     nv.method (1,:) char = 'differential'
     nv.base (1,1) double = 2.0
+    nv.marginalize = []
     nv.marginalise = []
     nv.targetAttr = []
     nv.specs = []
@@ -78,13 +91,20 @@ if ~isempty(nv.isExch) && ~isempty(nv.specs)
 end
 
 if ~isempty(nv.marginalise)
-    error('windowedEntropy:marginaliseNotImplemented', ...
-        ['marginalise (integrating a retained axis out of the density) is ' ...
+    if ~isempty(nv.marginalize)
+        error('windowedEntropy:marginalizeTwice', ...
+            'give marginalize or its alternative spelling marginalise, not both.');
+    end
+    nv.marginalize = nv.marginalise;
+end
+if ~isempty(nv.marginalize)
+    error('windowedEntropy:marginalizeNotImplemented', ...
+        ['marginalize (integrating a compared attribute out of the density) is ' ...
          'not yet implemented.']);
 end
 if ~isempty(nv.sweep)
     if isempty(nv.drop)
-        error('windowedEntropy:sweepNeedsDrop', 'multi-axis sweep requires a parallel drop.');
+        error('windowedEntropy:sweepNeedsDrop', 'sweep requires a parallel drop.');
     end
     H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, nv.isExch, ...
         nv.sweep, nv.drop, nv.contextWindow, nv.locate, nv.method, nv.base, ...
@@ -93,7 +113,7 @@ if ~isempty(nv.sweep)
 end
 if isempty(nv.dropWindowAttr)
     error('windowedEntropy:dropRequired', ...
-        'dropWindowAttr is required (true drops the window axis, false retains it).');
+        'dropWindowAttr is required (true marginalizes the window attribute, false retains it).');
 end
 H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, nv.isExch, centres, ...
     nv.start, nv.stop, nv.step, nv.contextWindow, nv.windowAttr, ...
@@ -102,7 +122,7 @@ end
 
 
 % =========================================================================
-%  single-axis core
+%  one window attribute
 % =========================================================================
 function H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, isExch, ...
         centres, startV, stopV, stepV, contextWindow, windowAttr, ...
@@ -123,7 +143,7 @@ function H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, isExch, .
     end
     if isempty(targetAttr), target = keep(1); else, target = targetAttr; end
     if any(target == dropAxes)
-        error('windowedEntropy:targetDropped', 'targetAttr is the dropped axis.');
+        error('windowedEntropy:targetDropped', 'targetAttr is the marginalized window attribute.');
     end
     ctxCentres = internal.resolveCentres(pAttr, axisIdx, centres, startV, stopV, stepV, sd * 2 * sqrt(3));
     [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
@@ -144,14 +164,14 @@ end
 
 
 % =========================================================================
-%  multi-axis core
+%  several window attributes
 % =========================================================================
 function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isExch, ...
         sweepMap, dropMap, contextWindow, locate, method, base, targetAttr, specs)
     n = numel(pAttr);
     [axes, grids] = internal.parseMap(sweepMap);
     if isempty(axes)
-        error('windowedEntropy:emptySweep', 'sweep must name at least one axis.');
+        error('windowedEntropy:emptySweep', 'sweep must name at least one attribute.');
     end
     [dAxes, dVals] = internal.parseMap(dropMap);
     if ~isequal(sort(axes), sort(dAxes))
@@ -167,7 +187,7 @@ function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isExch, ..
     end
     if isempty(targetAttr), target = keep(1); else, target = targetAttr; end
     if any(target == dropAxes)
-        error('windowedEntropy:targetDropped', 'targetAttr is a dropped axis.');
+        error('windowedEntropy:targetDropped', 'targetAttr is a marginalized window attribute.');
     end
     nested = ~isempty(specs);
     [cwAxes, cwVals] = internal.parseMap(contextWindow);
@@ -178,7 +198,7 @@ function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isExch, ..
         if isempty(ci)
             error('windowedEntropy:requiresWidth', ...
                 ['windowedEntropy has no query to size the window; give an ' ...
-                 'explicit contextWindow entry for every swept axis (axis %d missing).'], axes(k));
+                 'explicit contextWindow entry for every window attribute (attribute %d missing).'], axes(k));
         end
         [gammas(k), sds(k)] = internal.resolveWindowStruct(cwVals{ci}, NaN, axes(k));
         locates{k} = internal.axisLocate(locate, axes(k));

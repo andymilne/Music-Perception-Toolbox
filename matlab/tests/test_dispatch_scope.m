@@ -95,6 +95,21 @@ function test_dispatch_scope()
     results{end, 2} = (nLines == 1);
 
     % --- Report.
+    % A measure is a top-level entry: the evaluations inside one call
+    % (every row of a batch, both passes of an adaptive differential)
+    % share one dispatch scope, so the route is announced at most once.
+    internal.dispatchScope('reset');
+    internal.maybeShowDispatchMsg('reset');
+    out = evalc(['nTupleEntropy([0 2 4 5 7 9 11; 0 2 4 6 7 9 11; ' ...
+                 '0 1 3 5 7 8 10], 12, 1);']);
+    results{end+1, 1} = 'nTupleEntropy batch announces at most once';
+    results{end, 2} = numel(strfind(out, 'chose')) <= 1;
+    out = evalc(['nTupleEntropy([0 2 4 5 7 9 11], 12, 1, ''sigma'', 0.3, ' ...
+                 '''method'', ''differential'', ''verbose'', false);']);
+    results{end+1, 1} = 'nTupleEntropy differential announces at most once';
+    results{end, 2} = numel(strfind(out, 'chose')) <= 1 ...
+                    && internal.dispatchScope('query') == 0;
+
     nTests = size(results, 1);
     nPassed = sum([results{:, 2}]);
     if nPassed == nTests

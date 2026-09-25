@@ -1,42 +1,43 @@
 """demo_translate_sweep.py
 
-Pre-tensor sliding-comparison sweep with ``translate_attributes`` and the
-raw-MA list mode of ``sim_maet``.
+A sliding comparison by attribute translation: a query translated in
+pitch and time across a reference, with the similarity read at every
+offset.
 
 Scenario: a 3-note motif (C E G) hidden inside a 7-note melody
 (D E F C E G A, one note per second). The motif appears exactly at
 reference times 3, 4, 5. At each (pitch transposition, time shift)
-offset, the query is translated and compared to the un-shifted
-reference with the closed-form cosine similarity of a 2-attribute
-MAET (pitch periodic at the octave; time absolute non-periodic). The
-sweep should peak at (0 cents, 3 s) where the query aligns with the
-embedded C-E-G, and at (1200 cents, 3 s) by octave periodicity.
+offset the query is translated and compared with the reference by the
+cosine similarity of a 2-attribute MAET (pitch periodic at the octave;
+time absolute and not periodic). The profile should peak at
+(0 cents, 3 s), where the query lands on the embedded C-E-G, and at
+(1200 cents, 3 s) by octave periodicity. Both sequences start at time
+0, so a time offset is the time from the start of the reference to the
+start of the query (User Guide §7.3.4).
 
-The workflow is two function calls: one to ``translate_attributes``, one
-to ``sim_maet`` (raw-MA scalar-vs-list form, with the
-translated ``p_attr`` list as one operand and the reference
-``p_attr`` as the other). The build step is internalised: the
-reference is built once, each translated query once. The sweep is
-specified as a length-A offsets list, one row of M candidate shifts per
-attribute; Section 3 builds it. Section 7 shows the same sweep as a
-single call to ``sweep_sim_maet``, which never builds the M
-translated queries at all.
-
-Compare ``windowed_similarity`` (see ``demo_helix_blend`` and
-``demo_tempo_invariance``), which windows the context by event
-weighting before each build --- the window multiplies per-event weights
-and the window axis is then marginalized --- so that locality is
-decoupled from the query's own support. The route used here returns a
-strict cosine similarity (bounded in [0, 1] for non-negative weights)
-and does not require choosing a window family.
+1. The inputs, as two pre-MAETs.
+2. The whole profile in one call: ``windowed_similarity`` with an
+   ``offsets`` map naming both attributes and no window.
+3. The same call with a window in time, which travels with the query
+   and restricts the comparison to the reference's notes near it.
+4. The two profiles plotted.
+5. What the call in 2 computes: ``sweep_sim_maet`` on the two built
+   densities, one pass over the tuple pairs and one evaluation per
+   offset, with no translated copy of the query built.
+6. The same profile offset by offset, for transparency:
+   ``translate_attributes`` builds the translated copies, ``sim_maet``
+   compares them in its list mode, and an explicit loop over the
+   offsets does the same one comparison at a time.
 
 See also
 --------
+mpt.windowed_similarity
+mpt.sweep_sim_maet
 mpt.translate_attributes
 mpt.sim_maet
-mpt.sweep_sim_maet
 mpt.build_maet
-mpt.windowed_similarity
+
+The MATLAB mirror is demo_translateSweep.m.
 """
 
 import numpy as np
@@ -44,12 +45,15 @@ import matplotlib.pyplot as plt
 
 import mpt
 
+# Keep the dispatcher's per-call announcements out of the printed
+# output (show_hints gates only those); restored at the end.
+_prev_defaults = mpt.set_default(show_hints=False)
 
 # =====================================================================
-# 1. Build the reference melody and the query motif (pre-tensor form)
+# 1. The reference melody and the query motif, as pre-MAETs
 # =====================================================================
 
-print("=== 1. Pre-tensor inputs ===")
+print("=== 1. Inputs ===")
 
 # Reference: D-E-F-C-E-G-A at one note per second. The query C-E-G
 # appears exactly at times 3, 4, 5.
@@ -58,197 +62,173 @@ ref_pitch = mpt.transform_attributes(ref_midi, None, ('midi', 'cents')).reshape(
 ref_time  = np.arange(7, dtype=float).reshape(1, -1)
 ref_pAttr = [ref_pitch, ref_time]
 
-# Query: C-E-G triad, 1-second spacing.
+# Query: C-E-G, one note per second, starting at time 0 as the
+# reference does.
 qry_midi  = np.array([60, 64, 67])
 qry_pitch = mpt.transform_attributes(qry_midi, None, ('midi', 'cents')).reshape(1, -1)
 qry_time  = np.arange(3, dtype=float).reshape(1, -1)
 qry_pAttr = [qry_pitch, qry_time]
 
-# Per-attribute geometry: pitch (attribute 0) is periodic at the
-# octave; time (attribute 1) is absolute non-periodic.
-sigma   = [50.0, 0.3]
-r       = [1, 1]
-is_rel  = [False, False]
-is_per  = [True,  False]
-periods = [1200.0, 0.0]
+# Per-attribute geometry, carried by both pre-MAETs' specs: pitch
+# (attribute 0) is periodic at the octave; time (attribute 1) is
+# absolute and not periodic.
+sigma = [50.0, 0.3]
+specs = mpt.flat_specs(ref_pAttr, name=['pitch', 'time'], sigma=sigma,
+                       is_per=[True, False], period=[1200.0, 0.0])
+pm_ref = mpt.pack_pre_maet(ref_pAttr, None, specs)
+pm_qry = mpt.pack_pre_maet(qry_pAttr, None, specs)
 
-print("  reference: D-E-F-C-E-G-A, one note per second")
-print("  query    : C-E-G triad, 1-second spacing")
-print("  (the motif appears exactly at reference times 3, 4, 5)")
-print(f"  sigma    : {sigma[0]:.0f} cents (pitch) / {sigma[1]:.2f} s (time)")
-print()
-
-
-# =====================================================================
-# 2. Construct the (pitch, time) offset sweep
-# =====================================================================
-
-print("=== 2. Offset sweep grid ===")
-
-# Pitch offsets: 0-1200 cents in 100-cent steps (one octave). The
-# expected peak at pitch shift 0 is also visible at 1200 cents because
-# the pitch group is octave-periodic.
+# The offsets: pitch 0-1200 cents in 100-cent steps (the peak at 0
+# recurs at 1200 because pitch is periodic), time -1 to 5 s in 0.25 s
+# steps.
 pitch_grid = np.arange(0, 1201, 100, dtype=float)
-# Time offsets: -1 to 5 seconds in 0.25-second steps.
 time_grid  = np.arange(-1.0, 5.001, 0.25)
 
-P_mesh, T_mesh = np.meshgrid(pitch_grid, time_grid, indexing="ij")
-M = P_mesh.size
-# P_mesh and T_mesh are used in Section 3 to build the offsets list.
-
-print(f"  pitch grid: {pitch_grid.size} transpositions over one octave "
-      f"(100-cent steps)")
-print(f"  time  grid: {time_grid.size} positions from t = "
-      f"{time_grid.min():.1f} to t = {time_grid.max():.1f} s")
-print(f"  total sweep positions: M = {M}")
+print("  reference: D-E-F-C-E-G-A, one note per second")
+print("  query    : C-E-G, one note per second")
+print("  (the motif appears exactly at reference times 3, 4, 5)")
+print(f"  sigma    : {sigma[0]:.0f} cents (pitch) / {sigma[1]:.2f} s (time)")
+print(f"  offsets  : {pitch_grid.size} pitch x {time_grid.size} time")
 print()
 
 
 # =====================================================================
-# 3. Pre-tensor translation: two equivalent offset forms
+# 2. The whole profile in one call
 # =====================================================================
 
-print("=== 3. translate_attributes (offset sweep) ===")
+print("=== 2. windowed_similarity with an offsets map ===")
 
-# offsets is a length-A list, one entry per attribute. Each entry here
-# is a (1, M) row, which the orientation grammar reads as a per-sweep
-# global shift: M candidate offsets broadcast across the attribute's
-# values (trivial here, as each attribute is single-value, K_a = 1). The
-# M sweep columns are shared across attributes, so column m of every
-# entry together defines the m-th translated copy. Reads naturally as
-# "sweep pitch by these values; sweep time by these values".
-offsets = [P_mesh.reshape(1, -1),     # pitch shifts (attribute 0)
-           T_mesh.reshape(1, -1)]     # time  shifts (attribute 1)
-qry_pAttr_swept, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(qry_pAttr, None, offsets))
-
-# The returned list of translated copies carries its offsets with it (a
-# TranslatedSweep), so sim_maet below can recognise the sweep;
-# see Section 7.
-print(f"  qry_pAttr_swept: {type(qry_pAttr_swept).__name__}, "
-      f"length {len(qry_pAttr_swept)}")
-print(f"  each entry is a length-{len(qry_pAttr)} list of K_a x N "
-      f"value matrices")
-print()
-
-
-# =====================================================================
-# 4. Raw-MA scalar-vs-list cosine similarity: one call
-# =====================================================================
-
-print("=== 4. sim_maet (raw-MA list mode) ===")
-
-S_flat = np.asarray(mpt.sim_maet(
-    ref_pAttr, None, qry_pAttr_swept, None,
-    sigma, r, is_rel, is_per, periods,
-    verbose=False,
-))
-S = S_flat.reshape(P_mesh.shape)         # (pitch, time) heatmap
+# An offsets map {attribute: offsets} translates each named attribute
+# of the query by every combination of its offsets and compares; an
+# attribute is windowed only if context_window names it, and here none
+# is, so this is attribute translation and nothing else. The output is
+# indexed by the offsets, one dimension per attribute: (pitch, time).
+S = mpt.windowed_similarity(pm_ref, pm_qry,
+                            offsets={0: pitch_grid, 1: time_grid},
+                            normalize='cosine')
 
 i, j = np.unravel_index(int(np.argmax(S)), S.shape)
 print(f"  cosine similarity surface: shape {S.shape} (pitch x time)")
 print(f"  max similarity {S.max():.4f} at pitch shift "
-      f"{P_mesh[i, j]:.0f} c, time shift {T_mesh[i, j]:.2f} s")
+      f"{pitch_grid[i]:.0f} c, time shift {time_grid[j]:.2f} s")
 print("  (expected: 0 cents, 3.00 s --- the embedded C-E-G)")
 print()
 
 
 # =====================================================================
-# 5. Visualise the sweep
+# 3. Adding a window in time
 # =====================================================================
 
-print("=== 5. Plot ===")
+print("=== 3. The same call with a window in time ===")
 
-fig, ax = plt.subplots(figsize=(9, 6))
-im = ax.imshow(
-    S.T,                     # transpose: x-axis pitch, y-axis time
-    origin="lower",
-    aspect="auto",
-    extent=[pitch_grid[0], pitch_grid[-1],
-            time_grid[0], time_grid[-1]],
-)
-fig.colorbar(im, ax=ax, label="cosine similarity")
-ax.set_xlabel("Pitch transposition (cents)")
-ax.set_ylabel("Time shift (s)")
-ax.set_title("Pre-tensor sliding-comparison: cosine similarity\n"
-             "Reference: D-E-F-C-E-G-A; query: C-E-G")
-ax.set_xticks(np.arange(0, 1201, 200))
-ax.set_yticks(np.arange(-1, 5.01, 1))
+# Without a window the query is compared with the whole reference, so
+# even at the match the reference's other four notes lower the cosine.
+# A window on time, named in context_window, travels with the query
+# (centred on its position, the offset plus its mean onset) and
+# weights the reference's events by their distance from it, so the
+# comparison is local. A rectangle 3 s wide spans the query's three
+# notes; at the match it keeps exactly the embedded C-E-G.
+S_win = mpt.windowed_similarity(
+    pm_ref, pm_qry, offsets={0: pitch_grid, 1: time_grid},
+    context_window={1: {'shape': 'rect', 'width': 3.0}},
+    normalize='cosine')
 
-# Mark the expected peak positions: query aligns with the embedded
-# C-E-G at (0 c, 3 s). Octave periodicity reproduces the peak at
-# (1200 c, 3 s).
-ax.plot([0, 1200], [3, 3], "rx", markersize=12, mew=1.5)
-ax.text(40,   3.4, "C-E-G match", color="r",
-        fontsize=9, bbox=dict(facecolor="white", alpha=0.7,
-                              edgecolor="none"))
-ax.text(1100, 3.4, "octave", color="r",
-        fontsize=9, bbox=dict(facecolor="white", alpha=0.7,
-                              edgecolor="none"))
-
-plt.tight_layout()
-print("  Figure shows the cosine-similarity surface as a function of")
-print("  pitch transposition and time shift. Red x marks the")
-print("  expected peaks at (0 c, 3 s) and (1200 c, 3 s), where the")
-print("  query aligns with the embedded C-E-G in the reference;")
-print("  octave-pitch periodicity makes the two peaks identical.")
+i_w, j_w = np.unravel_index(int(np.argmax(S_win)), S_win.shape)
+print(f"  max similarity {S_win.max():.4f} at pitch shift "
+      f"{pitch_grid[i_w]:.0f} c, time shift {time_grid[j_w]:.2f} s")
+print(f"  ({S.max():.4f} without the window, where the reference's other")
+print("   four notes dilute the match)")
 print()
 
 
 # =====================================================================
-# 6. Equivalent explicit build loop, for transparency
+# 4. The two profiles
 # =====================================================================
 
-print("=== 6. Equivalent explicit build loop ===")
-print("  This is what the raw-MA list mode does internally; spelled")
-print("  out here so the relationship between translate_attributes,")
-print("  build_maet, and sim_maet is transparent.")
+print("=== 4. Plot ===")
+
+fig, axs = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+for ax, surf, name in [(axs[0], S, "no window"),
+                       (axs[1], S_win, "time window 3 s wide")]:
+    im = ax.imshow(surf.T, origin="lower", aspect="auto", vmin=0, vmax=1,
+                   extent=[pitch_grid[0] - 50, pitch_grid[-1] + 50,
+                           time_grid[0] - 0.125, time_grid[-1] + 0.125])
+    ax.set_xlabel("Pitch transposition (cents)")
+    ax.set_title(f"Cosine similarity, {name}")
+    ax.set_xticks(np.arange(0, 1201, 200))
+    # The expected peaks: the query on the embedded C-E-G at (0 c, 3 s),
+    # and again at (1200 c, 3 s) by octave periodicity.
+    ax.plot([0, 1200], [3, 3], "rx", markersize=12, mew=1.5)
+axs[0].set_ylabel("Time shift (s)")
+axs[0].set_yticks(np.arange(-1, 5.01, 1))
+fig.colorbar(im, ax=axs, label="cosine similarity")
+fig.suptitle("Reference: D-E-F-C-E-G-A; query: C-E-G")
+print("  Red x marks the expected peaks at (0 c, 3 s) and (1200 c, 3 s).")
 print()
 
-mpt.show_pre_maet(ref_pAttr, None, names=['pitch', 'time'], sigma=sigma,
-                  is_rel=is_rel, is_per=is_per, period=periods)
-mpt.show_pre_maet(qry_pAttr_swept[0], None, names=['pitch', 'time'],
-                  sigma=sigma, is_rel=is_rel, is_per=is_per, period=periods)
-print()
-
-dens_ref = mpt.build_maet(
-    ref_pAttr, None, sigma, r, is_rel, is_per, periods, verbose=False,
-)
-S_manual = np.empty(M, dtype=np.float64)
-for m, pa in enumerate(qry_pAttr_swept):
-    dens_q = mpt.build_maet(
-        pa, None, sigma, r, is_rel, is_per, periods, verbose=False,
-    )
-    S_manual[m] = mpt.sim_maet(dens_ref, dens_q, verbose=False)
-
-discrepancy = float(np.max(np.abs(S_flat - S_manual)))
-print(f"  max |S_raw - S_manual| = {discrepancy:.2e} "
-      f"(floating-point parity)")
-assert discrepancy < 1e-12, \
-    "Raw-MA list mode disagrees with manual build loop."
-
 
 # =====================================================================
-# 7. The same sweep without building M queries: sweep_sim_maet
+# 5. What the call in 2 computes: sweep_sim_maet
 # =====================================================================
 
-print("\n=== 7. sweep_sim_maet (one call, no translated copies) ===")
+print("=== 5. sweep_sim_maet (one pass, no translated copies) ===")
 print("  A uniform translation of the query enters the inner product only")
-print("  through the offset, so the whole sweep is one pass over the tuple")
-print("  pairs and then one evaluation per offset. The pitch attribute is")
-print("  periodic, which the mixture route refuses; under method='auto'")
-print("  the orbit route carries the sweep instead (the wrapped kernel")
-print("  absorbs the periodicity), so the call is the same either way.")
+print("  through the offset, so the whole profile is one pass over the")
+print("  tuple pairs and then one evaluation per offset. The pitch")
+print("  attribute is periodic, which the mixture route refuses; under")
+print("  method='auto' the orbit route carries the sweep instead (the")
+print("  wrapped kernel absorbs the periodicity).")
 
-dens_qry = mpt.build_maet(
-    qry_pAttr, None, sigma, r, is_rel, is_per, periods, verbose=False,
-)
-offsets_am = np.vstack([P_mesh.ravel(), T_mesh.ravel()])      # (A, M)
+dens_ref = mpt.build_maet(pm_ref, verbose=False)
+dens_qry = mpt.build_maet(pm_qry, verbose=False)
+# One column per combination of offsets: the (A, M) form.
+P_mesh, T_mesh = np.meshgrid(pitch_grid, time_grid, indexing="ij")
+offsets_am = np.vstack([P_mesh.ravel(), T_mesh.ravel()])
 S_sweep = mpt.sweep_sim_maet(dens_ref, dens_qry, offsets_am,
-                                     verbose=False)
-discrepancy_sweep = float(np.max(np.abs(S_flat - S_sweep)))
-print(f"  max |S_raw - S_sweep| = {discrepancy_sweep:.2e}")
-assert discrepancy_sweep < 1e-8, \
-    "sweep_sim_maet disagrees with the per-offset route."
+                             verbose=False).reshape(P_mesh.shape)
+d_sweep = float(np.max(np.abs(S - S_sweep)))
+print(f"  max |S - S_sweep| = {d_sweep:.2e}")
+assert d_sweep < 1e-10, "sweep_sim_maet disagrees with windowed_similarity."
+print()
 
+
+# =====================================================================
+# 6. Offset by offset, for transparency
+# =====================================================================
+
+print("=== 6. translate_attributes + sim_maet, and an explicit loop ===")
+
+# translate_attributes builds the M translated copies: its offsets are
+# a length-A list whose entries are (1, M) rows, one candidate shift
+# per column, column m of every entry together defining the m-th copy.
+# The result is one pre-MAET holding all M copies on one geometry.
+pm_swept = mpt.translate_attributes(
+    pm_qry, [P_mesh.reshape(1, -1), T_mesh.reshape(1, -1)])
+print(f"  {len(pm_swept['p_attr'])} translated copies of the query")
+
+# sim_maet compares the reference with every copy in its list mode; it
+# computes every copy with Bulger's method where the sweep in 5 took the
+# orbit route, so the two agree to the truncation floor rather than to
+# the last digit.
+S_list = np.asarray(mpt.sim_maet(pm_ref, pm_swept, verbose=False)
+                    ).reshape(P_mesh.shape)
+
+# And one offset at a time: translate the query by one (pitch, time)
+# pair, build it, and compare it with the reference.
+S_loop = np.empty(P_mesh.size)
+for m, (dp, dt) in enumerate(zip(P_mesh.ravel(), T_mesh.ravel())):
+    dens_q = mpt.build_maet(mpt.translate_attributes(pm_qry, [dp, dt]),
+                            verbose=False)
+    S_loop[m] = mpt.sim_maet(dens_ref, dens_q, verbose=False)
+S_loop = S_loop.reshape(P_mesh.shape)
+
+d_list = float(np.max(np.abs(S - S_list)))
+d_loop = float(np.max(np.abs(S_list - S_loop)))
+print(f"  max |S - S_list|      = {d_list:.2e}")
+print(f"  max |S_list - S_loop| = {d_loop:.2e}")
+assert d_list < 1e-8 and d_loop < 1e-12, \
+    "The offset-by-offset routes disagree."
+
+mpt.set_default(**_prev_defaults)
 print("\n=== Demo complete ===")
 plt.show()

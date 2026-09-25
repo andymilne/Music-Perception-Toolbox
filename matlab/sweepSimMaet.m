@@ -88,6 +88,20 @@ function [s, densXOut, densYOut] = sweepSimMaet(densX, densY, offsets, nvArgs)
 %                             PERIODIC attribute, which the mixture
 %                             refuses: it never forms the split, so the
 %                             wrapped kernel absorbs the periodicity.
+%                             'contract' serves densities with a nested
+%                             attribute: the per-level contraction of the
+%                             nested inner product (INTERNAL.
+%                             NESTEDCONTRACT), with the offsets riding its
+%                             batch axis, so no nested tuple is
+%                             enumerated; the mixture would enumerate
+%                             them all (every combination of the elements
+%                             at every bound position), and the orbit
+%                             route declines them. A swept attribute must
+%                             be absolute and isotropic, with no inner or
+%                             intermediate relative unit; flat or nested,
+%                             periodic or not. 'auto' takes it wherever a
+%                             nested attribute is present and the
+%                             contraction covers the densities.
 %       'normalize'         - 'cosine' (default) or 'oneSidedDenom'. Both
 %                             self inner products are invariant under a
 %                             uniform translation of their own values, so
@@ -98,14 +112,16 @@ function [s, densXOut, densYOut] = sweepSimMaet(densX, densY, offsets, nvArgs)
 %   Outputs
 %       s - 1 x M similarities, indexed as the columns of offsets.
 %       densXOut, densYOut - (optional) the two input structs with the
-%                 mixture route's self inner product memoised in their
+%                 self inner product memoised in their 'selfIP' field (on
+%                 the contraction route, under the contraction's own
+%                 keys, as simMaet memoises it); on the mixture route
 %                 'selfIP' field under the 'sweep' route key
 %                 (INTERNAL.SELFIPKEY), as simMaet returns its
 %                 memo. Pass them back in on a later sweep to skip the
 %                 self terms; the key never crosses the pairwise or
 %                 orbit memos. Twin of the Python sweep's 'sweep' memo.
 %
-%   Errors when the sweep cannot be reduced: a swept relative attribute
+%   Errors when no route can carry the sweep: a swept relative attribute
 %   or a swept nested inner/intermediate one (a uniform translation
 %   cancels within every block, so there is nothing to sweep), a swept
 %   periodic attribute (the wrapped kernel admits no such split, and the
@@ -122,7 +138,7 @@ arguments
     densY struct
     offsets double
     nvArgs.method (1, :) char {mustBeMember(nvArgs.method, ...
-        {'auto', 'mixture', 'orbit'})} = 'auto'
+        {'auto', 'mixture', 'orbit', 'contract'})} = 'auto'
     nvArgs.normalize (1, :) char = 'cosine'
     nvArgs.truncationSigmas = []
     nvArgs.verbose (1, 1) logical = true
@@ -166,6 +182,29 @@ else
     tsResolved = nvArgs.truncationSigmas;
 end
 tsResolved = internal.accuracyFloor('resolve', tsResolved);
+
+% --- Contraction route: densities with a nested attribute --------------
+% The mixture would enumerate the nested tuples and the orbit route
+% declines them. Where the contraction does not cover the densities,
+% 'auto' falls through to the routes below. It reads the caller's
+% structs, as simMaet's nested plan does.
+if any(strcmp(nvArgs.method, {'auto', 'contract'}))
+    [sC, cX, cY] = localContractSweep(densXIn, densYIn, off, A, ...
+        nvArgs.normalize, nvArgs.truncationSigmas);
+    if ~isempty(sC)
+        s = sC;
+        densXOut.selfIP = cX;
+        densYOut.selfIP = cY;
+        return;
+    end
+    if strcmp(nvArgs.method, 'contract')
+        error('sweepSimMaet:contractUnsupported', ...
+              ['The contraction route needs a nested attribute, and ' ...
+               'every swept attribute absolute, isotropic, and with no ' ...
+               'inner or intermediate relative unit; and the nested ' ...
+               'contraction must cover the densities.']);
+    end
+end
 
 % --- Route selection ----------------------------------------------------
 orbitOk = localOrbitSupported(densX, densY, off, A, nvArgs.truncationSigmas);
@@ -465,7 +504,18 @@ function ok = localOrbitSupported(densX, densY, off, A, tsRaw)
             && ~all(logical(densX.isExch))
         ok = false; return;
     end
+    % A nested attribute of any kind is declined. localInnerBlock flags
+    % only one relative at an inner or intermediate level; a nested
+    % attribute that is absolute at every level has block size 0 and
+    % reports the inner level's exchangeability, so neither test catches
+    % it, and the route would then compute the flat symmetrised quantity
+    % in its place (a spectrally enriched, bound pitch attribute gave 2.0
+    % where translate-and-compare gives 1.0).
     for a = 1:A
+        if isfield(densX, 'nested') && numel(densX.nested) >= a ...
+                && ~isempty(densX.nested{a})
+            ok = false; return;                % nested: no orbit form here
+        end
         if localInnerBlock(densX, a) > 0
             ok = false; return;                % nested: no orbit form here
         end
@@ -492,6 +542,119 @@ function ok = localOrbitSupported(densX, densY, off, A, tsRaw)
     if internal.densityHasKernelCov(densX) ...
             || internal.densityHasKernelCov(densY)
         ok = false;
+    end
+end
+
+
+function ok = localContractSupported(densX, densY, off, A)
+%LOCALCONTRACTSUPPORTED  Whether the contraction route can carry this sweep.
+%
+%   The route serves densities with at least one nested attribute. It
+%   keeps the factorization across attributes of the nested inner product
+%   (one N_x x N_y matrix per attribute, multiplied element-wise and
+%   summed; JMM Eq. 3.4) and forms, at each offset, only the matrices of
+%   the swept attributes. A swept attribute must be absolute (translation
+%   cancels in a relative one), with no inner or intermediate relative
+%   unit, and isotropic. Attributes that are not swept are unconstrained
+%   here; the contraction itself declines what it does not cover.
+%   Twin of Python _tensor.sweep.contract_sweep_supported.
+    ok = false;
+    if double(densY.nAttrs) ~= A
+        return;
+    end
+    nestX = localNestedFlags(densX, A);
+    nestY = localNestedFlags(densY, A);
+    if ~any(nestX) && ~any(nestY)
+        return;
+    end
+    swept = any(off ~= 0, 2);
+    for a = 1:A
+        if ~swept(a)
+            continue;
+        end
+        if densX.isRel(a) || nestX(a) ~= nestY(a)
+            return;
+        end
+        if nestX(a) && (localInnerBlock(densX, a) > 0 ...
+                || localInnerBlock(densY, a) > 0)
+            return;
+        end
+        for d = {densX, densY}
+            dd = d{1};
+            if isfield(dd, 'kernelCov') && iscell(dd.kernelCov) ...
+                    && numel(dd.kernelCov) >= a && ~isempty(dd.kernelCov{a})
+                return;
+            end
+            if isfield(dd, 'kernelCov') && ~iscell(dd.kernelCov) ...
+                    && ~isempty(dd.kernelCov)
+                return;
+            end
+        end
+    end
+    ok = true;
+end
+
+
+function tf = localNestedFlags(dens, A)
+%LOCALNESTEDFLAGS  1 x A logical: which attributes carry a nesting spec.
+    tf = false(1, A);
+    if ~isfield(dens, 'nested') || ~iscell(dens.nested)
+        return;
+    end
+    for a = 1:min(A, numel(dens.nested))
+        tf(a) = ~isempty(dens.nested{a});
+    end
+end
+
+
+function [s, cacheX, cacheY] = localContractSweep(densX, densY, off, A, ...
+        normalize, tsRaw)
+%LOCALCONTRACTSWEEP  The sweep on the contraction route, or [] where it
+%   does not apply. INTERNAL.NESTEDCONTRACT with 'sweepOffsets' returns the
+%   cross inner product at every offset and the two translation-invariant
+%   self inner products once, memoised on the returned caches. Twin of the
+%   Python _tensor.sweep._contract_sweep.
+    s = [];
+    cacheX = localMemoOf(densX);
+    cacheY = localMemoOf(densY);
+    if ~localContractSupported(densX, densY, off, A)
+        return;
+    end
+    opts = struct('cacheX', cacheX, 'cacheY', cacheY, ...
+                  'sweepOffsets', off, 'methodName', 'contract');
+    try
+        [trip, ~, cacheX, cacheY] = internal.nestedContract(densX, densY, ...
+            normalize, tsRaw, true, opts);
+    catch err
+        if strcmp(err.identifier, 'simMaet:contractUnavailable')
+            return;
+        end
+        rethrow(err);
+    end
+    if isempty(trip)
+        return;
+    end
+    switch normalize
+        case 'cosine'
+            denom = sqrt(max(trip.xx * trip.yy, 0));
+        otherwise
+            denom = trip.yy;
+    end
+    if denom == 0
+        s = NaN(1, size(off, 2));
+    else
+        s = trip.xy(:).' / denom;
+    end
+end
+
+
+function cache = localMemoOf(dens)
+%LOCALMEMOOF  The density's self-IP memo struct, or an empty one.
+    cache = struct('keys', {{}}, 'vals', zeros(1, 0));
+    if isfield(dens, 'selfIP') && isstruct(dens.selfIP) ...
+            && isfield(dens.selfIP, 'keys') && isfield(dens.selfIP, 'vals') ...
+            && iscell(dens.selfIP.keys)
+        cache = dens.selfIP;
     end
 end
 

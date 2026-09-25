@@ -51,6 +51,15 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %                         'differential' and 'renyi2'). Default 0
 %                         means use period (the Milne & Dean 2016
 %                         mass-conserving Gaussian-confusion grid).
+%       'verbose'       - Logical (default true). If true, the
+%                         underlying entropyMaet evaluation may print
+%                         its progress and time notes; false
+%                         suppresses them. The dispatch announcement
+%                         (which evaluation path ran) is gated not by
+%                         'verbose' but by the toolbox-wide showHints
+%                         default, and appears at most once per call,
+%                         batched input included;
+%                         mptDefaults('showHints', false) silences it.
 %
 %   Sigma semantics
 %       Under the toolbox convention, sigma applies to the input
@@ -151,7 +160,14 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
             = 'normalized'
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.nPointsPerDim (1,1) {mustBeNonnegative, mustBeInteger} = 0
+        nvArgs.verbose (1,1) logical = true
     end
+
+    % Top-level call guard: dispatch throttle + kernelChunkBytes pin, so
+    % the evaluations inside one call (every row of a batch, both passes
+    % of an adaptive differential) announce their route at most once.
+    % See internal.callGuard.
+    guard = internal.callGuard(); %#ok<NASGU>
 
     % Canonicalise British 'normalised' alias.
     if strcmp(nvArgs.method, 'normalised')
@@ -282,20 +298,24 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
             H = entropyMaet(T, ...
                                'method', 'shannon', ...
                                'base', nvArgs.base, ...
-                               'nPointsPerDim', nGrid);
+                               'nPointsPerDim', nGrid, ...
+                               'verbose', nvArgs.verbose);
         case 'normalized'
             H = entropyMaet(T, ...
                                'method', 'normalized', ...
                                'base', nvArgs.base, ...
-                               'nPointsPerDim', nGrid);
+                               'nPointsPerDim', nGrid, ...
+                               'verbose', nvArgs.verbose);
         case 'differential'
             H = entropyMaet(T, ...
                                'method', 'differential', ...
-                               'base', nvArgs.base);
+                               'base', nvArgs.base, ...
+                               'verbose', nvArgs.verbose);
         otherwise  % 'renyi2'
             H = entropyMaet(T, ...
                                'method', 'renyi2', ...
-                               'base', nvArgs.base);
+                               'base', nvArgs.base, ...
+                               'verbose', nvArgs.verbose);
     end
 
     % --- Tuples matrix (N', n) for compatibility with the prior API ---
@@ -346,7 +366,8 @@ function [HVec, tuplesCell] = localBatchedNTupleEntropy(P, period, n, nvArgs)
         [Hk, tk] = nTupleEntropy(pK(:), period, n, ...
             'sigma', nvArgs.sigma, 'sigmaSpace', nvArgs.sigmaSpace, ...
             'method', nvArgs.method, 'base', nvArgs.base, ...
-            'nPointsPerDim', nvArgs.nPointsPerDim);
+            'nPointsPerDim', nvArgs.nPointsPerDim, ...
+            'verbose', nvArgs.verbose);
         HVec(k)       = Hk;
         tuplesCell{k} = tk;
         cache(keyStr) = {Hk, tk};

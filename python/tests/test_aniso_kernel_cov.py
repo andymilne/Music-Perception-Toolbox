@@ -649,3 +649,299 @@ class TestDegenerateNestedFlattening:
                                     rel_outer=True))
         with pytest.raises(ValueError, match="is_rel=False"):
             self._build(pb[0], sp[0], np.eye(3) * 0.01)
+
+
+class TestTruncationParity:
+    """The kernel-covariance route truncates exactly as the isotropic one.
+
+    A matrix-valued covariance is evaluated by whitening onto the
+    isotropic unit-sigma kernel, and the truncation rule (drop a kernel
+    contribution whose value falls below ``exp(-k**2/2)`` of its peak)
+    then holds in the Mahalanobis metric. Regression: the whitened
+    tuple (dim = r >= 2, a handful of centres) always reached the
+    exhaustive branch of the kernel-sum helper, which skipped the
+    cutoff, so ``kernel_cov`` similarities were untruncated while the
+    equivalent paired (relative + absolute) attributes were truncated.
+    """
+
+    Q = np.array([6000.0, 6200.0, 6400.0, 6700.0])
+    SD_REL = 30.0
+
+    @staticmethod
+    def _pm(v, copies):
+        p = [np.reshape(v, (-1, 1))] * len(copies)
+        sig, rel = (list(c) for c in zip(*copies))
+        n = len(copies)
+        return mpt.pack_pre_maet(p, None, mpt.flat_specs(
+            p, r=len(v), rel=rel, exch=[False] * n, sigma=sig,
+            is_per=[False] * n, period=[0.0] * n))
+
+    def _pair(self, s, ts, v_x):
+        """(paired isotropic, kernel_cov) similarity of Q and v_x."""
+        vs = self.SD_REL ** 2 + s * s
+        c = kernel_cov(4, sd_value=self.SD_REL * s / np.sqrt(vs),
+                       sd_shift=s * s / np.sqrt(4 * vs), differenced=False)
+        two = [(self.SD_REL, True), (s, False)]
+        a = mpt.sim_maet(self._pm(self.Q, two), self._pm(v_x, two),
+                         truncation_sigmas=ts, verbose=False)
+        b = mpt.sim_maet(self._pm(self.Q, [(c, False)]),
+                         self._pm(v_x, [(c, False)]),
+                         truncation_sigmas=ts, verbose=False)
+        return float(a), float(b)
+
+    @pytest.mark.parametrize("s, ts, expect_zero", [
+        (158.0, 6, True),        # 3e-9 < floor exp(-18) = 1.5e-8
+        (158.0, np.inf, False),  # 3e-9 > accuracy floor 1e-12
+        (100.0, np.inf, True),   # 5e-22 < 1e-12
+        (63.0, np.inf, True),    # 2e-54 < 1e-12
+        (300.0, 6, False),       # 4e-3, well above either floor
+    ])
+    def test_pairing_equals_kernel_cov_under_truncation(self, s, ts,
+                                                       expect_zero):
+        a, b = self._pair(s, ts, self.Q + 700.0)
+        if expect_zero:
+            assert a == 0.0 and b == 0.0
+        else:
+            assert a > 0.0
+            np.testing.assert_allclose(b, a, rtol=1e-12, atol=0.0)
+
+    @pytest.mark.parametrize("normalize", ["cosine", "oneSidedDenom",
+                                           "none"])
+    @pytest.mark.parametrize("s, expect_zero", [(158.0, True),
+                                                (300.0, False)])
+    def test_scaled_identity_matches_scalar_sigma_sim(self, normalize, s,
+                                                      expect_zero):
+        x = self.Q + 700.0
+        a = mpt.sim_maet(self._pm(self.Q, [(s, False)]),
+                         self._pm(x, [(s, False)]),
+                         normalize=normalize, truncation_sigmas=6,
+                         verbose=False)
+        C = np.eye(4) * s * s
+        b = mpt.sim_maet(self._pm(self.Q, [(C, False)]),
+                         self._pm(x, [(C, False)]),
+                         normalize=normalize, truncation_sigmas=6,
+                         verbose=False)
+        if expect_zero:
+            assert float(a) == 0.0 and float(b) == 0.0
+        else:
+            np.testing.assert_allclose(float(b), float(a), rtol=1e-12)
+
+    def test_scaled_identity_matches_scalar_sigma_eval(self):
+        s = 158.0
+        dI = mpt.build_maet(self._pm(self.Q, [(s, False)]), verbose=False)
+        dC = mpt.build_maet(self._pm(self.Q, [(np.eye(4) * s * s, False)]),
+                            verbose=False)
+        # Offsets 0, 300 inside the 6-sigma ball; 600, 900 outside it.
+        X = np.stack([self.Q + d for d in (0.0, 300.0, 600.0, 900.0)],
+                     axis=1)
+        for norm in ("none", "gaussian"):
+            vi = mpt.eval_maet(dI, X, normalize=norm, truncation_sigmas=6,
+                               verbose=False)
+            vc = mpt.eval_maet(dC, X, normalize=norm, truncation_sigmas=6,
+                               verbose=False)
+            np.testing.assert_allclose(vc, vi, rtol=1e-12, atol=0.0)
+            assert vi[2] == 0.0 and vi[3] == 0.0 and vi[1] > 0.0
+
+    def test_exhaustive_kernel_sum_branch_truncates(self):
+        # dim = 4 with one centre: the bucket index is not worthwhile,
+        # so the exhaustive branch runs; it must apply the same Q-ball
+        # cutoff as the bucketed one.
+        from mpt._kernel import gaussian_kernel_sum
+        C = np.zeros((4, 1))
+        k = 6.0
+        u = np.ones((4, 1)) / 2.0                 # unit vector
+        X = np.hstack([u * (k - 1e-6), u * (k + 1e-6)])
+        v = gaussian_kernel_sum(C, np.ones(1), X, 1.0,
+                                truncation_sigmas=k)
+        np.testing.assert_allclose(v[0], np.exp(-0.5 * (k - 1e-6) ** 2),
+                                   rtol=1e-12)
+        assert v[1] == 0.0
+
+
+class TestBareInnerProductScale:
+    """``normalize='none'`` is on the canonical scale in the original
+    coordinates.
+
+    Whitening ``x = R y`` (``Sigma = R R^T``) carries the anisotropic
+    kernel to the isotropic unit-sigma one, but the inner product is an
+    integral, so the change of variables contributes the Jacobian
+    ``det(Sigma)^(1/2)`` per attribute. Regression: the bare value
+    omitted it, so ``Sigma = sigma**2 I`` of dimension ``d`` returned
+    ``sigma**-d`` times the scalar-sigma value (at ``sigma = 158``,
+    ``d = 4``: 2.95e-8 against 18.39). The factor cancels under
+    ``'cosine'`` and ``'oneSidedDenom'``, which are pinned elsewhere.
+    """
+
+    SIG = 1.7
+
+    @staticmethod
+    def _direct_bare(cx, wx, cy, wy, Sigma):
+        """Direct canonical-scale inner product of two sums of
+        unnormalized anisotropic kernels (one ordered tuple each)."""
+        d = len(cx[0])
+        Sinv = np.linalg.inv(Sigma)
+        pref = np.pi ** (d / 2) * np.sqrt(np.linalg.det(Sigma))
+        s = 0.0
+        for a, Wa in zip(cx, wx):
+            for b, Wb in zip(cy, wy):
+                dd = np.asarray(a, float) - np.asarray(b, float)
+                s += Wa * Wb * np.exp(-0.25 * dd @ Sinv @ dd)
+        return pref * s
+
+    @pytest.mark.parametrize("r", [2, 3])
+    def test_raw_single_multiset(self, r):
+        P = np.array([0.0, 3.0, -3.0])[:r]
+        Q = np.array([0.2, 3.4, -2.9])[:r]
+        W = np.array([1.0, 0.8, 0.6])[:r]
+        args = (False, False, 0.0, False)
+        v_mat = mpt.sim_maet(P, W, Q, W, self.SIG**2 * np.eye(r), r,
+                             *args, normalize="none", verbose=False)
+        v_sca = mpt.sim_maet(P, W, Q, W, self.SIG, r,
+                             *args, normalize="none", verbose=False)
+        np.testing.assert_allclose(v_mat, v_sca, rtol=1e-12)
+
+    def test_density_and_density_list(self):
+        r = 3
+        P = np.array([0.0, 3.0, -3.0])
+        Q = np.array([0.2, 3.4, -2.9])
+        W = np.array([1.0, 0.8, 0.6])
+
+        def dens(p, s):
+            return mpt.build_maet(p, W, s, r, False, False, 0.0, False,
+                                  verbose=False)
+
+        C = self.SIG**2 * np.eye(r)
+        np.testing.assert_allclose(
+            mpt.sim_maet(dens(P, C), dens(Q, C), normalize="none",
+                         verbose=False),
+            mpt.sim_maet(dens(P, self.SIG), dens(Q, self.SIG),
+                         normalize="none", verbose=False),
+            rtol=1e-12)
+        np.testing.assert_allclose(
+            mpt.sim_maet(dens(P, C), [dens(Q, C), dens(P, C)],
+                         normalize="none", verbose=False),
+            mpt.sim_maet(dens(P, self.SIG),
+                         [dens(Q, self.SIG), dens(P, self.SIG)],
+                         normalize="none", verbose=False),
+            rtol=1e-12)
+
+    def test_dedup_does_not_merge_different_covariances(self):
+        """Two covariances whose whitened values coincide give different
+        bare values; the canonical-form dedup must keep them apart."""
+        r = 2
+        W = np.ones(r)
+        P = np.array([0.0, 1.0])
+        out = []
+        for s in (1.0, 2.0):
+            dx = mpt.build_maet(s * P, W, s * s * np.eye(r), r, False,
+                                False, 0.0, False, verbose=False)
+            out.append(dx)
+        vals = mpt.sim_maet(out, out, mode="pairwise", normalize="none",
+                            verbose=False)
+        np.testing.assert_allclose(vals[1] / vals[0], 2.0 ** r, rtol=1e-12)
+
+    def test_multi_attribute(self):
+        """Two matrix-sigma attributes (r = 3 and r = 2) tensored with a
+        scalar one; raw single, raw broadcast, and density forms."""
+        rng = np.random.default_rng(7)
+        N = 3
+        P1x, P1y = rng.normal(size=(3, N)), rng.normal(size=(3, 1))
+        P2x, P2y = rng.normal(size=(2, N)), rng.normal(size=(2, 1))
+        Tx, Ty = np.array([[0.0, 0.5, 1.0]]), np.array([[0.3]])
+        s1, s2, st = 0.9, 1.4, 0.4
+
+        def ones(P):
+            return np.ones_like(P)
+
+        geom = ([3, 2, 1], [False] * 3, [False] * 3, [0.0] * 3,
+                [False, False, True])
+        px, wx = [P1x, P2x, Tx], [ones(P1x), ones(P2x), ones(Tx)]
+        py, wy = [P1y, P2y, Ty], [ones(P1y), ones(P2y), ones(Ty)]
+        sig_mat = [s1**2 * np.eye(3), s2**2 * np.eye(2), st]
+        sig_sca = [s1, s2, st]
+        v_mat = mpt.sim_maet(px, wx, py, wy, sig_mat, *geom,
+                             normalize="none", verbose=False)
+        v_sca = mpt.sim_maet(px, wx, py, wy, sig_sca, *geom,
+                             normalize="none", verbose=False)
+        np.testing.assert_allclose(v_mat, v_sca, rtol=1e-12)
+        b_mat = mpt.sim_maet(px, wx, [py, py], wy, sig_mat, *geom,
+                             normalize="none", verbose=False)
+        b_sca = mpt.sim_maet(px, wx, [py, py], wy, sig_sca, *geom,
+                             normalize="none", verbose=False)
+        np.testing.assert_allclose(b_mat, b_sca, rtol=1e-12)
+        d_mat = [mpt.build_maet(p, w, sig_mat, *geom, verbose=False)
+                 for p, w in ((px, wx), (py, wy))]
+        d_sca = [mpt.build_maet(p, w, sig_sca, *geom, verbose=False)
+                 for p, w in ((px, wx), (py, wy))]
+        np.testing.assert_allclose(
+            mpt.sim_maet(*d_mat, normalize="none", verbose=False),
+            mpt.sim_maet(*d_sca, normalize="none", verbose=False),
+            rtol=1e-12)
+        # Entropy is unchanged (its log det term is added once).
+        for dm, ds in zip(d_mat, d_sca):
+            np.testing.assert_allclose(
+                mpt.entropy_maet(dm, method="renyi2", verbose=False),
+                mpt.entropy_maet(ds, method="renyi2", verbose=False),
+                rtol=1e-12)
+
+    def test_entropy_with_relative_point_mass_attribute(self):
+        """A relative r = 1 attribute takes the Renyi-2 sub-density
+        branch; the log det term must still be added exactly once."""
+        rng = np.random.default_rng(11)
+        P1 = rng.normal(size=(2, 4))
+        T = np.array([[0.0, 0.3, 0.9, 1.4]])
+        geom = ([2, 1], [False, True], [False, False], [0.0, 0.0],
+                [False, True])
+        w = [np.ones_like(P1), np.ones_like(T)]
+        s = 0.6
+        dm = mpt.build_maet([P1, T], w, [s * s * np.eye(2), 0.2], *geom,
+                            verbose=False)
+        ds = mpt.build_maet([P1, T], w, [s, 0.2], *geom, verbose=False)
+        np.testing.assert_allclose(
+            mpt.entropy_maet(dm, method="renyi2", verbose=False),
+            mpt.entropy_maet(ds, method="renyi2", verbose=False),
+            rtol=1e-12)
+
+    def test_non_isotropic_against_direct(self):
+        r = 3
+        Sigma = _random_spd(r, rng=np.random.default_rng(3), scale=0.4)
+        cx = [np.array([0.0, 1.0, 0.5]), np.array([-1.0, 0.0, 2.0])]
+        cy = [np.array([0.1, 0.9, 0.55]), np.array([2.0, -1.0, 0.3])]
+        got = mpt.sim_maet(
+            [np.column_stack(cx)], [np.ones((r, 2))],
+            [np.column_stack(cy)], [np.ones((r, 2))],
+            [Sigma], [r], [False], [False], [0.0], [False],
+            normalize="none", verbose=False)
+        want = self._direct_bare(cx, [1.0, 1.0], cy, [1.0, 1.0], Sigma)
+        np.testing.assert_allclose(got, want, rtol=1e-12)
+        # Diagonal covariance, single-multiset form.
+        D = np.diag([0.3, 1.1, 2.5])
+        P, Q = cx[0], cy[0]
+        got = mpt.sim_maet(P, np.ones(r), Q, np.ones(r), D, r,
+                           False, False, 0.0, False,
+                           normalize="none", verbose=False)
+        want = self._direct_bare([P], [1.0], [Q], [1.0], D)
+        np.testing.assert_allclose(got, want, rtol=1e-12)
+
+    def test_windowed_similarity(self):
+        r = 2
+        shapes = np.array([[0.0, 0.3, 0.2, 0.5],
+                           [0.4, 0.1, 0.2, 0.0]])
+        onsets = np.array([[0.0, 1.0, 2.0, 3.0]])
+        pc = [shapes, onsets]
+        wc = [np.ones((r, 4)), np.ones((1, 4))]
+        pq = [np.array([[0.2], [0.25]]), np.array([[0.0]])]
+        wq = [np.ones((r, 1)), np.ones((1, 1))]
+        s = 0.3
+
+        def run(sig, drop):
+            return mpt.windowed_similarity(
+                pc, wc, pq, wq, [sig, 0.25], [r, 1], [False, False],
+                [False, False], [0.0, 0.0], is_exch=[False, True],
+                centres=onsets.ravel(), window_attr=1,
+                drop_window_attr=drop, context_window=("rect", 0.5),
+                normalize="none", verbose=False)
+
+        for drop in (True, False):
+            np.testing.assert_allclose(run(s * s * np.eye(r), drop),
+                                       run(s, drop), rtol=1e-12)

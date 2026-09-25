@@ -29,9 +29,9 @@ Sections
     7. An anisotropic kernel, carried as its three generating scalars.
     8. A pre-MAET from a score, which supplies what a score determines.
 
-The MATLAB mirror is demos/demo_preMaetIo.m.
-
 See also: show_pre_maet, read_pre_maet, write_pre_maet, build_maet.
+
+The MATLAB mirror is demo_preMaetIo.m.
 """
 import os
 import tempfile
@@ -40,6 +40,8 @@ import numpy as np
 
 import mpt
 
+# The toolbox's one-time informational hints are switched off for a
+# tidy printout, and restored at the end.
 _prev_defaults = mpt.set_default(show_hints=False)
 OUT_DIR = tempfile.mkdtemp(prefix="mpt_premaet_")
 
@@ -52,7 +54,7 @@ print("=== 1. One pre-MAET, four renderings ===\n")
 
 # Three chords of a cadence, with their onsets. Pitch is an unordered
 # multiset read at r = 2 (shared pitch pairs) and periodic at the octave;
-# time is a single value per event on an unbounded axis.
+# time is a single value per event, and not periodic.
 p_attr = [
     np.array([[62.0, 55.0, 60.0],       # a chord per column, NaN-padded
               [65.0, 59.0, 64.0],
@@ -160,15 +162,21 @@ print("  is refused there and the spec is the place to change them.\n")
 
 print("=== 5. A nested attribute, with weights ===\n")
 
-# Bind the three chords into one super-event: an ordered run of unordered
-# chords, the shape the cadence prototypes of the article use. The kernel
-# geometry crosses to the nested spec intact.
-pm_b = mpt.bind_events(pm, [3, 3])
+# Give the cadence metrical weights, the middle chord on a weak beat
+# (0.6), and bind the three chords into one super-event: an ordered run
+# of unordered chords, the shape the cadence prototypes of the article
+# use. The kernel geometry crosses to the nested spec intact, and each
+# element keeps its weight inside the nest.
+metre = np.array([[1.0, 0.6, 1.0]])
+pm_b = mpt.bind_events(mpt.pack_pre_maet(pm, [metre, metre]), [3, 3])
 mpt.show_pre_maet(pm_b)
 print()
-print(mpt.show_pre_maet(pm_b, format="csv", verbose=False))
-print("  The brackets are the level structure: readPreMaet rebuilds the")
-print("  tags from them, so a file never has to write them down.\n")
+csv_b = mpt.show_pre_maet(pm_b, format="csv", verbose=False)
+print(csv_b)
+print("  The brackets are the level structure: read_pre_maet rebuilds the")
+print("  tags from them, so a file never has to write them down.")
+print(f"  Round trip, weights and nesting included: "
+      f"{mpt.write_pre_maet(None, mpt.read_pre_maet(csv_b)) == csv_b}\n")
 
 
 # ===================================================================
@@ -177,7 +185,7 @@ print("  tags from them, so a file never has to write them down.\n")
 
 print("=== 6. NA, where a step could not carry a parameter ===\n")
 
-# A log is non-linear. A width is still meaningful on the log axis --- it
+# A log is non-linear. A width is still meaningful on the log scale --- it
 # expresses a ratio rather than a difference --- but the local scaling
 # varies across the range, so no single value is the image of the old
 # sigma. NA marks the absence of a canonical choice, and the analyst
@@ -239,16 +247,19 @@ if os.path.exists(score):
              is_per=True, period=12.0),
         dict(column="onset", sigma=0.25)), chords="bind")
     mpt.show_pre_maet(pm_s, max_events=5, max_elements=4)
+    # Some events hold a single note (the second, at onset 0.25, is one
+    # voice moving alone), and a single note holds no pair of pitches,
+    # so an r = 2 reading of pitch cannot be built from the passage as
+    # it stands: build_maet refuses and names the event.
     try:
         mpt.build_maet(pm_s, verbose=False)
     except ValueError as err:
-        print(f"\n  {err}")
-    for spec, sig in zip(pm_s["specs"], (0.15, 0.1)):
-        spec["sigma"] = sig
+        print(f"\n  build refuses it: {err}")
     out = os.path.join(OUT_DIR, "from_score.csv")
     mpt.write_pre_maet(out, pm_s)
-    print(f"\n  widths chosen and exported to {os.path.basename(out)}")
-    print("  -- the analysis is now a spreadsheet a colleague can edit.")
+    print(f"\n  exported to {os.path.basename(out)}")
+    print("  -- the analysis is then a spreadsheet a colleague can edit,")
+    print("  to read pitch at r = 1, say, or to set the lone notes aside.")
 else:
     print("  (score fixture not found; skipping)")
 

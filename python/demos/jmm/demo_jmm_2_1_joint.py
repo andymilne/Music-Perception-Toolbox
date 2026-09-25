@@ -9,7 +9,8 @@ supply); the figures stay on screen unless SAVE_FIGURES is set.
 Analysis 2.1: the motif of Coltrane's *Acknowledgement* as a joint
 object — the interval pattern together with the rhythm it is set in.
 
-Analysis 2.2 recovers the four-note cell from pitch alone. Adding onset
+Analysis 2.2 (Online Supplement, Section 8.1) recovers the four-note
+motif from pitch alone. Adding onset
 time as a second attribute asks for agreement in pitch and rhythm at
 once: the two attributes are joined by the tensor product, so the joint
 density over interval and inter-onset-interval super-events ranks a
@@ -40,21 +41,21 @@ for rhythm: the inter-onset-interval density with pitch marginalized
 away, and the same density conditioned on the motif's intervals.
 
 A relative density is read in translation-reduced coordinates: an
-r-tuple minus its first value, so a cell's coordinates are its
-cumulative intervals. Both the cells and the slice grids are written
+r-tuple minus its first value, so a super-event's coordinates are its
+cumulative intervals. Both the super-events and the slice grids are written
 that way for the relative route below.
 
 Pre-MAET structure::
 
-    attribute    order  sigma                rel  per
-    ----------   -----  -------------------  ---  ---
-    dp           3      sqrt(2) * 0.15 st    no   no    differenced route
-    dt           3      sqrt(2) * 0.125 QN   no   no    differenced route
-    pitch        4      0.15 st              yes  no    relative route
-    onset        4      0.125 QN             yes  no    relative route
+    attribute    r      sigma                       rel  per
+    ----------   -----  --------------------------  ---  ---
+    dp           3      sqrt(2) * 0.15 semitones    no   no    differenced route
+    dt           3      sqrt(2) * 0.125 QN          no   no    differenced route
+    pitch        4      0.15 semitones              yes  no    relative route
+    onset        4      0.125 QN                    yes  no    relative route
 
     Ordered (exch = 0) throughout; the two attributes are tensored.
-    Estimator: the density read at each cell.
+    Estimator: the density read at each super-event.
 
 Data: ``jmm_data.acknowledgement`` (the solo, from your own MIDI
 transcription at ``data/AwakeningSolo.mid``). Toolbox:
@@ -66,11 +67,12 @@ import os
 import numpy as np
 try:
     import matplotlib.pyplot as plt
+    plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19,
+                         'axes.labelsize': 17, 'xtick.labelsize': 15,
+                         'ytick.labelsize': 15, 'figure.titlesize': 22,
+                         'font.family': 'DejaVu Sans'})
 except ImportError:
     plt = None
-plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19, 'axes.labelsize': 17,
-                     'xtick.labelsize': 15, 'ytick.labelsize': 15, 'figure.titlesize': 22,
-                     'font.family': 'DejaVu Sans'})
 
 import mpt
 _prev_defaults = mpt.set_default(show_hints=False)
@@ -87,32 +89,32 @@ FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 SIGMA_PITCH = 0.15            # semitones (15 cents): the per-pitch uncertainty
 SIGMA_TIME  = 0.125           # QN (a thirty-second note): the per-onset one
-R_DIFF      = 3               # bound interval triples (a four-note cell)
-R_REL       = 4               # bound pitch quadruples (the same cell)
+R_DIFF      = 3               # bound interval triples (a four-note motif)
+R_REL       = 4               # bound pitch quadruples (the same motif)
 TOP         = 6               # motifs shown in the ranking
-ALS_IV      = (3, -3, 5)      # +m3, -m3, +P4: the "A Love Supreme" cell
+ALS_IV      = (3, -3, 5)      # +m3, -m3, +P4: the "A Love Supreme" motif
 ALS_RHYTHM  = (0.5, 1.0, 0.5)  # its rhythm: eighth, quarter, eighth
 ALS         = (ALS_IV, ALS_RHYTHM)
 FIRST_IOI   = 0.5             # the motif's first IOI: the slice's fixed value
 
-C_ALS   = '#c25008'           # the recurring "A Love Supreme" cell
-C_OTHER = '#1f4eb8'           # the surrounding recurring cells
+C_ALS   = '#c25008'           # the recurring "A Love Supreme" motif
+C_OTHER = '#1f4eb8'           # the surrounding recurring motifs
 
 
 def contour(triple):
-    """A cell's interval triple as the scale degrees it traces from 0."""
+    """A motif's interval triple as the scale degrees it traces from 0."""
     return '→'.join(str(int(v)) for v in np.cumsum([0, *triple]))
 
 
 def rhythm(triple):
-    """A cell's inter-onset intervals in QN, compactly."""
+    """A motif's inter-onset intervals in QN, compactly."""
     return '·'.join('%g' % v for v in triple)
 
 
 def rank(intervals, iois, density):
-    """Group cells by interval triple and rhythm, and rank the classes.
+    """Group super-events by interval triple and rhythm, and rank the classes.
 
-    The density at a cell already equals the class's recurrence — every
+    The density at a super-event already equals its class's recurrence — every
     member of a class sits at the same point, so each sees all c copies.
     Summing over the members would square that, so the class mean is
     what recovers the count. Inter-onset intervals are grouped to the
@@ -162,9 +164,9 @@ dens_r = np.asarray(eval_maet(
 ranked_r = rank(iv_r.T, ioi_r.T, dens_r)
 
 # --- report ---------------------------------------------------------------
-print(f'\ndifferenced: {iv_d.shape[1]} cells, {len(ranked_d)} distinct '
+print(f'\ndifferenced: {iv_d.shape[1]} super-events, {len(ranked_d)} distinct '
       f'(interval, rhythm) classes')
-print(f'relative:    {pitch_r.shape[1]} cells, {len(ranked_r)} distinct classes\n')
+print(f'relative:    {pitch_r.shape[1]} super-events, {len(ranked_r)} distinct classes\n')
 print(f'{"rank":>4}  {"interval class":>16}  {"rhythm (QN)":>13}  {"count":>5}  '
       f'{"differenced":>11}  {"relative":>9}')
 by_class = {k: d for k, _, d in ranked_r}
@@ -173,7 +175,7 @@ for i, (k, c, d) in enumerate(ranked_d[:TOP], 1):
     print(f'{i:>4}  {str(k[0]):>16}  {rhythm(k[1]):>13}  {c:>5}  {d:>11.1f}  '
           f'{by_class[k]:>9.1f}{mark}')
 stated = [(k[1], c) for k, c, _ in ranked_d if k[0] == ALS_IV]
-print(f'\nthe cell {ALS_IV} is stated {sum(c for _, c in stated)} times, in '
+print(f'\nthe motif {ALS_IV} is stated {sum(c for _, c in stated)} times, in '
       f'{len(stated)} rhythms: '
       + ', '.join(f'({rhythm(r)}) x {c}' for r, c in sorted(stated, key=lambda rc: -rc[1])))
 

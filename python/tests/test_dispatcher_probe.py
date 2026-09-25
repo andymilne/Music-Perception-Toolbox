@@ -162,3 +162,32 @@ class TestDispatcherDoesNotMutateAnswer:
         v_centres = eval_maet(dens, x, truncation_sigmas=6.0,
                                   method='centres', verbose=False)
         np.testing.assert_allclose(v_auto, v_centres, rtol=0, atol=0)
+
+# -----------------------------------------------------------------------
+# Measures announce their inner route at most once per call
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("call", [
+    lambda: mpt.n_tuple_entropy(
+        np.array([[0, 2, 4, 5, 7, 9, 11], [0, 2, 4, 6, 7, 9, 11],
+                  [0, 1, 3, 5, 7, 8, 10]]), 12, 1),
+    lambda: mpt.n_tuple_entropy(
+        [0, 2, 4, 5, 7, 9, 11], 12, 1, sigma=0.3, method="differential"),
+    lambda: mpt.n_tuple_entropy(
+        [0, 2, 4, 5, 7, 9, 11], 12, 2, sigma=0.3, method="differential",
+        verbose=False),
+], ids=["batched", "differential", "differential-quiet"])
+def test_n_tuple_entropy_announces_once_per_call(capsys, call):
+    """n_tuple_entropy and entropy_maet are top-level entries: the
+    evaluations inside one call (every row of a batch, both passes of an
+    adaptive differential) share one dispatch scope."""
+    mpt.reset_defaults()
+    call()
+    assert capsys.readouterr().out.count("chose") == 1
+    call()   # a fresh top-level call announces afresh, and once
+    assert capsys.readouterr().out.count("chose") == 1
+    mpt.set_default(show_hints=False)
+    call()
+    assert "chose" not in capsys.readouterr().out
+    mpt.reset_defaults()

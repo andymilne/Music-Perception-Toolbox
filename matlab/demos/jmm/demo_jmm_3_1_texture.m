@@ -4,9 +4,8 @@
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
-% from the jmm package (BWV 347 read from the bundled MusicXML) or
-% jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
-% SAVE_FIGURES is set.
+% from jmm.pianoPhase (the rendered Piano Phase voices); the figures stay
+% on screen unless SAVE_FIGURES is set.
 %
 % Analysis 3.1: phase as local texture in Reich's Piano Phase.
 %
@@ -16,7 +15,8 @@
 % localization window (s.d. 3 s) is swept over the piece; at each sweep
 % centre the windowed Renyi-2 entropy of the joint (pitch, time) density
 % is read off. Because the window is smooth and wide, there is no
-% rectangular-edge artefact and every window has ample mass.
+% rectangular-edge artefact, and away from the ends of the piece (shaded
+% in the figure) every window has ample mass.
 %
 % The single controlling parameter is the time kernel sigma_t:
 %
@@ -75,7 +75,6 @@ prevDefaults = mptDefaults('showHints', false);
 % --- fixed parameters --------------------------------------------------------
 SIGMA_PITCH = 0.15;          % semitone (= 15 cents)
 WIN_SD      = 3.0;           % localization-window s.d. (s)
-PRUNE       = 4.0;           % keep events within PRUNE * WIN_SD of the centre
 N_SWEEP     = 300;
 SIGMAS_T    = [0.015, 0.100];   % coincidence (precedence/fusion window), redundancy
 pe = jmm.pianoPhase();
@@ -98,14 +97,13 @@ phaseAt = pe.lagAt(centres / (pe.nc * IOI));        % continuous lag
 
 % Windowed joint (pitch, time) Renyi-2 entropy at each sweep centre. A
 % single windowedEntropy sweep: a Gaussian localization window (shape 0)
-% on the time axis (attribute 2) modulates the event weights, with the
-% time axis retained ('dropWindowAttr', false) so the joint (pitch, time)
+% on the time attribute (attribute 2) modulates the event weights, with the
+% time attribute retained ('dropWindowAttr', false) so the joint (pitch, time)
 % density is built and its Renyi-2 entropy returned. The window standard
 % deviation WIN_SD maps to the variance-matched rectangular width
-% 2*sqrt(3)*sd. The previous explicit prune to +/- PRUNE * WIN_SD is
-% unnecessary here: the global truncationSigmas (set to 3.0 above, tighter
-% than PRUNE = 4.0) already zeros every event the prune would have
-% removed, so the result is identical.
+% 2*sqrt(3)*sd. The window is truncated at truncationSigmas standard
+% deviations (the toolbox default, 6), so events far from the centre carry
+% zero weight and need no separate pruning.
 showPreMaet(piece, 'sigma', [SIGMA_PITCH, SIGMAS_T(1)], 'maxEvents', 4);
 
 sweep = @(sigmaT) windowedEntropy( ...
@@ -123,8 +121,6 @@ end
 % --- figure ------------------------------------------------------------------
 fig = figure('Position', [50 50 1300 520], 'Color', 'w');
 labels = {'\sigma_t = 15 ms', '\sigma_t = 100 ms'};
-notes = {'coincidence: dips at k = 4, 6, 8', ...
-         'redundancy: humps at k ~ 2-3, 9-10; valley at k ~ 6'}; %#ok<NASGU>
 shifts = pe.shiftCentres;
 interior = (centres > tLo + edge) & (centres < tHi - edge);
 

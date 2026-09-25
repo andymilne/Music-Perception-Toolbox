@@ -4,8 +4,8 @@ function pm = bindAttributes(pAttr, wAttr, attributes, nvArgs)
 %   PM = bindAttributes(PM0, attributes, ...)
 %   PM = bindAttributes(pAttr, wAttr, attributes, ...)
 %
-%   The attribute-axis counterpart of bindEvents, which binds along the
-%   event axis. Where three columns carry the three coordinates of one
+%   The counterpart, across attributes, of bindEvents, which binds across
+%   events. Where three columns carry the three coordinates of one
 %   position, or the coordinates of a simplex-coded level, they are three
 %   attributes of a pre-MAET and their product pairs each with every
 %   other; binding them makes them one attribute whose value at an event

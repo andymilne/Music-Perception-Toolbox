@@ -1,5 +1,5 @@
 """demo_jmm_2_3_spectral.py — Analysis 2.3 (Online Supplement, Section 8.2):
-windowed similarity of the motif, with spectral augmentation.
+windowed similarity of the motif, with spectral enrichment.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
@@ -7,10 +7,10 @@ from jmm_data (Acknowledgement read from a MIDI transcription you
 supply); the figures stay on screen unless SAVE_FIGURES is set.
 
 Analysis 2.3: windowed similarity of the "A Love Supreme" motif across
-Coltrane's *Acknowledgement*, with and without spectral augmentation.
+Coltrane's *Acknowledgement*, with and without spectral enrichment.
 
 Analyses 2.1 and 2.2 recover the motif from the passage. Here it is
-supplied instead, as a query, and slid along the time axis: at each
+supplied instead, as a query, and slid along the time attribute: at each
 position it is compared with the passage in the surrounding window.
 Query and passage are encoded alike, as bound super-events of four
 consecutive notes, with two attributes bound at order 4 — the four-note
@@ -45,11 +45,11 @@ closing run alone; this is the same call with
 
 Pre-MAET structure::
 
-    attribute  order   sigma      rel       per
-    ---------  ------  ---------  --------  ---
-    pitch      4       0.15 st    0 or 1    no    fundamental
-    pitch      (1, 4)  0.15 st    (0, 0/1)  no    spectral
-    onset      4       0.125 QN   yes       no    dropped (A1, A2, B1, B2)
+    attribute  r       sigma           rel       per
+    ---------  ------  --------------  --------  ---
+    pitch      4       0.15 semitones  0 or 1    no    fundamental
+    pitch      (1, 4)  0.15 semitones  (0, 0/1)  no    spectral
+    onset      4       0.125 QN        yes       no    dropped (A1, A2, B1, B2)
 
     Ordered (exch = 0) at the outer level, the spectral inner multiset
     unordered. Estimator: windowed similarity, rectangular window of 0.6
@@ -74,7 +74,7 @@ except ImportError:
     plt = None
 
 import mpt
-# The kernels here are narrow (0.15 semitones), so the article truncates
+# The kernels here are narrow (0.15 semitones), so this demo truncates
 # them at four standard deviations rather than the toolbox's six: past
 # 0.6 semitones the kernel bears on nothing musical, and the spectral
 # sweeps are the heaviest calls in these demos.
@@ -164,7 +164,7 @@ show_pre_maet(qry_rel_fund, max_events=1)
 show_pre_maet(qry_rel_spec, max_events=1, decimals=2)
 
 # --- A1 and A2: transposition-invariant similarity against time -----------
-# The swept axis is time, attribute 1: a rectangular window of full support
+# The window attribute is time, attribute 1: a rectangular window of full support
 # WIN slides over the passage. Onset time is dropped from the comparison
 # (drop_window_attr=True), so it only places the window, on the group's
 # first onset (locate='start'), which lands each peak on the statement's
@@ -181,25 +181,24 @@ A2 = np.asarray(windowed_similarity(
     locate='start', normalize='oneSidedDenom')).ravel()
 
 # --- B1 and B2: pitch offset by time --------------------------------------
-# One multi-axis sweep slides the query over both attributes at once: pitch
-# (axis 0) over the transposition offsets, compared (drop=False); time (axis
-# 1) over the window centres, carrying the window and dropped, exactly as in
-# A1 and A2. The pitch positions start from the query's own pitch centroid,
-# so that offset 0 reads as the untransposed query.
-q_pitch_fund = float(np.nanmean(unpack_pre_maet(qry_abs_fund)[0][0]))
-q_pitch_spec = float(np.nanmean(unpack_pre_maet(qry_abs_spec)[0][0]))
+# One call moves the query over both attributes at once: pitch
+# (attribute 0) is translated by the transposition offsets and compared,
+# with no window; time (attribute 1) is the window attribute, the window
+# placed at each centre and time then marginalized, exactly as in A1 and
+# A2. An offset is measured from the query as written, so offset 0 is the
+# untransposed query (root 56). Pitch has no window, so at each centre
+# the offsets are computed in one pass (for the nested spectral attribute
+# of B2, level by level).
 print('computing B1 (fundamental, absolute) ...')
 B1 = np.asarray(windowed_similarity(
     ctx_abs_fund, qry_abs_fund,
-    sweep={0: q_pitch_fund + OFFSETS, 1: centres},
-    drop={0: False, 1: True},
+    offsets={0: OFFSETS}, sweep={1: centres}, drop={1: True},
     context_window={1: {'shape': 'rect', 'width': WIN}},
     locate={1: 'start'}, normalize='oneSidedDenom'))
 print('computing B2 (spectral, absolute) ...')
 B2 = np.asarray(windowed_similarity(
     ctx_abs_spec, qry_abs_spec,
-    sweep={0: q_pitch_spec + OFFSETS, 1: centres},
-    drop={0: False, 1: True},
+    offsets={0: OFFSETS}, sweep={1: centres}, drop={1: True},
     context_window={1: {'shape': 'rect', 'width': WIN}},
     locate={1: 'start'}, normalize='oneSidedDenom'))
 
@@ -211,7 +210,7 @@ print(f'A1 vs A2 correlation: {np.corrcoef(A1, A2)[0, 1]:.4f}; '
 
 # --- the rhythm-aware reading ---------------------------------------------
 # A1's call again, with the onset attribute compared rather than dropped
-# (drop_window_attr=False): a match must now reproduce the motif's rhythm,
+# (drop_window_attr=False): a match must then reproduce the motif's rhythm,
 # which the query carries, as well as its pitch pattern.
 Aj = np.asarray(windowed_similarity(
     ctx_rel_fund, qry_rel_fund, centres,
@@ -219,7 +218,7 @@ Aj = np.asarray(windowed_similarity(
     locate='start', normalize='oneSidedDenom')).ravel()
 early = centres < 250.0
 at = float(centres[early][A1[early].argmax()])
-print(f'\nthe early statement, bar {at / BEATS_PER_BAR:.0f}: pitch-only '
+print(f'\nthe early statement, bar {int(at // BEATS_PER_BAR) + 1}: pitch-only '
       f'match {A1[early].max():.3f}, match with the rhythm compared '
       f'{Aj[early].max():.3f}')
 print(f'whole passage: {int((A1 > 0.99).sum())} unit matches on pitch alone, '
@@ -232,7 +231,8 @@ if plt is None:
     raise SystemExit(0)
 
 plt.rcParams.update({'font.size': 12, 'font.family': 'DejaVu Sans'})
-bars = centres / BEATS_PER_BAR
+# Bar numbers from 1: bar b spans the axis from b to b + 1.
+bars = centres / BEATS_PER_BAR + 1
 fig = plt.figure(figsize=(13, 6.2))
 gs = GridSpec(2, 3, width_ratios=[1, 1, 0.035], height_ratios=[1, 1.45],
               hspace=0.16, wspace=0.07)
@@ -266,7 +266,7 @@ for ax, panel, title in [(axB1, B1, 'B1  fundamental, absolute'),
     ax.set_xlim(bars.min(), bars.max())
     ax.set_title(title)
     ax.set_xlabel('bar')
-axB1.set_ylabel('pitch offset from query root (st)')
+axB1.set_ylabel('pitch offset from query root (semitones)')
 axB1.set_yticks(np.arange(-12, 13, 3))
 fig.colorbar(sc, cax=cax)
 for ax in (axA1, axA2):

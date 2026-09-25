@@ -1,4 +1,4 @@
-%% demo_scoreWorkflow.m — from a score (musicXML, MIDI) to a MAET analysis
+%% demo_scoreWorkflow.m — from a score (MusicXML, MIDI) to a MAET analysis
 %
 %  This demo is the spine of the demo_score* family. It reads a score into
 %  an attribute table, looks at that table, samples it on a grid, encodes a
@@ -57,6 +57,8 @@
 %  the 272.
 %
 %  See also READSCORE, GRIDATTRTABLE, PREMAETFROMATTRTABLE, SELECTPREMAET.
+%
+%  The Python mirror is demo_score_workflow.py.
 
 % The chorale ships with the demos, and is located from the toolbox root.
 mptRoot = which('buildMaet');
@@ -66,13 +68,17 @@ score = fullfile(fileparts(mptRoot), 'demos', 'jmm', 'data', ...
                  'bwv347.musicxml');
 clear mptRoot
 
+% Keep the dispatcher's per-call announcements out of the printed results
+% (showHints gates only those); restored at the end.
+prevDefaults = mptDefaults('showHints', false);
+
 %% 1. Read
 % One row per sounding note. A column is present only where the source
 % carries it: this is MusicXML, so it has voice, staff, fermata, and the
 % articulations. A MIDI file would instead have channel, program,
 % noteNumber, weight, and soundingDuration (the last two being the
 % loudness controllers and the pedals resolved into the note's own
-% columns). See readScore's docstring.
+% columns). See help readScore.
 t = readScore(score);
 fprintf('%d notes from a %s score; the first five rows:\n', ...
         height(t), t.Properties.Description);
@@ -92,7 +98,7 @@ disp(head(t(t.part ~= 'Bass', :), 5));
 %% 3. Sample on a grid
 % A grid makes the event index a uniform index of time, and gives every
 % event the same voices, which the structural encoding of step 4 needs.
-% A sixteenth is the shortest note value in this example.
+% A sixteenth is the shortest note value here.
 % See demo_scoreGrid for the step and the weight policies.
 g = gridAttrTable(t, 0.25);
 fprintf('gridded: %d points, %d rows; the first five:\n', ...
@@ -105,11 +111,11 @@ disp(head(g(:, {'gridIndex', 'gridOnsetBeats', 'noteId', 'weight', ...
 % parameters (specs), so each entry names both. Three things worth knowing
 % happen here.
 %
-% 'pitch' is here listed twice, so the same values become two attributes
-% under different specs: one reads pitch class, wrapping at the octave,
-% and the other pitch height, which does not. Their product is Shepard's
-% helix, and the helix's pitch height axis can be stretched or compressed 
-% by changing its sigma value.
+% 'pitch' is listed twice, so the same values become two attributes under
+% different specs: one reads pitch class, wrapping at the octave, and the
+% other pitch height, which does not. Their product is Shepard's helix,
+% and widening or narrowing pitchHeight's sigma loosens or tightens how
+% much register counts.
 %
 % A score fixes what the values are and not how tolerant a match is, nor
 % how many of an event's values a tuple takes, so sigma, r, and exch are
@@ -117,14 +123,14 @@ disp(head(g(:, {'gridIndex', 'gridOnsetBeats', 'noteId', 'weight', ...
 % follows from the data or from another argument here: r and exch under a
 % structural role, and 'read as written' for rel and isPer.
 %
-% An attribute table with a categorical column needs to be assigned a role,
-% which determines how its levels are represented in the pre-MAET. In this
-% example, part (Soprano, Alto, Tenor, Bass) is given a role. There are
+% A categorical column reaches the pre-MAET only through a role, which
+% determines how its levels are represented; a column with no role is left
+% out. Here part (Soprano, Alto, Tenor, Bass) is given a role. There are
 % three roles:
 %   'orderedMultiset'    structural: the level becomes a position within
 %                        one attribute, so the four voices occupy four
 %                        slots and matching is voice by voice. Used here,
-%                        and it fixes r = 4 and exch = false, which is why
+%                        and it sets r = 4 and exch = false, which is why
 %                        neither is given.
 %   'separateAttributes' structural: the level becomes an attribute of
 %                        its own, one per voice.
@@ -132,8 +138,8 @@ disp(head(g(:, {'gridIndex', 'gridOnsetBeats', 'noteId', 'weight', ...
 %                        simplex vertex on an attribute of its own, so
 %                        two chords can match on some voices and not
 %                        others.
-% See demo_scoreCategoricals for how these differ when applied to the same 
-% music.
+% See demo_scoreCategoricals for how these differ when applied to the
+% same music.
 %
 % The name-value pairs after the attributes carry the rest of the
 % reading. 'time', 'beats' puts the onset attribute's values in quarter
@@ -145,7 +151,6 @@ pm = preMaetFromAttrTable(g, 'attributes', { ...
         struct('column', 'pitch', 'name', 'pitchHeight', 'sigma', 8), ...
         struct('column', 'onset', 'sigma', 0.5)}, ...
         'time', 'beats', 'roles', struct('part', 'orderedMultiset'));
-[pAttr, wAttr, specs] = unpackPreMaet(pm);
 showPreMaet(pm, 'maxEvents', 4, 'title', 'the pre-MAET, first events');
 fprintf('\n');
 
@@ -157,16 +162,16 @@ fprintf('\n');
 % located them and is not compared on. The four values are in S, A, T, B
 % order, the slots the orderedMultiset role gave them.
 %
-% The two chords are the final chords of the first two cadences, which
-% fall on beats 7 and 15. The onset attribute is searched for those two
-% beats to get their event indices; on this grid of sixteenths they are
-% not events 7 and 15.
-pmFull = packPreMaet(pAttr, wAttr, specs);
+% The two chords are the final chords of the first two cadences, which fall
+% on beats 7 and 15. The onset attribute is searched for those two beats to
+% get their event indices; on this grid of sixteenths they are not events 7
+% and 15.
+pAttr = unpackPreMaet(pm);
 onsets = pAttr{3}(1, :);
 events = [find(abs(onsets - 7) < 1e-9, 1), find(abs(onsets - 15) < 1e-9, 1)];
 cadence = cell(1, 2);
 for k = 1:2
-    cadence{k} = selectPreMaet(pmFull, ...
+    cadence{k} = selectPreMaet(pm, ...
         'attributes', {'pitchClass', 'pitchHeight'}, 'events', events(k));
     showPreMaet(cadence{k}, 'title', sprintf('cadence %d tonic', k));
     fprintf('\n');
@@ -176,7 +181,7 @@ end
 % The two tonic chords are the same four pitch classes, differing only in
 % the octave of the bass. Whether that counts as the same chord is what the
 % pitch-height sigma decides. buildMaet's 'sigma' overrides the specs', so
-% the sweep over pitch height's sigma needs no rebuild.
+% the sweep over pitch height's sigma needs no new pre-MAET.
 disp('similarity of the two, against the pitch-height width:');
 for sigmaHeight = [1 4 16 64]
     dens = cell(1, 2);
@@ -190,3 +195,5 @@ end
 fprintf(['\nnarrow: two different chords, the bass octave counting.\n' ...
          'wide:   one chord, the octave forgiven and the pitch classes ' ...
          'agreeing.\n']);
+
+mptDefaults(prevDefaults);

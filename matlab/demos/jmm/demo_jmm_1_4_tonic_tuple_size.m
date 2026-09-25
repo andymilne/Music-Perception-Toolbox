@@ -3,10 +3,9 @@
 % increasing tuple size.
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
-% JMM article; lightly edited from the article's own script. Data come
-% from the jmm package (BWV 347 read from the bundled MusicXML) or
-% jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
-% SAVE_FIGURES is set.
+% JMM article's Online Supplement; lightly edited from the article's own
+% script. Data come from the jmm package (BWV 347 read from the bundled
+% MusicXML); the figures stay on screen unless SAVE_FIGURES is set.
 %
 % Analysis 1.4: structural matching of the four cadence tonics of BWV 347
 % at increasing tuple size r, on a single chord (no nesting).
@@ -15,21 +14,28 @@
 % a single pitch attribute, the unordered chord multiset (exch = 1, K = 4).
 % The four tonics are compared pairwise under the cross of absolute vs
 % relative mode and non-periodic vs periodic, each swept over r in {1,2,3}.
-% Because the comparison is on one attribute (not a role product), raising
-% r tightens the match informatively rather than annihilating it: pitch
-% content (r = 1) -> dyad/interval content (r = 2) -> triad content (r = 3).
+% Because the comparison is on one attribute (not a tensor product of
+% several attributes), raising r tightens the match informatively rather
+% than annihilating it: pitch content (r = 1) -> dyad/interval content
+% (r = 2) -> triad content (r = 3).
 %
-% The relative, periodic row is the informative one. At r = 2 the interval-class
-% content cannot separate a major triad from a minor one (they are
-% inversionally related, and the unordered relative pair content is
-% inversion-invariant): the three major tonics and the minor tonic all read
-% as near-identical. At r = 3 the triadic structure separates them: the
-% three majors stay mutually 1 (transposition-equivalent) and the minor
-% isolates. Relative mode at r = 1 is a constant (degenerate) density and is
-% shown only for completeness.
+% The figure is a 2 x 6 grid of 4 x 4 similarity matrices (C1-C4 against
+% C1-C4). The top row is absolute mode and the bottom row relative; the
+% left three columns are non-periodic and the right three periodic, with
+% r = 1, 2, 3 from left to right within each half. The two relative r = 1
+% panels are left empty: relative mode at r = 1 is degenerate (a single
+% pitch has no within-tuple interval), every chord collapsing to the same
+% constant density, so all its similarities equal 1.
 %
-% These are the same four tonics compared as whole nested cadences in
-% Analysis 1.3, in the same panel layout, so the two figures read together.
+% The relative, periodic panels (bottom row, right half) are the
+% informative ones. At r = 2 the interval-class content cannot separate a
+% major triad from a minor one (they are inversionally related, and the
+% unordered relative pair content is inversion-invariant): the three major
+% tonics and the minor tonic all read as close (0.91). At r = 3 the
+% triadic structure separates them: the three majors stay mutually 1
+% (transposition-equivalent) and the minor isolates.
+%
+% These are the tonics of the cadences that Analysis 1.3 localizes.
 %
 % Data: jmm.bwv347Notes (the bundled MusicXML read with readScore,
 % repeats expanded). Toolbox: gridAttrTable, preMaetFromAttrTable,

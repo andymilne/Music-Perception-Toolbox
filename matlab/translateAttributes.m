@@ -11,13 +11,15 @@ function [pm, sweep] = translateAttributes(varargin)
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
 %
-%   Value-axis alignment (read this first). Everything hangs off one axis:
-%   the value axis of an attribute, whose length is K_total (the number of
-%   leaf values in one event/super-event). In the value matrix the value
-%   axis is the ROWS (K_total x N: values down, sequence positions across).
-%   The spec's tags label that same axis (one entry per row). An offset is
-%   likewise per-value: one offset per row, held CONSTANT across the sequence
-%   (column) axis --- that constancy is what makes D(T(p)) == D(p).
+%   Offsets and the value matrix (read this first). An attribute's values
+%   are stored as a K_total x N matrix: one column per event and one row
+%   per element, row k holding the k-th element of every event's element
+%   multiset, where K_total is the number of elements in one event's
+%   element multiset (counting every element of a nested one, such as a
+%   super-event's). The spec's tags label the rows (one entry per row). An
+%   offset is likewise per row (per-value): one offset per row, held
+%   CONSTANT across events --- that constancy is what makes D(T(p)) ==
+%   D(p).
 %
 %   Offsets are a 1 x A cell, one entry per attribute, each entry one of:
 %       []                  - do not translate this attribute.
@@ -36,9 +38,9 @@ function [pm, sweep] = translateAttributes(varargin)
 %   sweep-column entries broadcast across the call's M).
 %
 %   Sweep. When any entry implies M > 1 the call is a batched sweep: it
-%   returns M translated copies --- a 1 x M cell of 1 x A position-cells ---
-%   each a separate pre-MAET input, sharing one w and one specs. With M = 1
-%   it returns a single 1 x A position-cell.
+%   returns M translated copies --- a 1 x M cell of 1 x A position-cells
+%   --- each a separate pre-MAET input, sharing one w and one specs. With M
+%   = 1 it returns a single 1 x A position-cell.
 %
 %   Relative attributes. is_rel is read per-attribute from specs (no
 %   separate argument). A uniform shift cancels in every within-tuple

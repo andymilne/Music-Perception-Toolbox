@@ -8,6 +8,8 @@
 %  of these choices in passing and points here.
 %
 %  See also PREMAETFROMATTRTABLE, SELECTPREMAET, GRIDATTRTABLE.
+%
+%  The Python mirror is demo_score_categoricals.py.
 
 % The chorale ships with the demos, and is located from the toolbox root.
 mptRoot = which('buildMaet');
@@ -16,6 +18,10 @@ assert(~isempty(mptRoot), 'demoScore:toolboxNotFound', ...
 score = fullfile(fileparts(mptRoot), 'demos', 'jmm', 'data', ...
                  'bwv347.musicxml');
 clear mptRoot
+
+% Keep the dispatcher's per-call announcements out of the printed results
+% (showHints gates only those); restored at the end.
+prevDefaults = mptDefaults('showHints', false);
 
 g = gridAttrTable(readScore(score), 0.25);
 
@@ -37,12 +43,13 @@ voice = struct('role', 'simplex', 'sigma', 0.2);
 % 'separateAttributes' gives each level an attribute of its own, and
 % 'orderedMultiset' gives each level a fixed position within one attribute.
 % Either way, the binding of a value to its level is carried by the layout,
-% and an event holds the whole chord. What is adjustable afterwards differs:
-% separate attributes carry their own kernel parameters and can be selected
-% one at a time, but each holds a single value, so r = 1 and every level is
-% always read together; one ordered multiset shares a kernel across the
-% levels and takes r > 1, which is how some of the voices are read at a
-% time rather than all of them. 'orderedMultiset' is the one used here.
+% and an event holds the whole chord. What is adjustable afterwards
+% differs: separate attributes carry their own kernel parameters and can be
+% selected one at a time, but each holds a single value, so r = 1 and every
+% level is always read together; one ordered multiset shares a kernel
+% across the levels and takes r > 1, which is how some of the voices are
+% read at a time rather than all of them. 'orderedMultiset' is the one used
+% here.
 aware = localConvert(g, attributes, 'roles', struct('part', 'orderedMultiset'));
 
 % The value role, 'simplex', realizes the level as *a value of its own*, on
@@ -109,9 +116,8 @@ fprintf([ ...
 %% The family relation
 % The agnostic encoding is the simplex one with its voice attribute
 % removed, which is one selection rather than another conversion.
-% The attributes are selected by index rather than by name, because the
-% two pitch attributes share a name and a name selects the first of them.
-withoutVoice = selectPreMaet(simplex, 'attributes', [1 2 3]);
+withoutVoice = selectPreMaet(simplex, 'attributes', ...
+                             {'pitchClass', 'pitchHeight', 'onset'});
 same = isequal(unpackPreMaet(withoutVoice), unpackPreMaet(agnostic));
 fprintf('dropping the voice attribute recovers the agnostic reading: %d\n\n', same);
 
@@ -131,6 +137,8 @@ boundAttr = unpackPreMaet(bound);
 fprintf(['bound and role-free: %d x %d — a chord per event, but each ' ...
          'attribute\nunordered and so unpaired with the other\n'], ...
         size(boundAttr{1}, 1), size(boundAttr{1}, 2));
+
+mptDefaults(prevDefaults);
 
 %% Local functions
 

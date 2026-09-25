@@ -1,11 +1,11 @@
 %% demo_helixBlend.m
-%  Helix blend: routing pitch through two groups of a MAET.
+%  Helix blend: routing pitch through two attributes of a MAET.
 %
 %  Demonstrates a multi-attribute expectation tensor pattern in which
 %  the same pitch values are routed simultaneously through a periodic
-%  pitch-class group and a linear pitch-height group. Sweeping the
-%  pitch-height-group sigma while holding the pitch-class-group sigma fixed
-%  morphs the similarity profile of a motif against a longer stream
+%  pitch-class (pc) attribute and a linear pitch-height (ph) attribute.
+%  Sweeping the pitch-height attribute's sigma while holding the
+%  pitch-class attribute's sigma fixed morphs the similarity profile of a motif against a longer stream
 %  from
 %
 %    * "matches every octave-displaced recurrence equally"  (large sigma_ph)
@@ -20,13 +20,13 @@
 %  is equivalent to a Gaussian kernel of width sigma = sigma_pc on the
 %  pitch-class-cum-height cylinder with stretch
 %  h = sigma_pc/sigma_ph. Shepard's helix itself has no built-in
-%  smoothing; this MAET pattern adds it, parametrised naturally in two
+%  smoothing; this MAET pattern adds it, parametrized naturally in two
 %  pitch-domain sigma values.
 %
 %  Two technical points. First, the sigmas are density widths (MPT's
 %  convention throughout the toolbox); the pairwise inner-product kernel
 %  between two smeared events has effective standard deviation
-%  sqrt(2)*sigma. Second, the MAET pitch-class group uses shortest-arc
+%  sqrt(2)*sigma. Second, the pitch-class attribute uses shortest-arc
 %  distance, so the geometry is the pc cylinder rather than the literal
 %  3-D Shepard helix (a Euclidean embedding that uses chord distance).
 %  At sigma_pc values typical of tonal perception the two are
@@ -38,7 +38,7 @@
 %            heights, with non-pitch-class-overlapping filler between
 %            instances.
 %
-%    Part 2. Fugal texture in C minor (BWV 847-inspired, stylised; not
+%    Part 2. Fugal texture in C minor (BWV 847-inspired, stylized; not
 %            transcribed from the score). A six-note subject stated in
 %            bass, alto, and soprano, with short counter-material
 %            between entries.
@@ -49,17 +49,20 @@
 %    (c) three overlaid profile curves at representative sigma_ph
 %        values.
 %
-%  Uses: windowedSimilarity (event weighting), transformAttributes.
+%  Uses: windowedSimilarity (event weighting of a pre-MAET),
+%  transformAttributes.
+%
+%  The Python mirror is demo_helix_blend.py.
 
 clear; clc; close all;
 
 %% === User parameters ===
 
 % -- Common --
-SIG_PC           = 30;                               % pc group sigma (cents)
+SIG_PC           = 30;                               % pitch-class attribute sigma (cents)
 SIG_PH_SWEEP    = logspace(log10(100), log10(8000), 25);
 SIG_PH_PROFILES = [200, 600, 3000];                 % three overlaid profiles
-WIN_MIX          = 0.5;                              % rectangular x Gaussian
+WIN_MIX          = 0.5;                              % window shape: 0 Gaussian, 1 rectangular
 
 % -- Part 1 (synthetic) --
 SIG_TIME_1       = 0.10;                             % sec
@@ -92,9 +95,9 @@ plotPart(gcf, 'Helix blend (synthetic): C-E-G at four heights', ...
     heat1, prof1, OFFSETS_1, SIG_PH_SWEEP, SIG_PH_PROFILES, ...
     'motif events (C-E-G)', 'filler events');
 
-%% === Part 2: fugal texture (BWV 847-inspired, stylised) ===
+%% === Part 2: fugal texture (BWV 847-inspired, stylized) ===
 
-fprintf('Part 2: fugal texture (BWV 847-inspired, stylised).\n');
+fprintf('Part 2: fugal texture (BWV 847-inspired, stylized).\n');
 [ctx2_midi, ctx2_t, q2_midi, q2_t, subj_idx2, subj_cent2] = buildPart2Stream();
 ctx2_cents = transformAttributes(ctx2_midi, [], {'midi', 'cents'});
 q2_cents   = transformAttributes(q2_midi,   [], {'midi', 'cents'});
@@ -107,7 +110,7 @@ peak2 = subj_cent2 - mean(q2_t);
 reportPeaks(prof2, OFFSETS_2, SIG_PH_PROFILES, peak2);
 
 figure('Name', 'Helix blend: fugal texture', 'Position', [120, 120, 980, 800]);
-plotPart(gcf, ['Helix blend (BWV 847-inspired, stylised): ' ...
+plotPart(gcf, ['Helix blend (BWV 847-inspired, stylized): ' ...
                'subject in bass, alto, soprano'], ...
     ctx2_midi, ctx2_t, subj_idx2, peak2, mean(q2_t), ...
     heat2, prof2, OFFSETS_2, SIG_PH_SWEEP, SIG_PH_PROFILES, ...
@@ -120,7 +123,7 @@ plotPart(gcf, ['Helix blend (BWV 847-inspired, stylised): ' ...
 function reportPeaks(prof, offsets, sigma_phs, true_peaks)
 %REPORTPEAKS  Print, per profile sigma_ph, the similarity at each true
 %   statement offset: as sigma_ph widens, octave-displaced statements
-%   rise from near zero towards the same-height value of 1.
+%   rise from near zero towards the same-height value.
     for i = 1:numel(sigma_phs)
         vals = zeros(1, numel(true_peaks));
         for k = 1:numel(true_peaks)
@@ -136,7 +139,7 @@ function pm = helixPreMaet(pitch_cents, time_sec, sigma_pc, sigma_time)
 %HELIXPREMAET  The same pitch values routed through two attributes, plus time.
 %
 %   Attributes: (pitch, pitch, time), read as (pc, ph, time): the first
-%   pitch copy is periodic at 1200 cents, the second and the time axis
+%   pitch copy is periodic at 1200 cents, the second and the time attribute
 %   are linear. All r = 1.
 %
 %   The pre-MAET carries its own geometry, so nothing has to be threaded
@@ -166,28 +169,20 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
 %   against the time-windowed context).
 %
 %   Windowing is event weighting: at each sweep position the window,
-%   centred on that position along the time axis, multiplies the
+%   centred on that position along the time attribute, multiplies the
 %   per-event weights of the context before its density is built, and
-%   the query is translated so that its time centroid lands on the same
-%   position. The window has standard deviation win_size_time * sigma_time
-%   and shape win_mix (0 Gaussian, 1 rectangular).
+%   the query is translated by the offset, the window travelling with it
+%   (centred on the translated query). The window has standard deviation
+%   win_size_time * sigma_time and shape win_mix (0 Gaussian, 1
+%   rectangular; between them, a rectangle convolved with a Gaussian of
+%   the same total variance).
 
-    % Acquire a top-level dispatch scope for the duration of the
-    % per-sigma_ph loop, so the dispatch-announce throttle deduplicates
-    % the cosine path's announce across the sweep rather than re-emitting
-    % it per iteration. See internal.dispatchScope.
-    guard = internal.dispatchScope(); %#ok<NASGU>
-
-    TIME = 3;                                    % the swept (window) axis
+    TIME = 3;                                    % the window attribute
 
     % The window family has fixed variance sd^2 for every shape; the
     % width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
     sd_time = win_size_time * sigma_time;
     contextWindow = {win_mix, 2 * sqrt(3) * sd_time};
-
-    % Sweep positions are absolute times on the context axis; the plotted
-    % offset is the position relative to the query's time centroid.
-    centres = offsets(:).' + mean(q_t);
 
     % Only the pitch-height width varies across the sweep, so the two
     % pre-MAETs are built once and each call names that one parameter.
@@ -203,21 +198,24 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
         fprintf('\n');
     end
 
+    % Each call would announce its routing decision; the announcements
+    % are switched off for the loop and restored after it.
+    prevHints = mptDefaults('showHints', false);
     nS = numel(sigma_ph_values);
     prof = zeros(nS, numel(offsets));
     for i = 1:nS
-        prof(i, :) = windowedSimilarity(pmC, pmQ, centres, ...
+        prof(i, :) = windowedSimilarity(pmC, pmQ, [], 'offsets', offsets, ...
             'sigma', {[], sigma_ph_values(i), []}, ...
-            'windowAttr', TIME, 'dropWindowAttr', false, ...
-            'contextWindow', contextWindow, 'locate', 'centroid', ...
+            'windowAttr', TIME, 'contextWindow', contextWindow, ...
             'normalize', 'oneSidedDenom', 'verbose', false);
     end
+    mptDefaults(prevHints);
 end
 
 function [ctx_midi, ctx_t, q_midi, q_t, motif_idx, motif_cent] = buildPart1Stream()
 %BUILDPART1STREAM  Three-note motif at four heights with non-overlapping filler.
     motif_midi_ref  = [60, 64, 67];        % C4 E4 G4
-    filler_midi_ref = [62, 65, 69];        % D4 F4 A4 (disjoint pc's)
+    filler_midi_ref = [62, 65, 69];        % D4 F4 A4 (disjoint pitch classes)
     heights_st         = [0, 12, -12, 24];
     dt              = 0.5;
 
@@ -252,7 +250,11 @@ function [ctx_midi, ctx_t, q_midi, q_t, motif_idx, motif_cent] = buildPart1Strea
 end
 
 function [ctx_midi, ctx_t, q_midi, q_t, subj_idx, subj_cent] = buildPart2Stream()
-%BUILDPART2STREAM  Six-note subject at three heights, short counter-material between.
+%BUILDPART2STREAM  Six-note subject stated in bass, alto, and soprano.
+%   Between entries, three counter-material notes in a voice other than
+%   the entering one; this produces partial pitch-class overlap (one
+%   shared pitch class with the first counter-material, two with the second) that
+%   gives a visible but clearly subordinate background.
     subj_ref = [60, 63, 65, 63, 62, 60];       % C Eb F Eb D C
     cnt1     = [57, 55, 53];                   % A3 G3 F3
     cnt2     = [74, 72, 70];                   % D5 C5 Bb4
@@ -310,7 +312,7 @@ function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
 %  panel (a) sits at the same x-coordinate as its corresponding peak
 %  in panels (b) and (c).
 %
-%  The layout uses explicit figure-normalised positions throughout so
+%  The layout uses explicit figure-normalized positions throughout so
 %  that the colorbar and legends do not steal width from the main
 %  panels (which would misalign their x-axes).
     figure(fig);
@@ -318,13 +320,13 @@ function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
     is_marked(marker_idx) = true;
     ctx_x = ctx_t - query_centroid_t;
 
-    % -- Figure layout (figure-normalised coordinates) --
+    % -- Figure layout (figure-normalized coordinates) --
     LEFT    = 0.08;
     PLOT_R  = 0.80;                    % right edge of plot columns
     CBAR_L  = PLOT_R + 0.02;           % colourbar left
     CBAR_W  = 0.018;
     LEG_L   = PLOT_R + 0.015;          % legend left (small gap from plot;
-                                       %   legends sit on rows that don't
+                                       %   legends sit on rows that do not
                                        %   have the colourbar)
     LEG_W   = 0.17;
 

@@ -99,7 +99,7 @@ def test_route_scale_identities(is_rel, is_per, r, sigma):
     * the Möbius per-attribute matrix carries the single-multiset Gaussian
       prefactor and the full symmetric orbit, giving
       ``r! (sigma sqrt(pi))^r`` in an absolute mode; in relative-non-periodic
-      the rigid translation is marginalised, which trades one Gaussian factor
+      the rigid translation is marginalized, which trades one Gaussian factor
       for the quotient's Jacobian: ``r! (sigma sqrt(pi))^(r-1) sqrt(r)``.
     * the tuple-centres closed form drops the Gaussian prefactor entirely and
       keeps only the orbit, giving ``r!``.

@@ -3,44 +3,48 @@
 Computes and plots virtual pitch (fundamental) salience profiles
 for example chords.
 
-Each subplot shows the normalised cross-correlation between the
+Each subplot shows the normalized cross-correlation between the
 chord's composite spectrum and a harmonic template, plotted against
 pitch. Peaks indicate strong virtual pitches — candidate
-fundamentals that are well-supported by the chord's spectral content.
+fundamentals that are well-supported by the chord's spectral
+content. Peaks below the lowest chord tone (the chord tones are marked
+by dashed vertical lines) are subharmonic virtual pitches.
 
 The example chords include 12-TET triads and their just-intonation
 counterparts, illustrating how mistuning broadens and reduces virtual
 pitch peaks.
 
-Port of demo_virtualPitches.m from the MATLAB Music Perception Toolbox v3.
+Uses: virtual_pitches, transform_attributes.
 
 Requires: matplotlib (pip install matplotlib)
+
+The MATLAB mirror is demo_virtualPitches.m.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import mpt
 
 # ===================================================================
 #  User-adjustable parameters
 # ===================================================================
 
-# Smoothing width in cents
+# Smoothing width in cents (9-15 are typical; 12 is a good default)
 sigma = 12
 
 # Spectral parameters for the harmonic template
 spec = ['harmonic', 36, 'powerlaw', 1]
 
-# Spectral parameters for chord tones (set to None for raw peaks)
+# Spectral parameters for the chord tones. Set to None to treat input
+# pitches as raw spectral peaks (e.g., from audio_peaks). To model each
+# chord tone as a complex tone with the same spectrum as the template:
 chord_spec = ['harmonic', 36, 'powerlaw', 1]
 
-# Grid resolution in cents
+# Grid resolution in cents (finer = more accurate but longer output)
 resolution = 1
 
-# Chords as MIDI pitches: (pitches, label)
+# Chords as MIDI pitches. Each entry: (pitches, label).
 chord_data = [
     ([57, 64, 73],            'Open A major'),
     ([60, 67, 75],            'Open C minor'),

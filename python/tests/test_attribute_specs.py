@@ -235,3 +235,38 @@ def test_a_categorical_column_is_sent_to_the_roles(spatial):
         roles={"rule": dict(role="simplex", sigma=0.1)}))
     assert [s["name"] for s in specs] == ["x", "rule"]
     assert specs[1]["sigma"] == 0.1
+
+
+def test_a_table_with_no_score_columns_converts():
+    """Neither onset nor pitch is required: a table carrying one
+    arbitrary column converts, each row its own event, and a categorical
+    label reaches the pre-MAET by its role."""
+    import pandas as pd
+    bare = pd.DataFrame(dict(x=[1.0, 2.0, 3.0]))
+    p, w, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        bare, weights="ones", attributes=(dict(column="x", sigma=0.5),)))
+    np.testing.assert_array_equal(p[0], [[1.0, 2.0, 3.0]])
+    assert w is None and specs[0]["name"] == "x"
+
+    labelled = pd.DataFrame(dict(label=pd.Categorical(["a", "b", "a"]),
+                                 chord=[1, 2, 3]))
+    p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
+        labelled, weights="ones", chords="separate",
+        attributes=(dict(column="chord", sigma=1.0),),
+        roles={"label": dict(role="simplex", sigma=0.2)}))
+    assert [s["name"] for s in specs] == ["chord", "label"]
+    assert p[0].shape == (1, 3) and p[1].shape == (1, 3)
+    np.testing.assert_array_equal(p[1][:, 0], p[1][:, 2])
+
+    # A key column still groups rows; onset and pitch are refused only
+    # where they are named.
+    p, _, _ = unpack_pre_maet(pre_maet_from_attr_table(
+        labelled, weights="ones", group_by="label",
+        attributes=(dict(column="chord", sigma=1.0, r=1, exch=True),)))
+    assert p[0].shape[1] == 3
+    for name in ("onset", "pitch"):
+        with pytest.raises(ValueError, match="cannot be an attribute"):
+            pre_maet_from_attr_table(
+                bare, weights="ones", attributes=(
+                    dict(column="x", sigma=0.5),
+                    dict(column=name, sigma=0.5)))

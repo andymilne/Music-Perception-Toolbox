@@ -4,8 +4,10 @@ function pm = prototypeQuery(chords, flagged, rInner)
 %   pm = jmm.prototypeQuery(chords, flagged, rInner)
 %
 %   chords is a 1 x L cell of MIDI pitch vectors, converted by jmm.query at
-%   unit weights; flagged (logical) adds the root-position flag (rootYes) as
-%   the inversion attribute; rInner is the inner tuple size. The one thing
+%   unit weights; flagged (logical) adds the inversion flag at its
+%   predicate-holds level (rootYes, +0.5) as the inversion attribute, which
+%   for the six-four queries marks a six-four antepenult; rInner is the
+%   inner tuple size. The one thing
 %   it adds over jmm.query is the mapping from the logical flagged to the
 %   flag value.
 %

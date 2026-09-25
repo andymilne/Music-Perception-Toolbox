@@ -239,8 +239,17 @@ def test_per_level_evaluator_reference_values():
 
 def test_per_level_evaluator_is_much_cheaper_than_the_centres_route():
     """The point of the route: r = (3, 3) over four groups of three has
-    5184 tuple centres per event; the per-level sum touches none."""
-    import time
+    5184 tuple centres per event; the per-level sum touches none.
+
+    Deterministic: the comparison is on the fitted nested cost row, not
+    on wall-clock time. The agreement check lifts the accuracy floor:
+    even at ``truncation_sigmas = inf`` the centres route culls every
+    tuple centre beyond sqrt(-2 log eps) sigmas (about 7.4 at
+    eps = 1e-12), which on these far-from-every-centre queries can leave
+    an error above 1e-7 of max|vc| (it does on the MATLAB draw); the
+    per-level evaluator is exact."""
+    from mpt._defaults import accuracy_floor_context
+    from mpt._tensor.dispatch import _nested_eval_costs_ms
     rng = np.random.default_rng(8)
     tags = np.repeat(np.arange(4), 3)
     p = np.sort(rng.uniform(0.0, P, size=(12, 4)), axis=0)
@@ -248,11 +257,9 @@ def test_per_level_evaluator_is_much_cheaper_than_the_centres_route():
     d = build_maet([p], None, specs=[spec], sigma=[0.7], is_per=[False],
                        period=[0.0], verbose=False)
     X = rng.uniform(0.0, P, size=(d.dim, 50))
-    t0 = time.perf_counter()
-    vc = eval_maet(d, X, method="centres", verbose=False)
-    tc = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    vm = eval_maet(d, X, method="mobius", verbose=False)
-    tm = time.perf_counter() - t0
+    c_ms, m_ms = _nested_eval_costs_ms(d, X.shape[1])
+    with accuracy_floor_context(1e-300):
+        vc = eval_maet(d, X, method="centres", verbose=False)
+        vm = eval_maet(d, X, method="mobius", verbose=False)
     np.testing.assert_allclose(vm, vc, rtol=0, atol=1e-7 * np.max(np.abs(vc)))
-    assert tm < tc
+    assert m_ms < c_ms

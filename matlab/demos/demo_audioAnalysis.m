@@ -12,16 +12,24 @@
 %       but produces many spurious peaks for sounds with vibrato or
 %       frequency jitter (violin, complex music).
 %    2. With Gaussian smoothing (sigmaPeaks cents) — collapses
-%       vibrato-spread energy into single peaks, giving a cleaner
-%       representation for all sources.
+%       vibrato-spread energy into single peaks, giving a far sparser
+%       representation for sounds with vibrato or jitter, at little cost
+%       for steady-state sounds.
 %
 %  Perceptual features are computed from the smoothed peaks.
 %
-%  The audio files are in the audio/ subfolder.
+%  The audio files are in the audio/ subfolder (one level up from
+%  demos/).
 %
 %  Uses: audioPeaks, transformAttributes, spectralEntropy, templateHarmonicity,
-%        roughness, virtualPitches, simMaet
+%        roughness, virtualPitches, simMaet, mptDefaults
 %  (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_audio_analysis.py.
+
+% The toolbox's informational hints (which route a call took, and the
+% like) are switched off for a tidy printout, and restored at the end.
+prevDefaults = mptDefaults('showHints', false);
 
 %% === User-adjustable parameters ===
 
@@ -98,6 +106,7 @@ nResults = numel(results);
 
 if nResults == 0
     fprintf('No audio files found. Check the audio/ folder.\n');
+    mptDefaults(prevDefaults);
     return;
 end
 
@@ -145,7 +154,7 @@ fprintf('\n=== Pairwise SPCS (smoothed peaks, sigma = %d) ===\n\n', sigma);
 fprintf('%25s  ', '');
 for j = 1:nResults
     lbl = results(j).label;
-    if numel(lbl) > 12, lbl = lbl(1:12); end
+    if numel(lbl) > 11, lbl = lbl(1:11); end
     fprintf('%-12s', lbl);
 end
 fprintf('\n');
@@ -185,4 +194,5 @@ for i = 1:nResults
         results(i).label, bestCents, bestMidi, maxW);
 end
 
+mptDefaults(prevDefaults);
 fprintf('\nDone.\n');

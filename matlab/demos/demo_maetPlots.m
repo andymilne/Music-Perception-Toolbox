@@ -40,6 +40,8 @@
 %  alternatives do.
 %
 %  Uses: buildMaet, plotMaet (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_maet_plots.py.
 
 %% === User-editable parameters ===
 close all
@@ -66,8 +68,8 @@ period = 1200;
 %
 % Only one to three drawn dimensions can be drawn, dim = r - isRel, so
 % r runs to 3 absolute and 4 relative. A four-dimensional density has
-% no honest picture: the grid of two-dimensional slices this demo once
-% drew for it showed three arbitrary cuts rather than the density.
+% no honest picture: any set of two-dimensional slices shows arbitrary
+% cuts rather than the density.
 %
 % Each configuration appears twice, unordered then ordered, so that
 % the symmetrization is a difference between neighbouring tabs. r = 1
@@ -186,7 +188,8 @@ dockFigures = true;
 %               colour where kernels crowd, and a peak can be seen to
 %               be one kernel or several.
 %   'points'  — the density sampled: one translucent mark per grid
-%               node above a threshold. Three dimensions only. At a
+%               node above a threshold. Three dimensions only; at one
+%               and two this demo draws 'density' in its place. At a
 %               fine grid it is much the same picture as 'density'
 %               and costs more to draw; what differs is that the
 %               samples stay discrete, so the grid is visible rather
@@ -199,97 +202,10 @@ dockFigures = true;
 % that. Switch to 'kernels' to see the tuples themselves.
 plotMethod = 'density';
 
-%% === Estimate total runtime ===
-
-nConfigs = size(configs, 1);
-totalEstSec = 0;
-
-fprintf('\n--- Plot summary ---\n');
-for ci = 1:nConfigs
-    rc      = configs(ci, 1);
-    isRelC  = logical(configs(ci, 2));
-    isPerC  = logical(configs(ci, 3));
-    isExchC = logical(configs(ci, 4));
-
-    % Skip invalid configs (same logic as main loop)
-    if rc > numel(p), continue; end
-    if isRelC && rc < 2, continue; end
-
-    % Effective dimensionality
-    dimC = rc - isRelC;
-
-    % Axis range for this config
-    if isPerC
-        axMinC = 0;
-        axMaxC = period;
-    else
-        axMinC = axMinNonPer;
-        axMaxC = axMaxNonPer;
-    end
-
-    % A count at one and two dimensions, a spacing at three.
-    if dimC < 3
-        if dimC == 1, nodesC = nodes_1d; else, nodesC = nodes_2d; end
-        if isempty(nodesC)
-            nodesC = localDefaultNodes(dimC);
-        end
-    elseif isempty(step_3d)
-        nodesC = localDefaultNodes(dimC);
-    else
-        nodesC = round((axMaxC - axMinC) / step_3d);
-    end
-    resC = max(2, round(nodesC) + 1);
-
-    % Only one to three dimensions are drawn, and the main loop stops
-    % on anything more, so a row that asks for more is reported here
-    % rather than costed.
-    if dimC > 3
-        fprintf(['  Config %d: r=%d, dim=%d -- not drawn, only one to ' ...
-                 'three dimensions are.\n'], ci, rc, dimC);
-        continue
-    end
-    nQc = double(resC)^dimC;
-
-    % Problem sizes
-    nc      = numel(p);
-    nPermsC = factorial(rc);
-    nCombsC = nchoosek(nc, rc);
-    nJc     = nPermsC * nCombsC;
-
-    % Estimate this config's eval time (silent call — empty label)
-    nPairsC    = double(nJc) * nQc;
-    configEst  = estimateCompTime(nPairsC, dimC, '');
-    totalEstSec = totalEstSec + configEst;
-
-    % Mode labels
-    if isRelC, mStr = 'rel'; else, mStr = 'abs'; end
-    if isPerC, pStr = 'per'; else, pStr = 'non-per'; end
-
-    fprintf('  Config %d: r=%d, %s, %s, dim=%d, res=%d, queries=%.2g, tuples=%d\n', ...
-        ci, rc, mStr, pStr, dimC, resC, nQc, nJc);
-end
-
-fprintf('---\n');
-% Format and print the accumulated total
-if totalEstSec < 1
-    totalTimeStr = sprintf('%.0f ms', totalEstSec * 1000);
-elseif totalEstSec < 60
-    totalTimeStr = sprintf('%.1f s', totalEstSec);
-elseif totalEstSec < 3600
-    totalTimeStr = sprintf('%.1f min', totalEstSec / 60);
-else
-    totalTimeStr = sprintf('%.1f hr', totalEstSec / 3600);
-end
-if totalEstSec > 2
-    fprintf('plotMaet (total): estimated time ~%s (Ctrl+C to cancel).\n\n', ...
-        totalTimeStr);
-else
-    fprintf('plotMaet (total): estimated time ~%s.\n\n', totalTimeStr);
-end
-
-
 %% === Iterate through configurations ===
 
+nConfigs = size(configs, 1);
+fprintf('\n--- Plot summary ---\n');
 for ci = 1:nConfigs
     r      = configs(ci, 1);
     isRelR = logical(configs(ci, 2));
@@ -319,6 +235,20 @@ for ci = 1:nConfigs
 
     % --- Effective dimensionality ---
     dim = r - isRelR;
+
+    % Only one to three dimensions are drawn: a four-dimensional
+    % density has no honest picture.
+    if dim > 3
+        fprintf('Config %d: r = %d, dim = %d -- not drawn.\n', ci, r, dim);
+        continue;
+    end
+
+    % 'points' exists only at three dimensions, so below that the
+    % density is drawn in its place.
+    method = plotMethod;
+    if strcmp(method, 'points') && dim < 3
+        method = 'density';
+    end
 
     % Empty leaves plotMaet's own colour map alone.
     if isempty(brightenMap)
@@ -369,8 +299,8 @@ for ci = 1:nConfigs
         ordStr = 'ordered';
     end
 
-    titleStr = sprintf('r = %d, %s, %s, %s, \\sigma = %.2f', ...
-        r, modeStr, perStr, ordStr, sigma);
+    titleStr = sprintf('r = %d, %s, %s, %s, \\sigma = %g — %s', ...
+        r, modeStr, perStr, ordStr, sigma, method);
 
     fprintf(['Config %d: r = %d (%s, %s, %s, dim = %d, res = %d): ' ...
              'precomputing...'], ...
@@ -391,7 +321,7 @@ for ci = 1:nConfigs
         % =============================================================
         case 1
             fig = newDemoFigure(ci, r, dim, dockFigures);
-            h1 = plotMaet(dens, 'method', plotMethod, ...
+            h1 = plotMaet(dens, 'method', method, ...
                           'limits', [axMin axMax], gridArgs{:}, ...
                           mapArgs{:});
             xlabel(sprintf('%s 1', axLabel));
@@ -404,7 +334,7 @@ for ci = 1:nConfigs
         % =============================================================
         case 2
             fig = newDemoFigure(ci, r, dim, dockFigures);
-            h2 = plotMaet(dens, 'method', plotMethod, ...
+            h2 = plotMaet(dens, 'method', method, ...
                           'limits', [axMin axMax], gridArgs{:}, ...
                           'alphaFloor', alphaFloor2d, mapArgs{:});
             xlabel(sprintf('%s 1', axLabel));
@@ -429,13 +359,13 @@ for ci = 1:nConfigs
         % =============================================================
         case 3
             fig = newDemoFigure(ci, r, dim, dockFigures);
-            h3 = plotMaet(dens, 'method', plotMethod, ...
+            h3 = plotMaet(dens, 'method', method, ...
                           'limits', [axMin axMax], gridArgs{:}, ...
                           'upsample', 2, mapArgs{:});
             xlabel(sprintf('%s 1', axLabel));
             ylabel(sprintf('%s 2', axLabel));
             zlabel(sprintf('%s 3', axLabel));
-            title(sprintf('%s — %s', titleStr, plotMethod));
+            title(titleStr);
             setDemoTicks(gca, [axMin axMax], 3);
 
             % These are meant to be turned, so the figure opens ready
@@ -443,15 +373,6 @@ for ci = 1:nConfigs
             % being the caller's to set rather than a plotting
             % function's to impose.
             rotate3d(fig, 'on');
-
-        % =============================================================
-        %  dim >= 4: not drawn
-        % =============================================================
-        otherwise
-            error('demo_maetPlots:tooManyDimensions', ...
-                  ['Config %d has dim = %d. Only one to three ' ...
-                   'dimensions are drawn: a four-dimensional density ' ...
-                   'has no honest picture.'], ci, dim);
 
     end
 
@@ -533,8 +454,8 @@ end
 
 function n = localDefaultNodes(dim)
 %LOCALDEFAULTNODES  The nodes per axis plotMaet asks for when the step
-%   is left to it. Kept here only so that the runtime estimate can
-%   report the grid that will actually be evaluated.
+%   is left to it. Kept here only so that the progress line can report
+%   the grid that will actually be evaluated.
     if dim < 3
         n = 1200;
     else

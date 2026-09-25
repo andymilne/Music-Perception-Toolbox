@@ -86,7 +86,7 @@ function h = plotMaet(dens, varargin)
 %
 %   Name-value pairs
 %       'method'        'kernels' (default), 'points', or 'density'.
-%                       'points' needs two or three drawn dimensions.
+%                       'points' needs three drawn dimensions.
 %       'axes'          Target axes. Default: the current axes.
 %       'limits'        [lo hi] for every drawn axis. Default: one
 %                       period for a periodic attribute, and otherwise

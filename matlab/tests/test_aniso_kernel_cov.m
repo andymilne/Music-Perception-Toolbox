@@ -468,6 +468,230 @@ results{end,2}   = errorMessageContains(@() buildMaet({pbRl{1}}, [], ...
     'period', 0, 'verbose', false), 'isRel = false');
 
 
+% =====================================================================
+%  Truncation parity: the kernel-covariance route truncates exactly as
+%  the isotropic one (mirror of Python TestTruncationParity)
+% =====================================================================
+% A matrix-valued covariance is evaluated by whitening onto the
+% isotropic unit-sigma kernel, and the truncation rule (drop a kernel
+% contribution whose value falls below exp(-k^2/2) of its peak) then
+% holds in the Mahalanobis metric. Regression: the whitened tuple
+% (dim = r >= 2, a handful of centres) always reached the exhaustive
+% branch of internal.gaussianKernelSum, which skipped the cutoff, so
+% kernelCov similarities were untruncated while the equivalent paired
+% (relative + absolute) attributes were truncated.
+
+tpQ = [6000; 6200; 6400; 6700];
+tpX = tpQ + 700;
+tpSdRel = 30;
+tpPm = @(v, sig, rel) packPreMaet(repmat({v(:)}, 1, numel(rel)), [], ...
+    flatSpecs(repmat({v(:)}, 1, numel(rel)), 'r', numel(v), 'rel', rel, ...
+    'exch', false(1, numel(rel)), 'sigma', sig, ...
+    'isPer', false(1, numel(rel)), 'period', zeros(1, numel(rel))));
+
+% {s, truncationSigmas, expectZero}: 3e-9 < exp(-18) at (158, 6);
+% 3e-9 > 1e-12 at (158, Inf); 5e-22 and 2e-54 < 1e-12; 4e-3 above both.
+tpCases = {158, 6, true; 158, Inf, false; 100, Inf, true; ...
+           63, Inf, true; 300, 6, false};
+for iCase = 1:size(tpCases, 1)
+    s = tpCases{iCase, 1}; ts = tpCases{iCase, 2};
+    expectZero = tpCases{iCase, 3};
+    vs = tpSdRel^2 + s^2;
+    Ctp = kernelCov(4, 'differenced', false, ...
+        'sdValue', tpSdRel * s / sqrt(vs), 'sdShift', s^2 / sqrt(4 * vs));
+    a = simMaet(tpPm(tpQ, {tpSdRel, s}, [true false]), ...
+                tpPm(tpX, {tpSdRel, s}, [true false]), ...
+                'truncationSigmas', ts, 'verbose', false);
+    b = simMaet(tpPm(tpQ, {Ctp}, false), tpPm(tpX, {Ctp}, false), ...
+                'truncationSigmas', ts, 'verbose', false);
+    if expectZero
+        ok = (a == 0) && (b == 0);
+    else
+        ok = (a > 0) && abs(b - a) <= 1e-12 * abs(a);
+    end
+    results{end+1,1} = sprintf(['aniso: pairing equals kernelCov under ' ...
+        'truncation (s = %g, truncationSigmas = %g)'], s, ts); %#ok<SAGROW>
+    results{end,2}   = ok;
+end
+
+% Sigma = s^2 I against scalar sigma, under default-width truncation.
+for nrm = {'cosine', 'oneSidedDenom', 'none'}
+    for sCase = {158, true; 300, false}.'
+        s = sCase{1}; expectZero = sCase{2};
+        a = simMaet(tpPm(tpQ, {s}, false), tpPm(tpX, {s}, false), ...
+            'normalize', nrm{1}, 'truncationSigmas', 6, 'verbose', false);
+        b = simMaet(tpPm(tpQ, {s^2 * eye(4)}, false), ...
+            tpPm(tpX, {s^2 * eye(4)}, false), ...
+            'normalize', nrm{1}, 'truncationSigmas', 6, 'verbose', false);
+        if expectZero
+            ok = (a == 0) && (b == 0);
+        else
+            ok = abs(b - a) <= 1e-12 * abs(a);
+        end
+        results{end+1,1} = sprintf(['aniso: s^2 I matches scalar sigma ' ...
+            'under truncation (sim, %s, s = %g)'], nrm{1}, s); %#ok<SAGROW>
+        results{end,2}   = ok;
+    end
+end
+
+% Evaluation: offsets 0 and 300 inside the 6-sigma ball, 600 and 900
+% outside it.
+s = 158;
+dTpI = buildMaet(tpPm(tpQ, {s}, false), 'verbose', false);
+dTpC = buildMaet(tpPm(tpQ, {s^2 * eye(4)}, false), 'verbose', false);
+XTp = tpQ + [0, 300, 600, 900];
+ok = true;
+for nrm = {'none', 'gaussian'}
+    vI = evalMaet(dTpI, XTp, nrm{1}, 'truncationSigmas', 6, 'verbose', false);
+    vC = evalMaet(dTpC, XTp, nrm{1}, 'truncationSigmas', 6, 'verbose', false);
+    ok = ok && all(abs(vC - vI) <= 1e-12 * abs(vI)) ...
+        && vI(3) == 0 && vI(4) == 0 && vI(2) > 0;
+end
+results{end+1,1} = 'aniso: s^2 I matches scalar sigma under truncation (eval)';
+results{end,2}   = ok;
+
+% The exhaustive branch of internal.gaussianKernelSum (dim = 4, one
+% centre: the bucket index is not worthwhile) applies the same Q-ball
+% cutoff as the bucketed one.
+kTp = 6; uTp = ones(4, 1) / 2;
+vTp = internal.gaussianKernelSum(zeros(4, 1), 1, ...
+    [uTp * (kTp - 1e-6), uTp * (kTp + 1e-6)], 1, 'truncationSigmas', kTp);
+results{end+1,1} = 'aniso: exhaustive kernel-sum branch truncates at k sigma';
+results{end,2}   = abs(vTp(1) - exp(-0.5 * (kTp - 1e-6)^2)) ...
+    <= 1e-12 * exp(-0.5 * (kTp - 1e-6)^2) && vTp(2) == 0;
+
+
+% =====================================================================
+%  Bare inner product (normalize = 'none') in the original coordinates
+% =====================================================================
+% Whitening x = R y carries the anisotropic kernel to the isotropic
+% unit-sigma one, but the inner product is an integral, so the change of
+% variables contributes the Jacobian det(Sigma)^(1/2) per attribute.
+% Regression: the bare value omitted it, so Sigma = s^2 I of dimension d
+% returned s^-d times the scalar-sigma value. Mirror of the Python
+% TestBareInnerProductScale.
+
+sgB = 1.7;
+pB = [0; 3; -3]; qB = [0.2; 3.4; -2.9]; wB = [1; 0.8; 0.6];
+ok = true;
+for rB = [2, 3]
+    vM = simMaet(pB(1:rB), wB(1:rB), qB(1:rB), wB(1:rB), sgB^2 * eye(rB), ...
+        rB, false, false, 0, false, 'normalize', 'none', 'verbose', false);
+    vS = simMaet(pB(1:rB), wB(1:rB), qB(1:rB), wB(1:rB), sgB, ...
+        rB, false, false, 0, false, 'normalize', 'none', 'verbose', false);
+    ok = ok && abs(vM - vS) <= TOL * abs(vS);
+end
+results{end+1,1} = 'aniso: none reduces to scalar sigma at Sigma = s^2 I (raw, r = 2, 3)';
+results{end,2}   = ok;
+
+dPM = buildMaet(pB, wB, sgB^2 * eye(3), 3, false, false, 0, false, 'verbose', false);
+dQM = buildMaet(qB, wB, sgB^2 * eye(3), 3, false, false, 0, false, 'verbose', false);
+dPS = buildMaet(pB, wB, sgB, 3, false, false, 0, false, 'verbose', false);
+dQS = buildMaet(qB, wB, sgB, 3, false, false, 0, false, 'verbose', false);
+vM = simMaet(dPM, dQM, 'normalize', 'none', 'verbose', false);
+vS = simMaet(dPS, dQS, 'normalize', 'none', 'verbose', false);
+lM = simMaet(dPM, {dQM, dPM}, 'normalize', 'none', 'verbose', false);
+lS = simMaet(dPS, {dQS, dPS}, 'normalize', 'none', 'verbose', false);
+if iscell(lM), lM = cell2mat(lM); lS = cell2mat(lS); end
+results{end+1,1} = 'aniso: none reduces to scalar sigma at Sigma = s^2 I (density, list)';
+results{end,2}   = abs(vM - vS) <= TOL * abs(vS) ...
+    && all(abs(lM(:) - lS(:)) <= TOL * abs(lS(:)));
+
+% Multi-attribute: two matrix-sigma attributes (r = 3 and r = 2) tensored
+% with a scalar one; raw, raw broadcast, and density forms, plus Renyi-2.
+P1x = [0.3, -1.2, 0.8; 1.1, 0.4, -0.6; -0.5, 0.9, 0.2]; P1y = [0.1; 0.7; -0.3];
+P2x = [0.6, -0.2, 1.4; -0.9, 0.5, 0.0];                  P2y = [0.4; -0.1];
+Tx = [0, 0.5, 1.0];                                        Ty = 0.3;
+s1 = 0.9; s2 = 1.4; st = 0.4;
+pxB = {P1x, P2x, Tx}; wxB = {ones(3, 3), ones(2, 3), ones(1, 3)};
+pyB = {P1y, P2y, Ty}; wyB = {ones(3, 1), ones(2, 1), 1};
+geomB = {[3, 2, 1], [false false false], [false false false], [0 0 0], ...
+    [false false true]};
+sigMat = {s1^2 * eye(3), s2^2 * eye(2), st};
+sigSca = {s1, s2, st};
+vM = simMaet(pxB, wxB, pyB, wyB, sigMat, geomB{:}, 'normalize', 'none', ...
+    'verbose', false);
+vS = simMaet(pxB, wxB, pyB, wyB, sigSca, geomB{:}, 'normalize', 'none', ...
+    'verbose', false);
+bM = simMaet(pxB, wxB, {pyB, pyB}, wyB, sigMat, geomB{:}, ...
+    'normalize', 'none', 'verbose', false);
+bS = simMaet(pxB, wxB, {pyB, pyB}, wyB, sigSca, geomB{:}, ...
+    'normalize', 'none', 'verbose', false);
+if iscell(bM), bM = cell2mat(bM); bS = cell2mat(bS); end
+dxM = buildMaet(pxB, wxB, sigMat, geomB{:}, 'verbose', false);
+dyM = buildMaet(pyB, wyB, sigMat, geomB{:}, 'verbose', false);
+dxS = buildMaet(pxB, wxB, sigSca, geomB{:}, 'verbose', false);
+dyS = buildMaet(pyB, wyB, sigSca, geomB{:}, 'verbose', false);
+dM = simMaet(dxM, dyM, 'normalize', 'none', 'verbose', false);
+dS = simMaet(dxS, dyS, 'normalize', 'none', 'verbose', false);
+hM = entropyMaet(dxM, 'method', 'renyi2', 'verbose', false);
+hS = entropyMaet(dxS, 'method', 'renyi2', 'verbose', false);
+results{end+1,1} = 'aniso: none reduces to scalar sigma at Sigma = s^2 I (multi-attribute)';
+results{end,2}   = abs(vM - vS) <= TOL * abs(vS) ...
+    && all(abs(bM(:) - bS(:)) <= TOL * abs(bS(:))) ...
+    && abs(dM - dS) <= TOL * abs(dS);
+results{end+1,1} = 'aniso: renyi2 unchanged by the none scale (multi-attribute)';
+results{end,2}   = abs(hM - hS) <= TOL * max(1, abs(hS));
+
+% A relative r = 1 attribute takes the Renyi-2 sub-density branch; the
+% log det term must still be added exactly once.
+P1r = [0.3, -1.2, 0.8, 0.1; 1.1, 0.4, -0.6, 0.9];
+Tr = [0, 0.3, 0.9, 1.4];
+geomR = {[2, 1], [false true], [false false], [0 0], [false true]};
+wR = {ones(2, 4), ones(1, 4)};
+dRM = buildMaet({P1r, Tr}, wR, {0.36 * eye(2), 0.2}, geomR{:}, 'verbose', false);
+dRS = buildMaet({P1r, Tr}, wR, {0.6, 0.2}, geomR{:}, 'verbose', false);
+hM = entropyMaet(dRM, 'method', 'renyi2', 'verbose', false);
+hS = entropyMaet(dRS, 'method', 'renyi2', 'verbose', false);
+results{end+1,1} = 'aniso: renyi2 unchanged by the none scale (relative r = 1 sub-density)';
+results{end,2}   = abs(hM - hS) <= TOL * max(1, abs(hS));
+
+% Non-isotropic covariances against the direct canonical-scale inner
+% product pi^(d/2) det(Sigma)^(1/2) sum W W' exp(-d' Sigma^-1 d / 4).
+SigmaN = [0.5, 0.1, -0.05; 0.1, 0.4, 0.08; -0.05, 0.08, 0.6];
+cxN = [0.0, -1.0; 1.0, 0.0; 0.5, 2.0];
+cyN = [0.1, 2.0; 0.9, -1.0; 0.55, 0.3];
+SinvN = inv(SigmaN);
+wantN = 0;
+for i = 1:size(cxN, 2)
+    for j = 1:size(cyN, 2)
+        dd = cxN(:, i) - cyN(:, j);
+        wantN = wantN + exp(-0.25 * (dd' * SinvN * dd));
+    end
+end
+wantN = pi^(3/2) * sqrt(det(SigmaN)) * wantN;
+gotN = simMaet({cxN}, {ones(3, 2)}, {cyN}, {ones(3, 2)}, {SigmaN}, 3, ...
+    false, false, 0, false, 'normalize', 'none', 'verbose', false);
+DN = diag([0.3, 1.1, 2.5]);
+ddN = cxN(:, 1) - cyN(:, 1);
+wantD = pi^(3/2) * sqrt(det(DN)) * exp(-0.25 * (ddN' * (DN \ ddN)));
+gotD = simMaet(cxN(:, 1), ones(3, 1), cyN(:, 1), ones(3, 1), DN, 3, ...
+    false, false, 0, false, 'normalize', 'none', 'verbose', false);
+results{end+1,1} = 'aniso: none equals direct anisotropic inner product (full and diagonal)';
+results{end,2}   = abs(gotN - wantN) <= TOL * abs(wantN) ...
+    && abs(gotD - wantD) <= TOL * abs(wantD);
+
+% windowedSimilarity under 'none', with and without the window attribute.
+shapesB = [0.0, 0.3, 0.2, 0.5; 0.4, 0.1, 0.2, 0.0];
+onsetsB = [0, 1, 2, 3];
+ok = true;
+for dropB = [true, false]
+    profB = cell(1, 2);
+    sigsB = {0.09 * eye(2), 0.3};
+    for k = 1:2
+        profB{k} = windowedSimilarity({shapesB, onsetsB}, ...
+            {ones(2, 4), ones(1, 4)}, {[0.2; 0.25], 0}, {ones(2, 1), 1}, ...
+            {sigsB{k}, 0.25}, [2, 1], [false, false], [false, false], [0, 0], ...
+            onsetsB, 'isExch', [false, true], 'windowAttr', 2, ...
+            'dropWindowAttr', dropB, 'contextWindow', {'rect', 0.5}, ...
+            'normalize', 'none', 'verbose', false);
+    end
+    ok = ok && all(abs(profB{1}(:) - profB{2}(:)) <= TOL * abs(profB{2}(:)));
+end
+results{end+1,1} = 'aniso: windowedSimilarity none reduces to scalar sigma at Sigma = s^2 I';
+results{end,2}   = ok;
+
+
 if standalone
     nFail = sum(~[results{:,2}]);
     fprintf('\ntest_aniso_kernel_cov: %d/%d passed.\n', ...

@@ -207,6 +207,27 @@ def _ip_canonical_scale(dens, chosen, nested_routes=None):
     return scale
 
 
+def _apply_kernel_cov_scale(value, scale: float, normalize: str):
+    """Put a whitened bare inner product back on the canonical scale.
+
+    A matrix-valued kernel covariance is handled by whitening values and
+    running the isotropic machinery at ``sigma = 1``; the bare inner
+    product (``normalize='none'``) then lacks the Jacobian factor
+    ``prod_a det(Sigma_a)^(1/2)`` of the change of variables (see
+    :func:`~mpt._tensor.aniso.kernel_cov_ip_scale`). Under
+    ``'cosine'`` and ``'oneSidedDenom'`` the factor cancels, and
+    *value* is returned unchanged.
+    """
+    if normalize != "none" or scale == 1.0:
+        return value
+    if isinstance(value, np.ndarray):
+        return value * scale
+    if isinstance(value, (list, tuple)):
+        return type(value)(_apply_kernel_cov_scale(v, scale, normalize)
+                           for v in value)
+    return float(value) * scale
+
+
 def _finalise_normalisation(
     ip_xy: float, ip_xx: float, ip_yy: float, normalize: str,
 ) -> float:
@@ -572,13 +593,15 @@ def sim_maet(*args,
         # Matrix-valued kernel covariance: whiten both operands once
         # (shared geometry, so a single Cholesky factor per attribute)
         # and fall through to the isotropic machinery with sigma = 1.
-        # No normalization correction is needed: the tuple-independent
-        # prefactor is identical on both sides of every normalization
-        # and cancels.
+        # Under 'cosine' and 'oneSidedDenom' no correction is needed:
+        # the tuple-independent prefactor is identical on both sides of
+        # the ratio and cancels. The bare value ('none') is multiplied
+        # by the Jacobian factor prod_a det(Sigma_a)^(1/2) on return.
         from .aniso import sigma_vec_has_kernel_cov
+        kc_scale = 1.0
         if sigma_vec_has_kernel_cov(args[4]):
             from .build import _resolve_aniso_ma
-            from .aniso import whiten_p_attr
+            from .aniso import whiten_p_attr, kernel_cov_ip_scale
             (p1_in, w1_in, p2_in, w2_in) = args[0], args[1], args[2], args[3]
             sigma_vec_in, r_vec_in = args[4], args[5]
             is_rel_in, is_per_in = args[6], args[7]
@@ -588,6 +611,7 @@ def sim_maet(*args,
                 probe, sigma_vec_in, r_vec_in, is_rel_in, is_per_in,
                 is_exch_in, None,
             )
+            kc_scale = kernel_cov_ip_scale(chol_list)
             # The resolver validated the constraints and produced the
             # per-attribute Cholesky factors; whiten every structure
             # with them (whiten_values rejects row-count mismatches,
@@ -612,14 +636,14 @@ def sim_maet(*args,
                     f"r_vec, is_rel_vec, is_per_vec, "
                     f"period_vec[, is_exch_vec]); got {len(args)}."
                 )
-            return _cos_sim_raw_ma_scalar(
+            return _apply_kernel_cov_scale(_cos_sim_raw_ma_scalar(
                 *args,
                 method=method,
                 normalize=normalize,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 verbose=verbose,
-            )
+            ), kc_scale, normalize)
 
         # Scalar-vs-list broadcast. Build the scalar side once, then
         # iterate over the list side. Weights on the list side are
@@ -631,7 +655,7 @@ def sim_maet(*args,
                 f"sigma_vec, r_vec, is_rel_vec, is_per_vec, "
                 f"period_vec[, is_exch_vec]); got {len(args)}."
             )
-        return _cos_sim_raw_ma_broadcast(
+        return _apply_kernel_cov_scale(_cos_sim_raw_ma_broadcast(
             *args,
             a_is_list=a_is_list,
             b_is_list=b_is_list,
@@ -640,7 +664,7 @@ def sim_maet(*args,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
-        )
+        ), kc_scale, normalize)
 
     # ------------------------------------------------------------------
     # Raw single-multiset dispatch.
@@ -678,11 +702,14 @@ def sim_maet(*args,
 
     # Matrix-valued kernel covariance: whiten both operands and fall
     # through to the isotropic machinery with sigma = 1 (prefactors
-    # cancel under either normalization).
+    # cancel under either ratio normalization; the bare value under
+    # 'none' is multiplied by the Jacobian factor det(Sigma)^(1/2) on
+    # return).
     from .aniso import is_kernel_cov as _is_kc
+    kc_scale = 1.0
     if _is_kc(args[4]):
         from .aniso import validate_kernel_cov, check_aniso_constraints, \
-            whiten_values
+            whiten_values, kernel_cov_ip_scale
         if spectrum is not None:
             raise TypeError(
                 "'spectrum' is not supported with a matrix-valued kernel "
@@ -699,6 +726,7 @@ def sim_maet(*args,
             )
         Sigma_in, R_in = validate_kernel_cov(
             args[4], dim=int(r_in), name="sigma")
+        kc_scale = kernel_cov_ip_scale(R_in)
         a_arr = (whiten_values(R_in, a_arr) if a_arr.ndim == 1
                  else whiten_values(R_in, a_arr.T).T)
         b_arr = (whiten_values(R_in, b_arr) if b_arr.ndim == 1
@@ -744,7 +772,7 @@ def sim_maet(*args,
                 f"{M1} and {M2} rows."
             )
 
-        return _cos_sim_raw_single_multiset_batch(
+        return _apply_kernel_cov_scale(_cos_sim_raw_single_multiset_batch(
             P1, P2, sigma, r_, is_rel, is_per, period, is_exch,
             weights_a=W1, weights_b=W2,
             spectrum=spectrum, precision=precision,
@@ -754,7 +782,7 @@ def sim_maet(*args,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
-        )
+        ), kc_scale, normalize)
 
     # Both operands are 1-D → existing scalar single-multiset path.
     if precision is not None:
@@ -766,14 +794,14 @@ def sim_maet(*args,
         raise TypeError(
             "'mode' kwarg only applies to density list inputs."
         )
-    return _cos_sim_raw_single_multiset_scalar(
+    return _apply_kernel_cov_scale(_cos_sim_raw_single_multiset_scalar(
         *args, spectrum=spectrum,
         method=method,
         normalize=normalize,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=verbose,
-    )
+    ), kc_scale, normalize)
 
 
 
@@ -1014,10 +1042,14 @@ def _compute_pair_results_with_dedup(
         # periodic attribute and [exch] the tuple reading, so two pairs
         # may share a key only when both agree (the MATLAB twin
         # localDensityPairKey bakes in the same two).
+        # The kernel covariance's Jacobian factor also enters the bare
+        # value, so it is part of the key too.
+        from .aniso import density_ip_scale
         wrap = getattr(d, "wrap", None)
         exch = getattr(d, "is_exch", None)
         return (str(wrap[0]) if wrap is not None else "full-image",
-                bool(exch[0]) if exch is not None else True)
+                bool(exch[0]) if exch is not None else True,
+                density_ip_scale(d))
 
     for a, b in pairs:
         pa, wa, sig_a, r_a, rel_a, per_a, period_a = _fields(a)
@@ -1163,7 +1195,7 @@ def _cos_sim_pair_core(
                 "dens_x is a MaetDensity but dens_y is not; both must be "
                 "the same type."
             )
-        return _sim_maet_ma(
+        val = _sim_maet_ma(
             dens_x, dens_y,
             method=method,
             normalize=normalize,
@@ -1171,6 +1203,13 @@ def _cos_sim_pair_core(
             kernel_precision=kernel_precision,
             verbose=verbose,
         )
+        # Densities built with a matrix-valued kernel covariance hold
+        # whitened values at sigma = 1; the bare value takes the
+        # Jacobian factor prod_a det(Sigma_a)^(1/2) (the two densities
+        # share their covariances, checked above).
+        from .aniso import density_ip_scale
+        return _apply_kernel_cov_scale(val, density_ip_scale(dens_x),
+                                       normalize)
     raise TypeError(
         f"Both arguments must be MaetDensity; got "
         f"{type(dens_x).__name__} and {type(dens_y).__name__}."

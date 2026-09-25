@@ -3,19 +3,19 @@ phase as local texture in Piano Phase.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article; lightly edited from the article's own script. Data come
-from jmm_data (BWV 347 read from the bundled MusicXML) or piano_phase
-(the rendered Piano Phase voices); the figures stay on screen unless
-SAVE_FIGURES is set.
+from piano_phase (the rendered Piano Phase voices); the figures stay on
+screen unless SAVE_FIGURES is set.
 
 Analysis 3.1: phase as local texture in Reich's *Piano Phase*.
 
 The two pianos are pooled into a single (pitch, time) event stream --- the
 voice label is *not* an attribute, so the measure reads the combined sounding
-texture rather than either line on its own. A broad Gaussian localisation
+texture rather than either line on its own. A broad Gaussian localization
 window (s.d. 3 s) is swept over the piece; at each sweep centre the windowed
 Renyi-2 entropy of the joint (pitch, time) density is read off. Because the
-window is smooth and wide, there is no rectangular-edge artefact and every
-window has ample mass.
+window is smooth and wide, there is no rectangular-edge artefact, and away
+from the ends of the piece (shaded in the figure) every window has ample
+mass.
 
 The single controlling parameter is the time kernel sigma_t:
 
@@ -58,9 +58,10 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
-plt.rcParams.update({'font.size': 15, 'axes.titlesize': 17, 'axes.labelsize': 15,
-                     'xtick.labelsize': 13, 'ytick.labelsize': 13, 'figure.titlesize': 20,
-                     'font.family': 'DejaVu Sans'})
+if plt is not None:
+    plt.rcParams.update({'font.size': 15, 'axes.titlesize': 17, 'axes.labelsize': 15,
+                         'xtick.labelsize': 13, 'ytick.labelsize': 13, 'figure.titlesize': 20,
+                         'font.family': 'DejaVu Sans'})
 
 import mpt
 _prev_defaults = mpt.set_default(show_hints=False)
@@ -75,8 +76,7 @@ FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 # --- fixed parameters ------------------------------------------------------
 SIGMA_PITCH = 0.15          # semitone (= 15 cents)
-WIN_SD      = 3.0           # localisation-window s.d. (s)
-PRUNE       = 4.0           # keep events within PRUNE * WIN_SD of the centre
+WIN_SD      = 3.0           # localization-window s.d. (s)
 N_SWEEP     = 300
 SIGMAS_T    = [0.015, 0.100]   # coincidence (precedence/fusion window), redundancy
 IOI         = pe.BASE_IOI
@@ -94,21 +94,21 @@ onset = mpt.unpack_pre_maet(piece)[0][1].ravel()
 t_lo, t_hi = onset.min(), onset.max()
 edge = 2 * WIN_SD                                   # unreliable near the ends
 centres = np.linspace(t_lo, t_hi, N_SWEEP)
-phase_at = np.array([pe.lag_at(c / (pe.NC * IOI)) for c in centres])   # continuous lag
+phase_at = pe.lag_at(centres / (pe.NC * IOI))      # continuous lag
 
 
 def sweep(sigma_t, show_input=False):
     """Windowed joint (pitch, time) Renyi-2 entropy at each sweep centre.
 
-    A single windowed_entropy sweep: a Gaussian localisation window
-    (shape 0) on the time axis (attribute index 1) modulates the event
-    weights, with the time axis retained (drop_window_attr=False) so the joint
+    A single windowed_entropy sweep: a Gaussian localization window
+    (shape 0) on the time attribute (attribute index 1) modulates the event
+    weights, with the time attribute retained (drop_window_attr=False) so the joint
     (pitch, time) density is built and its Renyi-2 entropy returned. The
     window standard deviation WIN_SD maps to the variance-matched
-    rectangular width 2*sqrt(3)*sd. The previous explicit prune to
-    +/- PRUNE * WIN_SD is unnecessary here: the global truncation_sigmas
-    (set to 3.0 above, tighter than PRUNE = 4.0) already zeros every event
-    the prune would have removed, so the result is identical.
+    rectangular width 2*sqrt(3)*sd. The window is truncated at
+    truncation_sigmas standard deviations (the toolbox default, 6), so
+    events far from the centre carry zero weight and need no separate
+    pruning.
     """
     if show_input:
         show_pre_maet(piece, sigma=[SIGMA_PITCH, sigma_t], max_events=4)
@@ -127,16 +127,15 @@ H = {st: sweep(st, show_input=(i == 0))
 # --- figure ----------------------------------------------------------------
 if plt is None:
     print('matplotlib not available; skipping the figure.')
+    mpt.set_default(**_prev_defaults)
     raise SystemExit(0)
 
 fig, axes = plt.subplots(2, 1, figsize=(13, 5.2), sharex=True)
-notes = {0.015: ('sigma_t = 15 ms', 'coincidence: dips at k = 4, 6, 8'),
-         0.100: ('sigma_t = 100 ms',
-                 'redundancy: humps at k ~ 2-3, 9-10; valley at k ~ 6')}
+labels = {0.015: r'$\sigma_t$ = 15 ms', 0.100: r'$\sigma_t$ = 100 ms'}
 shifts = pe.shift_centre_times()
 
 for ax, st in zip(axes, SIGMAS_T):
-    lab, note = notes[st]
+    lab = labels[st]
     ax.axvspan(t_lo, t_lo + edge, color='#999', alpha=0.2)
     ax.axvspan(t_hi - edge, t_hi, color='#999', alpha=0.2)
     for s in shifts:

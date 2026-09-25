@@ -3,8 +3,8 @@ function pp = pianoPhase()
 %
 %   pp = jmm.pianoPhase()
 %
-%   Symbolic rendering of Reich's Piano Phase (1967), to the manuscript's
-%   specification (Section on the Piano Phase encoding):
+%   Symbolic rendering of Reich's Piano Phase (1967), to the
+%   specification of the JMM article (Section 4.3):
 %
 %   * Both pianos play the twelve-note cell E5, F#5, B5, C#6, D6, F#5, E5,
 %     C#6, B5, F#5, D6, C#6 in even notes. Piano 1 holds a fixed
@@ -16,17 +16,21 @@ function pp = pianoPhase()
 %     ending with zero slope. Piano 2's instantaneous inter-onset
 %     interval, set by the phase's rate of change, dips below the base
 %     interval while k is moving and returns to it on each hold.
-%   * The base inter-onset interval is 137.85 ms, the piece ~617 s
-%     (~8,965 events over the two voices), and the peak tempo deviation
-%     1.75% --- which fixes the shift duration: the smoothstep's peak
-%     slope is 1.5/T, so T = 1.5 * baseIoi / 0.0175 ~= 11.8 s.
+%   * The base inter-onset interval is 137.85 ms and the peak tempo
+%     deviation 1.75%, chosen to reproduce the article's 138 ms pulse and
+%     its 2.4 ms excursion of Piano 2's inter-onset interval (here
+%     135.5-137.9 ms). The deviation fixes the shift duration: the
+%     smoothstep's peak slope is 1.5/T, so T = 1.5 * baseIoi / 0.0175
+%     ~= 11.8 s. The piece lasts ~617 s (8,964 events over the two
+%     voices; the article gives ~8,965).
 %
-%   The manuscript's schedule of hold and accelerando lengths is
-%   transcribed from a reference recording (Steve Reich Ensemble, Early
-%   Works, Nonesuch 1987); that transcription is not reproduced here, so
-%   this reconstruction approximates it with a uniform schedule (leadS,
-%   gapS below) matching the published figures' shift centres. All other
-%   quantities follow the manuscript exactly.
+%   The article's schedule of hold and accelerando lengths is transcribed
+%   from a reference recording (Steve Reich Ensemble, Early Works,
+%   Nonesuch 1987); that transcription is not reproduced here, so this
+%   rendering approximates it with a uniform schedule (leadS, gapS below)
+%   matching the published figures' shift centres. The figures of the
+%   demos therefore follow the article's in shape, and their accelerandi
+%   fall at the uniform schedule's times.
 %
 %   The rendering is computed once (persistent) and returned as a struct:
 %
@@ -40,8 +44,7 @@ function pp = pianoPhase()
 %     .leadS, .gapS  - the uniform schedule (unison lead, hold between shifts).
 %     .cellDur       - one cell, seconds; .tEnd - the piece, seconds.
 %     .shiftStarts   - 1 x 12 accelerando starts, seconds.
-%     .shiftCentres  - 1 x 12 accelerando centres, seconds
-%                     .
+%     .shiftCentres  - 1 x 12 accelerando centres, seconds.
 %     .lagAt         - function handle: phase k (in pulses) at time x
 %                      measured in Piano-1 CELLS.
 %     .voice1, .voice2
@@ -52,7 +55,7 @@ function pp = pianoPhase()
 %     .voice1Table, .voice2Table, .pieceTable
 %                    - the same three as attribute tables, one row per
 %                      note-on: onsetSeconds and pitch, and on the pooled
-%                      one a categorical part .
+%                      one a categorical part.
     persistent cached
     if isempty(cached)
         cached = localRender();
@@ -66,14 +69,14 @@ function pp = localRender()
     pp.cell = [76 78 83 85 86 78 76 85 83 78 86 85];
     pp.nc = 12;
 
-    % --- manuscript constants ---------------------------------------------
-    pp.baseIoi = 0.13785;      % seconds; base inter-onset interval (manuscript)
-    pp.peakDev = 0.0175;       % peak tempo deviation (manuscript: 1.75%)
+    % --- constants ----------------------------------------------------------
+    pp.baseIoi = 0.13785;      % seconds; base inter-onset interval
+    pp.peakDev = 0.0175;       % peak tempo deviation (1.75%)
     pp.nShifts = 12;           % one whole cell of phase across the piece
     pp.nRepsV1 = 373;          % Piano-1 cells: 373 * 12 * 137.85 ms ~= 617 s
 
     % Smoothstep peak slope is 1.5/T, and the peak tempo deviation is
-    % baseIoi * (dk/dt)_max, so the shift duration follows from the manuscript:
+    % baseIoi * (dk/dt)_max, so the shift duration follows from the two:
     pp.shiftDur = 1.5 * pp.baseIoi / pp.peakDev;    % ~= 11.8 s per accelerando
 
     % Uniform stand-in for the recording-transcribed schedule (see header):

@@ -4,7 +4,7 @@ This module hosts the small preprocessing layer that sits *before*
 ``build_maet`` in the MAET pipeline:
 
 * :func:`difference_events` --- replace event sequences with their
-  k-th finite differences along the event axis.
+  k-th finite differences across events.
 * :func:`bind_events` --- slide a length-n window across an event
   sequence, emitting each window as an n-attribute super-event.
 * :func:`translate_attributes` --- shift every value of every attribute
@@ -47,11 +47,20 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
                       circular=False, specs=None):
     """Replace selected attributes' event sequences with inter-event differences.
 
-    Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
-    specifications. The ``k_a``-th finite difference is applied along the event
-    axis to each attribute; the returned ``(p_attr_diff, w_diff, specs)``
-    chains into another pre-MAET operation or into ``build_maet(...,
-    specs=...)``.
+    Cross-event preprocessing on the pre-MAET. The ``k_a``-th finite
+    difference is applied across events to each attribute ``a``; the
+    returned pre-MAET chains into another pre-MAET operation or straight
+    into :func:`build_maet`.
+
+    Choosing which attributes are differenced. ``diff_orders`` gives one
+    order per attribute, and ``k_a = 0`` leaves attribute ``a``'s values
+    unchanged. To difference pitch but not time, in a pre-MAET whose
+    attributes are ``[pitch, time]``::
+
+        pm_d = difference_events(pm, [1, 0])   # pitch intervals; onset times
+
+    A scalar ``diff_orders`` applies to every attribute, so
+    ``difference_events(pm, 1)`` differences time as well.
 
     Differencing pairs values **index by index**: event *i*'s value at index
     *k* differences against
@@ -66,14 +75,21 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     difference touching a NaN value is NaN, so absence propagates rather
     than fabricating an interval.
 
-    Differencing changes **values only**; the spec (``tags``, ``r``,
-    ``exch``, ``rel``) passes through unchanged. Output values are raw;
-    periodic wrapping, when desired, is the kernel's job in
-    :func:`build_maet`.
+    Differencing changes the values and, where the spec carries one, the
+    kernel width: ``sigma`` on an attribute of order ``k_a`` is scaled by
+    ``sqrt(C(2 k_a, k_a))`` (``sqrt(2)`` for a first difference), the width
+    of a difference of independent values, and the scaling is announced
+    while ``show_hints`` is on (User Guide §7.4.3). The level structure (``tags``, ``r``, ``exch``,
+    ``rel``) passes through unchanged. Output values are raw; periodic
+    wrapping, when desired, is the kernel's job in :func:`build_maet`.
 
-    Event-axis alignment. With ``circular = False`` (default), an attribute
-    of order ``k_a`` yields ``N - k_a`` events and all attributes are
-    brought onto ``N' = N - max_a k_a`` by dropping leading events; with
+    Alignment of events. Each differenced event is end-aligned: the value
+    differenced at event ``n`` is timed with event ``n``, the later of the
+    events it spans. With ``circular = False`` (default), the leading
+    ``max_a k_a`` events are dropped from every attribute, those with
+    ``k_a = 0`` included, so all attributes share ``N' = N - max_a k_a``
+    events; an undifferenced time attribute then carries, for each pitch
+    interval, the onset of the interval's second note. With
     ``circular = True`` the index wraps and every attribute keeps ``N``.
     Per-attribute weights propagate as a rolling product over the
     ``k_a + 1`` constituent events.
@@ -92,8 +108,9 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     w_attr : None, scalar, or length-A list
         Weights (``build_maet`` convention).
     diff_orders : scalar or length-A array-like
-        Per-attribute differencing orders (non-negative integers; a scalar
-        broadcasts to all attributes).
+        Per-attribute differencing orders, non-negative integers, one per
+        attribute (0 leaves the attribute undifferenced); a scalar applies
+        to every attribute.
     circular : bool, keyword-only
         Wrap the difference at the event-sequence boundary (``N' = N``).
     specs : None or length-A list, keyword-only
@@ -107,8 +124,9 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     dict
         The pre-MAET. Its ``p_attr`` is a length-A list of
         differenced matrices, each ``(K_a, N')``; its ``w_attr`` the
-        transformed weights; its ``specs`` the attribute specifications,
-        unchanged from the input (or synthesised).
+        transformed weights; its ``specs`` the attribute specifications (or
+        synthesised ones), with ``sigma`` scaled on each differenced
+        attribute as above.
 
     See Also
     --------
@@ -580,7 +598,9 @@ def _diff_kernel_specs(specs_out, orders, A):
                 spec["sigma"] = float(arr) * factor
             scaled.append((spec.get("name") or f"attribute {a}", k, factor))
         out.append(spec)
-    if scaled:
+    from .._defaults import get_default
+    if scaled and get_default("show_hints"):
+        # An informational note, gated like the toolbox's other hints.
         names = ", ".join(nm for nm, _, _ in scaled)
         k0, f0 = scaled[0][1], scaled[0][2]
         print(f"difference_events: sigma scaled by sqrt(C(2k, k)) on "
@@ -614,24 +634,43 @@ def bind_events(
     level_names=None,
     group_by=None,
     group_atol: float = 0.0,
-) -> tuple[list[np.ndarray], object, list]:
+) -> dict:
     """Bind sliding windows of consecutive events into nested attributes.
 
-    Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
-    specifications. For each input attribute *a*, a sliding window of width
-    ``L_a`` (``bind_orders``) is laid across the event axis and the
+    Cross-event preprocessing on the pre-MAET. For each input attribute
+    *a*, a sliding window of width
+    ``L_a`` (``bind_orders``) is laid across the events and the
     ``L_a`` consecutive events are nested into a single output attribute
     (toolbox spec §6.1): the bound events form an **ordered outer level**
     (event order; ``exch_outer = 0`` by default, lossless), and each
-    event's own atom multiset is the **inner level**.
+    event's own element multiset is the **inner level**.
+
+    Choosing which attributes are bound. ``bind_orders`` gives one ``L_a``
+    per attribute. An attribute with ``L_a = 1`` is not nested: each
+    super-event carries that attribute's element multiset from a single
+    event, the last of the super-event's span. In a pre-MAET whose
+    attributes are ``[pitch, onset]``::
+
+        pm_b = bind_events(pm, [4, 1])   # 4-note pitch patterns, each with
+                                         # the onset of its last note
+        pm_b = bind_events(pm, [4, 4])   # 4-note pitch patterns with their
+                                         # four onsets, an ordered tuple
+
+    The second carries the rhythm (and lets ``locate`` in
+    :func:`windowed_similarity` or :func:`windowed_entropy` choose among
+    the onsets); the first carries only a position. A scalar
+    ``bind_orders`` applies to every attribute, so ``bind_events(pm, 4)``
+    is the second form.
 
     The inner level's geometry (``r``/``rel``/``exch``) is read from the
     incoming ``specs`` --- the attribute's existing specification supplies
     the inner level(s). ``specs = None`` synthesises flat specs
     (:func:`flat_specs` defaults: ``r = 1``, ``rel = 0``, ``exch = 1``).
     The outer level defaults to ``r = L_a`` (read the whole bound
-    window), ``exch = 0``, ``rel = 0``. ``L_a = 1`` is the no-op: the
-    incoming (flat) spec passes through unchanged.
+    window), ``exch = 0``, ``rel = 0``. An attribute with ``L_a = 1`` is
+    not nested and its incoming spec passes through unchanged, but it is
+    not a no-op on the events: it keeps ``N'`` events, aligned as
+    below.
 
     With the defaults and ``rel = [rel_in, 0]``, the outer ``r = L_a``
     reading is the tensor product of the events' inner densities --- it
@@ -639,11 +678,15 @@ def bind_events(
     new lever is ``rel_outer = 1`` on an absolute attribute, giving the
     global-transposition quotient ``rel = [0, 1]``.
 
-    Event-axis alignment. At the default ``step = 1`` the common
+    Alignment of events. At the default ``step = 1`` the common
     output event count is ``N' = N - max_a L_a + 1`` (non-circular) or
-    ``N`` (circular); attributes with ``L_a < max_a L_a`` keep their
-    leading ``N'`` windows, so D-then-B equals B-then-D with
-    :func:`difference_events`. A ``step > 1`` hops the windows (see the
+    ``N`` (circular). Each super-event spans ``max_a L_a`` consecutive
+    events and is end-aligned to the last of them: an attribute with
+    ``L_a < max_a L_a`` contributes the last ``L_a`` events of the span,
+    so an attribute bound over a single event (``L_a = 1``) carries the
+    element multiset of the span's last event. This is the alignment
+    :func:`difference_events` uses (it drops leading events), and under
+    it D-then-B equals B-then-D, circular or not. A ``step > 1`` hops the windows (see the
     ``step`` parameter), shrinking ``N'``; the difference-composition
     identity then holds at ``step = 1`` only.
 
@@ -662,16 +705,19 @@ def bind_events(
         weights, so the kernel product over the nested tuple recovers
         the rolling product.
     bind_orders : scalar or length-A array-like
-        Per-attribute window widths ``L_a >= 1`` (``L_a = 1`` no-op).
+        Numbers of events bound, ``L_a >= 1``, one per attribute (``1`` =
+        not nested); a scalar applies to every attribute.
     circular : bool, keyword-only
-        Wrap the window around the event axis (``N' = N``).
+        Wrap the window around the sequence of events, the last event
+        followed by the first (``N' = N``).
     step : int, keyword-only
-        Hop between consecutive bound windows along the event axis
+        Hop, in events, between consecutive bound windows
         (default ``1``, the fully overlapping slide). Super-event ``i``
-        reads events ``[i*step, i*step + L_a)``, so ``step = L_a``
-        gives non-overlapping blocks (e.g. eighths into beats). A single
+        spans events ``[i*step, i*step + max_a L_a)``, and attribute ``a``
+        reads the last ``L_a`` of them, so ``step = max_a L_a`` gives
+        non-overlapping blocks (e.g. eighths into beats). A single
         scalar applies to all attributes: the hop is a property of the
-        shared event axis, not per-attribute. ``N' = (N - max_a L_a) //
+        sequence of events, which every attribute shares, not per-attribute. ``N' = (N - max_a L_a) //
         step + 1`` (non-circular); for ``circular = True`` the event
         count ``N`` must be divisible by ``step`` and ``N' = N //
         step``. The bind/difference composition identity holds at
@@ -718,7 +764,7 @@ def bind_events(
         The pre-MAET. Its ``p_attr`` is a length-A list holding,
         for ``L_a >= 2``, a stacked ``(L_a * K_a, N')`` value matrix (the
         ``L_a`` lag windows vertically stacked), and for ``L_a = 1`` the
-        leading-aligned ``(K_a, N')`` original; its ``w_attr`` the
+        end-aligned ``(K_a, N')`` original; its ``w_attr`` the
         transformed weights, aligned to the value layout; its ``specs`` a
         nested spec ``{tags, r, exch, rel, name?, names?}`` for
         ``L_a >= 2`` and the incoming spec unchanged (flat or nested) for
@@ -772,7 +818,7 @@ def bind_events(
     if step_arr.ndim != 0:
         raise ValueError(
             "step must be a scalar; a single hop applies to all "
-            "attributes (the hop is a property of the shared event axis)."
+            "attributes (the hop is a property of the sequence of events, which every attribute shares)."
         )
     if step_arr.dtype.kind not in "iuf" or float(step_arr) != int(step_arr):
         raise TypeError("step must be an integer.")
@@ -849,10 +895,11 @@ def bind_events(
         is_nested_in = "tags" in s_in
         name_in_a = s_in.get("name")
         nm = names_attr[a] if names_attr[a] is not None else name_in_a
+        end_off = max_order - L_a      # end-aligned: the span's last L_a events
         if L_a == 1:
             # No-op: the incoming spec passes through (name override).
             # Works for both flat and already-nested inputs.
-            p_attr_bound.append(M[:, _lag_index(0)])
+            p_attr_bound.append(M[:, _lag_index(end_off)])
             spec = dict(s_in)
             if nm is not None:
                 spec["name"] = nm
@@ -860,7 +907,7 @@ def bind_events(
             continue
 
         # Lag and stack the (super-)event matrix over the new outer level.
-        blocks = [M[:, _lag_index(ell)] for ell in range(L_a)]
+        blocks = [M[:, _lag_index(end_off + ell)] for ell in range(L_a)]
         p_attr_bound.append(np.vstack(blocks))
         new_col = np.repeat(np.arange(L_a, dtype=np.intp), K_a)
 
@@ -1000,7 +1047,7 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
     groups = _run_length_groups(p_attr[group_by][0], float(group_atol))
     n_prime = len(groups)
     if n_prime == 0:
-        raise ValueError("group_by produced no groups (empty event axis).")
+        raise ValueError("group_by produced no groups (there are no events).")
     sizes = np.array([g.size for g in groups], dtype=np.intp)
     L_max = int(sizes.max())
     L_min = int(sizes.min())
@@ -1124,7 +1171,8 @@ def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular, step=1):
     For ``L_a >= 2`` the per-event weight slices are windowed and
     stacked into a ``(L_a * K_a, N')`` column aligned with the value
     stack (per-event weights are expanded across the ``K_a`` values of
-    their event); for ``L_a = 1`` the weight is trailing-aligned.
+    their event); for ``L_a = 1`` the weight is end-aligned, as the
+    values are: taken from the span's last event.
     Non-event-dependent inputs (``None``, scalar, ``(K_a, 1)`` column)
     are inherited / tiled across the bound values.
     """
@@ -1165,10 +1213,11 @@ def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular, step=1):
             W = W.reshape(1, -1)
         if W.shape[0] == 1 and K_a > 1:
             W = np.tile(W, (K_a, 1))
+        end_off = int(np.max(orders)) - L_a   # end-aligned, as the values
         if L_a == 1:
-            w_bound.append(W[:, _lag_index(0)])
+            w_bound.append(W[:, _lag_index(end_off)])
         else:
-            blocks = [W[:, _lag_index(ell)] for ell in range(L_a)]
+            blocks = [W[:, _lag_index(end_off + ell)] for ell in range(L_a)]
             w_bound.append(np.vstack(blocks))
     return w_bound
 
@@ -1764,7 +1813,8 @@ def _evaluate_shape(delta, width, gamma):
     - ``gamma = 0``: pure Gaussian
       :math:`h(\delta) = \exp(-\delta^2 / (2\,\text{width}^2))`.
     - ``gamma = 1``: pure rectangle
-      :math:`h(\delta) = \mathbb{1}[|\delta| \le \text{width}\sqrt{3}]`.
+      :math:`h(\delta) = \mathbb{1}[-\text{width}\sqrt{3} \le \delta <
+      \text{width}\sqrt{3}]`, half-open (see below).
     """
     if not (0.0 <= gamma <= 1.0):
         raise ValueError(
@@ -1886,15 +1936,16 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     further pre-MAET step). Weights and specs pass through unchanged;
     only the positions move.
 
-    **Value-axis alignment (read this first).** Everything hangs off one
-    axis: the **value axis** of an attribute, whose length is ``K_total``
-    (the number of leaf values in one event/super-event). In the value
-    matrix the value axis is the **rows** (``K_total x N``: values down,
-    events across). The spec's ``tags`` label that same axis
-    (one entry per row). An offset is likewise per-value: one offset per
-    row, held **constant across the sequence (column) axis** --- that
+    **Offsets and the value matrix (read this first).** An attribute's
+    values are stored as a ``K_total x N`` matrix: one column per event
+    and one row per element, row ``k`` holding the ``k``-th element of
+    every event's element multiset, where ``K_total`` is the number of
+    elements in one event's element multiset (counting every element of a
+    nested one, such as a super-event's). The spec's ``tags`` label the
+    rows (one entry per row). An offset is likewise per row (per-value):
+    one offset per row, held **constant across events** --- that
     constancy is what makes ``D(T(p)) == D(p)``. A scalar broadcasts to
-    every value (a global transposition).
+    every row (a global transposition).
 
     Offsets are supplied as a **length-A list**, one entry per attribute,
     each entry one of:
@@ -2335,8 +2386,8 @@ def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
                     period=None, specs=None):
     """Gather several attributes into one whose tuple holds them all.
 
-    The attribute-axis counterpart of :func:`bind_events`, which binds
-    along the event axis. Where three columns carry the three
+    The counterpart, across attributes, of :func:`bind_events`, which
+    binds across events. Where three columns carry the three
     coordinates of one position, or the coordinates of a simplex-coded
     level, they are three attributes of a pre-MAET and their product
     pairs each with every other; binding them makes them one attribute

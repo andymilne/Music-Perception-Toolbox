@@ -1,7 +1,7 @@
 function c = resolveCentres(pAttr, axisIdx, centres, startV, stopV, stepV, defStep)
 %RESOLVECENTRES  Explicit centres, or a generative start/stop/step sweep
 %   (mutually exclusive). step defaults to defStep; start/stop to the data
-%   extent on the window axis.
+%   extent on the window attribute.
     if ~isempty(centres)
         if ~isempty(startV) || ~isempty(stopV) || ~isempty(stepV)
             error('mptWindowing:sweepArgs', 'Pass either centres or start/stop/step, not both.');
@@ -10,7 +10,7 @@ function c = resolveCentres(pAttr, axisIdx, centres, startV, stopV, stepV, defSt
     end
     v = axisValuesLocal(pAttr, axisIdx);
     if isempty(v)
-        error('mptWindowing:noRange', 'Cannot derive a sweep range: window axis has no finite values.');
+        error('mptWindowing:noRange', 'Cannot derive the centres: the window attribute has no finite values.');
     end
     if isempty(startV), lo = min(v); else, lo = startV; end
     if isempty(stopV),  hi = max(v); else, hi = stopV;  end

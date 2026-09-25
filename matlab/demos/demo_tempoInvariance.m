@@ -51,14 +51,15 @@
 %  tempos, some with small onset-timing perturbations as well, plus two
 %  foils. Each candidate rhythm occupies a 3-interval cell; the stream
 %  is scanned by its overlapping log-IOI trigrams, each an ordered
-%  K = 3 atom multiset read at r = 3 (the matrix covariance requires
+%  K = 3 element multiset read at r = 3 (the matrix covariance requires
 %  r == K), with an onset time as a second attribute that only places
 %  the sliding window ('windowAttr', 'dropWindowAttr' = true); each
-%  trigram is timed at the onset that completes its first interval,
-%  the stamp the difference/bind pipeline gives it. The trigram
+%  trigram is timed at the onset that completes its last interval,
+%  the stamp the difference/bind pipeline gives it (both operations
+%  end-align). The trigram
 %  attribute must be ORDERED:
 %  one foil is the motif reversed, which has the same interval multiset
-%  as the motif and is separated from it only by value order. The
+%  as the motif and is separated from it only by position order. The
 %  trigrams are built with the toolbox's cross-event preprocessing --
 %  differenceEvents (onsets to IOIs), then bindEvents (overlapping
 %  windows of three consecutive log-IOIs per event). The rel kernel
@@ -74,7 +75,7 @@
 %                    perturbations of the motif.
 %    3. The search   windowedSimilarity sweeps over every trigram
 %                    under six kernels; the candidate table contrasts
-%                    positional (timing) tolerance with tempo
+%                    value (timing) tolerance with tempo
 %                    tolerance, and both with exact tempo invariance.
 %    4. The limit    sdShift -> infinity converges to isRel = true.
 %
@@ -86,6 +87,8 @@
 %  Two figures are drawn: the onset stream with the query and the six
 %  similarity profiles aligned beneath it, and the sdShift sweep
 %  converging to the isRel limit.
+%
+%  The Python mirror is demo_tempo_invariance.py.
 
 clear; close all;
 
@@ -138,12 +141,12 @@ end
 % orders): the first becomes the inter-onset intervals (each interval
 % timed at the onset that completes it), while the second stays as the
 % raw onset times. bindEvents then lays a sliding window of three
-% consecutive log-IOIs across the event axis (the [3, 1] orders bind
+% consecutive log-IOIs across events (the [3, 1] orders bind
 % the interval attribute in threes and keep the time attribute as a
 % singleton), one bound event per window, each trigram carrying the
-% time of its first interval. The rel kernel needs its trigrams read
-% relative to a common shift; the second bind, with 'relOuter' = true,
-% produces that reading of the same trigrams.
+% time of its last interval (binding is end-aligned). The rel kernel
+% needs its trigrams read relative to a common shift; the second bind,
+% with 'relOuter' = true, produces that reading of the same trigrams.
 % The three steps chain as pre-MAETs, each taking the last whole:
 % difference the onsets into IOIs, take the log of the interval
 % attribute (transformAttributes, which also refuses a zero IOI with its
@@ -156,7 +159,8 @@ spBoundRel  = pmBoundRel.specs;
 % Two quantities read off the bound attributes feed the search below:
 nTri = size(pBound{1}, 2);   % number of trigrams (windows to place)
 triTimes = pBound{2};        % window-placing times (the sweep centres);
-                             % trigram i is timed at onsets(i + 1)
+                             % trigram i is timed at onsets(i + 3),
+                             % the onset completing it
 
 % Presentation only -- no effect on the search, which is blind to cell
 % boundaries. cellStarts is the trigram index at which each cell begins,
@@ -169,8 +173,8 @@ fprintf('  Motif IOIs (s): [%.2f %.2f %.2f]  (long-short-short)\n', ...
     dMotif);
 fprintf(['  Stream: %d cells x 4 onsets, 1 s gaps -> %d onsets, ' ...
     '%d overlapping log-IOI trigrams.\n'], nCells, numel(onsets), nTri);
-fprintf('  Each trigram is one event: an ordered K = 3 atom multiset\n');
-fprintf('  read at r = 3, timed at the onset that completes its first\n');
+fprintf('  Each trigram is one event: an ordered K = 3 element multiset\n');
+fprintf('  read at r = 3, timed at the onset that completes its last\n');
 fprintf('  interval (the window-placing attribute).\n');
 
 %% ===== 2. kernelCov: shaping the kernel covariance =====
@@ -240,7 +244,7 @@ pertNames = {'displaced onset (0,+e,-e)', ...
              'tempo shift     (e, e, e)'};
 perts = {[0; epsPert; -epsPert], [0; epsPert; 0], ...
          [epsPert; epsPert; epsPert]};
-pureNames = {'value', 'interval', 'val+shift'};
+pureNames = {'value', 'interval', 'value+shift'};
 pureKernels = {sPos, sInt, sRdg};
 w3 = ones(3, 1);
 
@@ -275,11 +279,13 @@ fprintf('    onset noise.\n');
 fprintf('  - interval: the penalty is by Euclidean norm alone (the two\n');
 fprintf('    marginals are matched to the value column), so the\n');
 fprintf('    ordering of the first two rows reverses.\n');
-fprintf('  - pos+shift: the ridge makes the tempo shift the cheapest\n');
-fprintf('    direction while leaving the within-shape penalties\n');
-fprintf('    essentially unchanged.\n');
+fprintf('  - value+shift: the ridge makes the tempo shift the cheapest\n');
+fprintf('    direction while leaving the displaced onset, a purely\n');
+fprintf('    within-shape perturbation, essentially unchanged; the single\n');
+fprintf('    stretched interval has a component along the shift\n');
+fprintf('    direction, which the ridge absorbs.\n');
 
-%% ===== 3. The search: positional sigma vs tempo sigma =====
+%% ===== 3. The search: timing sigma vs tempo sigma =====
 
 fprintf('\n=== 3. Searching the stream for the motif ===\n\n');
 
@@ -367,14 +373,14 @@ end
 
 fprintf('\n');
 fprintf('  Reading the rows:\n');
-fprintf('  - 20%% faster / double speed: pure tempo changes. Positional\n');
-fprintf('    sigma alone barely admits them at any tolerable width\n');
+fprintf('  - 20%% faster / double speed: pure tempo changes. Value\n');
+fprintf('    (timing) sigma alone barely admits them at any tolerable width\n');
 fprintf('    (''timing'' gives 0.016 at sdValue = 0.10); sdShift\n');
 fprintf('    admits the moderate change and GRADES the large one\n');
 fprintf('    (''tempo'' gives 0.876 and 0.147); rel admits both\n');
 fprintf('    exactly.\n');
 fprintf('  - jittered: a same-tempo timing perturbation. Tempo sigma\n');
-fprintf('    alone does not help (''tempo'' gives 0.011); positional\n');
+fprintf('    alone does not help (''tempo'' gives 0.011); value (timing)\n');
 fprintf('    sigma does (''timing'' gives 0.832). The two tolerances\n');
 fprintf('    are separate currencies: in log-IOI space a tempo change\n');
 fprintf('    moves the trigram''s point ALONG the all-ones diagonal,\n');
@@ -401,8 +407,8 @@ fprintf('  Max |large-shift - rel| across all %d trigram positions: %.1e\n\n', .
     nTri, max(abs(profiles(5, :) - profiles(6, :))));
 
 % The full profile also sweeps the boundary-straddling trigrams. One
-% is instructive: the trigram reading (last interval of the reversed
-% cell, the 1 s gap, first isochronous interval) = (0.50, 1.0, 0.33) s
+% is instructive: the trigram reading (the 1 s gap, then the
+% isochronous cell's first two intervals) = (1.0, 0.33, 0.33) s
 % -- the silence itself parses as the 'long' of a long-short-short
 % figure with ratio 3:1:1, close in shape to the motif's 2:1:1 but at
 % a remote tempo. That trigram is the one immediately before the
@@ -424,7 +430,7 @@ end
 % copy for visual comparison. Below: one tile per kernel, sharing the
 % time axis, with the cell spans repeated so each peak reads off
 % against its cell. Each profile is drawn as end-aligned stair steps:
-% a trigram's tread spans its first inter-onset interval and its value
+% a trigram's tread spans its last inter-onset interval and its value
 % sits at the right edge (the trigram's stamp), with a dot marking
 % each stamp. Tile titles carry each kernel's constructor parameters.
 kernelParamLabels = {'sdValue = 0.02', ...
@@ -475,9 +481,7 @@ ylim(ax, [0, 3.3]);
 set(ax, 'YTick', [], 'XTickLabel', []);
 ylabel(ax, 'events', 'FontSize', 9);
 
-% Profile tiles (2 rows each). Left-aligned stair treads: tread i
-% starts at triTimes(i) and holds until triTimes(i + 1); the final
-% tread runs to the end of the last trigram.
+% Profile tiles (2 rows each), drawn as end-aligned stair steps (below).
 for k = 1:numel(kernelNames)
     ax = nexttile(tl, [2, 1]);
     allAx(k + 1) = ax;
@@ -487,15 +491,15 @@ for k = 1:numel(kernelNames)
             [-0.07, -0.07, 1.30, 1.30], [0.55, 0.55, 0.55], ...
             'FaceAlpha', 0.15, 'EdgeColor', 'none');
     end
-    % End-aligned stair steps: the tread for a trigram spans its first
-    % inter-onset interval -- from the trigram's opening onset to the
-    % onset that stamps it (onsets(i) to onsets(i+1)) -- so the tread
+    % End-aligned stair steps: the tread for a trigram spans its last
+    % inter-onset interval -- from the onset before its stamp to the
+    % onset that stamps it (onsets(i+2) to onsets(i+3)) -- so the tread
     % width shows that interval and the value sits at its right edge.
-    % For the boundary trigram this first interval is the 1 s gap, so
-    % the tread widens to cover it. Small dots mark the stamps; the
-    % leading edge is carried back to the opening onset. The last value
-    % is repeated so its tread closes at the final stamp.
-    stairs(ax, [onsets(1), triTimes], [profiles(k, :), profiles(k, end)], ...
+    % A trigram ending on a 1 s gap has the widest tread. Small dots mark
+    % the stamps; the first tread starts at the first trigram's last
+    % interval. The last value is repeated so its tread closes at the
+    % final stamp.
+    stairs(ax, [onsets(3), triTimes], [profiles(k, :), profiles(k, end)], ...
         '-', 'Color', blue, 'LineWidth', 1.0);
     plot(ax, triTimes, profiles(k, :), '.', 'Color', blue, ...
         'MarkerSize', 8);
@@ -512,18 +516,18 @@ for k = 1:numel(kernelNames)
 end
 % Annotate the boundary near-miss wherever tempo invariance admits it:
 % the wide gap tread reads as a 'long', so both the large-shift and rel
-% tiles score it. Text sits up and to the right of the point so the
-% pointer stays short.
+% tiles score it. Text sits up and to the left of the point, which is
+% near the end of the stream, so the pointer stays short.
 annKernels = {'large-shift', 'rel'};
 for a = 1:numel(annKernels)
     kIdx = find(strcmp(kernelNames, annKernels{a}));
     axA = allAx(kIdx + 1);
     xP = triTimes(iStraddle);
     yP = profiles(kIdx, iStraddle);
-    plot(axA, [xP - 0.05, xP], [0.62, yP + 0.03], '-', ...
+    plot(axA, [xP - 0.15, xP], [0.62, yP + 0.03], '-', ...
         'Color', 'k', 'LineWidth', 0.5);
-    text(axA, xP - 0.05, 0.66, 'gap parses as ''long''', ...
-        'FontSize', 8, 'HorizontalAlignment', 'left');
+    text(axA, xP - 0.15, 0.66, 'gap parses as ''long''', ...
+        'FontSize', 8, 'HorizontalAlignment', 'right');
 end
 xlabel(allAx(end), 'time (s)');
 linkaxes(allAx, 'x');

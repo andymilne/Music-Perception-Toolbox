@@ -3,34 +3,56 @@ function pm = bindEvents(varargin)
 %
 %   PM = bindEvents(PM0, bindOrders, ...) and
 %   PM = bindEvents(pAttr, wAttr, bindOrders, ...) are a cross-event
-%   preprocessing helper on the pre-MAET.%
+%   preprocessing helper on the pre-MAET.
+%
 %   The pre-MAET may be passed whole, as packPreMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
 %
 %   For each input attribute a, a sliding window of width L_a (bindOrders)
-%   is laid across the event axis and the L_a consecutive events are nested
+%   is laid across the events and the L_a consecutive events are nested
 %   into a single output attribute (toolbox spec §6.1/§6.5): the bound
 %   events form an ordered outer level (exchOuter = 0 by default, lossless),
-%   each event's own atom multiset is the inner level.
+%   each event's own element multiset is the inner level.
+%
+%   Choosing which attributes are bound. bindOrders gives one L_a per
+%   attribute. An attribute with L_a = 1 is not nested: each super-event
+%   carries that attribute's element multiset from a single event, the last
+%   of the super-event's span. In a pre-MAET whose attributes are
+%   {pitch, onset}:
+%
+%     pmB = bindEvents(pm, [4 1]);   % 4-note pitch patterns, each with
+%                                    % the onset of its last note
+%     pmB = bindEvents(pm, [4 4]);   % 4-note pitch patterns with their
+%                                    % four onsets, an ordered tuple
+%
+%   The second carries the rhythm (and lets 'locate' in windowedSimilarity
+%   or windowedEntropy choose among the onsets); the first carries only a
+%   position. A scalar bindOrders applies to every attribute, so
+%   bindEvents(pm, 4) is the second form.
 %
 %   The inner level's geometry (r/rel/exch) is read from the incoming
-%   specifications --- the attribute's existing specification supplies the inner
-%   level(s). specs = [] synthesises flat specs (flatSpecs defaults: r = 1,
-%   rel = 0, exch = 1). The outer level defaults to r = L_a (read the whole
-%   bound window), exch = 0, rel = 0. L_a = 1 is the no-op: the incoming
-%   (flat) spec passes through unchanged. With the defaults and
-%   rel = [relIn, 0], the outer r = L_a reading reproduces the old
-%   separate-attribute tensor join (§6.5). The genuinely new lever is
-%   relOuter = 1 on an absolute attribute, giving the global-transposition
-%   quotient rel = [0, 1].
+%   specifications --- the attribute's existing specification supplies the
+%   inner level(s). specs = [] synthesises flat specs (flatSpecs defaults:
+%   r = 1, rel = 0, exch = 1). The outer level defaults to r = L_a (read
+%   the whole bound window), exch = 0, rel = 0. An attribute with L_a = 1
+%   is not nested and its incoming spec passes through unchanged, but it is
+%   not a no-op on the events: it keeps N' events, aligned as below.
+%   With the defaults and rel = [relIn, 0], the outer r = L_a reading
+%   reproduces the old separate-attribute tensor join (§6.5). The genuinely
+%   new lever is relOuter = 1 on an absolute attribute, giving the
+%   global-transposition quotient rel = [0, 1].
 %
-%   Event-axis alignment. At the default step = 1 the common output event
-%   count is N' = N - max_a L_a + 1 (non-circular) or N (circular);
-%   attributes with L_a < max_a L_a keep their leading N' windows (composes
-%   with differenceEvents). A step > 1 hops the windows (see the step
-%   name-value), shrinking N'; the difference-composition identity then holds
-%   at step = 1 only.
+%   Alignment of events. At the default step = 1 the common output event
+%   count is N' = N - max_a L_a + 1 (non-circular) or N (circular). Each
+%   super-event spans max_a L_a consecutive events, and is end-aligned to
+%   the last of them: an attribute with L_a < max_a L_a contributes the
+%   last L_a events of the span, so an attribute bound over a single event
+%   (L_a = 1) carries the element multiset of the span's last event. This
+%   is the alignment differenceEvents uses (it drops leading events), and
+%   under it D-then-B equals B-then-D, circular or not. A step > 1 hops the
+%   windows (see the step name-value), shrinking N'; the
+%   difference-composition identity then holds at step = 1 only.
 %
 %   Inputs
 %       pm         - Pre-MAET, in place of pAttr and wAttr.
@@ -38,16 +60,20 @@ function pm = bindEvents(varargin)
 %       wAttr      - Weights ([], scalar, or 1 x A cell). Same convention
 %                    as buildMaet; bound value weights are the windowed-
 %                    and-stacked input weights.
-%       bindOrders - Scalar or 1 x A window widths L_a >= 1 (1 = no-op).
+%       bindOrders - 1 x A numbers of events bound, L_a >= 1, one per
+%                    attribute (1 = not nested), or a scalar applied to
+%                    every attribute.
 %
 %   Name-value pairs
 %       'circular'   - false (default) or true (wrap window; N' = N).
 %       'step'     - Hop between consecutive bound windows along the event
 %                      axis (default 1, the fully overlapping slide).
-%                      Super-event i reads events [i*step, i*step + L_a),
-%                      so step = L_a gives non-overlapping blocks. A single
+%                      Super-event i spans events [i*step, i*step +
+%                      max_a L_a), and attribute a reads the last L_a of
+%                      them, so step = max_a L_a gives non-overlapping
+%                      blocks. A single
 %                      scalar applies to all attributes (the hop is a property
-%                      of the shared event axis). N' = floor((N - max_a L_a) /
+%                      of the sequence of events, which every attribute shares). N' = floor((N - max_a L_a) /
 %                      step) + 1 (non-circular); for circular = true, N must
 %                      be divisible by step and N' = N / step. The bind/
 %                      difference composition identity holds at step = 1.
@@ -83,7 +109,7 @@ function pm = bindEvents(varargin)
 %
 %   Output
 %       pm - Pre-MAET. pAttr holds, for L_a >= 2, a stacked
-%            (L_a*K_a) x N' value matrix, and for L_a = 1 the leading-
+%            (L_a*K_a) x N' value matrix, and for L_a = 1 the end-
 %            aligned K_a x N'; wAttr the transformed weights, aligned to
 %            the value layout; specs a 1 x A cell of structs, nested
 %            {tags,r,exch,rel,...} for L_a >= 2 and the incoming spec
@@ -239,15 +265,17 @@ for a = 1:A
         nm = nameInA;
     end
     if L_a == 1
-        pAttrBound{a} = Marr(:, localLagIndex(0, nPrime, nEvents, nvArgs.circular, nvArgs.step));
+        % End-aligned: the single bound event is the span's last.
+        pAttrBound{a} = Marr(:, localLagIndex(double(maxOrder) - 1, nPrime, nEvents, nvArgs.circular, nvArgs.step));
         spec = sIn;                       % passthrough (flat or nested)
         if ~isempty(nm); spec.name = nm; end
         specs{a} = spec;
         continue
     end
     blocks = cell(1, L_a);
+    endOff = double(maxOrder) - L_a;      % end-aligned: the span's last L_a events
     for ell = 0:(L_a - 1)
-        idx = localLagIndex(ell, nPrime, nEvents, nvArgs.circular, nvArgs.step);
+        idx = localLagIndex(endOff + ell, nPrime, nEvents, nvArgs.circular, nvArgs.step);
         blocks{ell + 1} = Marr(:, idx);
     end
     pAttrBound{a} = vertcat(blocks{:});
@@ -393,7 +421,7 @@ function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircu
 %  For L_a >= 2 the per-event weight slices are windowed and stacked into a
 %  (L_a*K_a) x N' column aligned with the value stack (per-event weights
 %  expanded across the K_a values of their event); for L_a = 1 the weight is
-%  leading-aligned. Non-event-dependent inputs ([], scalar, K_a x 1
+%  end-aligned, as the values are: taken from the span's last event. Non-event-dependent inputs ([], scalar, K_a x 1
 %  column) are inherited / tiled across the bound values.
 
     if isempty(w) && ~iscell(w)
@@ -438,12 +466,13 @@ function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircu
         if size(W, 1) == 1 && K_a > 1
             W = repmat(W, K_a, 1);
         end
+        endOff = max(double(orders)) - L_a;   % end-aligned, as the values
         if L_a == 1
-            wOut{a} = W(:, localLagIndex(0, nPrime, nEvents, isCircular, step));
+            wOut{a} = W(:, localLagIndex(endOff, nPrime, nEvents, isCircular, step));
         else
             blocks = cell(1, L_a);
             for ell = 0:(L_a - 1)
-                idx = localLagIndex(ell, nPrime, nEvents, isCircular, step);
+                idx = localLagIndex(endOff + ell, nPrime, nEvents, isCircular, step);
                 blocks{ell + 1} = W(:, idx);
             end
             wOut{a} = vertcat(blocks{:});

@@ -19,8 +19,18 @@
 %
 %  The two flags coincide at sigma = 0; only at sigma > 0 does the
 %  distinction matter.
+%
+%  Uses: sameness, coherence, nTupleEntropy, internal.positionVariance,
+%        mptDefaults
+%  (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_sigma_space.py.
 
 clear; close all;
+
+% The toolbox's informational hints (which route a call took, and the
+% like) are switched off for a tidy printout, and restored at the end.
+prevDefaults = mptDefaults('showHints', false);
 
 DIATONIC = [0, 2, 4, 5, 7, 9, 11];
 PERIOD = 12;
@@ -47,7 +57,8 @@ end
 fprintf('\n  Position is more aggressive (lower sq) at typical sigma\n');
 fprintf('  because its per-pair variance for disjoint-endpoint pairs\n');
 fprintf('  is 4*sigma^2 — wider than interval''s uniform 2*sigma^2,\n');
-fprintf('  so the soft-match kernel is broader.\n');
+fprintf('  so the soft-match kernel is broader. At large sigma the soft\n');
+fprintf('  matches can exceed the maximum count, so sq falls below 0.\n');
 
 %% ===== 2. Coherence =====
 
@@ -71,8 +82,9 @@ for s = SIGMAS
 end
 fprintf('\n  The discontinuity at sigma = 0 (0.9929 to 0.9964 between\n');
 fprintf('  the hard count and the soft path''s sigma -> 0+ limit)\n');
-fprintf('  is intentional: the strict flag splits ties as you choose at\n');
-fprintf('  sigma exactly zero, while the soft path averages over them.\n');
+fprintf('  is intentional: at sigma exactly zero the strict flag (default\n');
+fprintf('  true) counts each tie as a failure, while the soft path counts\n');
+fprintf('  it as half a failure.\n');
 
 %% ===== 3. The tritone diagnostic =====
 
@@ -85,7 +97,8 @@ fprintf('  the shared positions contribute with reinforcing signs).\n\n');
 fprintf('  Both intervals have specific size = 6, so D2 - D1 has\n');
 fprintf('  mean 0. P(D2 <= D1) = Phi(0) = 0.5, regardless of sigma.\n\n');
 
-V = internal.positionVariance([3+1, 6+1, 6+1, 3+1], [+1, -1, -1, +1], 1);
+% F and B are at (1-based) indices 4 and 7 of DIATONIC.
+V = internal.positionVariance([4, 7, 7, 4], [+1, -1, -1, +1], 1);
 fprintf('  positionVariance for the tritone pair (sigma=1): V = %g\n', V);
 fprintf('  (matches expected 8 for the shared-reinforcing case)\n');
 
@@ -95,8 +108,9 @@ fprintf('\n=== nTupleEntropy on the diatonic ===\n\n');
 fprintf('  sigmaSpace = ''position'' is the exact position-uncertainty\n');
 fprintf('  model at every n. The n steps of a tuple carry covariance\n');
 fprintf('  sigma^2 * tridiag(2, -1) (variance 2*sigma^2 per step,\n');
-fprintf('  -sigma^2 between neighbours), captured by binding the n+1\n');
-fprintf('  underlying events and taking the window relative.\n\n');
+fprintf('  -sigma^2 between neighbours), captured by binding each run\n');
+fprintf('  of n+1 consecutive pitches into a super-event and making\n');
+fprintf('  the super-event relative.\n\n');
 
 fprintf('  n = 1:\n');
 fprintf('  %-10s %-18s %-18s\n', 'sigma', 'H (position)', 'H (interval)');
@@ -115,7 +129,7 @@ for s = [0, 0.1, 0.25, 0.5]
 end
 
 fprintf('\n  Verifying the sigma = 0 anchor (position and interval\n');
-fprintf('  both reduce to the published integer-step histogram):\n');
+fprintf('  both reduce to the discrete step-size histogram):\n');
 H0p = nTupleEntropy(DIATONIC, PERIOD, 2, 'sigma', 0, ...
                     'sigmaSpace', 'position', 'method', 'shannon');
 H0i = nTupleEntropy(DIATONIC, PERIOD, 2, 'sigma', 0, ...
@@ -133,4 +147,5 @@ H_n2_pos = nTupleEntropy(DIATONIC, PERIOD, 2, 'sigma', 0.3, ...
                          'sigmaSpace', 'position');
 fprintf('    H(diatonic, n=2, sigma=0.3, position) = %.6f\n', H_n2_pos);
 
+mptDefaults(prevDefaults);
 fprintf('\nDone.\n');

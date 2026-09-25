@@ -270,7 +270,7 @@ class TestPeriodicOrdered:
         assert s_ord < 0.5
 
     def test_periodic_wrapping_active_in_ordered_mode(self):
-        """[per] = 1 wraps the value axis in the ordered path: an ordered
+        """[per] = 1 wraps the attribute's values in the ordered path: an ordered
         absolute density of [0, 4] equals that of [0, 16] (16 == 4 mod 12),
         whereas without periodicity the two are distinct. Confirms the
         flag is genuinely engaged for [exch] = 0, not bypassed."""

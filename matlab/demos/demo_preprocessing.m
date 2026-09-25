@@ -1,16 +1,19 @@
 %% demo_preprocessing.m
 % Pre-MAET preprocessing operations and their compositions.
 %
-% Demonstrates the pre-MAET preprocessing helpers in MPT, applied to a
+% Demonstrates the pre-MAET preprocessing operations, applied to a
 % fragment of J. S. Bach, BWV 347 ("Ich dank dir, lieber Herre"): the
 % soprano over quarter-notes t = 1 to 7, which is bar 1 entire followed
 % by cadence 1's three-chord approach (antepenult i, penult V, tonic I
 % at t = 5, 6, 7), so the fragment ends on its cadential goal. Two
 % attributes are kept: the soprano pitch (attribute 1, treated as
 % periodic mod 12 so it lives on the pitch-class circle) and the event
-% time in quarter-notes (attribute 2, non-periodic). Each subsequent
-% section illustrates one operation or one composition; the operations
-% leave the source pAttr untouched.
+% time in quarter-notes (attribute 2, non-periodic). The pre-MAET
+% carries each attribute's kernel geometry (sigma, periodicity, and
+% period) in its specs, so every operation below takes it whole and
+% returns it whole, and the tensor functions read the geometry from it.
+% Each subsequent section illustrates one operation or one composition;
+% the operations leave the source pre-MAET untouched.
 %
 % The events carry metrical weights rather than uniform ones, so that
 % each operation's weight rule is visible in its output rather than
@@ -25,41 +28,51 @@
 % parenthesized superscripts.
 %
 %   Operations
-%       differenceEvents  (D): per-attribute difference orders.
-%       bindEvents        (B): per-attribute bind orders (n-gram
-%                              expansion).
-%       translateAttributes (T): per-attribute translation of values.
-%       weightEvents      (W): per-event window (one factor per
-%                              input attribute, peak-normalised
-%                              fixed-variance family).
-%       transformAttributes (F): per-attribute elementwise maps
-%                              (log, scale conversion, user function)
-%                              and the sign attribute.
+%       differenceEvents    (D): event differencing, with per-attribute
+%                                difference orders.
+%       bindEvents          (B): event binding, with per-attribute bind
+%                                orders (n-grams of consecutive events).
+%       translateAttributes (T): attribute translation.
+%       weightEvents        (W): event weighting, a per-event window (one
+%                                factor per input attribute, from a
+%                                peak-normalized family of fixed
+%                                variance).
+%       selectPreMaet       (S): a selection of attributes and events.
+%       bindAttributes,          one attribute from several, and several
+%       separateAttributes:      from one.
+%       transformAttributes (F): attribute rescaling, by per-attribute
+%                                elementwise maps (log, scale conversion,
+%                                user function), with an optional sign
+%                                attribute.
 %
 %   Compositions
-%       D o B == B o D    (n-tuple entropy pipeline commutation,
-%                          value-wise and weight-wise after attribute
-%                          permutation).
-%       D o T == D        (differencing absorbs absolute translation;
-%                          T o D adds mu to every difference).
-%       T o W centre shift (W with centre c after T(mu) equals W with
-%                          centre c - mu before T; W leaves T
-%                          invariant on values).
-%       D o F vs F o D    (log then difference gives log ratios;
-%                          difference then log(x+1) + sign gives signed
-%                          compressed magnitudes).
+%       D o B == B o D      (event differencing and event binding
+%                            commute, in values, weights, and specs).
+%       D o T == D          (differencing absorbs attribute translation;
+%                            T o D adds mu to every difference).
+%       T o W centre shift  (W with centre c after T(mu) equals W with
+%                            centre c - mu before T; T leaves weights
+%                            unchanged, and W leaves values unchanged).
+%       D o F vs F o D      (log then difference gives log ratios;
+%                            difference then log(x + 1) with a sign
+%                            attribute gives signed compressed
+%                            magnitudes).
 %
-% The Python mirror is demos/demo_preprocessing.py.
+% Spectral enrichment (addSpectra), the sixth preprocessing operation of
+% the article, is demonstrated in jmm/demo_jmm_2_3_spectral.m.
 %
 % See also SHOWPREMAET, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
-% WEIGHTEVENTS, TRANSFORMATTRIBUTES.
+% WEIGHTEVENTS, SELECTPREMAET, BINDATTRIBUTES, SEPARATEATTRIBUTES,
+% TRANSFORMATTRIBUTES.
+%
+% The Python mirror is demo_preprocessing.py.
 
 clear; clc;
 
-% Shown on every table, so that the parameters that would build the
-% density travel with the values they would be built from.
-KERNEL = {'sigma', [0.5 0.25], 'isPer', [true false], ...
-          'period', [12 0], 'names', {'pitch', 'time'}};
+% The toolbox's one-time informational hints (which route a call took,
+% and the like) are switched off for a tidy printout, and restored at
+% the end.
+prevDefaults = mptDefaults('showHints', false);
 
 %% ===================================================================
 %  1. BWV 347 input (soprano + time, metrically weighted)
@@ -77,15 +90,17 @@ pAttr = { [69 69 69 71 67 66 64], ...      % a_1: soprano
 metre = [1 0.5 0.75 0.5 1 0.5 0.75];
 w = {metre, metre};
 
-% The three parts travel together as one pre-MAET, which every operator
+% The kernel geometry of each attribute: pitch periodic at the octave
+% (12 semitones) with sigma = 0.5 semitones, and time non-periodic with
+% sigma = 0.25 quarter-notes. Both attributes are absolute.
+specs = flatSpecs(pAttr, 'name', {'pitch', 'time'}, 'sigma', [0.5 0.25], ...
+                  'isPer', [true false], 'period', [12 0]);
+
+% The three parts travel together as one pre-MAET, which every operation
 % below takes whole and returns whole.
-pm = packPreMaet(pAttr, w);
+pm = packPreMaet(pAttr, w, specs);
 
-isRel   = [false false];      % both attributes are absolute
-isPer   = [true  false];      % attribute 1 is periodic (PC), attribute 2 isn't
-periods = [12 0];             % period 12 (semitones) for PC
-
-showPreMaet(pm, KERNEL{:});
+showPreMaet(pm);
 fprintf('\n');
 
 %% ===================================================================
@@ -101,13 +116,15 @@ fprintf('=== 2. differenceEvents (D) ===\n');
 % perceived, so a difference is only as strong as its weaker endpoint
 % allows: the superscripts below are the products of consecutive metre
 % weights on the differenced attribute, and the surviving metre weights
-% on the undifferenced one.
+% on the undifferenced one. The differenced attribute's sigma grows by
+% sqrt(2), since a difference of two uncertain values is less certain
+% than either; differenceEvents says so as it runs.
 diffOrders = [1 0];
 pmD = differenceEvents(pm, diffOrders);
 
 fprintf('  diffOrders = [%d %d]   (pitch differenced, time left alone)\n', ...
     diffOrders(1), diffOrders(2));
-showPreMaet(pmD, KERNEL{:}, 'format', 'latex');
+showPreMaet(pmD);
 fprintf('\n');
 
 %% ===================================================================
@@ -130,7 +147,7 @@ specB = pmB.specs;
 fprintf(['  bindOrders = [%d %d]   (A'' = %d: each source attribute ' ...
     '-> one nested attribute)\n'], bindOrders(1), bindOrders(2), ...
     numel(pmB.pAttr));
-showPreMaet(pmB, KERNEL{:});
+showPreMaet(pmB);
 fprintf('  spec(1): r = [%s], exch = [%s], rel = [%s], tags = [%s]\n', ...
     num2str(specB{1}.r), num2str(double(specB{1}.exch)), ...
     num2str(double(specB{1}.rel)), num2str(specB{1}.tags(:)'));
@@ -145,46 +162,44 @@ fprintf('=== 3b. bindEvents again (B o B): deepen to L = 3 ===\n');
 % bindEvents accepts the pre-MAET it produces, so a second bind deepens
 % the *already-nested* attribute rather than starting over. The specs
 % travel with the pre-MAET, so nothing has to be threaded by hand. The
-% existing tag matrix is tiled and a fresh outermost grouping
-% column is appended; r/exch/rel each gain one outer level. The hierarchy
-% grows note -> 2-event group (first bind) -> 2-group window (second
-% bind). Trailing-drop again: N'' = N' - max(L) + 1 = 5.
+% existing tag matrix is tiled and a fresh outermost grouping column is
+% appended; r/exch/rel each gain one outer level. The hierarchy grows
+% note -> 2-event group (first bind) -> 2-group window (second bind).
+% Trailing-drop again: N'' = N' - max(L) + 1 = 5.
 pmBB = bindEvents(pmB, [2 2]);
 specBB = pmBB.specs;
 
 fprintf('  N'''' = %d  (three-level super-events)\n', size(pmBB.pAttr{1}, 2));
-showPreMaet(pmBB, 'maxEvents', 4, KERNEL{:});
+showPreMaet(pmBB, 'maxEvents', 4);
 fprintf('  spec(1): r = [%s], exch = [%s], rel = [%s]\n', ...
     num2str(specBB{1}.r), num2str(double(specBB{1}.exch)), ...
     num2str(double(specBB{1}.rel)));
 fprintf('  (inner tag column tiled; a new outermost column appended.)\n');
 
-% Build the absolute L=3 nest and confirm a clean self-similarity. The
-% specs here carry no kernel geometry, so these arguments supply it; where
-% a spec does carry a value, an argument overrides it instead, which is
-% what makes a sweep one call per value (demo_preMaetIo, section 4).
-kwBB = {'sigma', [0.5 0.25], 'isPer', [true false], ...
-        'period', [12 0], 'verbose', false};
-dBBAbs = buildMaet(pmBB, kwBB{:});
+% Build the absolute L = 3 nest and confirm a clean self-similarity. The
+% kernel geometry travelled through both binds in the specs, so nothing
+% further is supplied here; an argument given at the call would override
+% the spec, which is what makes a sweep one call per value
+% (demo_preMaetIo, section 4).
+dBBAbs = buildMaet(pmBB, 'verbose', false);
 smAbs = simMaet(dBBAbs, dBBAbs, 'verbose', false);
 fprintf('  absolute build: dim = %d, cosine self-match = %.4f\n', ...
     dBBAbs.dim, smAbs);
 
-% Outermost [rel] on pitch quotients the whole 3-level tuple by a common
-% shift: the doubly-bound pitch structure is then invariant to transposing
-% every note together. Absolute (no [rel]) is not --- the narrow PC kernel
-% (sigma = 0.5) puts a 5-semitone shift out of reach.
-% Replacing one part of a pre-MAET leaves the rest in place: here the
-% specs, and below the values.
+% Making the outermost level of pitch relative ([rel] = 1) reads the
+% whole three-level tuple up to a common shift, so the doubly-bound
+% pitch structure is invariant to transposing every note together.
+% Absolute pitch is not: the narrow pitch kernel (sigma = 0.5) puts a
+% 5-semitone shift out of reach. Replacing one part of a pre-MAET leaves
+% the rest in place: here the specs.
 specBBOut = specBB;
 specBBOut{1}.rel = [0 0 1];                  % outermost unit on pitch
 pmBBOut = packPreMaet(pmBB, [], specBBOut);
-dBBOut = buildMaet(pmBBOut, kwBB{:});
-pmBBT = pmBB;
-pmBBT.pAttr{1} = pmBB.pAttr{1} + 5;          % transpose all pitches +5
+dBBOut = buildMaet(pmBBOut, 'verbose', false);
+pmBBT = translateAttributes(pmBB, {5, 0});   % every pitch +5
 pmBBOutT = packPreMaet(pmBBT, [], specBBOut);
-dBBOutT = buildMaet(pmBBOutT, kwBB{:});
-dBBAbsT = buildMaet(pmBBT, kwBB{:});
+dBBOutT = buildMaet(pmBBOutT, 'verbose', false);
+dBBAbsT = buildMaet(pmBBT, 'verbose', false);
 simOut = simMaet(dBBOut, dBBOutT, 'verbose', false);
 simAbs = simMaet(dBBAbs, dBBAbsT, 'verbose', false);
 fprintf(['  outer pitch (rel=[0 0 1]): dim = %d, vs +5 transpose = %.4f' ...
@@ -200,8 +215,8 @@ fprintf('=== 4. translateAttributes (T) ===\n');
 
 % Translate pitch (attribute 1) by +5 semitones; leave time alone.
 % Offsets are a per-attribute cell: a scalar broadcasts across the
-% attribute's values (here K=1 each). isRel is read from specs
-% (synthesised flat: both absolute), so neither is a no-op. T moves
+% attribute's values (here K = 1 each). isRel is read from the specs
+% (both attributes absolute), so neither translation is a no-op. T moves
 % values only: the weights below are the metre weights unchanged.
 muPitch = 5;
 mu = {muPitch, 0};
@@ -209,7 +224,7 @@ pmT = translateAttributes(pm, mu);
 
 fprintf('  mu (per attribute) = {%g, %g}   (G->C, F#->B, E->A; time untouched)\n', ...
     mu{1}, mu{2});
-showPreMaet(pmT, KERNEL{:});
+showPreMaet(pmT);
 fprintf('\n');
 
 %% ===================================================================
@@ -218,7 +233,7 @@ fprintf('\n');
 
 fprintf('=== 5. weightEvents (W) ===\n');
 
-% Apply a window on the time axis (input attribute 2) centred at the
+% Apply a window on the time attribute (input attribute 2) centred at the
 % penult event (t = 6) with standard deviation 2 quarter-notes and
 % gamma = 0 (pure Gaussian). The factor lands back on the time attribute
 % (target attribute 2), the in-place weighting case, and the input is
@@ -229,7 +244,7 @@ pmW = weightEvents(pm, 2, 2, 6, 0, 'sd', 2, 'dropInputAttr', false);
 
 fprintf(['  inputAttr = 2 (time); targetAttr = 2; centre = 6; sd = 2; ' ...
     'shape = 0 (Gaussian)\n']);
-showPreMaet(pmW, 'decimals', 3, KERNEL{:});
+showPreMaet(pmW, 'decimals', 3);
 fprintf('\n');
 
 %% ===================================================================
@@ -249,8 +264,7 @@ fprintf('=== 5b. selectPreMaet (S) ===\n');
 pmS = selectPreMaet(pm, 'attributes', 1, 'events', 5:7);
 
 fprintf('  attributes = 1 (pitch); events = 5:7 (the cadence)\n');
-showPreMaet(pmS, 'decimals', 3, 'sigma', 0.5, 'isPer', true, ...
-            'period', 12, 'names', {'pitch'});
+showPreMaet(pmS, 'decimals', 3);
 fprintf('\n');
 
 %% ===================================================================
@@ -260,47 +274,52 @@ fprintf('\n');
 
 fprintf('=== 5c. bindAttributes and separateAttributes ===\n');
 
-% Binding along the attribute axis, as bindEvents binds along the event
-% axis. Pitch and time describe the same events, so binding them gives
-% one attribute whose value at an event is the ordered pair, read whole
+% Binding across attributes, as bindEvents binds across events. Pitch
+% and time describe the same events, so binding them gives one
+% attribute whose value at an event is the ordered pair, read whole
 % (r = 2, exch = false) rather than as the product of two attributes.
+% The two disagree on periodicity, so the bound attribute is given its
+% own: non-periodic, with one sigma for both slots.
 pmBA = bindAttributes(pm, [1 2], 'name', 'pitchTime', 'r', 2, ...
-                      'exch', false, 'sigma', 0.5);
-showPreMaet(pmBA, 'decimals', 3, 'names', {'pitchTime'});
+                      'exch', false, 'sigma', 0.5, 'isPer', false, ...
+                      'period', 0);
+showPreMaet(pmBA, 'decimals', 3);
 fprintf('\n');
 
-% separateAttributes is the inverse, splitting it back into one
-% attribute per slot.
+% separateAttributes goes the other way, splitting the bound attribute
+% into one attribute per slot, each named for the bound attribute and
+% its slot.
 [pBack, ~, sBack] = unpackPreMaet(separateAttributes(pmBA, 'pitchTime'));
-fprintf('  separated back into %d attributes: %s\n\n', numel(pBack), ...
+fprintf('  separated into %d attributes: %s\n\n', numel(pBack), ...
         strjoin(cellfun(@(x) x.name, sBack, 'UniformOutput', false), ', '));
 
 %% ===================================================================
 %  6. D o B == B o D (n-tuple entropy pipeline commutation)
 %  ===================================================================
 
-fprintf('=== 6. B o D == D o B (pipeline commutation) ===\n');
+fprintf('=== 6. D o B == B o D (event differencing and event binding commute) ===\n');
 
-% Both pre-MAET operators take a pre-MAET and return one, so they compose
-% directly and the two routes coincide. Differencing pairs values position by position across
-% (super-)events and the sliding bind window commutes with it, on the
-% ordered/K=1 domain where difference is defined. The two operators
-% propagate weights by different rules --- D takes the rolling product,
-% B gathers --- and the composition agrees on the weights as well.
+% Both operations take a pre-MAET and return one, so they compose
+% directly and the two routes coincide. Differencing pairs values
+% position by position across (super-)events and the sliding bind
+% window commutes with it, on the ordered, K = 1 domain where a
+% difference is defined. The two operations propagate weights by
+% different rules --- D takes the rolling product, B gathers --- and the
+% composition agrees on the weights as well.
 %   D then B: difference each attribute (order 1), then bind 2-grams.
 pmDB = bindEvents(differenceEvents(pm, [1 1]), [2 2]);
 %   B then D: bind 2-grams, then difference each nested attribute
 %   position by position.
 pmBD = differenceEvents(bindEvents(pm, [2 2]), [1 1]);
 
-showPreMaet(pmDB, 'title', '  D then B:', KERNEL{:});
-showPreMaet(pmBD, 'title', '  B then D:', KERNEL{:});
+showPreMaet(pmDB, 'title', '  D then B:');
+showPreMaet(pmBD, 'title', '  B then D:');
 
 valsAgree = true; wtsAgree = true; specsAgree = true;
 for a = 1:2
     valsAgree = valsAgree && isequaln(pmDB.pAttr{a}, pmBD.pAttr{a});
     wtsAgree = wtsAgree && isequaln(pmDB.wAttr{a}, pmBD.wAttr{a});
-    for f = {'tags', 'r', 'exch', 'rel'}
+    for f = {'tags', 'r', 'exch', 'rel', 'sigma'}
         specsAgree = specsAgree && ...
             isequal(double(pmDB.specs{a}.(f{1})(:)'), ...
                     double(pmBD.specs{a}.(f{1})(:)'));
@@ -323,7 +342,7 @@ fprintf('=== 7. D o T == D ===\n');
 % operator (T o D, by contrast, adds mu to every difference).
 pmDT = differenceEvents(pmT, [1 0]);
 
-showPreMaet(pmDT, 'title', '  D(T(p)):', KERNEL{:});
+showPreMaet(pmDT, 'title', '  D(T(p)):');
 fprintf(['  vs D(p) above: max |difference| = %g  ' ...
     '(zero: translation absorbed)\n\n'], ...
     max(abs(pmDT.pAttr{1} - pmD.pAttr{1})));
@@ -363,8 +382,7 @@ fprintf('\n=== 8b. transformAttributes (F): scale choice and order with D ===\n'
 
 % The kernel of buildMaet has a fixed width in whatever units the
 % values carry, so the choice of scale is made before the tensor. The
-% bare-array form converts a vector in one call (this replaces the
-% former convertPitch):
+% bare-array form converts a vector in one call:
 fHz     = [392.00 369.99 329.63];                 % G4, F#4, E4 in Hz
 pCents  = transformAttributes(fHz, [], {'hz', 'cents'});
 fprintf('  Hz -> cents: [%.1f %.1f %.1f]\n', pCents);
@@ -381,13 +399,16 @@ fprintf('  log2(IOI) then D: [%g %g %g]  (log ratios)\n', pmLD.pAttr{1});
 % down. Negative values are refused unless a sign attribute is requested:
 % with 'sign', true the transform is applied to |x| and a sign
 % attribute at the 2-point simplex's vertices, {-1/2, 0, +1/2}, is
-% inserted right after its source, so the
-% pre-MAET grows from one attribute to two (note the two sigmas below).
-pmDp = differenceEvents(pAttr(1), w(1), 1);
+% inserted right after its source, so the pre-MAET grows from one
+% attribute to two.
+pmDp = differenceEvents(selectPreMaet(pm, 'attributes', 1), 1);
 pmF  = transformAttributes(pmDp, {{'log', 'offset', 1}}, 'sign', true);
 fprintf('  D(pitch)        = [%g %g]\n', pmDp.pAttr{1});
 fprintf('  log(|D(pitch)|+1) = [%.4f %.4f], sign = [%g %g] (spec name ''%s'')\n', ...
         pmF.pAttr{1}, pmF.pAttr{2}, pmF.specs{2}.name);
+% A log has no single image of the old width, so the rescaled attributes
+% carry sigma as NA (demo_preMaetIo, section 6), and the widths the new
+% units call for are supplied here.
 densF = buildMaet(pmF, 'sigma', [0.2 0.3], ...
                      'isPer', [false false], 'period', [0 0], 'verbose', false);
 fprintf('  buildMaet on the two-attribute pre-MAET: dim = %d\n', densF.dim);
@@ -404,117 +425,83 @@ pmUser = transformAttributes({[1 4 9]}, [], {@(x) sqrt(x) + 1});
 fprintf('  user function sqrt(x) + 1: [%g %g %g]\n\n', pmUser.pAttr{1});
 
 %% ===================================================================
-%  9. Pre-MAET into the raw multi-attribute form (route (ii))
+%  9. The tensor functions take the pre-MAET whole
 %  ===================================================================
 
-fprintf('\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===\n');
+fprintf('\n=== 9. Pre-MAET form: the tensor functions take the pre-MAET whole ===\n');
 
-% Two routes lead from a pre-MAET to a density value, an entropy, or a
-% similarity:
-%
-%   (i)  build a MaetDensity once via buildMaet, then pass the
-%        struct to entropyMaet / evalMaet / simMaet.
-%        Preferred when the same density is re-evaluated many times,
-%        because the structural work (group canonicalisation, tuple
-%        index pre-computation, weight products) is paid once.
-%
-%   (ii) call the raw multi-attribute form of each function directly,
-%        passing (pAttr, wAttr, sigma, r, isRel, isPer, periods)
-%        as positional arguments. The function builds the density
-%        internally and returns the answer; no struct is exposed.
-%        Convenient for single-shot uses and keeps the call shape
-%        symmetric with buildMaet itself.
-%
-% Section 9 below exercises route (ii) on the original pAttr and on
-% the differenced / translated pre-MAETs. Section 10 then exercises
-% route (i) on the same set, building each density once via
-% buildMaet and reusing it across entropyMaet, evalMaet,
-% simMaet, and the LIST form of simMaet, with parity
-% assertions confirming the two routes return identical values.
-sigma = [0.5, 0.25];     % kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
-r     = [1, 1];          % single-value attributes (K_a = 1)
+% entropyMaet, evalMaet, and simMaet each take a pre-MAET whole and read
+% the kernel geometry from its specs; the density is built inside the
+% call. This is the form to reach for first.
 
-% The raw form takes the parts positionally, so the pre-MAETs above are
-% read out into the cells it expects.
-pT = pmT.pAttr;
-pD = pmD.pAttr;
-wD = pmD.wAttr;
-
-% --- 9a. entropyMaet (raw MA form) ---
-% Signature:
-%   H = entropyMaet(pAttr, w, sigma, r, isRel, isPer, periods, ...)
-H_orig = entropyMaet(pAttr, w, sigma, r, isRel, isPer, periods, ...
-                        'method', 'renyi2', ...
-                        'verbose', false);
-fprintf('  entropyMaet(pAttr, w, sigma, r, isRel, isPer, periods)\n');
+% --- 9a. entropyMaet ---
+H_orig = entropyMaet(pm, 'method', 'renyi2', 'verbose', false);
+fprintf('  entropyMaet(pm)\n');
 fprintf('    = %.4f  (Renyi-2)\n', H_orig);
 
-% --- 9b. evalMaet at the penult event (pitch = 66, t = 6) ---
-% Signature:
-%   vals = evalMaet(pAttr, w, sigma, r, isRel, isPer, periods, X, ...)
-% Query points are A-by-M_q with one column per query and row a
-% giving attribute a's value(s). Single query here, so a 2-by-1 column.
-Xq = [66; 6];
-val_at_penult = evalMaet(pAttr, w, sigma, r, ...
-                            isRel, isPer, periods, Xq, ...
-                            'verbose', false);
-fprintf('  evalMaet(pAttr, w, sigma, r, isRel, isPer, periods, Xq)\n');
-fprintf('    = %.4f\n', val_at_penult);
-fprintf('  (Density peak near an actual event; the value reflects the\n');
-fprintf('   contribution from event 6 at (66, 6) plus tails from its neighbours.)\n');
+% The raw positional form, with the parts and the five geometry vectors
+% (sigma, r, isRel, isPer, period) written out, reaches the same value;
+% it serves data that was never packed as a pre-MAET.
+[p0, w0] = unpackPreMaet(pm);
+H_raw = entropyMaet(p0, w0, [0.5 0.25], [1 1], [false false], ...
+                    [true false], [12 0], 'method', 'renyi2', ...
+                    'verbose', false);
+fprintf('  raw positional form: %.4f  (|delta| = %.2e)\n', ...
+        H_raw, abs(H_raw - H_orig));
+assert(abs(H_raw - H_orig) < 1e-12, ...
+       'Section 9a: pre-MAET and raw forms disagree.');
 
-% --- 9c. simMaet on two pre-MAETs (raw MA form) ---
-% Signature:
-%   s = simMaet(pX, wX, pY, wY, sigma, r, isRel, isPer, periods, ...)
-% Compare the original chorale fragment against the transposed copy
-% (Section 4). Group 1's PC kernel is narrow (sigma = 0.5 semitones),
-% so the 5-semitone shift puts every event out of kernel reach of its
-% original PC, and the similarity collapses to 0. Pre-MAET D in step
-% 9d below recovers it.
-sim_T = simMaet(pAttr, w, pT, w, sigma, r, ...
-                      isRel, isPer, periods, 'verbose', false);
-fprintf('  simMaet(pAttr, w, pT, w, sigma, r, isRel, isPer, periods)\n');
+% --- 9b. evalMaet at the penult event (pitch = 66, t = 6) ---
+% Query points are A-by-M_q, one column per query and row a giving
+% attribute a's value(s). Single query here, so a 2-by-1 column.
+Xq = [66; 6];
+val_at_penult = evalMaet(pm, Xq, 'verbose', false);
+fprintf('  evalMaet(pm, Xq)\n');
+fprintf('    = %.4f\n', val_at_penult);
+fprintf('  (The density at an actual event: nearly all of it is event 6''s\n');
+fprintf('   own kernel, its neighbours'' tails adding little.)\n');
+
+% --- 9c. simMaet of the fragment and its transposed copy (Section 4) ---
+% The pitch kernel is narrow (sigma = 0.5 semitones), so the 5-semitone
+% shift puts every event out of kernel reach of its original pitch
+% class, and the similarity collapses to nearly 0. Differencing, in 9d,
+% recovers it.
+sim_T = simMaet(pm, pmT, 'verbose', false);
+fprintf('  simMaet(pm, pmT)\n');
 fprintf('    = %.4f\n', sim_T);
 
-% --- 9d. cosSim of the differenced pair: D(T) == D identity in action ---
-% Section 7's identity D o T == D guarantees that the differenced
-% original and the differenced transposed copy are value-wise
-% identical, so their cosine similarity must be exactly 1. The
-% algebraic identity from Section 7 surfacing as a downstream
-% observable; no buildMaet required.
-sim_diffed = simMaet(pD, wD, pmDT.pAttr, pmDT.wAttr, ...
-                           sigma, r, isRel, isPer, periods, ...
-                           'verbose', false);
-fprintf('  simMaet(pD, wD, pD(T), wD(T), ...)\n');
+% --- 9d. simMaet of the differenced pair: D o T == D in action ---
+% Section 7's identity guarantees that the differenced original and the
+% differenced transposed copy are identical in value, so their cosine
+% similarity is exactly 1: the algebraic identity surfacing as a
+% downstream observable.
+sim_diffed = simMaet(pmD, pmDT, 'verbose', false);
+fprintf('  simMaet(pmD, pmDT)\n');
 fprintf('    = %.4f  (exactly 1: D absorbs T)\n', sim_diffed);
 
 %% ===================================================================
-%  10. Pre-MAET via buildMaet dens structs (route (i))
+%  10. Build once, query many
 %  ===================================================================
 
-fprintf('\n=== 10. Dens form: build once, query many; parity with route (ii) ===\n');
+fprintf('\n=== 10. Density form: build once, query many; parity with Section 9 ===\n');
 
-% Build each pre-MAET into a MaetDensity struct once. After this the
-% structural work --- group canonicalisation, tuple-index
-% pre-computation, weight products --- is paid; subsequent
-% entropy/eval/cosSim calls just consume the struct.
-dens_orig = buildMaet(pAttr, w, sigma, r, ...
-                         isRel, isPer, periods, 'verbose', false);
-dens_T    = buildMaet(pT,    w, sigma, r, ...
-                         isRel, isPer, periods, 'verbose', false);
-dens_D    = buildMaet(pD,   wD, sigma, r, ...
-                         isRel, isPer, periods, 'verbose', false);
-dens_DT   = buildMaet(pmDT.pAttr, pmDT.wAttr, sigma, r, ...
-                         isRel, isPer, periods, 'verbose', false);
+% Where one density is evaluated or compared many times, build it once
+% with buildMaet and pass the density instead: the structural work
+% (canonical forms, tuple indices, weight products) is then paid once.
+dens_orig = buildMaet(pm,   'verbose', false);
+dens_T    = buildMaet(pmT,  'verbose', false);
+dens_D    = buildMaet(pmD,  'verbose', false);
+dens_DT   = buildMaet(pmDT, 'verbose', false);
+dens_W    = buildMaet(pmW,  'verbose', false);
 
-% --- 10a. entropyMaet on the struct; same answer as 9a. ---
+% --- 10a. entropyMaet on the density; same answer as 9a. ---
 H_orig_dens = entropyMaet(dens_orig, 'method', 'renyi2', ...
                              'verbose', false);
 fprintf('  entropyMaet(dens_orig)\n');
 fprintf('    = %.4f  (Renyi-2; parity vs 9a: |delta| = %.2e)\n', ...
         H_orig_dens, abs(H_orig_dens - H_orig));
 assert(abs(H_orig_dens - H_orig) < 1e-12, ...
-       'Section 10a: entropy raw and dens forms disagree.');
+       'Section 10a: entropy pre-MAET and density forms disagree.');
 
 % --- 10b. evalMaet at the same query; same answer as 9b. ---
 val_at_penult_dens = evalMaet(dens_orig, Xq, 'verbose', false);
@@ -522,7 +509,7 @@ fprintf('  evalMaet(dens_orig, Xq)\n');
 fprintf('    = %.4f  (parity vs 9b: |delta| = %.2e)\n', ...
         val_at_penult_dens, abs(val_at_penult_dens - val_at_penult));
 assert(abs(val_at_penult_dens - val_at_penult) < 1e-12, ...
-       'Section 10b: eval raw and dens forms disagree.');
+       'Section 10b: eval pre-MAET and density forms disagree.');
 
 % --- 10c. simMaet(dens_orig, dens_T); same answer as 9c. ---
 sim_T_dens = simMaet(dens_orig, dens_T, 'verbose', false);
@@ -530,38 +517,32 @@ fprintf('  simMaet(dens_orig, dens_T)\n');
 fprintf('    = %.4f  (parity vs 9c: |delta| = %.2e)\n', ...
         sim_T_dens, abs(sim_T_dens - sim_T));
 assert(abs(sim_T_dens - sim_T) < 1e-12, ...
-       'Section 10c: cosSim raw and dens forms disagree.');
+       'Section 10c: simMaet pre-MAET and density forms disagree.');
 
 % --- 10d. simMaet(dens_D, dens_DT) on the differenced pair; ---
-%       same answer as 9d. (Section 7 identity: should be exactly 1.)
+%       same answer as 9d. (Section 7 identity: exactly 1.)
 sim_diffed_dens = simMaet(dens_D, dens_DT, 'verbose', false);
 fprintf('  simMaet(dens_D, dens_DT)\n');
 fprintf('    = %.4f  (parity vs 9d: |delta| = %.2e)\n', ...
         sim_diffed_dens, abs(sim_diffed_dens - sim_diffed));
 assert(abs(sim_diffed_dens - sim_diffed) < 1e-12, ...
-       'Section 10d: cosSim raw and dens forms disagree.');
+       'Section 10d: simMaet pre-MAET and density forms disagree.');
 
-% --- 10e. LIST form: one reference against many candidates. ---
-% Scalar-vs-list simMaet broadcasts dens_orig against each
-% candidate in the cell, returning a 1-by-n cell of similarity
-% scalars. Useful for "compare one reference density against many"
-% workflows.
-%
-% Four entries are returned for {dens_orig, dens_T, dens_D, dens_DT}:
+% --- 10e. List form: one reference against many candidates. ---
+% A cell of densities against one density returns one similarity per
+% entry, for "compare one reference against many" workflows. Three
+% entries, {dens_orig, dens_T, dens_W}:
 %   entry 1:  sim(orig, orig) = 1 by definition.
-%   entry 2:  sim(orig, T) --- matches 9c's sim_T.
-%   entry 3:  sim(orig, D(orig)) --- new value; how similar the
-%             original pAttr is to its first-difference.
-%   entry 4:  sim(orig, D(T))   --- Section 7's identity D o T == D
-%             forces this to equal entry 3.
-sim_list = simMaet({dens_orig, dens_T, dens_D, dens_DT}, dens_orig, ...
-                         'verbose', false);
-fprintf('  simMaet({dens_orig, dens_T, dens_D, dens_DT}, dens_orig)\n');
-fprintf('    = {%.4f, %.4f, %.4f, %.4f}\n', ...
-        sim_list{1}, sim_list{2}, sim_list{3}, sim_list{4});
-fprintf('    (entry 1: self = 1; entry 2: vs T (= 9c);\n');
-fprintf('     entry 3: vs D(orig); entry 4: vs D(T) --- equals entry 3 by D o T == D.)\n');
-assert(abs(sim_list{1} - 1)              < 1e-12, '10e: self-similarity not 1.');
-assert(abs(sim_list{2} - sim_T)          < 1e-12, '10e: LIST entry 2 != 9c value.');
-assert(abs(sim_list{3} - sim_list{4})    < 1e-12, ...
-       '10e: D o T == D identity violated (entries 3 and 4 should match).');
+%   entry 2:  sim(orig, T), which matches 9c.
+%   entry 3:  sim(orig, W), the same values under the cadence window of
+%             Section 5, so only the weights differ.
+sim_list = simMaet({dens_orig, dens_T, dens_W}, dens_orig, ...
+                   'verbose', false);
+fprintf('  simMaet({dens_orig, dens_T, dens_W}, dens_orig)\n');
+fprintf('    = {%.4f, %.4f, %.4f}\n', sim_list{1}, sim_list{2}, sim_list{3});
+fprintf('    (entry 1: self = 1; entry 2: vs T (= 9c); entry 3: vs W, the\n');
+fprintf('     same values under the cadence window, so only the weights differ.)\n');
+assert(abs(sim_list{1} - 1)     < 1e-12, '10e: self-similarity not 1.');
+assert(abs(sim_list{2} - sim_T) < 1e-12, '10e: list entry 2 != 9c value.');
+
+mptDefaults(prevDefaults);

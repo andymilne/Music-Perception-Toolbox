@@ -9,14 +9,13 @@ function Sigma = kernelCov(r, nvArgs)
 %   Sigma = kernelCov(..., Name, Value)
 %
 %   Builds the r x r covariance matrix of an ordered attribute's tuples
-%   from three independent sources of perceptual uncertainty, each
-%   included only when its width is set: independent noise on
-%   the *values* themselves (onsets, or pitches), sdValue; independent noise on
-%   the *intervals* between consecutive values, sdInterval; and a
-%   *common shift* of the whole tuple, sdShift. How each reaches the
-%   tuple depends on whether the tuple holds the values themselves
-%   or their first differences, which the mandatory 'differenced'
-%   flag declares.
+%   from three independent sources of perceptual uncertainty, each included
+%   only when its width is set: independent noise on the *values*
+%   themselves (onsets, or pitches), sdValue; independent noise on the
+%   *intervals* between consecutive values, sdInterval; and a
+%   *common shift* of the whole tuple, sdShift. How each reaches the tuple
+%   depends on whether the tuple holds the values themselves or their first
+%   differences, which the mandatory 'differenced' flag declares.
 %
 %   With Del the first-differencing map, (Del p)_i = p_{i+1} - p_i,
 %   taken at the size its operand requires -- (r - 1) x r on a tuple of
@@ -30,46 +29,43 @@ function Sigma = kernelCov(r, nvArgs)
 %       Sigma = sdValue^2 * (Del * Del') + sdInterval^2 * I
 %               + sdShift^2 * J
 %
-%   Del+ * Del+' equals the centred cumulative sum P * S * S' * P, with
-%   S the r x (r - 1) cumulative-sum map and P = I - J/r the centring
-%   projector, which is how it is built here. The two cases are one
-%   model: differencing a tuple of r values carries the first to the
-%   second at tuple size r - 1, since Del * 1 = 0 annihilates the ridge
-%   and Del * Del+ = I.
+%   Del+ * Del+' equals the centred cumulative sum P * S * S' * P, with S
+%   the r x (r - 1) cumulative-sum map and P = I - J/r the centring
+%   projector, which is how it is built here. The two cases are one model:
+%   differencing a tuple of r values carries the first to the second at
+%   tuple size r - 1, since Del * 1 = 0 annihilates the ridge and Del *
+%   Del+ = I.
 %
-%   Undifferenced values (r values). Interval noise accumulates from
-%   one value to the next, a random walk that P centres on the
-%   tuple's mean so that no value is privileged (P * S * S' * P is
-%   the covariance of the centred cumulative sums of r - 1 independent
-%   interval errors; S is fixed only up to a base point, and the
-%   choices differ by a multiple of the all-ones vector, which P
-%   removes). The ridge tolerates a common shift of every
-%   value: a transposition of pitches, a displacement of onsets. As
-%   sdShift grows the kernel's precision tends to the relative-mode
-%   projector, so isRel = true is the exact (infinite-sdShift) limit
-%   and the ridge its graded counterpart.
+%   Undifferenced values (r values). Interval noise accumulates from one
+%   value to the next, a random walk that P centres on the tuple's mean so
+%   that no value is privileged (P * S * S' * P is the covariance of the
+%   centred cumulative sums of r - 1 independent interval errors; S is
+%   fixed only up to a base point, and the choices differ by a multiple of
+%   the all-ones vector, which P removes). The ridge tolerates a common
+%   shift of every value: a transposition of pitches, a displacement of
+%   onsets. As sdShift grows the kernel's precision tends to the
+%   relative-mode projector, so isRel = true is the exact
+%   (infinite-sdShift) limit and the ridge its graded counterpart.
 %
-%   Differenced values (r consecutive differences of r + 1 values).
-%   Value noise reaches each interval through its two endpoints:
-%   D * D' is tridiagonal, 2 on the diagonal and -1 beside it, since
-%   adjacent intervals share an endpoint (perturbing one interior
-%   value lengthens one interval and shortens its neighbour).
-%   Interval noise is independent per interval. On times the two are
-%   the two levels of the Wing & Kristofferson (1973) model, motor
-%   delay variance on onsets and central timekeeper variance on
-%   intervals. The ridge adds a constant to every interval, seldom the
-%   equivalence wanted for uneven rhythms, so sdShift is usually
-%   omitted here; on LOG-differenced values it becomes a common factor
-%   on the intervals (a tempo change, or intervallic augmentation),
-%   and is wanted again. sdValue corresponds to
-%   sigmaSpace = 'position' and sdInterval to sigmaSpace = 'interval'
-%   in nTupleEntropy.
+%   Differenced values (r consecutive differences of r + 1 values). Value
+%   noise reaches each interval through its two endpoints: D * D' is
+%   tridiagonal, 2 on the diagonal and -1 beside it, since adjacent
+%   intervals share an endpoint (perturbing one interior value lengthens
+%   one interval and shortens its neighbour). Interval noise is independent
+%   per interval. On times the two are the two levels of the Wing &
+%   Kristofferson (1973) model, motor delay variance on onsets and central
+%   timekeeper variance on intervals. The ridge adds a constant to every
+%   interval, seldom the equivalence wanted for uneven rhythms, so sdShift
+%   is usually omitted here; on LOG-differenced values it becomes a common
+%   factor on the intervals (a tempo change, or intervallic augmentation),
+%   and is wanted again. sdValue corresponds to sigmaSpace = 'position' and
+%   sdInterval to sigmaSpace = 'interval' in nTupleEntropy.
 %
 %   The covariance is expressed in whatever coordinates the attribute
 %   carries: cents or semitones for pitch, seconds for onsets, log
 %   inter-onset intervals for multiplicative tempo tolerance. All three
-%   widths are standard deviations in those coordinates; they are
-%   squared internally.
+%   widths are standard deviations in those coordinates; they are squared
+%   internally.
 %
 %   Inputs:
 %     r            — Tuple size; an integer >= 2.
@@ -92,16 +88,16 @@ function Sigma = kernelCov(r, nvArgs)
 %                    absolute (isRel = false), non-periodic
 %                    (isPer = false) attribute with r == K.
 %
-%   Errors if r < 2, any width is negative or non-finite, or the result
-%   is not positive-definite. On undifferenced values that needs
-%   sdValue > 0, or sdInterval and sdShift both non-zero: the centred
-%   walk annihilates the all-ones direction and the ridge is rank one,
-%   so neither serves alone. On differenced values it needs
-%   sdValue > 0 or sdInterval > 0, only the ridge alone failing.
+%   Errors if r < 2, any width is negative or non-finite, or the result is
+%   not positive-definite. On undifferenced values that needs sdValue > 0,
+%   or sdInterval and sdShift both non-zero: the centred walk annihilates
+%   the all-ones direction and the ridge is rank one, so neither serves
+%   alone. On differenced values it needs sdValue > 0 or sdInterval > 0,
+%   only the ridge alone failing.
 %
-%   Reference: Wing, A. M., & Kristofferson, A. B. (1973). Response
-%   delays and the timing of discrete motor responses. Perception &
-%   Psychophysics, 14(1), 5-12.
+%   Reference: Wing, A. M., & Kristofferson, A. B. (1973). Response delays
+%   and the timing of discrete motor responses. Perception & Psychophysics,
+%   14(1), 5-12.
 %
 %   See also buildMaet, simMaet, entropyMaet, windowedSimilarity,
 %   differenceEvents, nTupleEntropy.

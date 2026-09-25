@@ -7,6 +7,8 @@
 %  sixteenth step, the default weighting -- and points here.
 %
 %  See also GRIDATTRTABLE, READSCORE, PREMAETFROMATTRTABLE.
+%
+%  The Python mirror is demo_score_grid.py.
 
 % The chorale ships with the demos, and is located from the toolbox root.
 mptRoot = which('buildMaet');
@@ -15,6 +17,10 @@ assert(~isempty(mptRoot), 'demoScore:toolboxNotFound', ...
 score = fullfile(fileparts(mptRoot), 'demos', 'jmm', 'data', ...
                  'bwv347.musicxml');
 clear mptRoot
+
+% Keep the dispatcher's per-call announcements out of the printed results
+% (showHints gates only those); restored at the end.
+prevDefaults = mptDefaults('showHints', false);
 
 t = readScore(score);
 fprintf('%d notes over %g beats\n\n', height(t), ...
@@ -46,10 +52,11 @@ end
 gBeat = gridAttrTable(t, 1);
 fprintf('\nthe first six rows at a step of one beat:\n');
 disp(gBeat(1:6, cols));
-fprintf(['\nA step at or below the shortest note value gives one row per ' ...
-         'note, and\nthe grid is then a re-indexing of the score by time. ' ...
-         'A coarser step\ngathers several notes of a voice into one event, ' ...
-         'and the\nweighting below then applies.\n\n']);
+fprintf(['\nA step that divides every note value gives slices that each ' ...
+         'lie wholly\ninside the notes sounding in them, so coverage and ' ...
+         'presence (below)\nagree, weighing every row 1. A coarser step ' ...
+         'gathers several notes of a\nvoice into one slice, and the ' ...
+         'weighting below then applies.\n\n']);
 
 %% 2. The weighting
 % What a slice takes from a note that overlaps it. On a beat grid the
@@ -76,9 +83,9 @@ fprintf([ ...
     '  item      the fraction of the note in the slice, so that a note\n' ...
     '            counts once however many slices it spans.\n\n']);
 
-% Two of the three are re-weightings of the ungridded attribute table: on an attribute
-% constant over the note and read at r = 1, each gives back a density the
-% ungridded table already had.
+% Two of the three are re-weightings of the ungridded attribute table: on
+% an attribute constant over the note and read at r = 1, each gives back a
+% density the ungridded table already had.
 disp('against the ungridded score, at r = 1:');
 pairs = {'coverage', 'duration'; 'item', 'ones'};
 for k = 1:size(pairs, 1)
@@ -130,21 +137,24 @@ fprintf(['this table has a sounding duration: %d — it is a score, and a ' ...
         any(startsWith(t.Properties.VariableNames, 'soundingDuration')));
 
 % The grid steps in one unit but its points have a time in both, so a
-% metrical grid can be read on a clock: slices of a sixteenth, and a
-% sigma in milliseconds. The unit the grid did not step in is
-% interpolated from the attribute table's note samples, so it is exact wherever the
-% tempo is constant and approximate only across a tempo change.
-gBeat = gridAttrTable(t, 0.25);
-fprintf('a beat grid''s first four points in each unit:\n');
-disp(head(unique(gBeat(:, {'gridOnsetBeats', 'gridOnsetSeconds'}), ...
+% metrical grid can be read on a clock: slices of a sixteenth, and a sigma
+% in milliseconds. The unit the grid did not step in is interpolated from
+% the attribute table's note samples, so it is exact wherever the tempo is
+% constant and approximate only across a tempo change.
+gSixteenth = gridAttrTable(t, 0.25);
+fprintf('a sixteenth grid''s first four points in each unit:\n');
+disp(head(unique(gSixteenth(:, {'gridOnsetBeats', 'gridOnsetSeconds'}), ...
                  'rows', 'stable'), 4));
 
-% ungridAttrTable is the inverse: noteId says which row of the source
-% each grid row came from, so keeping the first of each and removing what
-% the grid wrote returns the attribute table it came from. Which columns those are
-% is not a fixed list -- the grid adds weight to an attribute table that had none
-% and overwrites the weight of one that did -- which is why this is a
-% toolbox function and not four lines of MATLAB in the caller.
-back = ungridAttrTable(gBeat);
+% ungridAttrTable is the inverse: noteId says which row of the source each
+% grid row came from, so keeping the first of each and removing what the
+% grid wrote returns the attribute table it came from. Which columns those
+% are is not a fixed list -- the grid adds weight to an attribute table
+% that had none and folds the weight of one that did into a per-slice one
+% -- which is why this is a toolbox function and not four lines of MATLAB
+% in the caller.
+back = ungridAttrTable(gSixteenth);
 fprintf('\nungridded: %d rows, against the %d read; identical: %d\n', ...
         height(back), height(t), isequal(back.pitch, t.pitch));
+
+mptDefaults(prevDefaults);

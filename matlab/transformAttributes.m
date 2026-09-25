@@ -7,7 +7,8 @@ function pm = transformAttributes(varargin)
 %   per-attribute preprocessing on the pre-MAET: every value of each
 %   selected attribute is passed through the transform given for that
 %   attribute, and the returned pre-MAET feeds straight into buildMaet
-%   or a further pre-MAET step.%
+%   or a further pre-MAET step.
+%
 %   The pre-MAET may be passed whole, as packPreMaet builds it, or in
 %   its parts as pAttr and wAttr with the specs as a name-value; the two
 %   forms are the same call.
@@ -23,7 +24,7 @@ function pm = transformAttributes(varargin)
 %   Bare-array form. When pAttr is a numeric array rather than a cell it
 %   is treated as a single attribute and the transformed array is returned
 %   alone (w and 'specs' must be empty; 'sign' must be false). This is the
-%   one-line conversion that convertPitch used to provide:
+%   one-line conversion of a pitch array:
 %
 %       cents = transformAttributes(fHz, [], {'hz', 'cents'});
 %

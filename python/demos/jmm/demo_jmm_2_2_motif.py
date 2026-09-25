@@ -9,9 +9,9 @@ supply); the figures stay on screen unless SAVE_FIGURES is set.
 Analysis 2.2: data-driven motif discovery in Coltrane's *Acknowledgement*.
 
 The melody is read as one event per note carrying pitch. The recurring
-four-note cell is then recovered as a peak in the density of short
+four-note motif is then recovered as a peak in the density of short
 interval patterns, without being supplied in advance. Two routes reach
-the same transposition-invariant cell.
+the same transposition-invariant motif.
 
 Differenced route. Pitch is first-differenced to melodic intervals,
 collapsing every transposition of a figure onto the same interval
@@ -22,7 +22,7 @@ stated k times contributes k near-coincident points, so its interval
 triple stands out as a local maximum. Reading the density at every
 observed triple and ranking turns motif discovery into peak finding.
 
-Relative route. The same cell is reached without differencing, by
+Relative route. The same motif is reached without differencing, by
 binding four consecutive pitches into an ordered super-event taken
 relative: the common transposition is removed, so transposed statements
 again coincide, and three degrees of freedom remain — the dimension of
@@ -37,18 +37,18 @@ motifs identically, and differ only in that coupling: a faint shear in
 the relative density's slice, absent from the differenced one.
 
 A relative density is read in translation-reduced coordinates: an
-r-tuple minus its first value, so a cell's coordinates are its
-cumulative intervals. Both the cells and the slice grid are written that
+r-tuple minus its first value, so a super-event's coordinates are its
+cumulative intervals. Both the super-events and the slice grid are written that
 way for the relative route below.
 
 Pre-MAET structure::
 
-    attribute    order  sigma              rel  per
-    ----------   -----  -----------------  ---  ---
-    dp           3      sqrt(2) * 0.15 st  no   no     differenced route
-    pitch        4      0.15 st            yes  no     relative route
+    attribute    r      sigma                     rel  per
+    ----------   -----  ------------------------  ---  ---
+    dp           3      sqrt(2) * 0.15 semitones  no   no     differenced route
+    pitch        4      0.15 semitones            yes  no     relative route
 
-    Ordered (exch = 0) in both. Estimator: the density read at each cell.
+    Ordered (exch = 0) in both. Estimator: the density read at each super-event.
 
 Data: ``jmm_data.acknowledgement`` (the solo, from your own MIDI
 transcription at ``data/AwakeningSolo.mid``). Toolbox:
@@ -59,11 +59,12 @@ import os
 import numpy as np
 try:
     import matplotlib.pyplot as plt
+    plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19,
+                         'axes.labelsize': 17, 'xtick.labelsize': 15,
+                         'ytick.labelsize': 15, 'figure.titlesize': 22,
+                         'font.family': 'DejaVu Sans'})
 except ImportError:
     plt = None
-plt.rcParams.update({'font.size': 17, 'axes.titlesize': 19, 'axes.labelsize': 17,
-                     'xtick.labelsize': 15, 'ytick.labelsize': 15, 'figure.titlesize': 22,
-                     'font.family': 'DejaVu Sans'})
 
 import mpt
 _prev_defaults = mpt.set_default(show_hints=False)
@@ -78,24 +79,24 @@ SAVE_FIGURES = False
 FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
 
 SIGMA_PITCH = 0.15         # semitones (15 cents): the per-pitch uncertainty
-R_DIFF      = 3            # bound interval triples (a four-note cell)
-R_REL       = 4            # bound pitch quadruples (the same cell)
+R_DIFF      = 3            # bound interval triples (a four-note motif)
+R_REL       = 4            # bound pitch quadruples (the same motif)
 TOP         = 6            # motifs shown in the ranking
-ALS         = (3, -3, 5)   # +m3, -m3, +P4: the "A Love Supreme" cell
+ALS         = (3, -3, 5)   # +m3, -m3, +P4: the "A Love Supreme" motif
 
-C_ALS   = '#c25008'        # the recurring "A Love Supreme" cell
-C_OTHER = '#1f4eb8'        # the surrounding recurring cells
+C_ALS   = '#c25008'        # the recurring "A Love Supreme" motif
+C_OTHER = '#1f4eb8'        # the surrounding recurring motifs
 
 
 def contour(triple):
-    """A cell's interval triple as the scale degrees it traces from 0."""
+    """A motif's interval triple as the scale degrees it traces from 0."""
     return '→'.join(str(int(v)) for v in np.cumsum([0, *triple]))
 
 
 def rank(intervals, density):
-    """Group cells by their interval triple and rank the classes.
+    """Group super-events by their interval triple and rank the classes.
 
-    The density at a cell already equals the class's recurrence — every
+    The density at a super-event already equals its class's recurrence — every
     member of a class sits at the same point, so each sees all c copies.
     Summing over the members would square that, so the class mean is
     what recovers the count.
@@ -124,7 +125,7 @@ melody = pre_maet_from_attr_table(
 # pre-MAET already carries the interval width and build_maet needs no sigma.
 diff_route = bind_events(difference_events(melody, 1), R_DIFF, step=1)
 show_pre_maet(diff_route, max_events=3)
-cells_d = unpack_pre_maet(diff_route)[0][0]              # (3, nCells) intervals
+cells_d = unpack_pre_maet(diff_route)[0][0]              # 3 x n intervals, one per super-event
 dens_d = np.asarray(eval_maet(build_maet(diff_route, verbose=False),
                               cells_d, verbose=False))
 ranked_d = rank(cells_d.T, dens_d)
@@ -132,7 +133,7 @@ ranked_d = rank(cells_d.T, dens_d)
 # --- relative route: pitches bound into ordered relative quadruples -------
 rel_route = bind_events(melody, R_REL, step=1, rel_outer=True)
 show_pre_maet(rel_route, max_events=3)
-cells_r = unpack_pre_maet(rel_route)[0][0]               # (4, nCells) pitches
+cells_r = unpack_pre_maet(rel_route)[0][0]               # 4 x n pitches, one per super-event
 iv_r = np.diff(cells_r, axis=0)                          # its interval triples
 dens_r = np.asarray(eval_maet(build_maet(rel_route, verbose=False),
                               np.cumsum(iv_r, axis=0), verbose=False))
@@ -147,17 +148,17 @@ print(f'{"rank":>4}  {"interval class":>16}  {"count":>5}  '
       f'{"differenced":>11}  {"relative":>9}   contour')
 by_class = {k: d for k, _, d in ranked_r}
 for i, (k, c, d) in enumerate(ranked_d[:TOP], 1):
-    mark = '  <- A Love Supreme cell' if k == ALS else ''
+    mark = '  <- A Love Supreme motif' if k == ALS else ''
     print(f'{i:>4}  {str(k):>16}  {c:>5}  {d:>11.1f}  {by_class[k]:>9.1f}   '
           f'{contour(k)}{mark}')
 print(f'\ntop-{TOP + 2} interval-class set identical: '
       f'{set(k for k, _, _ in ranked_d[:TOP + 2]) == set(k for k, _, _ in ranked_r[:TOP + 2])}')
-print(f'A Love Supreme cell {ALS}: rank '
+print(f'A Love Supreme motif {ALS}: rank '
       f'{1 + [k for k, _, _ in ranked_d].index(ALS)} (differenced), rank '
       f'{1 + [k for k, _, _ in ranked_r].index(ALS)} (relative)')
 
 # --- the (+3, i2, i3) slice of each density -------------------------------
-# The plane of cells sharing the leading motif's first interval. The grid
+# The plane of super-events sharing the leading motif's first interval. The grid
 # is written as interval triples for the differenced route and as their
 # cumulative sums for the relative one.
 step = SIGMA_PITCH * np.sqrt(2.0) / 3.0

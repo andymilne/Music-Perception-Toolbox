@@ -869,3 +869,139 @@ def test_routes_agree_at_the_default_truncation():
     mix = sweep_sim_maet(dx, dy, off, method="mixture", verbose=False)
     orb = sweep_sim_maet(dx, dy, off, method="orbit", verbose=False)
     assert np.max(np.abs(mix - orb)) <= 1e-8
+
+
+def test_orbit_declines_absolute_nested_attribute():
+    """A nested attribute that is absolute at every level --- here a bound,
+    spectrally enriched pitch attribute, rel = (0, 0) --- must be declined by
+    the orbit route, and 'auto' must then carry the sweep on another route
+    (the contraction) and agree with translate-and-compare. The orbit route once took
+    it for a flat unordered attribute and returned 2.0 at the exact match."""
+    from mpt import add_spectra, bind_events, flat_specs, pack_pre_maet, \
+        translate_attributes, unpack_pre_maet
+    from mpt._tensor.sweep import orbit_sweep_supported
+    p = np.array([[56.0, 59.0, 56.0, 61.0, 58.0, 61.0, 58.0, 63.0]])
+    pm = pack_pre_maet([p], None, flat_specs([p], sigma=0.15, is_per=False,
+                                             period=0.0))
+    pm = add_spectra(pm, 'harmonic', 12, 'powerlaw', 0.67, attribute=0,
+                     units=12.0)
+    ctx = bind_events(pm, [4])
+    pc, wc, sc = unpack_pre_maet(ctx)
+    pq, wq = [pc[0][:, :1]], [np.asarray(wc[0])[:, :1]]
+    dx = build_maet(pc, wc, specs=sc, verbose=False)
+    dy = build_maet(pq, wq, specs=sc, verbose=False)
+    off = np.arange(-4.0, 4.01, 0.5)[None, :]
+    assert not orbit_sweep_supported(dx, dy, off)
+    got = np.asarray(sweep_sim_maet(dx, dy, off, normalize='oneSidedDenom',
+                                    verbose=False)).ravel()
+    ref = []
+    for mu in off.ravel():
+        pt = unpack_pre_maet(translate_attributes(pq, wq, [np.array([[mu]])],
+                                                  specs=sc))
+        ref.append(float(sim_maet(dx, build_maet(pt[0], pt[1], specs=pt[2],
+                                                 verbose=False),
+                                  normalize='oneSidedDenom', verbose=False)))
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-10)
+
+
+# -------------------------------------------------------------------
+#  Contraction route: densities with a nested attribute
+# -------------------------------------------------------------------
+
+
+def _spectral_pair(is_per=False, orders=(4, 1), exch=False, onset_shift=0.0,
+                 transpose=0.0):
+    """A bound, spectrally enriched pitch attribute (nested) with an onset
+    attribute; the query is events 2..5 of the context, transposed and
+    shifted as asked."""
+    from mpt import (add_spectra, bind_events, flat_specs, pack_pre_maet)
+    pitch = np.array([[60.0, 62.0, 64.0, 67.0, 64.0, 62.0, 60.0, 59.0, 57.0]])
+    onset = np.array([[0.0, 0.5, 1.5, 2.0, 3.0, 3.5, 4.0, 5.5, 6.0]])
+    per = dict(is_per=True, period=12.0) if is_per else dict(is_per=False,
+                                                             period=0.0)
+
+    def pm(p, t):
+        sp = flat_specs([p, t], sigma=[0.15, 0.125],
+                        is_per=[per['is_per'], False],
+                        period=[per['period'], 0.0])
+        x = pack_pre_maet([p, t], None, sp)
+        x = add_spectra(x, 'harmonic', 6, 'powerlaw', 0.67, attribute=0,
+                        units=12.0)
+        return bind_events(x, list(orders), rel_outer=[False, False],
+                           exch_outer=[exch, False])
+    ctx = pm(pitch, onset)
+    qry = pm(pitch[:, 2:6] + transpose, onset[:, 2:6] + onset_shift)
+    return ctx, qry
+
+
+def _per_offset(ctx, qry, off, normalize):
+    from mpt import translate_attributes, unpack_pre_maet
+    pc, wc, sc = unpack_pre_maet(ctx)
+    dx = build_maet(pc, wc, specs=sc, verbose=False)
+    out = []
+    for m in range(off.shape[1]):
+        pt = unpack_pre_maet(translate_attributes(
+            qry, [np.array([[off[a, m]]]) for a in range(off.shape[0])]))
+        out.append(float(sim_maet(dx, build_maet(pt[0], pt[1], specs=pt[2],
+                                                 verbose=False),
+                                  normalize=normalize, verbose=False)))
+    return np.array(out)
+
+
+def _dens(pm):
+    from mpt import unpack_pre_maet
+    p, w, s = unpack_pre_maet(pm)
+    return build_maet(p, w, specs=s, verbose=False)
+
+
+@pytest.mark.parametrize("normalize", ["oneSidedDenom", "cosine"])
+@pytest.mark.parametrize("is_per", [False, True])
+@pytest.mark.parametrize("exch", [False, True])
+def test_contract_route_sweeps_a_nested_attribute(normalize, is_per, exch):
+    """Translating the nested pitch attribute: the contraction route agrees
+    with translate-and-compare, ordered or exchangeable, periodic or not,
+    with the onset attribute compared alongside."""
+    from mpt._tensor.sweep import contract_sweep_supported
+    orders = (3, 1) if exch else (4, 1)
+    ctx, qry = _spectral_pair(is_per, orders, exch, transpose=-2.0)
+    dx, dy = _dens(ctx), _dens(qry)
+    mu = np.arange(-4.0, 6.01, 0.25)
+    off = np.vstack([mu, np.zeros_like(mu)])
+    assert contract_sweep_supported(dx, dy, off)
+    got = sweep_sim_maet(dx, dy, off, method='contract', normalize=normalize,
+                         verbose=False)
+    ref = _per_offset(ctx, qry, off, normalize)
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-12)
+    assert mu[np.argmax(got)] == 2.0
+    auto = sweep_sim_maet(dx, dy, off, normalize=normalize, verbose=False)
+    np.testing.assert_array_equal(auto, got)
+
+
+@pytest.mark.parametrize("orders", [(4, 1), (4, 4)])
+def test_contract_route_sweeps_a_flat_attribute_beside_a_nested_one(orders):
+    """Translating the flat onset attribute (r = 1, or bound at order 4 with
+    one element per event, which builds flat and ordered) while the nested
+    pitch attribute is fixed."""
+    ctx, qry = _spectral_pair(orders=orders, onset_shift=1.5)
+    dx, dy = _dens(ctx), _dens(qry)
+    mu = np.arange(-3.0, 1.01, 0.25)
+    off = np.vstack([np.zeros_like(mu), mu])
+    got = sweep_sim_maet(dx, dy, off, method='contract',
+                         normalize='oneSidedDenom', verbose=False)
+    ref = _per_offset(ctx, qry, off, 'oneSidedDenom')
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-12)
+    assert mu[np.argmax(got)] == -1.5
+
+
+def test_contract_route_refusals():
+    from mpt._tensor.sweep import contract_sweep_supported
+    ctx, qry = _spectral_pair()
+    dx, dy = _dens(ctx), _dens(qry)
+    off = np.vstack([np.arange(3.0), np.zeros(3)])
+    flat = build_maet([np.array([[0.0, 1.0]])], None, [0.1], [1], [0], [0],
+                      [0.0], verbose=False)
+    assert not contract_sweep_supported(flat, flat, np.arange(3.0)[None, :])
+    with pytest.raises(ValueError, match="contraction route"):
+        sweep_sim_maet(flat, flat, np.arange(3.0)[None, :],
+                       method='contract', verbose=False)
+    assert contract_sweep_supported(dx, dy, off)

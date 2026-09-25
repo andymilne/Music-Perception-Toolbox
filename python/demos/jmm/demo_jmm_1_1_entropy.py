@@ -10,24 +10,30 @@ content most and least concentrated? A cadence resolves onto a triad
 whose partials cohere, so the spectral pitch density there is peaked and
 its differential entropy low; passing sonorities between cadences spread
 the density and raise the entropy. Read at every grid point and grouped
-by metric class, the profile also shows the on-beat / off-beat contrast
-that the Online Supplement tests across a corpus of chorales.
+by metric class, the profile tests the article's prediction that
+spectral entropy (a model for dissonance) is on average higher at times
+of lower metrical weight.
 
 How it is computed. The chorale is gridded (``grid_attr_table``) and
 converted to a two-attribute pre-MAET (pitch, time) in one call
 (``pre_maet_from_attr_table``): each grid point is an event holding its
-chord as an unordered pitch multiset in cents, alongside the point's own
-time. Every chord is then spectrally augmented (``add_spectra`` on that
-attribute: twelve harmonics, partial h weighted h^-0.67), so the pitch
-attribute carries 48 partials per event. ``windowed_entropy`` sweeps a
-window along the time attribute: at each centre the events are
-reweighted by the window (``weight_events`` under the hood, the window
-factor multiplied into the pitch weights), the time axis is dropped, and
+chord as an unordered pitch multiset in MIDI semitones (sigma = 0.1),
+alongside the point's own time. Every chord is then spectrally enriched
+(``add_spectra`` on that attribute: twelve harmonics, partial h at
+p + 12 log2 h semitones weighted h^-0.67), so the pitch attribute carries
+48 partials per event. ``windowed_entropy`` sweeps a window along the
+time attribute: at each centre the events are reweighted by the window
+(event weighting, as ``weight_events`` does, the window factor
+multiplied into the pitch weights), the time attribute is dropped, and
 the differential entropy of the remaining pitch density is returned
 (``method='differential'``: adaptive grid with Richardson extrapolation,
-in bits). Two windows are compared: a tight rectangle of one sixteenth
-note (one event per window, so the profile is the per-event entropy) and
-a Gaussian of one quarter note.
+in bits, with pitch in semitones). Two windows are compared: a tight
+rectangle of one sixteenth note (one event per window, so the profile is
+the per-event entropy) and a Gaussian of standard deviation one quarter
+note. The metric-class panels give each class's mean over its grid
+points; their error bars are cluster-robust standard errors with the
+sonority as the cluster, so that the grid points of a chord held across
+several of them are not treated as independent observations.
 
 Data: ``jmm_data.bwv347_notes`` (the bundled MusicXML read with
 ``read_score``, repeats expanded). Toolbox: ``grid_attr_table``,
@@ -58,16 +64,16 @@ from jmm_data import GRID_STEP_QN, bwv347_notes
 # ---------------------------------------------------------------------------
 # Parameters
 # ---------------------------------------------------------------------------
-SIGMA_PITCH = 10.0          # cents
+SIGMA_PITCH = 0.1           # semitones (10 cents)
 H_PARTIALS = 12
 ROLLOFF = 0.67             # partial h weighted h^-0.67 (Milne et al. 2015)
 SPECTRUM = ['harmonic', H_PARTIALS, 'powerlaw', ROLLOFF]
 
-# Window specifications for weight_events. Each window is specified through
-# one of two interchangeable name-value arguments: `sd` (the window's
-# standard deviation) or `width` (the full support of the rectangle at
-# shape = 1). Across the shape family the SD is held constant regardless of
-# which parameter the caller supplies.
+# Window specifications, as weight_events and windowed_entropy take them.
+# Each window is specified through one of two interchangeable parameters:
+# `sd` (the window's standard deviation) or `width` (the full support of
+# the rectangle at shape = 1). Across the shape family the standard
+# deviation is held constant whichever parameter is supplied.
 WINDOWS = [
     {'kind': 'width', 'value': 0.25,  # rect: full support 0.25 QN
      'shape': 1.0,
@@ -79,22 +85,27 @@ WINDOWS = [
 
 
 # ---------------------------------------------------------------------------
-# Load chorale, spectrally expand partials
+# Load chorale, spectral enrichment
 # ---------------------------------------------------------------------------
-print('Loading BWV 347 and expanding partials...')
+print('Loading BWV 347 and enriching it spectrally...')
 # The chorale on the sixteenth-note grid, converted to a two-attribute
-# pre-MAET: the grid point's chord as the pitch attribute, read in cents
-# as an unordered multiset, and the grid point's own time as the axis the
-# window will slide along. Each chord's four pitches then take their
-# partials, which multiplies the pitch attribute's K by twelve and leaves
-# the events alone.
+# pre-MAET: the grid point's chord as the pitch attribute, read in MIDI
+# semitones as an unordered multiset, and the grid point's own time as the
+# attribute the window will slide along. Each chord's four pitches then take
+# their partials (units=12: twelve units to the octave), which multiplies
+# the pitch attribute's K by twelve and leaves the events alone.
 grid = mpt.grid_attr_table(bwv347_notes(), GRID_STEP_QN)
 pm = mpt.pre_maet_from_attr_table(
     grid,
     attributes=(dict(column='pitch', sigma=SIGMA_PITCH, r=1, exch=True),
                 dict(column='onset', name='time', sigma=1.0)),
-    time='beats', pitch='cents', weights='ones')
-pm = add_spectra(pm, *SPECTRUM, attribute='pitch')
+    time='beats', pitch='midi', weights='ones')
+# Each grid point's chord (its pitches sorted), read before enrichment: a
+# run of consecutive grid points holding the same chord is one sonority.
+chords = np.sort(mpt.unpack_pre_maet(pm)[0][0], axis=0)
+new_chord = np.any(chords[:, 1:] != chords[:, :-1], axis=0)
+sonority = np.concatenate([[0], np.cumsum(new_chord)])
+pm = add_spectra(pm, *SPECTRUM, attribute='pitch', units=12.0)
 
 times = mpt.unpack_pre_maet(pm)[0][1][0]
 N = len(times)
@@ -115,26 +126,21 @@ print(f'Computing windowed differential entropy at {n_sweep} sweep centres '
 H = {wi: np.zeros(n_sweep) for wi in range(len(WINDOWS))}
 
 # Each window is a single windowed_entropy sweep over all centres. The
-# time axis (attribute 1) supplies the window and is dropped from the
-# entropy density (drop_window_attr=True; for an r = 1 absolute axis,
-# dropping the axis equals marginalising it out), leaving the pitch
-# density whose differential entropy is returned. The
-# window width is the rectangular full support; a Gaussian window given by
-# its standard deviation s maps to the variance-matched width 2*sqrt(3)*s.
-# (The placeholder time sigma is unused: the time axis is dropped
-# before any density is built.)
-RT3 = 2.0 * np.sqrt(3.0)
+# time attribute (attribute 1) is the window attribute: it supplies the
+# window and is dropped from the entropy density (drop={1: True}; for an
+# r = 1 absolute attribute, dropping it equals marginalizing it out),
+# leaving the pitch density whose differential entropy is returned. The
+# window is given as the specification above, by its width or by its
+# standard deviation. (The placeholder time sigma is unused: the time
+# attribute is dropped before any density is built.)
 t0 = _time.time()
 for wi, window in enumerate(WINDOWS):
     print(f'Window {wi + 1}/{len(WINDOWS)}: {window["label"]}')
-    width = window['value'] if window['kind'] == 'width' else window['value'] * RT3
     H[wi] = windowed_entropy(
-        pm, sweep_centres,
-        context_window=(window['shape'], width),
-        method='differential',
-        window_attr=1, drop_window_attr=True,
-        verbose=False,
-    )
+        pm, sweep={1: sweep_centres}, drop={1: True},
+        context_window={1: {'shape': window['shape'],
+                            window['kind']: window['value']}},
+        method='differential', verbose=False)
     print(f'  done ({_time.time() - t0:.0f}s elapsed)')
 
 for wi, window in enumerate(WINDOWS):
@@ -168,6 +174,34 @@ classes_per_event = np.array([metric_class(t) for t in times])
 class_names = ['downbeat', 'medium', 'weak', 'offbeat']
 class_labels = ['down\n(b1)', 'med\n(b3)', 'weak\n(b2,4)', 'off-\nbeat']
 class_colours = ['#1f4eb8', '#5a8acb', '#a8b7d6', '#cccccc']
+
+
+def class_stats(h, mask):
+    """Mean of h over the grid points of one metric class, with its
+    cluster-robust standard error (CR1), the sonority being the cluster:
+    the residuals of the grid points holding one sonority are summed
+    before squaring, so that a chord held across grid points is not
+    counted as independent observations. With one grid point per
+    sonority this is the ordinary standard error of the mean."""
+    x = h[mask]
+    _, g = np.unique(sonority[mask], return_inverse=True)
+    n_clusters = int(g.max()) + 1
+    if n_clusters < 2:
+        return x.mean(), 0.0, n_clusters
+    score = np.bincount(g, weights=x - x.mean())
+    se = np.sqrt(n_clusters / (n_clusters - 1) * np.sum(score ** 2)) / x.size
+    return x.mean(), se, n_clusters
+
+
+print('Mean differential entropy (bits) by metric class, '
+      '+/- cluster-robust SE (number of sonorities):')
+stats = {}
+for wi, window in enumerate(WINDOWS):
+    print(f'  {window["label"]}')
+    for cls in class_names:
+        stats[wi, cls] = class_stats(H[wi], classes_per_event == cls)
+        m, se, n = stats[wi, cls]
+        print(f'    {cls:9s} {m:.4f} +/- {se:.4f} ({n})')
 
 
 if plt is None:
@@ -234,13 +268,9 @@ for wi, window in enumerate(WINDOWS):
                     color='#c25008', fontsize=14, ha='center', va='bottom',
                     fontweight='bold')
 
-    # Bar panel: metric-class means +/- SE
-    means, sems = [], []
-    for cls in class_names:
-        mask = (classes_per_event == cls)
-        n = int(mask.sum())
-        means.append(H_row[mask].mean())
-        sems.append(H_row[mask].std(ddof=1) / np.sqrt(n) if n > 1 else 0.0)
+    # Bar panel: metric-class means +/- cluster-robust SE
+    means = [stats[wi, cls][0] for cls in class_names]
+    sems = [stats[wi, cls][1] for cls in class_names]
     positions = np.arange(len(class_names))
     ax_bar.bar(positions, means, yerr=sems, color=class_colours,
                edgecolor='black', linewidth=0.7, capsize=4)
@@ -256,7 +286,7 @@ for wi, window in enumerate(WINDOWS):
         ax_bar.set_title('By metric class', fontsize=19)
 
 fig.suptitle(f'BWV 347 windowed differential pitch entropy '
-             f'($\\sigma_{{pitch}}$ = {SIGMA_PITCH:.0f} cents, '
+             f'($\\sigma_{{pitch}}$ = {SIGMA_PITCH:g} semitones, '
              f'harmonic × {H_PARTIALS}, weight $h^{{-{ROLLOFF}}}$)',
              fontsize=20, y=0.995)
 if SAVE_FIGURES:

@@ -4,9 +4,8 @@
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article; lightly edited from the article's own script. Data come
-% from the jmm package (BWV 347 read from the bundled MusicXML) or
-% jmm.pianoPhase (the rendered Piano Phase voices); the figures stay on screen unless
-% SAVE_FIGURES is set.
+% from jmm.pianoPhase (the rendered Piano Phase voices); the figures stay
+% on screen unless SAVE_FIGURES is set.
 %
 % Analysis 3.2: joint differencing on pitch and time in Reich's Piano Phase.
 %
@@ -22,7 +21,7 @@
 %
 %   * sigma_t = 6 ms --- the just-noticeable difference for inter-onset
 %     intervals in an isochronous sequence (Friberg & Sundberg 1995). The
-%     accelerandi shift the IOI over a 135.4-137.8 ms range (a 2.4 ms
+%     accelerandi shift the IOI over a 135.5-137.9 ms range (a 2.4 ms
 %     excursion, below the JND), so at this width the (dp, dt) fingerprint
 %     is indistinguishable everywhere and the entropy is flat while the
 %     phase staircase climbs 0 -> 12 pulses --- the foil that motivates
@@ -33,7 +32,7 @@
 %     fluctuates strongly, rising where Piano 2's tempo is modulating (the
 %     accelerandi by which it advances its phase). This is voice 2's own
 %     tempo change becoming visible, not the inter-voice phase (which
-%     single-voice differencing quotients out).
+%     single-voice differencing removes).
 %
 % Plotting both on a shared scale shows that matching sigma_t to the
 % perceptual JND is what aligns the analysis with what a listener hears.
@@ -44,7 +43,7 @@
 %     ---------   -----  ---------------  -----  -----
 %     dp          1      0.5 semitone     no     no
 %     dt          1      6 ms / 0.1 ms    no     no
-%     abs onset   0      --- (window axis, deleted after weighting)
+%     abs onset   0      --- (window attribute, removed after windowing)
 %
 %     r = (1, 1); estimator: windowed Renyi-2 (Gaussian window, s.d. 6 s).
 %
@@ -84,14 +83,14 @@ C_FINE = [0.557 0.184 0.620];   % purple --- sub-JND (super-human) line
 % --- joint differencing of the phasing voice --------------------------------
 % The phasing voice as an attribute table, converted to three attributes:
 % its pitch, its onset, and a second reading of the same onset column,
-% which the differencing leaves alone to serve as the windowing axis.
+% which the differencing leaves alone to serve as the window attribute.
 voice = preMaetFromAttrTable(pe.voice2Table, 'attributes', { ...
     struct('column', 'pitch', 'name', 'dp', 'sigma', SIGMA_DP), ...
     struct('column', 'onset', 'name', 'dt', 'sigma', SIGMA_JND), ...
     struct('column', 'onset', 'name', 't', 'sigma', 1.0)}, ...
     'time', 'seconds', 'chords', 'separate', 'weights', 'ones');
 % Per-attribute difference orders: pitch and onset first-differenced, the
-% third (onset copy) passed through at order 0 as the windowing axis.
+% third (onset copy) passed through at order 0 as the window attribute.
 diffPm = differenceEvents(voice, [1 1 0]);
 [pd, ~, ~] = unpackPreMaet(diffPm);
 dp = pd{1}(:).'; dt = pd{2}(:).'; tAbs = pd{3}(:).';
@@ -124,12 +123,12 @@ phaseAt = pe.lagAt(centres / (pe.nc * IOI));     % continuous lag
 
 % Windowed (dp, dt) Renyi-2 entropy at each sweep centre. A single
 % windowedEntropy sweep: a Gaussian window (shape 0) on the absolute-onset
-% axis (attribute 3) modulates the event weights, and that onset axis is
+% attribute (attribute 3) modulates the event weights, and that onset attribute is
 % dropped from the entropy density ('dropWindowAttr', true), leaving the
 % two-attribute (dp, dt) density whose Renyi-2 entropy is returned. The
 % window standard deviation WINDOW_SD maps to the variance-matched
 % rectangular width 2*sqrt(3)*sd. (The placeholder onset sigma is unused:
-% that axis is dropped.)
+% that attribute is dropped.)
 sweep = @(sig) windowedEntropy( ...
     diffPm, centres, 'sigma', [SIGMA_DP, sig, 1.0], ...
     'contextWindow', {0.0, WINDOW_SD * 2.0 * sqrt(3.0)}, ...

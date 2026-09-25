@@ -1,9 +1,9 @@
-"""Tests for the multi-axis (``sweep``/``drop``/``locate``) form of
+"""Tests for the multi-window-attribute (``sweep``/``drop``/``locate``) form of
 ``windowed_similarity`` and ``windowed_entropy``.
 
-The central check pins the new core against the trusted single-axis form on a
+The central check pins the new core against the trusted one-window-attribute form on a
 K = 1 triple, where the two must agree exactly; the rest cover the genuinely
-new surface (the several-axes map, the ``locate`` reduction, and the guards).
+new form (the several-attribute map, the ``locate`` reduction, and the guards).
 """
 
 import numpy as np
@@ -32,8 +32,9 @@ def query():
 @pytest.mark.parametrize("dropflag", [True, False])
 @pytest.mark.parametrize("normalize", ["oneSidedDenom", "cosine"])
 def test_multi_one_axis_matches_single_axis(flat_triple, query, dropflag, normalize):
-    """On a K=1 axis the centroid reduces to the value, so the multi-axis
-    form must reproduce the single-axis form exactly."""
+    """On an attribute with one element per event the centroid reduces to
+    the value, so the multi-window-attribute form must reproduce the
+    one-window-attribute form exactly."""
     p_attr, centres = flat_triple
     single = windowed_similarity(
         p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
@@ -98,8 +99,8 @@ def test_locate_start_vs_centroid_shift():
 
 
 def test_locate_map_names_the_axes_separately():
-    """A per-axis locate map picks each swept axis's rule, an axis the map
-    does not name taking 'centroid' (MATLAB: the {axis, rule; ...} cell)."""
+    """A per-attribute locate map picks each window attribute's rule, an attribute the map
+    does not name taking 'centroid' (MATLAB: the {a, rule; ...} cell)."""
     pat_p = np.array([60., 63., 60., 65.])
     pat_t = np.array([0., 0.5, 1.5, 2.0])
     pp = np.concatenate([pat_p, pat_p + 5.0]).reshape(1, 8)
@@ -152,7 +153,8 @@ def test_target_cannot_be_dropped(flat_triple, query):
 
 
 def test_entropy_multi_matches_single_axis(flat_triple):
-    """windowed_entropy multi form matches the single-axis form on a K=1 axis."""
+    """windowed_entropy multi form matches the one-window-attribute form on
+    an attribute with one element per event."""
     p_attr, centres = flat_triple
     W = 2.0 * np.sqrt(3.0)
     single = windowed_entropy(

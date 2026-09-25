@@ -9,9 +9,9 @@ function T = ungridAttrTable(G)
 %
 %   Which columns those are is the toolbox's business rather than the
 %   caller's, and it is not a fixed list: the grid ADDS weight to a table
-%   that had none and OVERWRITES the weight of one that did, so a caller
-%   comparing the two tables' columns would keep a weight whose values
-%   are no longer the note's but the slice's.
+%   that had none and FOLDS the weight of one that did into a per-slice
+%   one, so a caller comparing the two tables' columns would keep a
+%   weight whose values are no longer the note's but the slice's.
 %
 %   Three things do not come back. A note that 'limits' cut out of the
 %   grid's span is gone, which is a truncation the caller asked for. The

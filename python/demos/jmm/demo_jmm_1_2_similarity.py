@@ -16,7 +16,7 @@ voice information, each embodying a different answer, across the
 pitch–pitch-class continuum of Shepard's helix stretched or compressed.
 
 How it is computed. Every pitch is routed through two attributes at
-once: a periodic pitch-class attribute (sigma_pc = 50 cents, P = 1200)
+once: a periodic pitch-class attribute (sigma_pc = 0.5, P = 12 semitones)
 and a non-periodic pitch-height attribute whose width sigma_ph is swept
 from one semitone to several octaves — narrow, and pitches must agree
 in octave to count as similar; wide, and pitch-class equivalence
@@ -42,7 +42,8 @@ attributes alone) and one ``build_maet``, whose ``sigma`` override
 carries the sweep; the six pair similarities come from one batched
 ``sim_maet`` call on density lists (mode='pairwise').
 
-An appendix figure (``--heatmaps``) extends the same three encodings to
+An optional extra figure, not in the article (``--heatmaps``), extends
+the same three encodings to
 every event of the chorale: N x N cosine-similarity matrices over the
 272 sixteenth-note grid points, one ``sim_maet`` call in
 mode='cartesian' per encoding, at three pitch-height widths.
@@ -58,8 +59,6 @@ import sys
 
 import numpy as np
 try:
-    import matplotlib
-    matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
@@ -77,12 +76,12 @@ from jmm_data import bwv347_notes, GRID_STEP_QN
 
 
 # ---------------------------------------------------------------------------
-# Parameters (cents; the article's tables quote the same values in semitones)
+# Parameters (semitones, as in the article's tables)
 # ---------------------------------------------------------------------------
-SIGMA_PC = 50.0
+SIGMA_PC = 0.5
 SIGMA_VOICE = 0.2
-SIGMA_PHS = np.logspace(np.log10(100), np.log10(8000), 50)
-SIGMA_PH_SNAPSHOTS = [200.0, 600.0, 3000.0]      # heat-map widths
+SIGMA_PHS = np.logspace(np.log10(1), np.log10(80), 50)
+SIGMA_PH_SNAPSHOTS = [2.0, 6.0, 30.0]      # heat-map widths
 
 
 # ---------------------------------------------------------------------------
@@ -116,12 +115,12 @@ PAIR_COLOURS = ['#1f4eb8', '#2b8a3e', '#c25008', '#b03060', '#666666', '#aaaaaa'
 # ---------------------------------------------------------------------------
 # One conversion each, from the same gridded table and the same attributes.
 # Every pitch is routed through two attributes of the one pitch column, read
-# in cents: a periodic pitch-class attribute and a non-periodic pitch-height
+# in MIDI semitones: a periodic pitch-class attribute and a non-periodic pitch-height
 # attribute. The onset attribute locates a chord in the piece and is dropped
 # before any density is built, so its width never enters; the pitch-height
 # width is the sweep's, which build_maet overrides per call.
 ATTRIBUTES = (dict(column='pitch', name='pitchClass', sigma=SIGMA_PC,
-                   is_per=True, period=1200.0),
+                   is_per=True, period=12.0),
               dict(column='pitch', name='pitchHeight', sigma=SIGMA_PHS[0]),
               dict(column='onset', sigma=1.0))
 
@@ -140,17 +139,17 @@ VOICE = dict(role='simplex', sigma=SIGMA_VOICE)
 ENCODINGS = [
     ('Voice-aware encoding',
      mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
-                                  pitch='cents', weights='ones',
+                                  pitch='midi', weights='ones',
                                   roles={'part': 'ordered_multiset'}),
      lambda sph: [SIGMA_PC, sph]),
     (f'Simplex-voice encoding (σ$_{{voice}}$ = {SIGMA_VOICE})',
      mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
-                                  pitch='cents', weights='ones',
+                                  pitch='midi', weights='ones',
                                   chords='separate', roles={'part': VOICE}),
      lambda sph: [SIGMA_PC, sph, SIGMA_VOICE]),
     ('Voice-agnostic encoding',
      mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
-                                  pitch='cents', weights='ones',
+                                  pitch='midi', weights='ones',
                                   chords='separate'),
      lambda sph: [SIGMA_PC, sph]),
 ]
@@ -213,9 +212,9 @@ for sp_idx, sigma_ph in enumerate(SIGMA_PHS):
 def report_sweep(sims):
     def at(sigma):
         return int(np.argmin(np.abs(SIGMA_PHS - sigma)))
-    cols = [100.0, 1200.0, 8000.0]
+    cols = [1.0, 12.0, 80.0]
     print('cosine similarity at σ_ph = ' + ', '.join(f'{c:g}' for c in cols)
-          + ' cents (σ_pc = 50 cents):')
+          + ' semitones (σ_pc = 0.5 semitones):')
     for b_idx, (title, _, _) in enumerate(ENCODINGS):
         print(f'  {title.split(" (")[0]}')
         for p_idx, (label, _, _) in enumerate(REFERENCE_PAIRS):
@@ -231,7 +230,7 @@ def plot_sweep(sims):
         ax.set_xscale('log')
         ax.set_xlim(SIGMA_PHS[0], SIGMA_PHS[-1])
         ax.set_ylim(-0.02, 1.02)
-        ax.set_xlabel('σ$_{ph}$ (cents)', fontsize=21)
+        ax.set_xlabel('σ$_{ph}$ (semitones)', fontsize=21)
         ax.set_title(title, fontsize=23)
         ax.tick_params(labelsize=18)
         ax.grid(True, alpha=0.3)
@@ -240,7 +239,7 @@ def plot_sweep(sims):
     axes[0].set_ylabel('cosine similarity', fontsize=21)
     axes[0].legend(loc='lower right', fontsize=13, framealpha=0.0)
     fig.suptitle(f'BWV 347 chord-pair similarity vs σ$_{{ph}}$ '
-                 f'(σ$_{{pc}}$ = {SIGMA_PC:g} cents fixed)', fontsize=27, y=0.995)
+                 f'(σ$_{{pc}}$ = {SIGMA_PC:g} semitones fixed)', fontsize=27, y=0.995)
     fig.tight_layout()
     if SAVE_FIGURES:
         os.makedirs(FIG_DIR, exist_ok=True)
@@ -260,7 +259,7 @@ if plt is not None:
 
 
 # ---------------------------------------------------------------------------
-# Appendix: N x N event-pair heat maps
+# Optional extra figure: N x N event-pair heat maps
 # ---------------------------------------------------------------------------
 #: {(sigma_ph, encoding index): (N, N) cosine-similarity matrix}, built
 #: only when the demo is run with --heatmaps.
@@ -294,9 +293,9 @@ def plot_heatmaps(maps):
             im = ax.imshow(S, cmap='magma', vmin=0, vmax=1, origin='lower',
                            aspect='equal')
             if row == 0:
-                ax.set_title(f'{title}\n(σ$_{{ph}}$ = {sigma_ph:g} cents)', fontsize=21)
+                ax.set_title(f'{title}\n(σ$_{{ph}}$ = {sigma_ph:g} semitones)', fontsize=21)
             else:
-                ax.set_title(f'σ$_{{ph}}$ = {sigma_ph:g} cents', fontsize=21)
+                ax.set_title(f'σ$_{{ph}}$ = {sigma_ph:g} semitones', fontsize=21)
             for _, i, j, colour in ref:
                 for (x, y) in ((j, i), (i, j)):
                     ax.plot(x, y, marker='s', color=colour, markersize=12,
@@ -318,7 +317,7 @@ def plot_heatmaps(maps):
     cbar.ax.tick_params(labelsize=16)
     fig.suptitle(f'BWV 347 $N \\times N$ event similarity heat maps '
                  f'(N = {N} at $\\Delta = {GRID_STEP_QN:g}$ QN; '
-                 f'σ$_{{pc}}$ = {SIGMA_PC:g} cents fixed).\n'
+                 f'σ$_{{pc}}$ = {SIGMA_PC:g} semitones fixed).\n'
                  f'Rows: σ$_{{ph}}$ snapshots. Columns: encodings.', fontsize=24)
     if SAVE_FIGURES:
         os.makedirs(FIG_DIR, exist_ok=True)

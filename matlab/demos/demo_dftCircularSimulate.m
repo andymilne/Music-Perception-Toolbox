@@ -1,6 +1,6 @@
 %% demo_dftCircularSimulate.m
 %
-%  Soft (sigma > 0) and Monte Carlo extensions of the Argand-DFT
+%  Soft (sigma > 0) and Monte Carlo (MC) extensions of the Argand-DFT
 %  measures of rhythm structure (balance, evenness, projCentroid).
 %
 %  Features demonstrated:
@@ -13,7 +13,7 @@
 %      smoothing damping (alpha_1 factor); no Monte Carlo needed for
 %      the projection because it is linear in F(0).
 %
-%  The deterministic dftCircular function is unchanged.
+%  The Python mirror is demo_dft_circular_simulate.py.
 
 clear; close all;
 
@@ -38,9 +38,11 @@ fprintf('  deterministic values are recovered exactly and SD = 0.\n');
 
 fprintf('\n=== Augmented triad: deterministically balanced (F(0) = 0) ===\n');
 fprintf('Under jitter, |F(0)| picks up a positive bias from the underlying\n');
-fprintf('Rayleigh distribution (sum of two independent N(0, V) components).\n');
-fprintf('%6s %10s %20s\n', 'sigma', 'b', 'closed-form mean');
-fprintf('  %s\n', repmat('-', 1, 36));
+fprintf('Rayleigh distribution (the magnitude of a vector whose two components\n');
+fprintf('are independent N(0, V)). Balance b is 1 - |F(0)|, so the MC estimate\n');
+fprintf('of E[|F(0)|] is 1 - b.\n');
+fprintf('%6s %10s %12s %12s\n', 'sigma', 'b', 'MC E|F(0)|', 'closed form');
+fprintf('  %s\n', repmat('-', 1, 44));
 period = 1200;
 K = 3;
 for s = [0, 10, 25, 50, 100]
@@ -53,10 +55,10 @@ for s = [0, 10, 25, 50, 100]
         alpha1 = exp(-2 * pi^2 * s^2 / period^2);
         closedForm = sqrt((1 - alpha1^2) * pi / (4 * K));
     end
-    fprintf('%6g %10.4f %20.4f\n', s, b, closedForm);
+    fprintf('%6g %10.4f %12.4f %12.4f\n', s, b, mc_mag, closedForm);
 end
-fprintf('  MC estimate of E[|F(0)|] tracks the closed-form Rayleigh mean\n');
-fprintf('  sqrt((1 - alpha_1^2) * pi / (4K)) very accurately.\n');
+fprintf('  The MC estimate of E[|F(0)|] tracks the closed-form Rayleigh mean\n');
+fprintf('  sqrt((1 - alpha_1^2) * pi / (4K)) closely.\n');
 
 
 % ===== 3. Full DFT distribution via dftCircularSimulate =====
@@ -82,9 +84,11 @@ for k = 1:numel(clave)
     fprintf('  %3d %12.4f %12.4f %12.4f %s\n', ...
         k - 1, magDet(k), m(k), s(k), cvStr);
 end
-fprintf('  Note that low-order coefficients (k = 1: evenness) have the\n');
-fprintf('  smallest CV under jitter -- Milne & Herff (2020) Fig 13 reports\n');
-fprintf('  this is the most jitter-robust of the magnitudes.\n');
+fprintf('  CV is the coefficient of variation, SD / mean. Here k = 1 (evenness)\n');
+fprintf('  has by far the smallest CV. Averaged over many rhythms, Milne & Herff\n');
+fprintf('  (2020, Fig. 13) find k = 1 the most jitter-robust magnitude, followed\n');
+fprintf('  by k = 0 (balance) and k = 2; for a single, nearly balanced rhythm\n');
+fprintf('  such as this one, the near-zero |F(0)| has a large CV.\n');
 
 
 % ===== 4. projCentroid with analytical sigma damping =====

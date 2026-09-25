@@ -94,7 +94,7 @@ function varargout = mptDefaults(varargin)
 %   Examples:
 %
 %     mptDefaults                                   % see current values
-%     mptDefaults('truncationSigmas', Inf)          % exact (untruncated)
+%     mptDefaults('truncationSigmas', Inf)          % the accuracy floor (1e-12)
 %     mptDefaults('truncationSigmas', Inf, ...
 %                 'kernelPrecision', 'single')      % both at once
 %     prev = mptDefaults('kernelPrecision', 'single');
@@ -217,7 +217,8 @@ function printSummary(S)
     fprintf('\nCurrent MPT defaults:\n\n');
     fprintf('  truncationSigmas: %-12s  Gaussian kernel truncation radius, in sigmas.\n', ...
             num2str(S.truncationSigmas));
-    fprintf('                                  Inf = exact; larger is more accurate, slower.\n');
+    fprintf('                                  Inf = the accuracy floor (~7.43, 1e-12);\n');
+    fprintf('                                  larger is more accurate, slower.\n');
     fprintf('                                  Relative error exp(-k^2/2): 4 -> 3.4e-4,\n');
     fprintf('                                  5 -> 3.7e-6, 6 (default) -> 1.5e-8.\n');
     fprintf('  kernelPrecision : %-12s  Kernel-matrix arithmetic precision.\n', ...
@@ -252,7 +253,7 @@ function S = setOne(S, name, value)
         case 'truncationsigmas'
             if ~(isnumeric(value) && isscalar(value) && value > 0)
                 error('mptDefaults:badValue', ...
-                    '''truncationSigmas'' must be a positive scalar (Inf to disable).');
+                    '''truncationSigmas'' must be a positive scalar (Inf for the accuracy floor).');
             end
             S.truncationSigmas = double(value);
         case 'kernelprecision'

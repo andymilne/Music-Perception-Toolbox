@@ -64,8 +64,6 @@ import numpy as np
 
 import mpt
 try:
-    import matplotlib
-    matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
@@ -102,9 +100,9 @@ RS = (1, 2, 3)
 # pitch content — the inversion flag is the only difference.
 # ---------------------------------------------------------------------------
 QUERIES = OrderedDict([
-    ('ii7-V7-I',   dict(chords=([62, 65, 69, 72], [55, 59, 62, 65],
+    ('ii7-V7-I',   dict(chords=([62, 65, 69, 72], [62, 65, 67, 71],
                                 [60, 64, 67]), flagged=False)),
-    ('iio7-V7-i',  dict(chords=([62, 65, 68, 72], [55, 59, 62, 65],
+    ('iio7-V7-i',  dict(chords=([62, 65, 68, 72], [62, 65, 67, 71],
                                 [60, 63, 67]), flagged=False)),
     ('I-V-I',      dict(chords=([60, 64, 67], [62, 67, 71],
                                 [60, 64, 67]), flagged=False)),
@@ -128,12 +126,13 @@ def _prototype_query(spec, r_inner):
                  r_inner=r_inner)
 
 
-def _window_starts(lead):
-    """The window start times the sweep visits, and the MUS positions they
-    belong to: a window of L beats resolving at mu starts lead beats before
-    it, and must lie inside the piece."""
-    keep = [(k, mu - lead) for k, mu in enumerate(MUS)
-            if mu - lead >= T0 - 1e-9 and mu + 1.0 <= T1 + 1e-9]
+def _windows_in_piece(L):
+    """The resolution moments the sweep visits, and their MUS positions: a
+    window of L beats resolving at mu spans [mu - (L - 1), mu + 1) and must
+    lie inside the piece. Binding is end-aligned, so each bound window is
+    timed at its resolution beat and the centres are the mu themselves."""
+    keep = [(k, mu) for k, mu in enumerate(MUS)
+            if mu - (L - 1) >= T0 - 1e-9 and mu + 1.0 <= T1 + 1e-9]
     return np.array([k for k, _ in keep], int), np.array([t for _, t in keep])
 
 
@@ -145,15 +144,15 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
     the three beat aggregates [mu-2, mu-1), [mu-1, mu), [mu, mu+1). One
     windowed_similarity call per query."""
     # One bind_events call nests every window of three beats across the
-    # whole chorale, carrying the window's own start time and the
-    # inversion flag flat alongside the nested pitch. The sweep is then
-    # one call: a rectangle of one beat admits exactly one window at each
-    # centre. The flag is pitch-derived --- a predicate on the sonority at
-    # the antepenult beat, which is the window's first, and no harmonic
-    # labels are consulted.
+    # whole chorale, carrying the time of the window's last beat (its
+    # resolution) and the inversion flag flat alongside the nested pitch.
+    # The sweep is then one call: a rectangle of one beat admits exactly
+    # one window at each centre. The flag is pitch-derived --- a predicate
+    # on the sonority at the antepenult beat, the window's first, stored
+    # at its resolution beat --- and no harmonic labels are consulted.
     ctx_plain = bound_context(3, r_inner)
-    ctx_flag = bound_context(3, r_inner, flag='six_four')
-    idxs, centres = _window_starts(2.0)
+    ctx_flag = bound_context(3, r_inner, flag='antepenult_six_four')
+    idxs, centres = _windows_in_piece(3)
     out = {}
     for name, spec in QUERIES.items():
         qd = _prototype_query(spec, r_inner)
@@ -162,8 +161,8 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
                           title=f'  query: {name} (r_inner = {r_inner})')
             print()
         # A rectangle of full support one beat, centred on each window's
-        # own start time, admits exactly that window and no other --- its
-        # neighbours sit exactly a beat away. The time axis (attribute 1)
+        # resolution beat, admits exactly that window and no other --- its
+        # neighbours sit exactly a beat away. The time attribute (attribute 1)
         # is dropped from the comparison, having done its work in placing
         # the window.
         prof = np.zeros(len(MUS))
@@ -180,13 +179,13 @@ def dyad_sweep(r_inner: int, use_flag: bool):
     swept over candidate resolution moments mu (every beat)."""
     qd = dyad_query(flag=(ROOT_YES if use_flag else None), r_inner=r_inner)
     # One bind_events call nests every pair of adjacent beats: the approach
-    # beat [mu-1, mu) and the resolution beat [mu, mu+1). The optional
-    # inversion attribute is pitch-derived --- a predicate on the sonority
-    # sounding at mu, which is the window's second beat --- and no harmonic
-    # labels are consulted.
+    # beat [mu-1, mu) and the resolution beat [mu, mu+1), each window timed
+    # at the latter. The optional inversion attribute is pitch-derived ---
+    # a predicate on the sonority sounding at mu, the window's second beat
+    # --- and no harmonic labels are consulted.
     ctx = bound_context(2, r_inner,
-                        flag='root_position_next' if use_flag else None)
-    idxs, centres = _window_starts(1.0)
+                        flag='root_position' if use_flag else None)
+    idxs, centres = _windows_in_piece(2)
     so = np.full(len(MUS), np.nan)
     so[idxs] = np.asarray(mpt.windowed_similarity(
         ctx, qd, centres, context_window=(1.0, 1.0), window_attr=1,

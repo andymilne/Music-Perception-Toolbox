@@ -1,227 +1,215 @@
-%% demo_translateSweep.m 
-% Pre-tensor sliding-comparison sweep with translateAttributes and the 
-% raw-MA list mode of simMaet.
+%% demo_translateSweep.m
+% A sliding comparison by attribute translation: a query translated in
+% pitch and time across a reference, with the similarity read at every
+% offset.
 %
 % Scenario: a 3-note motif (C E G) hidden inside a 7-note melody
 % (D E F C E G A, one note per second). The motif appears exactly at
 % reference times 3, 4, 5. At each (pitch transposition, time shift)
-% offset, the query is translated and compared to the un-shifted
-% reference with the closed-form cosine similarity of a 2-attribute
-% MAET (pitch periodic at the octave; time absolute non-periodic).
-% The sweep should peak at (0 cents, 3 s) where the query aligns
-% with the embedded C-E-G, and at (1200 cents, 3 s) by octave
-% periodicity.
+% offset the query is translated and compared with the reference by the
+% cosine similarity of a 2-attribute MAET (pitch periodic at the octave;
+% time absolute and not periodic). The profile should peak at
+% (0 cents, 3 s), where the query lands on the embedded C-E-G, and at
+% (1200 cents, 3 s) by octave periodicity. Both sequences start at time
+% 0, so a time offset is the time from the start of the reference to the
+% start of the query (User Guide §7.3.4).
 %
-% The workflow is two function calls: one to translateAttributes, one to
-% simMaet (raw-MA scalar-vs-list form, with the translated p_attr
-% list as one operand and the reference pAttr as the other). The build
-% step is internalised: the reference is built once, each translated
-% query once. The sweep is specified as a 1-by-A offsets cell, one row
-% of M candidate shifts per attribute; Section 3 builds it. Section 7
-% shows the same sweep as a single call to sweepSimMaet, which
-% never builds the M translated queries at all.
+%   1. The inputs, as two pre-MAETs.
+%   2. The whole profile in one call: windowedSimilarity with an
+%      'offsets' map naming both attributes and no window.
+%   3. The same call with a window in time, which travels with the query
+%      and restricts the comparison to the reference's notes near it.
+%   4. The two profiles plotted.
+%   5. What the call in 2 computes: sweepSimMaet on the two built
+%      densities, one pass over the tuple pairs and one evaluation per
+%      offset, with no translated copy of the query built.
+%   6. The same profile offset by offset, for transparency:
+%      translateAttributes builds the translated copies, simMaet compares
+%      them in its list mode, and an explicit loop over the offsets does
+%      the same one comparison at a time.
 %
-% Compare windowedSimilarity (see demo_helixBlend and
-% demo_tempoInvariance), which windows the context by event weighting
-% before each build --- the window multiplies per-event weights and the
-% window axis is then marginalized --- so that locality is decoupled from
-% the query's own support. The route used here returns a strict cosine
-% similarity (bounded in [0, 1] for non-negative weights) and does not
-% require choosing a window family.
+% See also WINDOWEDSIMILARITY, SWEEPSIMMAET, TRANSLATEATTRIBUTES,
+% SIMMAET, BUILDMAET.
 %
-% See also TRANSLATEATTRIBUTES, SIMMAET, SWEEPSIMMAET,
-% BUILDMAET, WINDOWEDSIMILARITY.
+% The Python mirror is demo_translate_sweep.py.
 
-clear; clc;
+clear; close all;
+
+% Keep the dispatcher's per-call announcements out of the printed output
+% (showHints gates only those); restored at the end.
+prevDefaults = mptDefaults('showHints', false);
 
 %% ===================================================================
-%  1. Build the reference melody and the query motif (pre-tensor form)
+%  1. The reference melody and the query motif, as pre-MAETs
 %  ===================================================================
 
-fprintf('=== 1. Pre-tensor inputs ===\n');
+fprintf('=== 1. Inputs ===\n');
 
 % Reference: D-E-F-C-E-G-A at one note per second. The query C-E-G
 % appears exactly at times 3, 4, 5.
-refMidi   = [62 64 65 60 64 67 69];
-refPitch  = transformAttributes(refMidi, [], {'midi', 'cents'});
-refTime   = 0:6;
-refPAttr  = {refPitch, refTime};
+refMidi  = [62 64 65 60 64 67 69];
+refPitch = transformAttributes(refMidi, [], {'midi', 'cents'});
+refTime  = 0:6;
+refPAttr = {refPitch, refTime};
 
-% Query: C-E-G triad, 1-second spacing, sweep across both axes.
-qryMidi   = [60 64 67];
-qryPitch  = transformAttributes(qryMidi, [], {'midi', 'cents'});
-qryTime   = 0:2;
-qryPAttr  = {qryPitch, qryTime};
+% Query: C-E-G, one note per second, starting at time 0 as the
+% reference does.
+qryMidi  = [60 64 67];
+qryPitch = transformAttributes(qryMidi, [], {'midi', 'cents'});
+qryTime  = 0:2;
+qryPAttr = {qryPitch, qryTime};
 
-% Per-attribute geometry: pitch (attribute 1) is periodic at the
-% octave; time (attribute 2) is absolute non-periodic.
-sigma     = [50, 0.3];        % per-attribute sigma: cents, seconds
-r         = [1, 1];           % single-value per attribute (K_a = 1)
-isRel     = [false, false];
-isPer     = [true,  false];
-periods   = [1200,  0];
+% Per-attribute geometry, carried by both pre-MAETs' specs: pitch
+% (attribute 1) is periodic at the octave; time (attribute 2) is absolute
+% and not periodic.
+sigma = [50, 0.3];            % cents, seconds
+specs = flatSpecs(refPAttr, 'name', {'pitch', 'time'}, 'sigma', sigma, ...
+                  'isPer', [true, false], 'period', [1200, 0]);
+pmRef = packPreMaet(refPAttr, [], specs);
+pmQry = packPreMaet(qryPAttr, [], specs);
 
-fprintf('  reference: D-E-F-C-E-G-A, one note per second\n');
-fprintf('  query    : C-E-G triad, 1-second spacing\n');
-fprintf('  (the motif appears exactly at reference times 3, 4, 5)\n');
-fprintf('  sigma    : %.0f cents (pitch) / %.2f s (time)\n', ...
-        sigma(1), sigma(2));
-fprintf('\n');
-
-%% ===================================================================
-%  2. Construct the (pitch, time) offset sweep
-%  ===================================================================
-
-fprintf('=== 2. Offset sweep grid ===\n');
-
-% Pitch offsets: 0 - 1200 cents in 100-cent steps (one octave). The
-% expected peak at pitch shift 0 is also visible at 1200 cents because
-% the pitch group is octave-periodic.
+% The offsets: pitch 0-1200 cents in 100-cent steps (the peak at 0
+% recurs at 1200 because pitch is periodic), time -1 to 5 s in 0.25 s
+% steps.
 pitchGrid = 0:100:1200;
-% Time offsets: -1 to 5 seconds in 0.25-second steps.
 timeGrid  = -1:0.25:5;
 
-[Pmesh, Tmesh] = meshgrid(pitchGrid, timeGrid);
-M = numel(Pmesh);
-% Pmesh and Tmesh are flattened in Section 3 into the per-attribute
-% rows of the offsets cell.
-
-fprintf('  pitch grid: %d transpositions over one octave (100-cent steps)\n', ...
-        numel(pitchGrid));
-fprintf('  time  grid: %d positions from t = %.1f to t = %.1f s\n', ...
-        numel(timeGrid), min(timeGrid), max(timeGrid));
-fprintf('  total sweep positions: M = %d\n', M);
-fprintf('\n');
+fprintf('  reference: D-E-F-C-E-G-A, one note per second\n');
+fprintf('  query    : C-E-G, one note per second\n');
+fprintf('  (the motif appears exactly at reference times 3, 4, 5)\n');
+fprintf('  sigma    : %.0f cents (pitch) / %.2f s (time)\n', sigma(1), sigma(2));
+fprintf('  offsets  : %d pitch x %d time\n\n', numel(pitchGrid), numel(timeGrid));
 
 %% ===================================================================
-%  3. Pre-tensor translation: build the swept query
+%  2. The whole profile in one call
 %  ===================================================================
 
-fprintf('=== 3. translateAttributes (offset sweep) ===\n');
+fprintf('=== 2. windowedSimilarity with an offsets map ===\n');
 
-% offsets is a 1-by-A cell, one entry per attribute. Each entry here is
-% a 1-by-M row, which the orientation grammar reads as a per-sweep
-% global shift: M candidate offsets broadcast across the attribute's
-% values (trivial here, as each attribute is single-value, K_a = 1). The
-% M sweep columns are shared across attributes, so column m of every
-% entry together defines the m-th translated copy. Reads naturally as
-% "sweep pitch by these values; sweep time by these values".
-offsetsCell   = {Pmesh(:).', Tmesh(:).'};
-[pmSwept, sweep] = translateAttributes(qryPAttr, [], offsetsCell);
-qryPAttrSwept = pmSwept.pAttr;
-% The fourth output records the per-attribute offsets (A x M) for
-% sweepSimMaet; see Section 7.
+% An offsets map {a, offsets; ...} translates each named attribute of
+% the query by every combination of its offsets and compares; an
+% attribute is windowed only if 'contextWindow' names it, and here none
+% is, so this is attribute translation and nothing else. The output is
+% indexed by the offsets, one dimension per attribute: (pitch, time).
+S = windowedSimilarity(pmRef, pmQry, [], ...
+    'offsets', {1, pitchGrid; 2, timeGrid}, 'normalize', 'cosine');
 
-fprintf('  qryPAttrSwept: %s, length %d\n', class(qryPAttrSwept), ...
-        numel(qryPAttrSwept));
-fprintf('  each entry is a 1-by-%d cell of K_a-by-N value matrices\n', ...
-        numel(qryPAttr));
-fprintf('\n');
-
-%% ===================================================================
-%  4. Raw-MA scalar-vs-list cosine similarity: one call
-%  ===================================================================
-
-fprintf('=== 4. simMaet (raw-MA list mode) ===\n');
-
-sCells = simMaet(refPAttr, [], qryPAttrSwept, [], ...
-                        sigma, r, isRel, isPer, periods, ...
-                        'verbose', false);
-S      = cell2mat(sCells);             % 1-by-M
-S      = reshape(S, size(Pmesh));      % size = [numel(timeGrid), numel(pitchGrid)]
-
-% Locate the peak.
 [sMax, iLin] = max(S(:));
-[iT, iP]     = ind2sub(size(S), iLin);
-fprintf('  cosine similarity profile: %d x %d (time x pitch)\n', ...
-        size(S, 1), size(S, 2));
+[iP, iT] = ind2sub(size(S), iLin);
+fprintf('  cosine similarity surface: %d x %d (pitch x time)\n', size(S, 1), size(S, 2));
 fprintf('  max similarity %.4f at pitch shift %.0f c, time shift %.2f s\n', ...
         sMax, pitchGrid(iP), timeGrid(iT));
-fprintf('  (expected: 0 cents, 3.00 s --- the embedded C-E-G)\n');
-fprintf('\n');
+fprintf('  (expected: 0 cents, 3.00 s --- the embedded C-E-G)\n\n');
 
 %% ===================================================================
-%  5. Visualise the sweep
+%  3. Adding a window in time
 %  ===================================================================
 
-fprintf('=== 5. Plot ===\n');
+fprintf('=== 3. The same call with a window in time ===\n');
 
-fig = figure('Name', 'demo\_translateSweep: pre-tensor sliding cosine', ...
-             'Position', [100 100 900 600], 'Color', 'w');
+% Without a window the query is compared with the whole reference, so
+% even at the match the reference's other four notes lower the cosine.
+% A window on time, named in 'contextWindow', travels with the query
+% (centred on its position, the offset plus its mean onset) and weights
+% the reference's events by their distance from it, so the comparison
+% is local. A rectangle 3 s wide spans the query's three notes; at the
+% match it keeps exactly the embedded C-E-G.
+SWin = windowedSimilarity(pmRef, pmQry, [], ...
+    'offsets', {1, pitchGrid; 2, timeGrid}, ...
+    'contextWindow', {2, struct('shape', 'rect', 'width', 3)}, ...
+    'normalize', 'cosine');
 
-imagesc(pitchGrid, timeGrid, S);
-axis xy;
-colorbar;
-xlabel('Pitch transposition (cents)');
-ylabel('Time shift (s)');
-title({'Pre-tensor sliding-comparison: cosine similarity', ...
-       'Reference: D-E-F-C-E-G-A; query: C-E-G'});
-set(gca, 'XTick', 0:200:1200, 'YTick', -1:1:5);
-hold on;
-
-% Mark the expected peak positions: query aligns with the embedded
-% C-E-G at (0 c, 3 s). Octave periodicity reproduces the peak at
-% (1200 c, 3 s).
-plot([0 1200], [3 3], 'rx', 'MarkerSize', 12, 'LineWidth', 1.5);
-text(40,   3.4, 'C-E-G match', 'Color', 'r', ...
-     'FontSize', 9, 'BackgroundColor', [1 1 1 0.7]);
-text(1100, 3.4, 'octave', 'Color', 'r', ...
-     'FontSize', 9, 'BackgroundColor', [1 1 1 0.7]);
-
-fprintf('  Figure shows the cosine-similarity surface as a function of\n');
-fprintf('  pitch transposition and time shift. Red x marks the\n');
-fprintf('  expected peaks at (0 c, 3 s) and (1200 c, 3 s), where the\n');
-fprintf('  query aligns with the embedded C-E-G in the reference;\n');
-fprintf('  octave-pitch periodicity makes the two peaks identical.\n');
-fprintf('\n');
+[sMaxW, iLinW] = max(SWin(:));
+[iPW, iTW] = ind2sub(size(SWin), iLinW);
+fprintf('  max similarity %.4f at pitch shift %.0f c, time shift %.2f s\n', ...
+        sMaxW, pitchGrid(iPW), timeGrid(iTW));
+fprintf('  (%.4f without the window, where the reference''s other\n', sMax);
+fprintf('   four notes dilute the match)\n\n');
 
 %% ===================================================================
-%  6. Equivalent explicit build loop, for transparency
+%  4. The two profiles
 %  ===================================================================
 
-fprintf('=== 6. Equivalent explicit build loop ===\n');
-fprintf('  This is what the raw-MA list mode does internally; here it\n');
-fprintf('  is spelled out so the relationship between translateAttributes,\n');
-fprintf('  buildMaet, and simMaet is transparent.\n\n');
+fprintf('=== 4. Plot ===\n');
 
-showPreMaet(refPAttr, [], [], 'names', {'pitch', 'time'}, ...
-    'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods);
-showPreMaet(qryPAttrSwept{1}, [], [], 'names', {'pitch', 'time'}, ...
-    'sigma', sigma, 'isRel', isRel, 'isPer', isPer, 'period', periods);
-fprintf('\n');
-
-densRef = buildMaet(refPAttr, [], sigma, r, ...
-                       isRel, isPer, periods, 'verbose', false);
-S_manual = zeros(1, M);
-for m = 1:M
-    densQ = buildMaet(qryPAttrSwept{m}, [], sigma, r, ...
-                         isRel, isPer, periods, 'verbose', false);
-    S_manual(m) = simMaet(densRef, densQ, 'verbose', false);
+figure('Name', 'demo\_translateSweep', 'Position', [100 100 1200 500], 'Color', 'w');
+surfs = {S, SWin};
+names = {'no window', 'time window 3 s wide'};
+for k = 1:2
+    subplot(1, 2, k);
+    imagesc(pitchGrid, timeGrid, surfs{k}.', [0 1]);
+    axis xy;
+    xlabel('Pitch transposition (cents)');
+    if k == 1, ylabel('Time shift (s)'); end
+    title(sprintf('Cosine similarity, %s', names{k}));
+    set(gca, 'XTick', 0:200:1200, 'YTick', -1:1:5);
+    hold on;
+    % The expected peaks: the query on the embedded C-E-G at (0 c, 3 s),
+    % and again at (1200 c, 3 s) by octave periodicity.
+    plot([0 1200], [3 3], 'rx', 'MarkerSize', 12, 'LineWidth', 1.5);
+    hold off;
+    colorbar;
 end
-S_manual = reshape(S_manual, size(Pmesh));
-
-discrepancy = max(abs(S(:) - S_manual(:)));
-fprintf('  max |S_raw - S_manual| = %.2e (floating-point parity)\n', ...
-        discrepancy);
-assert(discrepancy < 1e-12, 'Raw-MA list mode disagrees with manual build loop.');
+sgtitle('Reference: D-E-F-C-E-G-A; query: C-E-G');
+fprintf('  Red x marks the expected peaks at (0 c, 3 s) and (1200 c, 3 s).\n\n');
 
 %% ===================================================================
-%  7. The same sweep without building M queries: sweepSimMaet
+%  5. What the call in 2 computes: sweepSimMaet
 %  ===================================================================
 
-fprintf('\n=== 7. sweepSimMaet (one call, no translated copies) ===\n');
+fprintf('=== 5. sweepSimMaet (one pass, no translated copies) ===\n');
 fprintf('  A uniform translation of the query enters the inner product only\n');
-fprintf('  through the offset, so the whole sweep is one pass over the tuple\n');
-fprintf('  pairs and then one evaluation per offset. The pitch attribute is\n');
-fprintf('  periodic, which the mixture route refuses; under ''method'', ''auto''\n');
-fprintf('  the orbit route carries the sweep instead (the wrapped kernel\n');
-fprintf('  absorbs the periodicity), so the call is the same either way.\n');
+fprintf('  through the offset, so the whole profile is one pass over the\n');
+fprintf('  tuple pairs and then one evaluation per offset. The pitch\n');
+fprintf('  attribute is periodic, which the mixture route refuses; under\n');
+fprintf('  ''method'', ''auto'' the orbit route carries the sweep instead\n');
+fprintf('  (the wrapped kernel absorbs the periodicity).\n');
 
-densQry = buildMaet(qryPAttr, [], sigma, r, ...
-                       isRel, isPer, periods, 'verbose', false);
-S_sweep = sweepSimMaet(densRef, densQry, sweep.offsets, 'verbose', false);
-discrepancySweep = max(abs(S(:).' - S_sweep(:).'));
-fprintf('  max |S_raw - S_sweep| = %.2e\n', discrepancySweep);
-assert(discrepancySweep < 1e-8, 'sweepSimMaet disagrees with the per-offset route.');
+densRef = buildMaet(pmRef, 'verbose', false);
+densQry = buildMaet(pmQry, 'verbose', false);
+% One column per combination of offsets: the A x M form, pitch running
+% fastest, as in the output of Section 2.
+[Pm, Tm] = ndgrid(pitchGrid, timeGrid);
+offsetsAM = [Pm(:).'; Tm(:).'];
+SSweep = reshape(sweepSimMaet(densRef, densQry, offsetsAM, 'verbose', false), size(Pm));
+dSweep = max(abs(S(:) - SSweep(:)));
+fprintf('  max |S - SSweep| = %.2e\n\n', dSweep);
+assert(dSweep < 1e-10, 'sweepSimMaet disagrees with windowedSimilarity.');
 
+%% ===================================================================
+%  6. Offset by offset, for transparency
+%  ===================================================================
+
+fprintf('=== 6. translateAttributes + simMaet, and an explicit loop ===\n');
+
+% translateAttributes builds the M translated copies: its offsets are a
+% 1-by-A cell whose entries are 1-by-M rows, one candidate shift per
+% column, column m of every entry together defining the m-th copy.
+% The result is one pre-MAET holding all M copies on one geometry.
+pmSwept = translateAttributes(pmQry, {Pm(:).', Tm(:).'});
+fprintf('  %d translated copies of the query\n', numel(pmSwept.pAttr));
+
+% simMaet compares the reference with every copy in its list mode; it
+% computes every copy with Bulger's method where the sweep in 5 took the
+% orbit route, so the two agree to the truncation floor rather than to
+% the last digit.
+SList = reshape(cell2mat(simMaet(pmRef, pmSwept, 'verbose', false)), ...
+                size(Pm));
+
+% And one offset at a time: translate the query by one (pitch, time)
+% pair, build it, and compare it with the reference.
+SLoop = zeros(size(Pm));
+for m = 1:numel(Pm)
+    densQ = buildMaet(translateAttributes(pmQry, {Pm(m), Tm(m)}), ...
+                      'verbose', false);
+    SLoop(m) = simMaet(densRef, densQ, 'verbose', false);
+end
+
+dList = max(abs(S(:) - SList(:)));
+dLoop = max(abs(SList(:) - SLoop(:)));
+fprintf('  max |S - SList|     = %.2e\n', dList);
+fprintf('  max |SList - SLoop| = %.2e\n', dLoop);
+assert(dList < 1e-8 && dLoop < 1e-12, 'The offset-by-offset routes disagree.');
+
+mptDefaults(prevDefaults);
 fprintf('\n=== Demo complete ===\n');

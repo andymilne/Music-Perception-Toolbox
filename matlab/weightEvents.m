@@ -5,19 +5,17 @@ function pm = weightEvents(varargin)
 %       'sd', s,     'dropInputAttr', tf)
 %   PM = weightEvents(pAttr, wAttr, inputAttr, targetAttr, centre, shape, ...
 %       'width', L,  'dropInputAttr', tf)
-%   is a per-event preprocessing helper for multi-attribute tensor
-%   input. It reads the K=1 value at every event from inputAttr,
-%   evaluates the profile shape centred at centre, and writes the
-%   resulting (1, N)
-%   per-event factor into the weight entry of targetAttr, multiplied
-%   into any existing weight already there. targetAttr may differ
-%   from inputAttr (the typical case --- e.g., time-driven windowing
-%   of pitch events) or coincide with it (the input attribute weights
-%   itself).
+%   is a per-event preprocessing helper for multi-attribute tensor input.
+%   It reads the K=1 value at every event from inputAttr, evaluates the
+%   profile shape centred at centre, and writes the resulting (1, N)
+%   per-event factor into the weight entry of targetAttr, multiplied into
+%   any existing weight already there. targetAttr may differ from inputAttr
+%   (the typical case --- e.g., time-driven windowing of pitch events) or
+%   coincide with it (the input attribute weights itself).
 %
-%   The window size is specified through exactly one of two
-%   Name-Value arguments, 'sd' or 'width'. Both name the same
-%   underlying scale on different terms:
+%   The window size is specified through exactly one of two Name-Value
+%   arguments, 'sd' or 'width'. Both name the same underlying scale on
+%   different terms:
 %
 %     'sd' is the standard deviation of the window. sd = 1.0 gives a
 %       Gaussian of standard deviation 1 at shape = 0 and a rectangle
@@ -28,28 +26,27 @@ function pm = weightEvents(varargin)
 %       and a Gaussian of standard deviation 1/(2*sqrt(3)) at
 %       shape = 0. The conversion is sd = width / (2 * sqrt(3)).
 %
-%   The two conventions exist because each is the natural way to
-%   specify the kind of kernel a particular analysis is built around:
-%   Gaussian users typically think in standard deviations, rectangle
-%   users typically think in full supports. Across the full shape
-%   family the SD is held constant regardless of which parameter the
-%   caller supplied (variance-normalised behaviour), so the only
-%   effect of the parameter choice is the numerical value the user
-%   types.
+%   The two conventions exist because each is the natural way to specify
+%   the kind of kernel a particular analysis is built around: Gaussian
+%   users typically think in standard deviations, rectangle users typically
+%   think in full supports. Across the full shape family the SD is held
+%   constant regardless of which parameter the caller supplied
+%   (variance-normalised behaviour), so the only effect of the parameter
+%   choice is the numerical value the user types.
 %
 %   When dropInputAttr=true and inputAttr differs from targetAttr, the
-%   input attribute is removed from the returned pAttrOut / wOut /
-%   specsOut after the factor has been transferred to the target.
-%   This is the canonical windowed-entropy / windowed-mass workflow:
-%   the input attribute provides the scaffolding for the window and
-%   is no longer needed downstream. When dropInputAttr=false, the input
-%   attribute is preserved unchanged in the output. dropInputAttr=true
-%   paired with inputAttr == targetAttr is rejected as incoherent
-%   (deleting the input would discard the factor just written to it).
+%   input attribute is removed from the returned pAttrOut / wOut / specsOut
+%   after the factor has been transferred to the target. This is the
+%   canonical windowed-entropy / windowed-mass workflow: the input
+%   attribute provides the scaffolding for the window and is no longer
+%   needed downstream. When dropInputAttr=false, the input attribute is
+%   preserved unchanged in the output. dropInputAttr=true paired with
+%   inputAttr == targetAttr is rejected as incoherent (deleting the input
+%   would discard the factor just written to it).
 %
-%   The window family is the peak-normalised convolution of a
-%   rectangle and a Gaussian. Internally, in terms of the standard
-%   deviation s (= 'sd' directly, or 'width' / (2 * sqrt(3))):
+%   The window family is the peak-normalised convolution of a rectangle and
+%   a Gaussian. Internally, in terms of the standard deviation s (= 'sd'
+%   directly, or 'width' / (2 * sqrt(3))):
 %
 %       phi = s * sqrt(3 * gamma),
 %       xi  = s * sqrt(1 - gamma),
@@ -63,22 +60,21 @@ function pm = weightEvents(varargin)
 %                  i.e., total support 2*s*sqrt(3) (= 'width' when
 %                  the caller supplied 'width').
 %
-%   For a periodic input attribute (isPer = true), the difference
-%   delta = v - centre is wrapped to [-P/2, P/2] before applying h;
-%   the stored values in pAttr are not modified.
+%   For a periodic input attribute (isPer = true), the difference delta = v
+%   - centre is wrapped to [-P/2, P/2] before applying h; the stored values
+%   in pAttr are not modified.
 %
 %   The per-event factor is broadcast across the target attribute's
 %   K_target values, so every value of every event sees the same factor.
 %
 %   Factor entries whose distance from the centre exceeds the global
-%   truncationSigmas cutoff (i.e., |delta| > truncationSigmas * s,
-%   where s is the kernel's standard deviation, equal to 'sd' or
-%   'width' / (2 * sqrt(3))) are hard-zeroed. The threshold is the
-%   same one the IP / evaluation kernels use: at that distance a
-%   Gaussian window's value is exp(-truncationSigmas^2 / 2). The
-%   default global value is 6; set mptDefaults('truncationSigmas', Inf)
-%   for no truncation, or another k to change the hard-truncation
-%   distance at k * s.
+%   truncationSigmas cutoff (i.e., |delta| > truncationSigmas * s, where s
+%   is the kernel's standard deviation, equal to 'sd' or 'width' / (2 *
+%   sqrt(3))) are hard-zeroed. The threshold is the same one the IP /
+%   evaluation kernels use: at that distance a Gaussian window's value is
+%   exp(-truncationSigmas^2 / 2). The default global value is 6; set
+%   mptDefaults('truncationSigmas', Inf) for no truncation, or another k to
+%   change the hard-truncation distance at k * s.
 %
 %   Inputs:
 %     pm           Pre-MAET, in place of pAttr and wAttr. The

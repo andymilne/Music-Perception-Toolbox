@@ -1,6 +1,6 @@
 %% test_difference.m — differenceEvents on the (pAttr, w, specs) triple (3c-iv-b)
 %
-%  differenceEvents applies the k-th finite difference along the event axis,
+%  differenceEvents applies the k-th finite difference across events,
 %  row by row. It is well-defined exactly when the positions have
 %  stable identity ---
 %  an ordered attribute ([exch]=0) or a singleton (K=1) --- so a symmetric

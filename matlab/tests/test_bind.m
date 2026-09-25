@@ -109,7 +109,8 @@ results{end+1,1} = 'bind: circular/non-circular N''';
 results{end,2}   = isequal(size(pbNC{1}), [2 4]) && isequal(size(pbC{1}), [2 5]);
 
 
-% --- Per-attribute orders + alignment (smaller L keeps leading N') ---
+% --- Per-attribute orders + alignment (end-aligned: an attribute bound
+%     over fewer events contributes the last L_a events of each span) ---
 pPA = {[0 1 2 3 4], [10 11 12 13 14]};
 [pbPA, ~, spPA] = unpackPreMaet(bindEvents(pPA, [], [1 3]));
 nPrime = 5 - 3 + 1;
@@ -117,7 +118,53 @@ results{end+1,1} = 'bind: per-attribute orders + alignment';
 results{end,2}   = ~isfield(spPA{1}, 'tags') && isfield(spPA{2}, 'tags') ...
                    && isequal(size(pbPA{1}), [1 nPrime]) ...
                    && isequal(size(pbPA{2}), [3 nPrime]) ...
-                   && isequal(pbPA{1}, pPA{1}(:, 1:nPrime));
+                   && isequal(pbPA{1}, pPA{1}(:, 3:5)) ...
+                   && isequal(pbPA{2}(3, :), pPA{2}(3:5));
+
+% --- End-alignment of values and weights, non-circular and circular ---
+% Mirror of Python's test_end_alignment_values_weights_and_circular.
+tEA  = [0 1 2 3 4 5];
+wEA  = [10 11 12 13 14 15];
+pEA  = {[60 62 64 65 67 69], tEA};
+okEA = true;
+for Ls = [1 2]
+    for circ = [false true]
+        [pbE, wbE] = unpackPreMaet(bindEvents(pEA, {[], wEA}, [3 Ls], 'circular', circ));
+        for j = 1:size(pbE{1}, 2)
+            span = mod((j - 1) + (0:2), 6) + 1;          % the span's events
+            want = span(3 - Ls + 1:end);                 % its last Ls
+            okEA = okEA && isequal(pbE{2}(:, j).', tEA(want)) ...
+                && isequal(wbE{2}(:, j).', wEA(want)) ...
+                && isequal(pbE{1}(:, j).', pEA{1}(span));
+        end
+    end
+end
+results{end+1,1} = 'bind: end-alignment of values and weights (circular too)';
+results{end,2}   = okEA;
+
+% --- D-then-B equals B-then-D (end-aligned binding and differencing) ---
+% Mirror of Python's test_bind_difference_commute.
+rsDB = RandStream('mt19937ar', 'Seed', 3);      % local: leaves the global RNG alone
+pDB = {randi(rsDB, [50 69], 1, 9), cumsum(rand(rsDB, 1, 9))};
+Ls  = {[3 1], [1 3], [2 1], [3 2], [2 2]};
+ks  = {[1 0], [0 1], [1 1], [2 0]};
+okDB = true;
+for circ = [false true]
+    for iL = 1:numel(Ls)
+        for ik = 1:numel(ks)
+            db = unpackPreMaet(bindEvents(differenceEvents(pDB, [], ks{ik}, ...
+                'circular', circ), Ls{iL}, 'circular', circ));
+            bd = unpackPreMaet(differenceEvents(bindEvents(pDB, [], Ls{iL}, ...
+                'circular', circ), ks{ik}, 'circular', circ));
+            for a = 1:2
+                okDB = okDB && isequal(size(db{a}), size(bd{a})) ...
+                    && max(abs(db{a}(:) - bd{a}(:))) < 1e-12;
+            end
+        end
+    end
+end
+results{end+1,1} = 'bind: D-then-B equals B-then-D';
+results{end,2}   = okDB;
 
 
 % --- K_a > 1: tags repeat per event block ---

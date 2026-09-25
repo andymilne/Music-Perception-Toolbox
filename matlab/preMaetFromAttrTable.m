@@ -36,8 +36,8 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %                              struct('column','onset','sigma',0.5)}, ...
 %                              'time', 'beats')
 %
-%                          Of the ten, the last four need a column the
-%                          source carries, and raise where it does not. On a
+%                          Each of the ten needs a column the source
+%                          carries, and raises where it does not. On a
 %                          gridded table 'onset' reads the grid's onset, the
 %                          event there being the grid point rather than any
 %                          one note.
@@ -127,7 +127,9 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %       'groupBy'        - the column whose equal values in consecutive
 %                          rows make one event. The default is the grid
 %                          position where the table has been gridded, and
-%                          otherwise the onset within 'chordTolerance'. An
+%                          otherwise the onset within 'chordTolerance'; a
+%                          table with neither makes each row its own
+%                          event, in table order. An
 %                          event is a contiguous run, not every row
 %                          sharing a value, so a bar number that comes
 %                          round again after a repeat gives two events
@@ -293,7 +295,8 @@ function pm = preMaetFromAttrTable(T, nvArgs)
     % Of the ten names, these need a column the source carries. A table
     % that never saw a score carries few of them, and asks for none of
     % them, so each is read only where something names it.
-    needs = {'soundingDuration', ['soundingDuration', unit]; ...
+    needs = {'pitch',            'pitch'; ...
+             'soundingDuration', ['soundingDuration', unit]; ...
              'duration',         ['duration', unit]; ...
              'weight',           'weight'; ...
              'noteNumber',       'noteNumber'; ...
@@ -349,11 +352,20 @@ function pm = preMaetFromAttrTable(T, nvArgs)
                'onset to read; grid over %s or convert with that unit.'], ...
               lower(other), nvArgs.time, nvArgs.time);
     end
+    % Neither onset nor pitch is required of the table: a table that
+    % never saw a score converts too. Onset is needed only where it is
+    % named as an attribute, or where it groups rows into chords.
+    hasOnset = any(strcmp(vars, onsetName));
+    if any(strcmp('onset', attributes)) && ~hasOnset
+        error('preMaetFromAttrTable:missingColumn', ...
+              ['The table has no ''%s'' column, so ''onset'' cannot be an ' ...
+               'attribute; this source does not carry it.'], onsetName);
+    end
     optional = @(name) localOptional(notes, name, keep);
-    onset = notes.(onsetName)(keep);
+    onset = optional(onsetName);
     dur = optional(['duration', unit]);
     soundingName = ['soundingDuration', unit];
-    midi = notes.pitch(keep);
+    midi = optional('pitch');
     vel = optional('velocity');
     if hasPart; part = partCodes(keep); else; part = zeros(sum(keep), 1); end
     measure = optional('measure');
@@ -361,9 +373,9 @@ function pm = preMaetFromAttrTable(T, nvArgs)
     noteNumber = optional('noteNumber');
     weightCol = optional('weight');
     fermata = optional('fermata');
-    nNotes = numel(midi);
+    nNotes = sum(keep);
 
-    if strcmpi(nvArgs.pitch, 'midi')
+    if strcmpi(nvArgs.pitch, 'midi') || ~any(strcmp(vars, 'pitch'))
         pitchVals = midi;
     else
         pitchVals = transformAttributes(midi, [], {'midi', nvArgs.pitch});
@@ -397,7 +409,10 @@ function pm = preMaetFromAttrTable(T, nvArgs)
     else
         keyColumn = '';
     end
-    if strcmp(nvArgs.chords, 'separate') || nNotes == 0
+    % Where the table carries no onset and no key, nothing says that two
+    % rows sound together, so each row is its own event, in table order.
+    if strcmp(nvArgs.chords, 'separate') || nNotes == 0 ...
+            || (isempty(keyColumn) && ~hasOnset)
         groups = num2cell(1:nNotes);
     elseif ~isempty(keyColumn)
         key = notes.(keyColumn)(keep);

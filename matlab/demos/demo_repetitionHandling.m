@@ -28,7 +28,7 @@
 %              events.
 %    count     Prolong, and add a per-event attribute holding the
 %              number of onsets gathered into the event.
-%              Re-articulation now survives as such, and its sigma
+%              Re-articulation survives as such, and its sigma
 %              grades how sharply it is distinguished -- wide, and the
 %              comparison slides back to the prolong treatment's
 %              identification.
@@ -55,6 +55,8 @@
 %  Exact invariances only ('relOuter' flags); the graded counterparts
 %  (the sdShift ridge of kernelCov, tending to rel in the
 %  limit) are the subject of demo_tempoInvariance.
+%
+%  The Python mirror is demo_repetition_handling.py.
 
 clear; close all;
 
@@ -87,7 +89,7 @@ onsetsRef = 0:14;
 % The five comparison variants, each a {pitches, onsets} pair:
 %   held       The gathered reference played as sustained notes: same
 %              pitches at the same onsets, but each formerly repeated
-%              note now a single held note -- no re-articulations.
+%              note played as a single held note -- no re-articulations.
 %   norep      The repetitions removed and the rhythm closed up: the
 %              ten distinct pitches, one per beat.
 %   augmented  Every pitch step doubled (contour preserved), rhythm as
@@ -160,12 +162,12 @@ fprintf('  Each treatment commits to one identification, visible in its\n');
 fprintf('  column''s 1.000: excise cannot tell the reference from norep\n');
 fprintf('  (the repetitions leave no trace), prolong cannot tell it from\n');
 fprintf('  held (re-articulation and prolongation coincide), and count\n');
-fprintf('  distinguishes all four.\n\n');
+fprintf('  separates the reference from both held and norep.\n\n');
 
 fprintf('=== 4. Log inter-onset intervals, read relative ===\n\n');
 fprintf('  The same comparisons with the intervals taken to logarithms\n');
 fprintf('  and the bound tuple read relative: a tempo change is a common\n');
-fprintf('  shift of the log intervals, so the faster variants now match\n');
+fprintf('  shift of the log intervals, so the faster variants match\n');
 fprintf('  exactly -- including aug+faster, scaled in pitch and time at\n');
 fprintf('  once.\n\n');
 similarityTable(true, treatments, pitchesRef, onsetsRef, ...
@@ -182,7 +184,8 @@ fprintf('  cannot.\n\n');
 
 fprintf('=== 5. Grading the count attribute ===\n\n');
 fprintf('  Under the count treatment, reference vs held differ only on\n');
-fprintf('  the count attribute (2 vs 1 at the five gathered events). Its\n');
+fprintf('  the count attribute (2 vs 1 at four of the nine events; the\n');
+fprintf('  first run''s count is lost to differencing). Its\n');
 fprintf('  sigma sets how much that difference costs: narrow, the two\n');
 fprintf('  are far apart; broad, the counts blur together and the\n');
 fprintf('  comparison returns to the prolong treatment''s identification\n');
@@ -228,7 +231,9 @@ for t = 2:3   % prolong, count
 end
 fprintf('\n');
 fprintf('  With intervals in beats the two are already distinct under\n');
-fprintf('  every treatment; the confound is a consequence of tempo invariance,\n');
+fprintf('  prolong and count (excise identifies them anyway, as it\n');
+fprintf('  identifies the reference with norep); the confound is a\n');
+fprintf('  consequence of tempo invariance,\n');
 fprintf('  and the count attribute -- dimensionless, so invariant to\n');
 fprintf('  both scalings at no extra cost -- is what resolves it.\n');
 
@@ -249,10 +254,11 @@ end
 
 function ev = makeEvents(pitches, onsets, treatment)
 %MAKEEVENTS  Differenced events for one variant under one treatment.
-%   Returns a struct with the per-event arrays: sign (+1/2 or -1/2),
-%   logmag (log of the absolute pitch step), ioi (inter-onset interval
-%   in beats), and, for the count treatment, count (onsets gathered
-%   into the event completing the step).
+%   Returns a struct with the per-event arrays: steps (the signed pitch
+%   step), ioi (inter-onset interval in beats), and, for the count
+%   treatment, count (onsets gathered into the event completing the
+%   step). buildDensity splits the step into its log magnitude and its
+%   sign, which is transformAttributes' job.
     switch treatment
         case {'prolong', 'count'}
             [pitches, onsets, counts] = gatherRepetitions(pitches, onsets);
@@ -286,10 +292,9 @@ function dens = buildDensity(ev, logIoi, sigmaSign, sigmaLogmag, ...
 %BUILDDENSITY  One bound super-event: the whole event sequence as one
 %   tuple. Attributes: log step magnitude, sign, inter-onset interval,
 %   and (when present) count. One transformAttributes call takes the log
-%   of the signed step and, with 'sign' true, inserts the sign attribute
-%   right after it at the 2-point simplex's vertices, {-1/2, 0, +1/2};
-%   the same call takes the log of the
-%   intervals where logIoi. The log-magnitude tuple is read relative
+%   of the step's magnitude and, with 'sign' true, inserts the sign
+%   attribute right after it at the 2-point simplex's vertices, +1/2 and
+%   -1/2; the same call takes the log of the intervals where logIoi. The log-magnitude tuple is read relative
 %   ('relOuter'), quotienting a common shift -- a uniform scaling of
 %   the pitch steps. With logIoi, the intervals are read relative too,
 %   quotienting a tempo change; in beats they are read absolute, so

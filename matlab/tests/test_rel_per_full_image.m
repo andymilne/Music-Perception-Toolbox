@@ -2,7 +2,7 @@
 %  Tests for the full-image relative-periodic inner product. Twin of the
 %  Python tests/test_rel_per_full_image.py.
 %
-%  The relative-periodic inner product marginalises a rigid common
+%  The relative-periodic inner product marginalizes a rigid common
 %  shift. Taking that average over a kernel carrying every periodic
 %  image yields the lattice-sum (full-image) measure exactly; taking it
 %  over a nearest-image kernel yields a third measure, which departs

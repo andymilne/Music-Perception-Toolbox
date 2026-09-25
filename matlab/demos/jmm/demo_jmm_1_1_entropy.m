@@ -11,24 +11,30 @@
 % whose partials cohere, so the spectral pitch density there is peaked and
 % its differential entropy low; passing sonorities between cadences spread
 % the density and raise the entropy. Read at every grid point and grouped
-% by metric class, the profile also shows the on-beat / off-beat contrast
-% that the Online Supplement tests across a corpus of chorales.
+% by metric class, the profile tests the article's prediction that
+% spectral entropy (a model for dissonance) is on average higher at times
+% of lower metrical weight.
 %
 % How it is computed. The chorale is gridded (gridAttrTable) and converted
 % to a two-attribute pre-MAET (pitch, time) in one call
 % (preMaetFromAttrTable): each grid point is an event holding its chord as
-% an unordered pitch multiset in cents, alongside the point's own time.
-% Every chord is then spectrally augmented (addSpectra on that attribute:
-% twelve harmonics, partial h weighted h^-0.67), so the pitch attribute
-% carries 48 partials per event. windowedEntropy then sweeps a
-% window along the time attribute: at each centre the events are
-% reweighted by the window (weightEvents under the hood, the window
-% factor multiplied into the pitch weights), the time axis is dropped, and
-% the differential entropy of the remaining pitch density is returned
+% an unordered pitch multiset in MIDI semitones (sigma = 0.1), alongside
+% the point's own time. Every chord is then spectrally enriched (addSpectra
+% on that attribute: twelve harmonics, partial h at p + 12 log2 h
+% semitones weighted h^-0.67), so the pitch attribute carries 48 partials
+% per event. windowedEntropy then sweeps a window along the time
+% attribute: at each centre the events are reweighted by the window
+% (event weighting, as weightEvents does, the window factor multiplied
+% into the pitch weights), the time attribute is dropped, and the
+% differential entropy of the remaining pitch density is returned
 % ('method', 'differential': adaptive grid with Richardson extrapolation,
-% in bits). Two windows are compared: a tight rectangle of one sixteenth
-% note (one event per window, so the profile is the per-event entropy) and
-% a Gaussian of one quarter note.
+% in bits, with pitch in semitones). Two windows are compared: a tight
+% rectangle of one sixteenth note (one event per window, so the profile is
+% the per-event entropy) and a Gaussian of standard deviation one quarter
+% note. The metric-class panels give each class's mean over its grid
+% points; their error bars are cluster-robust standard errors with the
+% sonority as the cluster, so that the grid points of a chord held across
+% several of them are not treated as independent observations.
 %
 % Data: jmm.bwv347Notes (the bundled MusicXML read with readScore,
 % repeats expanded). Toolbox: gridAttrTable, preMaetFromAttrTable,
@@ -57,19 +63,19 @@ prevDefaults = mptDefaults('showHints', false);
 % ---------------------------------------------------------------------------
 % Parameters
 % ---------------------------------------------------------------------------
-SIGMA_PITCH = 10.0;          % cents
+SIGMA_PITCH = 0.1;           % semitones (10 cents)
 H_PARTIALS = 12;
 ROLLOFF = 0.67;            % partial h weighted h^-0.67 (Milne et al. 2015)
 SPECTRUM = {'harmonic', H_PARTIALS, 'powerlaw', ROLLOFF};
 
-% Window specifications for weightEvents. Each window is specified through
-% one of two interchangeable parameters: 'sd' (the window's standard
-% deviation) or 'width' (the full support of the rectangle at shape = 1).
-% Across the shape family the SD is held constant regardless of which
-% parameter the caller supplies.
+% Window specifications, as weightEvents and windowedEntropy take them.
+% Each window is specified through one of two interchangeable parameters:
+% 'sd' (the window's standard deviation) or 'width' (the full support of
+% the rectangle at shape = 1). Across the shape family the standard
+% deviation is held constant whichever parameter is supplied.
 WINDOWS = struct( ...
     'kind',  {'width', 'sd'}, ...
-    'value', {0.25, 1.0}, ...                   % rect: full support 0.25 QN; Gaussian: sd = 1 QN
+    'value', {0.25, 1.0}, ... % rect: full support 0.25 QN; Gaussian: sd = 1 QN
     'shape', {1.0, 0.0}, ...
     'label', {'Rect, support 0.25 QN', 'Gaussian sigma = 1 QN'});
 nWindows = numel(WINDOWS);
@@ -77,22 +83,27 @@ nWindows = numel(WINDOWS);
 % ---------------------------------------------------------------------------
 % Load chorale, spectral enrichment
 % ---------------------------------------------------------------------------
-fprintf('Loading BWV 347 and expanding partials...\n');
+fprintf('Loading BWV 347 and enriching it spectrally...\n');
 % The chorale on the sixteenth-note grid, converted to a two-attribute
-% pre-MAET: the grid point's chord as the pitch attribute, read in cents as
-% an unordered multiset, and the grid point's own time as the axis the
-% window will slide along. Each chord's four pitches then take their
-% partials, which multiplies the pitch attribute's K by twelve and leaves
-% the events alone.
+% pre-MAET: the grid point's chord as the pitch attribute, read in MIDI
+% semitones as an unordered multiset, and the grid point's own time as the
+% attribute the window will slide along. Each chord's four pitches then
+% take their partials ('units', 12: twelve units to the octave), which
+% multiplies the pitch attribute's K by twelve and leaves the events alone.
 g = gridAttrTable(jmm.bwv347Notes(), jmm.gridStepQn());
 pm = preMaetFromAttrTable(g, 'attributes', { ...
         struct('column', 'pitch', 'sigma', SIGMA_PITCH, 'r', 1, ...
                'exch', true), ...
         struct('column', 'onset', 'name', 'time', 'sigma', 1.0)}, ...
-        'time', 'beats', 'pitch', 'cents', 'weights', 'ones');
-pm = addSpectra(pm, SPECTRUM{:}, 'attribute', 'pitch');
-
+        'time', 'beats', 'pitch', 'midi', 'weights', 'ones');
+% Each grid point's chord (its pitches sorted), read before enrichment: a
+% run of consecutive grid points holding the same chord is one sonority.
 pAttrPre = unpackPreMaet(pm);
+chords = sort(pAttrPre{1}, 1);
+newChord = any(chords(:, 2:end) ~= chords(:, 1:end - 1), 1);
+sonority = [0, cumsum(newChord)];
+pm = addSpectra(pm, SPECTRUM{:}, 'attribute', 'pitch', 'units', 12);
+
 times = pAttrPre{2};
 N = numel(times);
 tEnd = times(end) + jmm.gridStepQn();
@@ -111,27 +122,22 @@ fprintf('Computing windowed differential entropy at %d sweep centres over %d win
 H = zeros(nWindows, nSweep);
 
 % Each window is a single windowedEntropy sweep over all centres. The
-% time axis (attribute 2) supplies the window and is dropped from the
-% entropy density ('dropWindowAttr', true; for an r = 1 absolute axis,
-% dropping the axis equals marginalizing it out), leaving the pitch
-% density whose differential entropy is returned. The window width is the
-% rectangular full support; a Gaussian window given by its standard
-% deviation s maps to the variance-matched width 2*sqrt(3)*s. (The
-% placeholder time sigma is unused: the time axis is dropped before any
-% density is built.)
-RT3 = 2.0 * sqrt(3.0);
+% time attribute (attribute 2) is the window attribute: it supplies the
+% window and is dropped from the entropy density ('drop', {2, true}; for
+% an r = 1 absolute attribute, dropping it equals marginalizing it out),
+% leaving the pitch density whose differential entropy is returned. The
+% window is given as the specification above, by its width or by its
+% standard deviation. (The placeholder time sigma is unused: the time
+% attribute is dropped before any density is built.)
 t0 = tic;
 for wi = 1:nWindows
     window = WINDOWS(wi);
     fprintf('Window %d/%d: %s\n', wi, nWindows, window.label);
-    if strcmp(window.kind, 'width'), width = window.value;
-    else,                             width = window.value * RT3; end
     H(wi, :) = windowedEntropy( ...
-        pm, sweepCentres, ...
-        'contextWindow', {window.shape, width}, ...
-        'method', 'differential', ...
-        'windowAttr', 2, 'dropWindowAttr', true, ...
-        'verbose', false);
+        pm, [], 'sweep', {2, sweepCentres}, 'drop', {2, true}, ...
+        'contextWindow', {2, struct('shape', window.shape, ...
+                                    window.kind, window.value)}, ...
+        'method', 'differential', 'verbose', false);
     fprintf('  done (%.0fs elapsed)\n', toc(t0));
 end
 
@@ -158,8 +164,10 @@ end
 % Metric-class classification
 % ---------------------------------------------------------------------------
 classNames = {'downbeat', 'medium', 'weak', 'offbeat'};
-classLabels = {sprintf('down\n(b1)'), sprintf('med\n(b3)'), ...
-               sprintf('weak\n(b2,4)'), sprintf('off-\nbeat')};
+% Two-line metric-class labels, drawn as text below the bar axis (a tick
+% label does not reliably honour a line break).
+classLabels = {{'down', '(b1)'}, {'med', '(b3)'}, {'weak', '(b2,4)'}, ...
+               {'off-', 'beat'}};
 classColours = [0.122 0.306 0.722; 0.353 0.541 0.796; 0.659 0.718 0.839; 0.8 0.8 0.8];
 classesPerEvent = zeros(1, N);       % index into classNames
 for n = 1:N
@@ -173,6 +181,35 @@ for n = 1:N
             case 3, classesPerEvent(n) = 2;             % medium
             otherwise, classesPerEvent(n) = 3;          % weak
         end
+    end
+end
+
+% Mean over the grid points of each metric class, with its cluster-robust
+% standard error (CR1), the sonority being the cluster: the residuals of
+% the grid points holding one sonority are summed before squaring, so that
+% a chord held across grid points is not counted as independent
+% observations. With one grid point per sonority this is the ordinary
+% standard error of the mean.
+classMeans = zeros(nWindows, 4); classSems = zeros(nWindows, 4);
+classCounts = zeros(1, 4);
+fprintf(['Mean differential entropy (bits) by metric class, ' ...
+         '+/- cluster-robust SE (number of sonorities):\n']);
+for wi = 1:nWindows
+    fprintf('  %s\n', WINDOWS(wi).label);
+    for cls = 1:4
+        mask = classesPerEvent == cls;
+        x = H(wi, mask).';
+        [~, ~, grp] = unique(sonority(mask));
+        nClusters = max(grp);
+        classMeans(wi, cls) = mean(x);
+        if nClusters > 1
+            score = accumarray(grp(:), x - mean(x));
+            classSems(wi, cls) = sqrt(nClusters / (nClusters - 1) ...
+                * sum(score .^ 2)) / numel(x);
+        end
+        classCounts(cls) = nClusters;
+        fprintf('    %-9s %.4f +/- %.4f (%d)\n', classNames{cls}, ...
+                classMeans(wi, cls), classSems(wi, cls), classCounts(cls));
     end
 end
 
@@ -246,14 +283,8 @@ for wi = 1:nWindows
         end
     end
 
-    % Bar panel: metric-class means +/- SE
-    means = zeros(1, 4); sems = zeros(1, 4);
-    for cls = 1:4
-        vals = HRow(classesPerEvent == cls);
-        n = numel(vals);
-        means(cls) = mean(vals);
-        if n > 1, sems(cls) = std(vals) / sqrt(n); end
-    end
+    % Bar panel: metric-class means +/- cluster-robust SE
+    means = classMeans(wi, :); sems = classSems(wi, :);
     for cls = 1:4
         bar(axBar, cls, means(cls), 'FaceColor', classColours(cls, :), ...
             'EdgeColor', 'k', 'LineWidth', 0.7);
@@ -263,12 +294,18 @@ for wi = 1:nWindows
         plot(axBar, cls + [-0.12 0.12], [1 1] * (means(cls) + sems(cls)), 'k', 'LineWidth', 0.8);
         plot(axBar, cls + [-0.12 0.12], [1 1] * (means(cls) - sems(cls)), 'k', 'LineWidth', 0.8);
     end
-    set(axBar, 'XTick', 1:4, 'XTickLabel', classLabels, 'FontSize', 13, 'Box', 'off');
+    set(axBar, 'XTick', 1:4, 'XTickLabel', {}, 'FontSize', 13, 'Box', 'off');
     xlim(axBar, [0.4, 4.6]);
     ylabel(axBar, 'mean ± SE', 'FontSize', 15);
     span = max(means) - min(means);
     pad = max(sems) * 2 + span * 0.1 + 0.001;
     ylim(axBar, [min(means) - pad, max(means) + pad]);
+    ylBar = ylim(axBar);
+    for cls = 1:4
+        text(axBar, cls, ylBar(1) - 0.03 * diff(ylBar), classLabels{cls}, ...
+             'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', ...
+             'FontSize', 11);
+    end
     grid(axBar, 'on'); set(axBar, 'XGrid', 'off');
     if wi == 1
         title(axBar, 'By metric class', 'FontSize', 17);
@@ -276,7 +313,7 @@ for wi = 1:nWindows
 end
 
 annotation(fig, 'textbox', [0.05 0.93 0.9 0.06], 'String', ...
-           sprintf(['BWV 347 windowed differential pitch entropy (\\sigma_{pitch} = %.0f cents, ' ...
+           sprintf(['BWV 347 windowed differential pitch entropy (\\sigma_{pitch} = %g semitones, ' ...
                     'harmonic \\times %d, weight h^{-%.2f})'], SIGMA_PITCH, H_PARTIALS, ROLLOFF), ...
            'HorizontalAlignment', 'center', 'FontSize', 18, 'EdgeColor', 'none');
 if SAVE_FIGURES

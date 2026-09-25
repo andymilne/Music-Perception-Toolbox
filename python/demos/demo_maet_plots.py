@@ -39,11 +39,13 @@ frames the result.
 Each parameter block below states the choice made and what the
 alternatives do.
 
-The MATLAB mirror is demo_maetPlots. It draws 'density' at three
-dimensions as well, which rests on texture-mapped surfaces that
-matplotlib has no counterpart for; 'points' stands in for it here.
+The MATLAB mirror draws 'density' at three dimensions as well, which
+rests on texture-mapped surfaces that matplotlib has no counterpart
+for; 'points' stands in for it here.
 
 Uses: build_maet, plot_maet.
+
+The MATLAB mirror is demo_maetPlots.m.
 """
 
 import sys
@@ -153,7 +155,8 @@ ALPHA_FLOOR_2D = 0.0
 #               colour where kernels crowd, and a peak can be seen to
 #               be one kernel or several.
 #   'points'  - the density sampled: one translucent mark per grid node
-#               above a threshold. Three dimensions only.
+#               above a threshold. Three dimensions only; at one and
+#               two this demo draws 'density' in its place.
 #   'density' - the density itself: a line at one dimension and a
 #               translucent image at two. Not available at three,
 #               where MATLAB's mirror draws a stack of textured planes
@@ -346,12 +349,15 @@ class Figures:
 def method_for(dim):
     """The method to draw this dimensionality with.
 
-    'density' has no three-dimensional form here, so the default falls
-    back to 'points', which is what matplotlib can show a volume's
-    interior with.
+    'density' has no three-dimensional form here, so it falls back to
+    'points', which is what matplotlib can show a volume's interior
+    with; 'points' exists only at three dimensions, so below that it
+    falls back to 'density'.
     """
     if PLOT_METHOD == 'density' and dim == 3:
         return 'points'
+    if PLOT_METHOD == 'points' and dim < 3:
+        return 'density'
     return PLOT_METHOD
 
 

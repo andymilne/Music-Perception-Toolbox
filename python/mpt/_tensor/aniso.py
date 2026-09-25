@@ -17,11 +17,18 @@ Implementation strategy: *whitening*. With the Cholesky factorization
 ``y = R^{-1} x`` carries the anisotropic kernel to the isotropic
 unit-``sigma`` kernel, so every downstream computation (density
 evaluation, inner products, entropies, truncation, precision options)
-runs unchanged on whitened values with ``sigma = 1``. The only
+runs unchanged on whitened values with ``sigma = 1``. In particular
+the truncation rule (a kernel contribution whose value falls below
+``exp(-k**2/2)`` of its peak is dropped) holds in the Mahalanobis
+metric ``d^T Sigma^{-1} d`` and reduces exactly to the isotropic rule
+at ``Sigma = sigma**2 I``. The only
 corrections are the Gaussian normalization constant, which acquires a
-factor ``det(Sigma)^{-1/2}``, and the continuous entropies, which
-acquire the additive constant ``log det(Sigma) / 2`` (the change-of-
-variables term of the linear map).
+factor ``det(Sigma)^{-1/2}``; the bare inner product
+(``normalize='none'``), which acquires the Jacobian factor
+``det(Sigma)^{1/2}`` of the change of variables (it cancels in every
+ratio); and the continuous entropies, which acquire the additive
+constant ``log det(Sigma) / 2`` (the change-of-variables term of the
+linear map).
 
 Constraints (validated at build time):
 
@@ -326,6 +333,36 @@ def density_logdet_sum(dens) -> float:
     if isinstance(chol, (list, tuple)):
         return float(sum(logdet_cov(R) for R in chol if R is not None))
     return logdet_cov(chol)
+
+
+def kernel_cov_ip_scale(chol) -> float:
+    """Whitening factor of the bare inner product, from Cholesky factors.
+
+    The canonical-scale inner product of two densities built from
+    unnormalized kernels ``exp(-(x - c)^T Sigma^{-1} (x - c) / 2)`` is
+    ``pi^(d/2) det(Sigma)^(1/2) exp(-d^T Sigma^{-1} d / 4)`` per tuple
+    pair, whereas the whitened computation (``sigma = 1``) yields
+    ``pi^(d/2) exp(-d^T Sigma^{-1} d / 4)``: the change of variables
+    ``x = R y`` contributes the Jacobian ``|det R| = det(Sigma)^(1/2)``
+    to the integral. Returns the product of ``det(Sigma_a)^(1/2)`` over
+    the attributes that carry a covariance (``None`` entries are
+    isotropic and contribute 1); at ``Sigma = sigma**2 I`` of dimension
+    ``d`` this is ``sigma**d``, the factor the isotropic canonical scale
+    carries. It cancels under ``'cosine'`` and ``'oneSidedDenom'`` and
+    is applied only to the bare value (``normalize='none'``).
+    """
+    if chol is None:
+        return 1.0
+    if isinstance(chol, (list, tuple)):
+        ld = sum(logdet_cov(R) for R in chol if R is not None)
+    else:
+        ld = logdet_cov(chol)
+    return float(np.exp(0.5 * ld))
+
+
+def density_ip_scale(dens) -> float:
+    """:func:`kernel_cov_ip_scale` for a density's covariances."""
+    return kernel_cov_ip_scale(getattr(dens, "kernel_chol", None))
 
 
 def density_kernel_covs_compatible(dens_x, dens_y) -> bool:

@@ -17,7 +17,7 @@
 % pitch–pitch-class continuum of Shepard's helix stretched or compressed.
 %
 % How it is computed. Every pitch is routed through two attributes at
-% once: a periodic pitch-class attribute (sigma_pc = 50 cents, P = 1200)
+% once: a periodic pitch-class attribute (sigma_pc = 0.5, P = 12 semitones)
 % and a non-periodic pitch-height attribute whose width sigma_ph is swept
 % from one semitone to several octaves — narrow, and pitches must agree
 % in octave to count as similar; wide, and pitch-class equivalence
@@ -43,7 +43,8 @@
 % similarities come from one batched simMaet call on density lists
 % (elementwise list mode).
 %
-% An appendix figure (HEATMAPS = true) extends the same three encodings
+% An optional extra figure, not in the article (HEATMAPS = true), extends
+% the same three encodings
 % to every event of the chorale: N x N cosine-similarity matrices over the
 % 272 sixteenth-note grid points, one broadcast simMaet call per
 % row and encoding, at three pitch-height widths.
@@ -70,15 +71,15 @@ SAVE_FIGURES = false;
 
 prevDefaults = mptDefaults('showHints', false);
 
-HEATMAPS = false;            % true: also compute the appendix heat maps
+HEATMAPS = false;            % true: also compute the extra heat maps
 
 % ---------------------------------------------------------------------------
-% Parameters (cents; the article's tables quote the same values in semitones)
+% Parameters (semitones, as in the article's tables)
 % ---------------------------------------------------------------------------
-SIGMA_PC = 50.0;
+SIGMA_PC = 0.5;
 SIGMA_VOICE = 0.2;
-SIGMA_PHS = logspace(log10(100), log10(8000), 50);
-SIGMA_PH_SNAPSHOTS = [200.0, 600.0, 3000.0];       % heat-map widths
+SIGMA_PHS = logspace(log10(1), log10(80), 50);
+SIGMA_PH_SNAPSHOTS = [2.0, 6.0, 30.0];       % heat-map widths
 
 % ---------------------------------------------------------------------------
 % Load chorale, identify reference chord pairs by score time
@@ -106,12 +107,12 @@ nPairs = numel(PAIR_LABELS);
 % ---------------------------------------------------------------------------
 % One conversion each, from the same gridded table and the same attributes.
 % Every pitch is routed through two attributes of the one pitch column, read
-% in cents: a periodic pitch-class attribute and a non-periodic pitch-height
+% in MIDI semitones: a periodic pitch-class attribute and a non-periodic pitch-height
 % attribute. The onset attribute locates a chord in the piece and is dropped
 % before any density is built, so its width never enters; the pitch-height
 % width is the sweep's, which buildMaet overrides per call.
 ATTRIBUTES = {struct('column', 'pitch', 'name', 'pitchClass', ...
-                     'sigma', SIGMA_PC, 'isPer', true, 'period', 1200), ...
+                     'sigma', SIGMA_PC, 'isPer', true, 'period', 12), ...
               struct('column', 'pitch', 'name', 'pitchHeight', ...
                      'sigma', SIGMA_PHS(1)), ...
               struct('column', 'onset', 'sigma', 1.0)};
@@ -131,13 +132,13 @@ BUILDER_TITLES = {'Voice-aware encoding', ...
 % One conversion each, from the same table and the same attributes.
 ENCODINGS = { ...
     preMaetFromAttrTable(g, 'attributes', ATTRIBUTES, 'time', 'beats', ...
-        'pitch', 'cents', 'weights', 'ones', ...
+        'pitch', 'midi', 'weights', 'ones', ...
         'roles', struct('part', 'orderedMultiset')), ...
     preMaetFromAttrTable(g, 'attributes', ATTRIBUTES, 'time', 'beats', ...
-        'pitch', 'cents', 'weights', 'ones', ...
+        'pitch', 'midi', 'weights', 'ones', ...
         'chords', 'separate', 'roles', struct('part', VOICE)), ...
     preMaetFromAttrTable(g, 'attributes', ATTRIBUTES, 'time', 'beats', ...
-        'pitch', 'cents', 'weights', 'ones', 'chords', 'separate')};
+        'pitch', 'midi', 'weights', 'ones', 'chords', 'separate')};
 % The sigmas of each encoding's kept attributes, given the swept width.
 ENCODING_SIGMAS = {@(sph) [SIGMA_PC, sph], ...
                    @(sph) [SIGMA_PC, sph, SIGMA_VOICE], ...
@@ -191,8 +192,8 @@ end
 % ---------------------------------------------------------------------------
 % Report
 % ---------------------------------------------------------------------------
-cols = [100.0, 1200.0, 8000.0];
-fprintf('cosine similarity at σ_ph = %s cents (σ_pc = 50 cents):\n', ...
+cols = [1.0, 12.0, 80.0];
+fprintf('cosine similarity at σ_ph = %s semitones (σ_pc = 0.5 semitones):\n', ...
         strjoin(arrayfun(@(c) sprintf('%g', c), cols, 'UniformOutput', false), ', '));
 for bIdx = 1:nBuilders
     title_ = BUILDER_TITLES{bIdx};
@@ -226,7 +227,7 @@ for bIdx = 1:nBuilders
     set(ax, 'XScale', 'log', 'FontSize', 14, 'Box', 'off');
     xlim(ax, [SIGMA_PHS(1), SIGMA_PHS(end)]);
     ylim(ax, [-0.02, 1.02]);
-    xlabel(ax, '\sigma_{ph} (cents)', 'FontSize', 17);
+    xlabel(ax, '\sigma_{ph} (semitones)', 'FontSize', 17);
     title(ax, BUILDER_TITLES{bIdx}, 'FontSize', 18);
     grid(ax, 'on');
     if bIdx == 1
@@ -237,7 +238,7 @@ for bIdx = 1:nBuilders
     end
 end
 annotation(fig, 'textbox', [0.1 0.92 0.8 0.07], 'String', ...
-           sprintf('BWV 347 chord-pair similarity vs \\sigma_{ph} (\\sigma_{pc} = %g cents fixed)', SIGMA_PC), ...
+           sprintf('BWV 347 chord-pair similarity vs \\sigma_{ph} (\\sigma_{pc} = %g semitones fixed)', SIGMA_PC), ...
            'HorizontalAlignment', 'center', 'FontSize', 20, 'EdgeColor', 'none');
 if SAVE_FIGURES
     print(fig, '-dpng', '-r140', fullfile(figDir, 'demo_jmm_1_2_sweep.png'));
@@ -246,7 +247,7 @@ if SAVE_FIGURES
 end
 
 % ---------------------------------------------------------------------------
-% Appendix: N x N event-pair heat maps
+% Optional extra figure: N x N event-pair heat maps
 % ---------------------------------------------------------------------------
 if HEATMAPS
     maps = cell(numel(SIGMA_PH_SNAPSHOTS), nBuilders);
@@ -290,10 +291,10 @@ if HEATMAPS
             axis(ax, 'image');
             hold(ax, 'on');
             if row == 1
-                title(ax, sprintf('%s\n(\\sigma_{ph} = %g cents)', ...
+                title(ax, sprintf('%s\n(\\sigma_{ph} = %g semitones)', ...
                                   BUILDER_TITLES{col}, sigmaPh), 'FontSize', 16);
             else
-                title(ax, sprintf('\\sigma_{ph} = %g cents', sigmaPh), 'FontSize', 16);
+                title(ax, sprintf('\\sigma_{ph} = %g semitones', sigmaPh), 'FontSize', 16);
             end
             for pIdx = 1:nPairs
                 i = eventAt(PAIR_TIMES(pIdx, 1));
@@ -319,7 +320,7 @@ if HEATMAPS
     ylabel(cb, 'similarity', 'FontSize', 15);
     annotation(fig, 'textbox', [0.05 0.94 0.9 0.06], 'String', ...
                {sprintf(['BWV 347 N x N event similarity heat maps (N = %d at ' ...
-                         '\\Delta = %g QN; \\sigma_{pc} = %g cents fixed).'], ...
+                         '\\Delta = %g QN; \\sigma_{pc} = %g semitones fixed).'], ...
                         N, GRID_STEP_QN, SIGMA_PC), ...
                 'Rows: \sigma_{ph} snapshots. Columns: encodings.'}, ...
                'HorizontalAlignment', 'center', 'FontSize', 18, 'EdgeColor', 'none');

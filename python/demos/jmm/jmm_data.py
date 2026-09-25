@@ -1,7 +1,9 @@
 """jmm_data.py — the three works analysed in the JMM article, as MAET inputs.
 
 The demos in this folder reproduce the worked examples of the article
-(Milne, *Music Perception Toolbox*, Journal of Mathematics and Music) and
+(Milne, "Multi-attribute expectation tensors: smooth densities for
+modelling musical structure, complexity, and similarity", *Journal of
+Mathematics and Music*) and
 its Online Supplement. This module holds the data they share, so that
 each demo starts from the same encoding the article used:
 
@@ -11,11 +13,12 @@ each demo starts from the same encoding the article used:
   article used the same score from the music21 corpus; the two encodings
   agree to the note). ``mpt.grid_attr_table`` samples it on whatever
   grid an analysis wants.
-* :func:`bwv347_bar` — the played-through bar number of a grid time.
-* :mod:`piano_phase` — Reich, *Piano Phase*: the twelve-note cell, the
-  two voices rendered from the article's constants (base inter-onset
-  interval, peak tempo deviation, smoothstep accelerandi), and the phase
-  as a function of time.
+* :mod:`piano_phase` (a separate module beside this one) — Reich,
+  *Piano Phase*: the twelve-note cell, the
+  two voices rendered with the article's pulse and accelerando shape
+  (smoothstep), a uniform hold/accelerando schedule standing in for the
+  article's recording-transcribed one, and the phase as a function of
+  time.
 * :func:`derivations` — Ren, Rammos, and Rohrmeier's (2024)
   rule-labelled derivations of the Jazz Harmony Treebank, as a table of
   one row per path position, read from ``data/ParseTrees.json``. Not
@@ -45,14 +48,6 @@ GRID_STEP_QN = 0.25          # sixteenth note: the smallest value in BWV 347
 def bwv347_notes():
     """The attribute table of the played-through chorale (``mpt.read_score``)."""
     return mpt.read_score(os.path.join(DATA_DIR, "bwv347.musicxml"))
-
-
-def bwv347_bar(t):
-    """Played-through bar of a grid time in quarter notes: the chorale has
-    a one-quarter pickup at 0–1 QN, then 4/4 bars from 1 QN."""
-    if t < 1.0:
-        return 0
-    return int((t - 1.0) // 4.0) + 1
 
 
 def bwv347_fermata_spans():
@@ -98,19 +93,30 @@ def _paths(tree):
 
     A node is ``[chord, rule, children]``; a leaf carries its chord and no
     rule. The terminating rule directly above a leaf ends every path and
-    says nothing about structure, so it is dropped.
+    says nothing about structure, so it is dropped. Each path is returned
+    with, for each of its positions, the number of surface chords that
+    position's node governs (the leaves below it), and with its own
+    chord's quality.
     """
     out = []
 
+    def leaves(node):
+        if node.get("tag") == "Leaf":
+            return 1
+        return sum(leaves(child) for child in node["contents"][2])
+
     def walk(node, path):
         if node.get("tag") == "Leaf":
-            out.append([label for label in path if label != "Term"])
+            kept = [step for step in path if step[0] != "Term"]
+            quality = " ".join(node["contents"].get("quality") or [])
+            out.append(([label for label, _ in kept],
+                        [governed for _, governed in kept], quality))
             return
         _, rule, children = node["contents"]
         label = rule["contents"] if isinstance(rule.get("contents"), str) \
             else rule.get("tag")
         for child in children:
-            walk(child, path + [label])
+            walk(child, path + [(label, leaves(node))])
 
     walk(tree, [])
     return out
@@ -120,8 +126,11 @@ def derivations(tunes=None, path=None):
     """The rule-labelled derivations as a table, one row per path position.
 
     Columns: ``tune``, ``chord`` (the surface chord's index within its
-    tune), ``level`` (the position's depth, the root at 1), and ``label``
-    (the rule applied there). Reading a derivation as a table of
+    tune), ``level`` (the position's depth, the root at 1), ``label``
+    (the rule applied there), ``governed`` (the number of surface chords
+    the position's node governs), and ``quality`` (the surface chord's
+    quality as the corpus records it, a stack of thirds such as
+    ``'Maj Min Min'``, the dominant seventh). Reading a derivation as a table of
     positions is what lets the demo bind them: the positions of one chord
     are consecutive rows sharing a ``chord``.
 
@@ -144,8 +153,11 @@ def derivations(tunes=None, path=None):
             raise KeyError(f"{tune!r} is not in the corpus; it holds "
                            f"{len(corpus)} tunes, named like "
                            f"{next(iter(corpus))!r}.")
-        for chord, labels in enumerate(_paths(corpus[tune])):
-            for level, label in enumerate(labels, start=1):
-                rows.append((tune, chord, level, label))
+        for chord, (labels, governed, quality) in enumerate(
+                _paths(corpus[tune])):
+            for level, (label, m) in enumerate(zip(labels, governed),
+                                               start=1):
+                rows.append((tune, chord, level, label, m, quality))
     import pandas as pd
-    return pd.DataFrame(rows, columns=["tune", "chord", "level", "label"])
+    return pd.DataFrame(rows, columns=["tune", "chord", "level", "label",
+                                       "governed", "quality"])

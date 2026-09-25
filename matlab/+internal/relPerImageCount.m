@@ -5,7 +5,7 @@ function n = relPerImageCount(sigma, period, truncationSigmas)
 %   the number of periodic images needed on each side for the
 %   relative-periodic kernel to reach the caller's own accuracy floor.
 %
-%   The relative-periodic inner product marginalises a rigid common
+%   The relative-periodic inner product marginalizes a rigid common
 %   shift. Taking that average over a kernel that carries every periodic
 %   image yields the lattice-sum (full-image) measure exactly; taking it
 %   over a nearest-image kernel yields a different measure, which departs

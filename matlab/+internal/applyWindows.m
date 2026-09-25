@@ -1,5 +1,5 @@
 function [pc, wc, sc] = applyWindows(p, w, specs, axes, centres, gammas, sds, locates, target)
-%APPLYWINDOWS  Compose each swept axis's window factor onto the target's
+%APPLYWINDOWS  Compose each window attribute's window factor onto the target's
 %   weights, then prune. The locating value is reduced as a separate array
 %   (the inputs are never mutated), so the target's value count is read from
 %   the real attribute and a windowed-and-compared bundle is handled

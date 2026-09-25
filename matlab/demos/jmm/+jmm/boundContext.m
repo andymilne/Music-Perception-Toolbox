@@ -13,8 +13,10 @@ function pm = boundContext(L, rInner, flag)
 %   ([rel] = (0, 1)) and periodic at the octave.
 %
 %   Per-attribute bind orders keep everything but the pitch flat at one
-%   value per window: the window's own start time, which locates it for a
-%   sweep, and the named inversion flag ('sixFour' or 'rootPositionNext')
+%   value per window. Binding is end-aligned, so that value is the one at
+%   the window's last beat: its time, the resolution moment, which locates
+%   it for a sweep, and the named inversion flag ('antepenultSixFour' or
+%   'rootPosition', stored at the resolution beat; see jmm.bwvWindowState)
 %   where one is asked for.
 %
 %   See also BINDEVENTS, JMM.QUERY, JMM.BWVWINDOWSTATE.

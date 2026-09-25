@@ -993,6 +993,69 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     return out.reshape(Nx, Ny)
 
 
+def nested_attr_matrix_sweep(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
+                             is_per, period, truncation_sigmas, offsets, *,
+                             wrap_a='full-image', mem_budget=16_000_000):
+    """(N_x, N_y, M) inner matrix of an absolute nested attribute with the
+    Y operand's values translated by each of ``offsets`` (length M).
+
+    The translation sweep form of :func:`nested_attr_matrix` with
+    ``taus=None``. Translating every value of an absolute attribute by mu
+    keeps the leaf kernel a one-body product per coordinate, now of
+    ``k(v_x - v_y - mu)``, so the offsets ride the contraction's batch axis
+    --- the axis the relative line integral uses for its translation nodes
+    --- and each node is kept rather than summed. Every entry is the value
+    :func:`nested_attr_matrix` returns for the translated Y operand,
+    computed by the same kernel, truncation and per-level reduction; what
+    the sweep saves is the per-offset rebuild and dispatch around it.
+    """
+    with orbit_guard_scope(truncation_sigmas):
+        PX = np.asarray(PX, dtype=np.float64)
+        PY = np.asarray(PY, dtype=np.float64)
+        nX, Nx = PX.shape
+        nY, Ny = PY.shape
+        WX = (np.ones((nX, Nx)) if WX is None
+              else np.asarray(WX, dtype=np.float64))
+        WY = (np.ones((nY, Ny)) if WY is None
+              else np.asarray(WY, dtype=np.float64))
+        if np.isnan(PX).any() or np.isnan(PY).any():
+            fill = float(min(np.nanmin(PX), np.nanmin(PY)))
+            mX, mY = np.isnan(PX), np.isnan(PY)
+            PX = np.where(mX, fill, PX)
+            WX = np.where(mX | np.isnan(WX), 0.0, WX)
+            PY = np.where(mY, fill, PY)
+            WY = np.where(mY | np.isnan(WY), 0.0, WY)
+        mus = np.asarray(offsets, dtype=np.float64).ravel()
+        T = int(mus.size)
+        inv = 1.0 / (4.0 * sigma ** 2)
+        m_idx = np.repeat(np.arange(Nx), Ny)
+        n_idx = np.tile(np.arange(Ny), Nx)
+        B = Nx * Ny
+        chunk = max(1, min(B, int(mem_budget // max(T * nX * nY, 1))))
+        out = np.empty((B, T), dtype=np.float64)
+        for s in range(0, B, chunk):
+            e = min(s + chunk, B)
+            nb = e - s
+            mi, ni = m_idx[s:e], n_idx[s:e]
+            vx, vy = PX[:, mi], PY[:, ni]
+            wx, wy = WX[:, mi], WY[:, ni]
+            d = (vx.T[:, :, None, None]
+                 - (vy.T[:, None, :, None] + mus[None, None, None, :]))
+            if is_per and wrap_a != 'single-image':
+                from .._wrapped_kernel import wrapped_gaussian_1d
+                K = wrapped_gaussian_1d(d, sigma, period, truncation_sigmas,
+                                        exponent_denominator=4)
+            else:
+                if is_per:
+                    d = _wrap(d, period)
+                K = np.exp(-(d ** 2) * inv)
+            K = K * (wx.T[:, :, None, None] * wy.T[:, None, :, None])
+            K = K.transpose(0, 3, 1, 2).reshape(nb * T, nX, nY)
+            _trunc(K, sigma, truncation_sigmas)
+            out[s:e] = _contract(recipe_x, recipe_y, K).reshape(nb, T)
+        return out.reshape(Nx, Ny, T)
+
+
 # ----------------------------------------------------------------------
 #  Dispatch support: analytic tuple counts and contraction work
 # ----------------------------------------------------------------------

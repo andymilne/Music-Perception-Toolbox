@@ -48,7 +48,7 @@
 %
 % The encodings live in the jmm package: the beat aggregates
 % (jmm.bwvWindowState), the nested context and query builders
-% (jmm.boundContext, jmm.query, jmm.windowStarts, jmm.asCompared,
+% (jmm.boundContext, jmm.query, jmm.windowsInPiece, jmm.asCompared,
 % jmm.dyadQuery, jmm.prototypeQuery), and the pitch-derived flags
 % (jmm.isRootPosition, jmm.isSixFour). The two sweeps are local
 % functions at the foot of this file. Toolbox: gridAttrTable (twice, the
@@ -96,8 +96,8 @@ RS = [1 2 3];
 % ---------------------------------------------------------------------------
 QUERY_NAMES = {'ii7-V7-I', 'iio7-V7-i', 'I-V-I', 'Ic-V-I', 'i-V-i', 'ic-V-i'};
 QUERIES = struct('chords', ...
-    {{[62 65 69 72], [55 59 62 65], [60 64 67]}, ...
-     {[62 65 68 72], [55 59 62 65], [60 63 67]}, ...
+    {{[62 65 69 72], [62 65 67 71], [60 64 67]}, ...
+     {[62 65 68 72], [62 65 67 71], [60 63 67]}, ...
      {[60 64 67], [62 67 71], [60 64 67]}, ...
      {[60 64 67], [62 67 71], [60 64 67]}, ...
      {[60 63 67], [62 67 71], [60 63 67]}, ...
@@ -130,8 +130,9 @@ for r = RS
         for qi = 1:numel(QUERIES)
             qPm = jmm.prototypeQuery(QUERIES(qi).chords, ...
                 QUERIES(qi).flagged, r);
-            % The query as the cosine receives it: the placement axis has
-            % done its work and is not part of the comparison.
+            % The query as the comparison receives it: the time
+            % attribute places the window and is not part of the
+            % comparison.
             showPreMaet(jmm.asCompared(qPm), ...
                 'title', sprintf('  query: %s (rInner = %d)', ...
                 QUERY_NAMES{qi}, r));
@@ -266,22 +267,23 @@ function profiles = localPrototypeSweep(rInner, queries, mus, normalize)
     %aggregates [mu-2, mu-1), [mu-1, mu), [mu, mu+1).
     %
     % One bindEvents call nests every window of three beats across the
-    % whole chorale, carrying the window's own start time and the
-    % inversion flag flat alongside the nested pitch. The sweep is then
-    % one call per query: a rectangle of one beat admits exactly one
-    % window at each centre. The flag is pitch-derived --- a predicate on
-    % the sonority at the antepenult beat, which is the window's first ---
-    % and no harmonic labels are consulted.
+    % whole chorale, carrying the time of the window's last beat (its
+    % resolution) and the inversion flag flat alongside the nested pitch.
+    % The sweep is then one call per query: a rectangle of one beat admits
+    % exactly one window at each centre. The flag is pitch-derived --- a
+    % predicate on the sonority at the antepenult beat, the window's
+    % first, stored at its resolution beat --- and no harmonic labels are
+    % consulted.
     ctxPlain = jmm.boundContext(3, rInner);
-    ctxFlag = jmm.boundContext(3, rInner, 'sixFour');
-    [idxs, centres] = jmm.windowStarts(mus, 2.0);
+    ctxFlag = jmm.boundContext(3, rInner, 'antepenultSixFour');
+    [idxs, centres] = jmm.windowsInPiece(mus, 3);
     profiles = cell(1, numel(queries));
     for q = 1:numel(queries)
         qd = jmm.prototypeQuery(queries(q).chords, queries(q).flagged, rInner);
         if queries(q).flagged, ctx = ctxFlag; else, ctx = ctxPlain; end
         % A rectangle of full support one beat, centred on each window's
-        % own start time, admits exactly that window and no other --- its
-        % neighbours sit exactly a beat away. The time axis (attribute 2)
+        % resolution beat, admits exactly that window and no other --- its
+        % neighbours sit exactly a beat away. The time attribute (attribute 2)
         % is dropped from the comparison, having done its work in placing
         % the window.
         prof = zeros(1, numel(mus));
@@ -303,16 +305,16 @@ function [x, so] = localDyadSweep(rInner, useFlag, mus, normalize)
     %
     % One bindEvents call nests every pair of adjacent beats --- the
     % approach beat [mu-1, mu) and the resolution beat [mu, mu+1) ---
-    % carrying the window's own start time and the inversion flag flat
-    % alongside the nested pitch. The optional inversion attribute is
-    % pitch-derived: a predicate on the sonority sounding at mu, which is
-    % the window's second beat, and no harmonic labels are consulted.
+    % carrying the time of the window's last beat (mu) and the inversion
+    % flag flat alongside the nested pitch. The optional inversion
+    % attribute is pitch-derived: a predicate on the sonority sounding at
+    % mu, the window's second beat, and no harmonic labels are consulted.
     S = jmm.bwvWindowState();
     if useFlag, qFlag = S.rootYes; else, qFlag = []; end
     qd = jmm.dyadQuery(qFlag, rInner);
-    if useFlag, flagName = 'rootPositionNext'; else, flagName = ''; end
+    if useFlag, flagName = 'rootPosition'; else, flagName = ''; end
     ctx = jmm.boundContext(2, rInner, flagName);
-    [idxs, centres] = jmm.windowStarts(mus, 1.0);
+    [idxs, centres] = jmm.windowsInPiece(mus, 2);
     so = nan(1, numel(mus));
     raw = windowedSimilarity(ctx, qd, centres(:).', ...
         'contextWindow', {1.0, 1.0}, 'windowAttr', 2, ...

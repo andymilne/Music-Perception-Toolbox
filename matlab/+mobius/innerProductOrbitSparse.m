@@ -198,7 +198,7 @@ end
 
 
 function [Mv, u] = localOrientRows(p, q, M, v)
-%LOCALORIENTROWS  Return M with node v as its row axis, and the other node.
+%LOCALORIENTROWS  Return M with node v indexing its rows, and the other node.
     if p == v
         Mv = M; u = q;
     else

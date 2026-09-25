@@ -25,7 +25,7 @@ demo walks through three treatments of the same melody:
             identification: a re-articulated note and a single held
             note of the same length produce the same events.
   count     Prolong, and add a per-event attribute holding the number
-            of onsets gathered into the event. Re-articulation now
+            of onsets gathered into the event. Re-articulation
             survives as such, and its sigma grades how sharply it is
             distinguished -- wide, and the comparison slides back to
             the prolong treatment's identification.
@@ -51,6 +51,8 @@ Sections:
 Exact invariances only (rel_outer flags); the graded counterparts (the
 sd_shift ridge of kernel_cov, tending to rel in the limit) are
 the subject of demo_tempo_invariance.
+
+The MATLAB mirror is demo_repetitionHandling.m.
 """
 
 import numpy as np
@@ -106,7 +108,7 @@ def gather_repetitions(pitches, onsets):
 # The five comparison variants, each a (pitches, onsets) pair:
 #   held       The gathered reference played as sustained notes: same
 #              pitches at the same onsets, but each formerly repeated
-#              note now a single held note -- no re-articulations.
+#              note played as a single held note -- no re-articulations.
 #   norep      The repetitions removed and the rhythm closed up: the
 #              ten distinct pitches, one per beat.
 #   augmented  Every pitch step doubled (contour preserved), rhythm as
@@ -178,10 +180,9 @@ def build_density(ev, log_ioi, sigma_count=SIGMA_COUNT,
 
     Attributes: log step magnitude, sign, inter-onset interval, and
     (when present) count. One transform_attributes call takes the log of
-    the signed step and, with sign=True, inserts the sign attribute
-    right after it at the 2-point simplex's vertices, {-1/2, 0, +1/2};
-    the same call takes the log of the
-    intervals where log_ioi. The log-magnitude tuple is read relative
+    the step's magnitude and, with sign=True, inserts the sign attribute
+    right after it at the 2-point simplex's vertices, +1/2 and -1/2;
+    the same call takes the log of the intervals where log_ioi. The log-magnitude tuple is read relative
     (rel_outer), quotienting a common shift -- a uniform scaling of
     the pitch steps. With log_ioi, the intervals are read relative too,
     quotienting a tempo change; in beats they are read absolute, so
@@ -271,13 +272,13 @@ print("  Each treatment commits to one identification, visible in its")
 print("  column's 1.000: excise cannot tell the reference from norep")
 print("  (the repetitions leave no trace), prolong cannot tell it from")
 print("  held (re-articulation and prolongation coincide), and count")
-print("  distinguishes all four.\n")
+print("  separates the reference from both held and norep.\n")
 
 
 print("=== 4. Log inter-onset intervals, read relative ===\n")
 print("  The same comparisons with the intervals taken to logarithms")
 print("  and the bound tuple read relative: a tempo change is a common")
-print("  shift of the log intervals, so the faster variants now match")
+print("  shift of the log intervals, so the faster variants match")
 print("  exactly -- including aug+faster, scaled in pitch and time at")
 print("  once.\n")
 similarity_table(log_ioi=True)
@@ -293,7 +294,8 @@ print("  cannot.\n")
 
 print("=== 5. Grading the count attribute ===\n")
 print("  Under the count treatment, reference vs held differ only on")
-print("  the count attribute (2 vs 1 at the five gathered events). Its")
+print("  the count attribute (2 vs 1 at four of the nine events; the")
+print("  first run's count is lost to differencing). Its")
 print("  sigma sets how much that difference costs: narrow, the two")
 print("  are far apart; broad, the counts blur together and the")
 print("  comparison returns to the prolong treatment's identification")
@@ -331,7 +333,9 @@ for tr in ("prolong", "count"):
     print(f"    {tr:<8}: doubled figure vs closed-up figure = {s:.3f}")
 print()
 print("  With intervals in beats the two are already distinct under")
-print("  every treatment; the confound is a consequence of tempo invariance,")
+print("  prolong and count (excise identifies them anyway, as it")
+print("  identifies the reference with norep); the confound is a")
+print("  consequence of tempo invariance,")
 print("  and the count attribute -- dimensionless, so invariant to")
 print("  both scalings at no extra cost -- is what resolves it.")
 

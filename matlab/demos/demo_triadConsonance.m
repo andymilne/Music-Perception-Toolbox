@@ -20,7 +20,7 @@
 %    'specEnt'   — Spectral Rényi-2 entropy: the collision entropy of the
 %                  smoothed composite spectrum, in closed form from the
 %                  density's self inner product. Plotted as -entropy so
-%                  that peaks = consonance. (The normalised Shannon
+%                  that peaks = consonance. (The normalized Shannon
 %                  entropy of Milne et al. 2017 and Smit et al. 2019 is
 %                  a keyword away; see the section that computes this.)
 %
@@ -36,6 +36,8 @@
 %  Uses: templateHarmonicity, spectralEntropy, roughness, addSpectra,
 %        evalMaet, transformAttributes
 %  (from the Music Perception Toolbox).
+%
+%  The Python mirror is demo_triad_consonance.py.
 
 %% === User-adjustable parameters ===
 
@@ -46,7 +48,7 @@ plotMeasures = {
     'tmplMax'     % Template harmonicity: hMax (Milne 2013)
     'tmplEnt'     % Template harmonicity: -hEntropy (Harrison 2020)
     'tensor'      % Tensor harmonicity (Smit et al. 2019)
-    'specEnt'     % -Spectral entropy (Milne et al. 2017)
+    'specEnt'     % -Spectral Rényi-2 entropy (collision entropy, grid-free)
     'rough'       % -Roughness (Sethares 1993)
 };
 
@@ -80,10 +82,12 @@ dup_tens = 0;
 
 % Default transform mode and parameter values for visualization.
 %   - 'off'  : no transform; data shown as-is
-%   - 'gamma': power compression  v -> v.^gamma  (gamma in [0.01, 1])
-%   - 'sat'  : saturation         v -> 1 - exp(-v / eta)  (eta log-scale in
-%              [0.001, 5], applied to data normalised to [0, 1] then
-%              rescaled back to the original range)
+%   - 'gamma': power compression  v -> v.^gamma  (gamma in [0.01, 1],
+%              linear scale), applied to data normalized to [0, 1]
+%   - 'sat'  : saturation         v -> 1 - exp(-v / eta)  (eta in
+%              [0.002, 5], log10 scale), applied to data normalized to
+%              [0, 1]; the curve is renormalized so that the output also
+%              lies in [0, 1]
 % Both gamma and eta have per-mode memory: switching between modes
 % restores each mode's last slider value. An interactive radio group
 % selects the mode; the slider beside it adapts.
@@ -137,25 +141,16 @@ if doTensor
 end
 
 %% === Compute features ===
-% Exploit symmetry: features are invariant to swapping interval1 and
-% interval2, so we build a linear list of unordered (int1, int2) pairs
-% (one per upper-triangle entry, j >= i) and compute each feature once
-% per unique pair, then mirror into the symmetric output matrix.
-%
-% Loop structure: each unique triad {0, ints(i), ints(j)} (j >= i) is
-% computed once and mirrored into the symmetric (nInts x nInts) result
-% grids. The upper-triangle pattern is recommended for *roughness*,
-% which has no batched-input dispatch and no internal dedup — every
-% iteration of its loop does the full computation from scratch, so
-% halving the iteration count halves the actual work. For the three
-% batched features (tensor harmonicity, template harmonicity, and
-% spectral entropy), the upper triangle is a code-organization choice
-% only: passing the full (nInts^2) grid of chord rows would do the same
-% amount of internal work, because the canonical-form dedup in the
-% batched dispatch collapses permutation-equivalent chords (i, j) and
-% (j, i) onto a single cached result. Keeping the upper-triangle
-% pattern across all four features makes the unique-triad structure
-% explicit in the demo code.
+% Each unique triad {0, ints(i), ints(j)} (j >= i) is computed once and
+% mirrored into the symmetric (nInts x nInts) result grids, since every
+% feature is invariant to swapping interval1 and interval2. For roughness,
+% which has no batched mode and no internal deduplication, and for tensor
+% harmonicity, queried directly through evalMaet (see below), this halves
+% the actual work. For template harmonicity and spectral entropy it is a
+% code-organization choice only: their batched modes deduplicate rows by
+% canonical form, so passing the full (nInts^2) grid of chord rows would
+% collapse (i, j) and (j, i) onto a single cached result and do the same
+% internal work.
 
 nUpper = nInts * (nInts + 1) / 2;
 
@@ -245,10 +240,13 @@ end
 % unbounded, and lower where the spectrum is more concentrated, so it is
 % plotted negated and peaks mark consonance.
 %
-% Milne et al. (2017) and Smit et al. (2019) used the grid-normalised
+% Milne et al. (2017) and Smit et al. (2019) used the grid-normalized
 % Shannon entropy H / log_b(N) in [0, 1], available as 'method',
-% 'normalized' and required to reproduce their absolute values; it ranks
-% these chords similarly (Pearson 0.95, Spearman 0.81 over 1225 triads).
+% 'normalized' and required to reproduce their absolute values. Its
+% agreement with Rényi-2 depends on the range of chords: over this demo's
+% default grid (29161 triads spanning two octaves at 10-cent steps) it is
+% moderate (Pearson 0.81, Spearman 0.56); over one octave at 25-cent steps
+% (1225 triads) it is closer (Pearson 0.95, Spearman 0.81).
 % On a continuous domain that form is defined relative to its grid and
 % does not converge under refinement: H_disc and log N both grow like
 % log(1/Delta) as the cell width goes to zero, so the ratio tends to 1 for
@@ -257,10 +255,13 @@ end
 % category set --- since N is then fixed by the domain and H / log_b(N) is
 % flatness as a proportion of that domain's maximum.
 %
-% The third option, 'differential', converges (nested grids with
-% Richardson extrapolation) but is much slower grid size. Rényi-2 is the 
-% fastest of the three and tracks the differential entropy more closely 
-% than the normalised grid does (Spearman 0.96 against 0.72).
+% Of the other two methods, 'shannon' is the unnormalized discrete entropy
+% H on the same grid as 'normalized', and 'differential' converges (nested
+% grids with Richardson extrapolation) but is much slower and impractical
+% at this grid size. Rényi-2 is the fastest of the four and tracks the
+% differential entropy far more closely than the normalized grid form does
+% (Spearman 0.92 against 0.33 over the default grid; 0.96 against 0.72
+% over the one-octave grid).
 if doSpecEnt
     chordMatSE = [zeros(nUpper, 1), int1Lin, int2Lin];
     t0 = tic;
@@ -648,7 +649,7 @@ function vt = applyTransform(vals, mode, gamma, eta)
 %APPLYTRANSFORM Dispatch on mode.
 %
 %  'off'   identity; output range = input range.
-%  'gamma' power compression: data normalised by the empirical
+%  'gamma' power compression: data normalized by the empirical
 %          (min, max) so the slider stays responsive across measures
 %          with very different ranges. Output is in [0, 1]. Gamma is
 %          a display-cosmetic knob with no perceptual interpretation
@@ -853,7 +854,7 @@ function projCallback(src, fig)
         % numbers to the right of the plot area instead of the left, 
         % so the colorbar needs to move further right to clear them. 
         % Shift each colorbar right by a fraction of its plot's width; 
-        % shift the sliders the same amount so they don't end up over 
+        % shift the sliders the same amount so they do not end up over 
         % the colorbars.
         cbarShift   = 0.030;
         sliderShift = cbarShift;

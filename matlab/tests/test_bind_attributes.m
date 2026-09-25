@@ -1,4 +1,4 @@
-%% test_bind_attributes.m — binding along the attribute axis, and its inverse
+%% test_bind_attributes.m — binding across attributes, and its inverse
 %
 %  bindAttributes gathers several attributes into one whose value at an
 %  event is the tuple of all of them; separateAttributes splits one back

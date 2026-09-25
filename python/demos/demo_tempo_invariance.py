@@ -51,12 +51,12 @@ The demo searches a monophonic onset stream for a long-short-short
 motif. The stream contains variations of the motif at different tempos,
 some with small onset-timing perturbations as well, plus two foils.
 Each candidate rhythm occupies a 3-interval cell; the stream is scanned
-by its overlapping log-IOI trigrams, each an ordered K = 3 value
+by its overlapping log-IOI trigrams, each an ordered K = 3 element
 multiset read at r = 3 (the matrix covariance requires r == K), with
 an onset time as a second attribute that only places the sliding
 window (`window_attr`, `drop_window_attr=True`); each trigram is timed
-at the onset that completes its first interval, the stamp the
-difference/bind pipeline gives it. The trigram
+at the onset that completes its last interval, the stamp the
+difference/bind pipeline gives it (both operations end-align). The trigram
 attribute must be ORDERED: one foil is the motif reversed, which has
 the same interval multiset as the motif and is separated from it only
 by position order. The trigrams are built with the toolbox's cross-event
@@ -74,7 +74,7 @@ Four sections:
                   perturbations of the motif.
   3. The search   `windowed_similarity` sweeps over every trigram
                   under six kernels; the candidate table contrasts
-                  positional (timing) tolerance with tempo tolerance,
+                  value (timing) tolerance with tempo tolerance,
                   and both with exact tempo invariance.
   4. The limit    sd_shift -> infinity converges to `is_rel=True`.
 
@@ -89,6 +89,8 @@ query and the six similarity profiles aligned beneath it
 is_rel limit (demo_tempo_invariance_limit.png).
 
 Requires: numpy, matplotlib, mpt.
+
+The MATLAB mirror is demo_tempoInvariance.m.
 """
 import os
 
@@ -151,12 +153,12 @@ onsets = np.asarray(onsets)
 # orders): the first becomes the inter-onset intervals (each interval
 # timed at the onset that completes it), while the second stays as the
 # raw onset times. bind_events then lays a sliding window of three
-# consecutive log-IOIs across the event axis (the [3, 1] orders bind
+# consecutive log-IOIs across events (the [3, 1] orders bind
 # the interval attribute in threes and keep the time attribute as a
 # singleton), one bound event per window, each trigram carrying the
-# time of its first interval. The rel kernel needs its trigrams read
-# relative to a common shift; the second bind, with rel_outer=True,
-# produces that reading of the same trigrams.
+# time of its last interval (binding is end-aligned). The rel kernel
+# needs its trigrams read relative to a common shift; the second bind,
+# with rel_outer=True, produces that reading of the same trigrams.
 # The three steps chain as pre-MAETs, each taking the last whole:
 # difference the onsets into IOIs, take the log of the interval
 # attribute (transform_attributes, which also refuses a zero IOI with
@@ -171,7 +173,7 @@ sp_bound_rel = mpt.bind_events(pm_diff, [3, 1], rel_outer=True)["specs"]
 N_TRI = p_bound[0].shape[1]      # number of trigrams (windows to place)
 tri_times = p_bound[1].ravel()   # window-placing times (the sweep
                                  # centres); trigram i is timed at
-                                 # onsets[i + 1]
+                                 # onsets[i + 3], the onset completing it
 
 # Presentation only -- no effect on the search, which is blind to cell
 # boundaries. CELL_STARTS is the trigram index at which each cell
@@ -183,8 +185,8 @@ print("\n=== 1. Material ===\n")
 print(f"  Motif IOIs (s): {D_MOTIF}  (long-short-short)")
 print(f"  Stream: {len(CELLS)} cells x 4 onsets, 1 s gaps -> "
       f"{onsets.size} onsets, {N_TRI} overlapping log-IOI trigrams.")
-print("  Each trigram is one event: an ordered K = 3 value multiset")
-print("  read at r = 3, timed at the onset that completes its first")
+print("  Each trigram is one event: an ordered K = 3 element multiset")
+print("  read at r = 3, timed at the onset that completes its last")
 print("  interval (the window-placing attribute).")
 
 
@@ -249,7 +251,7 @@ PERTS = [
 PURE = [
     ("value", S_POS),
     ("interval", S_INT),
-    ("pos+shift", S_RDG),
+    ("value+shift", S_RDG),
 ]
 W3 = np.ones(3)
 
@@ -281,11 +283,14 @@ print("""
   - interval: the penalty is by Euclidean norm alone (the two marginals
     are matched to the value column), so the ordering of the first
     two rows reverses.
-  - pos+shift: the ridge makes the tempo shift the cheapest direction
-    while leaving the within-shape penalties essentially unchanged.""")
+  - value+shift: the ridge makes the tempo shift the cheapest
+    direction while leaving the displaced onset, a purely within-shape
+    perturbation, essentially unchanged; the single stretched interval
+    has a component along the shift direction, which the ridge
+    absorbs.""")
 
 
-# ===== 3. The search: positional sigma vs tempo sigma =====
+# ===== 3. The search: timing sigma vs tempo sigma =====
 
 print("\n=== 3. Searching the stream for the motif ===\n")
 
@@ -381,13 +386,13 @@ for i, (cname, _) in enumerate(CELLS):
 
 print("""
   Reading the rows:
-  - 20% faster / double speed: pure tempo changes. Positional sigma
-    alone barely admits them at any tolerable width ('timing' gives
+  - 20% faster / double speed: pure tempo changes. Value (timing)
+    sigma alone barely admits them at any tolerable width ('timing' gives
     0.016 at sd_value = 0.10); sd_shift admits the moderate change
     and GRADES the large one ('tempo' gives 0.876 and 0.147); rel
     admits both exactly.
   - jittered: a same-tempo timing perturbation. Tempo sigma alone does
-    not help ('tempo' gives 0.011); positional sigma does ('timing'
+    not help ('tempo' gives 0.011); value (timing) sigma does ('timing'
     gives 0.832). The two tolerances are separate currencies: in
     log-IOI space a tempo change moves the trigram's point ALONG the
     all-ones diagonal, timing jitter moves it off that line, and the
@@ -412,8 +417,8 @@ print("  Max |large-shift - rel| across all "
       f"{np.max(np.abs(profiles['large-shift'] - profiles['rel'])):.1e}\n")
 
 # The full profile also sweeps the boundary-straddling trigrams. One
-# is instructive: the trigram reading (last interval of the reversed
-# cell, the 1 s gap, first isochronous interval) = (0.50, 1.0, 0.33) s
+# is instructive: the trigram reading (the 1 s gap, then the
+# isochronous cell's first two intervals) = (1.0, 0.33, 0.33) s
 # -- the silence itself parses as the 'long' of a long-short-short
 # figure with ratio 3:1:1, close in shape to the motif's 2:1:1 but at
 # a remote tempo. That trigram is the one immediately before the
@@ -434,7 +439,7 @@ for kname in ("tempo", "timing+tempo", "large-shift", "rel"):
 # copy for visual comparison. Below: one panel per kernel, sharing the
 # time axis, with the cell spans repeated so each peak reads off
 # against its cell. Each profile is drawn as end-aligned stair steps:
-# a trigram's tread spans its first inter-onset interval and its value
+# a trigram's tread spans its last inter-onset interval and its value
 # sits at the right edge (the trigram's stamp), with a dot marking
 # each stamp. Panel titles carry each kernel's constructor parameters.
 cell_spans = [(onsets[4 * i], onsets[4 * i + 3])
@@ -466,15 +471,14 @@ for ax, (kname, plabel, _) in zip(axes[1:], KERNELS):
     for lo, hi in cell_spans:
         ax.axvspan(lo, hi, color='0.55', alpha=0.15, lw=0)
     prof = profiles[kname]
-    prof = profiles[kname]
-    # End-aligned stair steps: the tread for a trigram spans its first
-    # inter-onset interval -- from the trigram's opening onset to the
-    # onset that stamps it (onsets[i] to onsets[i+1]) -- so the tread
+    # End-aligned stair steps: the tread for a trigram spans its last
+    # inter-onset interval -- from the onset before its stamp to the
+    # onset that stamps it (onsets[i+2] to onsets[i+3]) -- so the tread
     # width shows that interval and the value sits at its right edge.
-    # For the boundary trigram this first interval is the 1 s gap, so
-    # the tread widens to cover it. Small dots mark the stamps; the
-    # leading edge is carried back to the opening onset.
-    ax.step(np.insert(tri_times, 0, onsets[0]), np.insert(prof, 0, prof[0]),
+    # A trigram ending on a 1 s gap has the widest tread. Small dots
+    # mark the stamps; the first tread starts at the first trigram's
+    # last interval.
+    ax.step(np.insert(tri_times, 0, onsets[2]), np.insert(prof, 0, prof[0]),
             where='pre', color='C0', lw=1.0)
     ax.plot(tri_times, prof, '.', color='C0', ms=4)
     ax.text(0.008, 0.97, f"{kname} ({plabel})", transform=ax.transAxes,
@@ -484,20 +488,20 @@ for ax, (kname, plabel, _) in zip(axes[1:], KERNELS):
     ax.set_ylabel('similarity', fontsize=9)
 # Annotate the boundary near-miss wherever tempo invariance admits it:
 # the wide gap tread reads as a 'long', so both the large-shift and rel
-# panels score it. Text sits up and to the right of the point so the
-# arrow stays short.
+# panels score it. Text sits up and to the left of the point, which is
+# near the end of the stream, so the arrow stays short.
 for kname in ("large-shift", "rel"):
     ax = axes[[k for k, _, _ in KERNELS].index(kname) + 1]
     ax.annotate("gap parses as 'long'",
                 xy=(tri_times[i_straddle], profiles[kname][i_straddle]),
-                xytext=(tri_times[i_straddle] - 0.05, 0.66),
-                ha='left', fontsize=8,
+                xytext=(tri_times[i_straddle] - 0.15, 0.66),
+                ha='right', fontsize=8,
                 arrowprops=dict(arrowstyle='->', lw=0.8))
 axes[-1].set_xlabel('time (s)')
-# Span the whole stream: the last onsets carry no trigram (a trigram
-# needs three IOIs ahead of it), so the stair stamps stop before the
-# stream does; set the limit from the onsets, not the stamps, so the
-# raster's tail is not clipped.
+# Span the whole stream: the first three onsets carry no stamp (a
+# trigram needs three IOIs behind it), so the stair stamps start after
+# the stream does; set the limit from the onsets, not the stamps, so the
+# raster's head is not clipped.
 axes[-1].set_xlim(-0.6, onsets[-1] + 0.6)
 
 fig.savefig(FN_FIG_MAIN, dpi=120)

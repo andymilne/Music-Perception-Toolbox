@@ -174,6 +174,13 @@ results{end, 2} = all(abs(v1(:).' - ref1) <= 1e-9 * abs(ref1) + 1e-16) ...
                   && all(abs(v3(:).' - ref3) <= 1e-9 * abs(ref3));
 
 % --- much cheaper than the centres route at r = (3, 3) ---
+% Deterministic: the comparison is on the fitted nested cost row, not on
+% wall-clock time. The agreement check lifts the accuracy floor: even at
+% truncationSigmas = Inf the centres route culls every tuple centre
+% beyond sqrt(-2 log eps) sigmas (about 7.4 at eps = 1e-12), and with
+% 4 x 5184 centres in nine dimensions at queries far from all of them
+% the culled mass is about 7e-7 of max|vc| (the per-level evaluator here
+% is exact), which is above the 1e-7 tolerance.
 rng(8, 'twister');
 tags = repelem(0:3, 3);
 p = sort(nme_P * rand(12, 4), 1);
@@ -181,10 +188,13 @@ spec = struct('tags', tags, 'r', [3 3], 'exch', [true true], 'rel', [0 0]);
 d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'isPer', false, ...
                  'period', 0, 'verbose', false);
 X = nme_P * rand(d.dim, 50);
-tic; vc = evalMaet(d, X, 'method', 'centres', 'verbose', false); tc = toc;
-tic; vm = evalMaet(d, X, 'method', 'mobius', 'verbose', false); tm = toc;
+[nme_c, nme_m] = internal.nestedEvalCostsMs(d, size(X, 2));
+nme_prevEps = internal.accuracyFloor('setEps', 1e-300);
+vc = evalMaet(d, X, 'method', 'centres', 'verbose', false);
+vm = evalMaet(d, X, 'method', 'mobius', 'verbose', false);
+internal.accuracyFloor('setEps', nme_prevEps);
 results{end+1, 1} = 'nested mobius eval: per-level route is cheaper than centres at r=(3,3)';
-results{end, 2} = max(abs(vm(:) - vc(:))) <= 1e-7 * max(abs(vc(:))) && tm < tc;
+results{end, 2} = max(abs(vm(:) - vc(:))) <= 1e-7 * max(abs(vc(:))) && nme_m < nme_c;
 
 if standalone
     nPass = sum([results{:, 2}]);

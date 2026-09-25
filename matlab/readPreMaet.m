@@ -2,9 +2,10 @@ function pm = readPreMaet(source, varargin)
 %READPREMAET  Read a pre-MAET from a CSV file.
 %
 %   PM = READPREMAET(SOURCE) reads a pre-MAET laid out as a table: one row
-%   per attribute, its parameters at the left and one column per event (Milne 2026, Def. 2.6). That is also a spreadsheet,
-%   so an analysis can be written in Excel or Numbers, exported as CSV,
-%   and read straight in. SOURCE is a path or the CSV text itself.
+%   per attribute, its parameters at the left and one column per event
+%   (Milne 2026, Def. 2.6). That is also a spreadsheet, so an analysis can
+%   be written in Excel or Numbers, exported as CSV, and read straight in.
+%   SOURCE is a path or the CSV text itself.
 %
 %   The cells use the notation of the article and of showPreMaet: braces
 %   for an unordered multiset, parentheses for an ordered one, brackets
@@ -16,18 +17,18 @@ function pm = readPreMaet(source, varargin)
 %   column per event, whose own headings are free text. r, rel and exch
 %   take a parenthesised tuple on a nested attribute, innermost level
 %   first, as the article writes them. An empty parameter cell is absent
-%   and NA is NA. A kernel covariance is written as the flag and three scalars
-%   that generate it, cov(differenced=..., sdValue=..., sdInterval=..., sdShift=...);
-%   the row's own r gives the order.
+%   and NA is NA. A kernel covariance is written as the flag and three
+%   scalars that generate it, cov(differenced=..., sdValue=...,
+%   sdInterval=..., sdShift=...); the row's own r gives the order.
 %
 %   Name-value arguments:
 %     'delimiter'  Field separator (default ','); use sprintf('\t') for a
 %                  tab-separated export.
 %
-%   Returns the pre-MAET: its wAttr is [] where no cell
-%   carried a weight, and each spec holds r, rel, exch, name and, where the file
-%   gives them, sigma, isPer and period. A nested attribute also carries
-%   its tags, reconstructed from the bracket structure of its cells.
+%   Returns the pre-MAET: its wAttr is [] where no cell carried a weight,
+%   and each spec holds r, rel, exch, name and, where the file gives them,
+%   sigma, isPer and period. A nested attribute also carries its tags,
+%   reconstructed from the bracket structure of its cells.
 %
 %   See also WRITEPREMAET, SHOWPREMAET, BUILDMAET.
 

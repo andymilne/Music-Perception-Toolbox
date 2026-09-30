@@ -99,12 +99,11 @@ phase_at = pe.lag_at(sweep_values / (pe.NC * pe.BASE_IOI))      # continuous lag
 def sweep(sigma_t, show_input=False):
     """Windowed joint (pitch, time) Renyi-2 entropy at each sweep value.
 
-    A single swept_entropy sweep: a Gaussian localization window
-    (shape 0) on the time attribute (attribute index 1) modulates the event
-    weights, with the time attribute retained (not dropped) so the joint
-    (pitch, time) density is built and its Renyi-2 entropy returned. The
-    window standard deviation WIN_SD maps to the variance-matched
-    rectangular width 2*sqrt(3)*sd. The window is truncated at
+    A single swept_entropy sweep: a Gaussian localization window, with
+    standard deviation WIN_SD, on the time attribute (attribute index 1)
+    modulates the event weights, with the time attribute retained (not
+    dropped) so the joint (pitch, time) density is built and its Renyi-2
+    entropy returned. The window is truncated at
     truncation_sigmas standard deviations (the toolbox default, 6), so
     events far from the sweep value carry zero weight and need no separate
     pruning.
@@ -113,7 +112,7 @@ def sweep(sigma_t, show_input=False):
         show_pre_maet(piece, sigma=[SIGMA_PITCH, sigma_t], max_events=4)
     return swept_entropy(
         piece, sweep={1: sweep_values}, sigma=[SIGMA_PITCH, sigma_t],
-        window={1: (0.0, WIN_SD * 2.0 * np.sqrt(3.0))},
+        window={1: {'shape': 'gaussian', 'sd': WIN_SD}},
         method='renyi2', verbose=False,
     )
 

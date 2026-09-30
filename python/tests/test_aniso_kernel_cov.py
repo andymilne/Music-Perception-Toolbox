@@ -415,7 +415,7 @@ class TestSweptSimilarity:
             [Sigma, 0.25], [r, 1], [False, False], [False, False],
             [0.0, 0.0], is_exch=[False, True],
             sweep={1: onsets.ravel()}, align={1: "window"}, drop=[1],
-            window={1: ("rect", 0.5)},
+            window={1: {"shape": "rect", "width": 0.5}},
             normalize="oneSidedDenom", verbose=False)
         assert prof.shape == (5,)
         assert int(np.argmax(prof)) == 2
@@ -601,7 +601,7 @@ class TestDegenerateNestedFlattening:
         w_q = [np.ones((3, 1)), np.ones((1, 1))]
         tsp = {"r": 1, "exch": True, "rel": False}
         kw = dict(sweep={1: tri_times}, align={1: "window"}, drop=[1],
-                  window={1: ("rect", 0.1)},
+                  window={1: {"shape": "rect", "width": 0.1}},
                   normalize="oneSidedDenom", verbose=False)
         a = mpt.swept_similarity(
             [p_b[0], tri_times[None, :]], w_ctx, p_q, w_q,
@@ -935,7 +935,7 @@ class TestBareInnerProductScale:
                 [False, False], [0.0, 0.0], is_exch=[False, True],
                 sweep={1: onsets.ravel()},
                 align={1: "window" if drop else "both"},
-                drop=[1] if drop else None, window={1: ("rect", 0.5)},
+                drop=[1] if drop else None, window={1: {"shape": "rect", "width": 0.5}},
                 normalize="none", verbose=False)
 
         for drop in (True, False):

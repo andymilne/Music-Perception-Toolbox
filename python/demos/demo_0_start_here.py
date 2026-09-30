@@ -70,7 +70,7 @@ follow one path, and most demos take up one stage of it:
   it.
 * Measures read the density or compare two: sim_maet (similarity),
   entropy_maet (entropy), eval_maet (the density at chosen points),
-  mass_maet (the mass in a region), and the swept forms
+  mass_maet (the total mass), and the swept forms
   swept_similarity, swept_entropy, swept_mass, and sweep_sim_maet.
 
 For single chords, scales, or rhythms, and for a matrix of them,

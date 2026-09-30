@@ -59,7 +59,8 @@ def test_both_is_window_and_query_at_each_value(melody):
     width = 16.0
     got = swept_similarity(ctx, None, qry, None, *GEOM, sweep={1: s},
                            align={1: 'both'},
-                           window={1: ('gaussian', width)}, verbose=False)
+                           window={1: {'shape': 'gaussian', 'width': width}},
+                           verbose=False)
     q_ref = float(np.mean(qry[1]))
     want = [_by_hand(ctx, qry, v, v, q_ref, width / (2 * np.sqrt(3)))
             for v in s]
@@ -70,7 +71,7 @@ def test_both_is_window_and_query_at_each_value(melody):
     got0, mu0 = swept_similarity(ctx, None, qry, None, *GEOM,
                                  sweep={1: s}, align={1: 'both'},
                                  query_ref={1: 0.0},
-                                 window={1: ('gaussian', width)},
+                                 window={1: {'shape': 'gaussian', 'width': width}},
                                  return_offsets=True, verbose=False)
     want0 = [_by_hand(ctx, qry, v, v, 0.0, width / (2 * np.sqrt(3)))
              for v in s]
@@ -79,7 +80,7 @@ def test_both_is_window_and_query_at_each_value(melody):
     # The translation applied, mu = s - queryRef, is returned on request.
     _, mu = swept_similarity(ctx, None, qry, None, *GEOM, sweep={1: s},
                              align={1: 'both'},
-                             window={1: ('gaussian', width)},
+                             window={1: {'shape': 'gaussian', 'width': width}},
                              return_offsets=True, verbose=False)
     assert list(mu) == [1]
     np.testing.assert_allclose(mu[1], s - q_ref, rtol=0, atol=1e-12)
@@ -94,7 +95,8 @@ def test_independent_route_matches_per_value_comparison(melody, monkeypatch):
     ctx, qry = melody
     wv = np.array([0.0, 8.0, 16.0, 24.0])
     qv = np.arange(-2.0, 26.01, 2.0)
-    kw = dict(align={1: 'independent'}, window={1: ('gaussian', 16.0)},
+    kw = dict(align={1: 'independent'},
+              window={1: {'shape': 'gaussian', 'width': 16.0}},
               verbose=False)
     new = swept_similarity(ctx, None, qry, None, *GEOM,
                            sweep={1: (wv, qv)}, **kw)
@@ -152,9 +154,9 @@ def test_query_with_window_elsewhere_matches_per_value(melody, monkeypatch):
     tv = np.arange(0.0, 28.1, 2.0)
     cases = [
         dict(sweep={0: mu, 1: tv}, align={0: 'query', 1: 'window'},
-             drop=[1], window={1: ('gaussian', 12.0)}),
+             drop=[1], window={1: {'shape': 'gaussian', 'width': 12.0}}),
         dict(sweep={0: mu, 1: tv}, align={0: 'query', 1: 'both'},
-             window={1: ('gaussian', 12.0)}),
+             window={1: {'shape': 'gaussian', 'width': 12.0}}),
     ]
     for kw in cases:
         new = swept_similarity(ctx, None, qry, None, *GEOM,
@@ -176,14 +178,15 @@ def test_window_on_a_compared_attribute_compares_in_place(melody):
     s = np.arange(0.0, 29.0, 2.0)
     got = swept_similarity(ctx, None, qry, None, *GEOM, sweep={1: s},
                            align={1: 'window'},
-                           window={1: ('gaussian', 8.0)}, verbose=False)
+                           window={1: {'shape': 'gaussian', 'width': 8.0}},
+                           verbose=False)
     want = [_by_hand(ctx, qry, v, 0.0, 0.0, 8.0 / (2 * np.sqrt(3)))
             for v in s]
     np.testing.assert_allclose(got, want, rtol=0, atol=1e-12)
     tiles = np.arange(-2.0, 30.0, 4.0) + 2.0      # half-open [c-2, c+2)
     parts = swept_similarity(ctx, None, qry, None, *GEOM,
                              sweep={1: tiles}, align={1: 'window'},
-                             window={1: ('rect', 4.0)}, verbose=False)
+                             window={1: {'shape': 'rect', 'width': 4.0}}, verbose=False)
     whole = float(sim_maet(ctx, None, qry, None, *GEOM,
                            normalize='oneSidedDenom', verbose=False))
     assert float(np.sum(parts)) == pytest.approx(whole, rel=1e-12)
@@ -260,7 +263,8 @@ def test_bare_attribute_takes_default_sweep_values(melody):
     # 'both' translates the query too, so it takes the same defaults:
     # the offsets mu are those of 'query', whatever the window.
     _, mb = swept_similarity(ctx, None, qry, None, *GEOM, sweep=1,
-                             align={1: 'both'}, window={1: ('rect', 8.0)},
+                             align={1: 'both'},
+                             window={1: {'shape': 'rect', 'width': 8.0}},
                              return_offsets=True, verbose=False)
     np.testing.assert_allclose(mb[1], mu[1], atol=1e-9)
     # a windowed role that does not translate the query steps the
@@ -268,7 +272,7 @@ def test_bare_attribute_takes_default_sweep_values(melody):
     # a rectangle of width 8 has sd 8 / (2 sqrt 3))
     s_w, sv_w = swept_similarity(ctx, None, qry, None, *GEOM, sweep=1,
                                  align={1: 'window'}, drop=[1],
-                                 window={1: (0.0, 8.0)},
+                                 window={1: {"shape": 0.0, "width": 8.0}},
                                  return_sweep_values=True, verbose=False)
     step_w = 8.0 / (2.0 * np.sqrt(3.0)) / 2.0
     np.testing.assert_allclose(np.diff(sv_w[1]), step_w, atol=1e-9)
@@ -282,7 +286,7 @@ def test_refusals(melody):
     v = np.arange(0.0, 4.0)
     run = lambda **kw: swept_similarity(ctx, None, qry, None, *GEOM,
                                         verbose=False, **kw)
-    win = {1: ('rect', 8.0)}
+    win = {1: {'shape': 'rect', 'width': 8.0}}
     with pytest.raises(ValueError, match="compared and cannot be dropped"):
         run(sweep={1: v}, align={1: 'both'}, window=win, drop=[1])
     rel = ([20.0, 0.5], [1, 1], [False, True], [True, False], [1200.0, 0.0])
@@ -295,9 +299,9 @@ def test_refusals(melody):
         run(sweep={1: v}, align={1: 'query'}, window=win)
     with pytest.raises(ValueError, match="its `align` is 'query'"):
         run(sweep={1: v}, window=win)
-    with pytest.raises(ValueError, match="give its shape and width"):
+    with pytest.raises(ValueError, match="give its shape and scale"):
         run(sweep={1: (v, v)}, align={1: 'independent'})
-    with pytest.raises(ValueError, match="give its shape and width"):
+    with pytest.raises(ValueError, match="give its shape and scale"):
         run(sweep={1: v}, align={1: 'window'}, drop=[1])
     with pytest.raises(ValueError, match="no sweep values"):
         run(sweep={1: v}, align={0: 'query', 1: 'query'})
@@ -328,7 +332,7 @@ def test_independent_window_values_may_be_generated(melody):
     list; the query's is given in the pair."""
     ctx, qry = melody
     qv = np.arange(0.0, 24.01, 4.0)
-    kw = dict(align={1: 'independent'}, window={1: ('rect', 8.0)},
+    kw = dict(align={1: 'independent'}, window={1: {'shape': 'rect', 'width': 8.0}},
               verbose=False)
     gen = swept_similarity(ctx, None, qry, None, *GEOM,
                            sweep={1: (None, qv)}, step={1: 4.0}, **kw)
@@ -349,17 +353,19 @@ def test_default_window_holds_the_query(melody):
     q_ref = float(np.mean(qry[1]))                      # 3: onsets 0, 3, 6
     same = swept_similarity(ctx, None, qry, None, *GEOM, sweep={1: s},
                             align={1: 'both'},
-                            window={1: ('rect', 6.0, 'closed')},
+                            window={1: {'shape': 'rect', 'width': 6.0,
+                                            'edges': 'closed'}},
                             verbose=False)
     assert np.array_equal(got, same)
     assert got[int(q_ref)] == pytest.approx(1.0, abs=1e-12)
     # width None asks for the default width with the shape given
     gauss = swept_similarity(ctx, None, qry, None, *GEOM, sweep={1: s},
                              align={1: 'both'},
-                             window={1: ('gaussian', None)}, verbose=False)
+                             window={1: {'shape': 'gaussian'}}, verbose=False)
     wide = swept_similarity(ctx, None, qry, None, *GEOM, sweep={1: s},
                             align={1: 'both'},
-                            window={1: ('gaussian', 6.0)}, verbose=False)
+                            window={1: {'shape': 'gaussian', 'width': 6.0}},
+                            verbose=False)
     assert np.array_equal(gauss, wide)
 
 
@@ -374,14 +380,14 @@ def test_window_that_cuts_the_query_warns(melody):
         ctx, None, qry, None, *GEOM, sweep={1: s}, align={1: 'both'},
         window={1: spec}, verbose=False)
     with pytest.warns(UserWarning, match="leaves out 1 of the query's 3"):
-        half = run(('rect', 6.0))                       # upper edge excluded
+        half = run({'shape': 'rect', 'width': 6.0})     # upper edge excluded
     with pytest.warns(UserWarning, match="leaves out 2 of the query's 3"):
-        run(('rect', 2.0))
+        run({'shape': 'rect', 'width': 2.0})
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        closed = run(('rect', 6.0, 'closed'))
-        run(('rect', 6.5))
-        run(('gaussian', 2.0))
+        closed = run({'shape': 'rect', 'width': 6.0, 'edges': 'closed'})
+        run({'shape': 'rect', 'width': 6.5})
+        run({'shape': 'gaussian', 'width': 2.0})
     # at s = 3 the query lands on its own statement (queryRef 3: onsets
     # 0, 3, 6): the closed rectangle holds all of it, the half-open one not
     assert closed[3] == pytest.approx(1.0, abs=1e-12)
@@ -395,7 +401,7 @@ def test_offsets_read_through_differencing(melody):
     middles differ (and so their windows), peak at the same offsets."""
     ctx, qry = melody
     kw = dict(step={1: 0.5}, align={1: 'both'},
-              window={1: ('gaussian', 16.0)}, return_offsets=True,
+              window={1: {'shape': 'gaussian', 'width': 16.0}}, return_offsets=True,
               verbose=False)
     geom_d = ([20.0 * np.sqrt(2), 0.5], [1, 1], [False, False],
               [False, False], [0.0, 0.0])

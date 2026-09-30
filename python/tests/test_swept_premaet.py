@@ -53,7 +53,7 @@ def test_entropy_drop_window_axis(triple, method, shape):
         ref[i] = entropy_maet(dens, method=method, verbose=False)
     got = swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                         [False, False], [0.0, 0.0], sweep={1: centres},
-                        window={1: (shape, W_WIDTH)}, drop=[1],
+                        window={1: {"shape": shape, "width": W_WIDTH}}, drop=[1],
                         method=method, verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True)
 
@@ -74,13 +74,14 @@ def test_entropy_grid_methods_take_the_grid(triple, method):
         ref[i] = entropy_maet(dens, method=method, verbose=False, **grid)
     got = swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                         [False, False], [0.0, 0.0], sweep={1: centres},
-                        window={1: (0.0, W_WIDTH)}, drop=[1],
+                        window={1: {"shape": 0.0, "width": W_WIDTH}}, drop=[1],
                         method=method, verbose=False, **grid)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
     with pytest.raises(TypeError, match="n_points_per_dim"):
         swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                       [False, False], [0.0, 0.0], sweep={1: centres},
-                      window={1: (0.0, W_WIDTH)}, drop=[1], method=method,
+                      window={1: {"shape": 0.0, "width": W_WIDTH}},
+                      drop=[1], method=method,
                       verbose=False)
 
 
@@ -95,7 +96,7 @@ def test_entropy_retain_axis(triple):
         ref[i] = entropy_maet(dens, method="renyi2", verbose=False)
     got = swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                         [False, False], [0.0, 0.0], sweep={1: centres},
-                        window={1: (1.0, W_WIDTH)}, method="renyi2",
+                        window={1: {"shape": 1.0, "width": W_WIDTH}}, method="renyi2",
                         verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
 
@@ -107,7 +108,8 @@ def test_entropy_drop_r_ge_2_now_allowed(triple):
     p_attr, centres = triple
     got = swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 2], [False, False],
                         [False, False], [0.0, 0.0], sweep={1: centres},
-                        window={1: (1.0, W_WIDTH)}, drop=[1], verbose=False)
+                        window={1: {"shape": 1.0, "width": W_WIDTH}},
+                        drop=[1], verbose=False)
     assert got.shape == (len(centres),)
     assert np.all(np.isfinite(got))
 
@@ -115,10 +117,10 @@ def test_entropy_drop_r_ge_2_now_allowed(triple):
 def test_entropy_requires_width(triple):
     """Every window states its width, and every swept attribute its window."""
     p_attr, centres = triple
-    with pytest.raises(ValueError, match="width is required"):
+    with pytest.raises(ValueError, match="scale is required"):
         swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                       [False, False], [0.0, 0.0], sweep={1: centres},
-                      window={1: (1.0, None)}, verbose=False)
+                      window={1: {"shape": 1.0}}, verbose=False)
     with pytest.raises(ValueError, match="window"):
         swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                       [False, False], [0.0, 0.0], sweep={1: centres},
@@ -147,7 +149,7 @@ def test_similarity_locked(triple, query, normalize):
     got = swept_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
                            [False, False], [False, False], [0.0, 0.0],
                            sweep={1: centres}, align={1: "both"},
-                           window={1: ("rect", q_ext)},
+                           window={1: {"shape": "rect", "width": q_ext}},
                            normalize=normalize, verbose=False)
     assert got.shape == (len(centres),)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
@@ -178,7 +180,7 @@ def test_similarity_decoupled_correlogram(triple, query):
                            [False, False], [False, False], [0.0, 0.0],
                            sweep={1: (anchors, qc2d)},
                            align={1: "independent"},
-                           window={1: (1.0, 2 * half)},
+                           window={1: {"shape": 1.0, "width": 2 * half}},
                            normalize="oneSidedDenom", verbose=False)
     assert got.shape == (len(anchors), len(tau))
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True)
@@ -190,7 +192,8 @@ def test_similarity_generative_sweep_matches_explicit(triple, query):
     onset = p_attr[1]
     # A window-only role: its generated sweep values default to the
     # context's extent, stepped at half the window's sd.
-    common = dict(align={1: "window"}, drop=[1], window={1: ("rect", 1.0)},
+    common = dict(align={1: "window"}, drop=[1],
+                  window={1: {"shape": "rect", "width": 1.0}},
                   normalize="oneSidedDenom", verbose=False)
     geom = ([SIG_P, SIG_T], [1, 1], [False, False], [False, False], [0.0, 0.0])
     explicit = np.arange(onset.min(), onset.max() + 1e-9, 1.0)
@@ -209,7 +212,7 @@ def test_similarity_generative_sweep_matches_explicit(triple, query):
     # step defaults to half the window's sd (a Gaussian window of the width
     # of a rectangle of width 1 has sd 1 / (2 sqrt 3)); a pure rectangle
     # takes its pieces instead (test_swept_sweep_values)
-    gauss = {**common, "window": {1: (0.0, 1.0)}}
+    gauss = {**common, "window": {1: {"shape": 0.0, "width": 1.0}}}
     st = 1.0 / (2.0 * np.sqrt(3.0)) / 2.0
     n = int(np.floor((onset.max() - onset.min()) / st + 1e-9)) + 1
     g_half = swept_similarity(p_attr, None, query, None, *geom,
@@ -227,7 +230,7 @@ def test_sweep_and_generator_mutually_exclusive(triple, query):
         swept_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
                          [False, False], [False, False], [0.0, 0.0],
                          sweep={1: centres}, step={1: 1.0},
-                         align={1: "both"}, window={1: ("rect", 1.0)},
+                         align={1: "both"}, window={1: {"shape": "rect", "width": 1.0}},
                          verbose=False)
 
 
@@ -247,7 +250,7 @@ def test_multi_axis_two_dim_map(triple, query):
                          sweep={1: centres, 0: pgrid},
                          align={1: "window", 0: "both"}, drop=[1],
                          window={0: {"shape": "rect", "width": 16.0},
-                                    1: ("rect", 1.0)},
+                                    1: {"shape": "rect", "width": 1.0}},
                          normalize="oneSidedDenom", verbose=False)
     # one dimension per swept attribute, in attribute order
     assert R.shape == (len(pgrid), len(centres))
@@ -262,7 +265,8 @@ def test_locate_is_wired():
     qb, qw, qs = unpack_pre_maet(bind_events([qp, qo], None, [1, 2], step=1, rel_outer=[False, False]))
     centres = np.linspace(-0.4, 0.7, 12)        # keeps both window centres non-empty
     common = dict(sweep={1: centres}, align={1: "both"},
-                  window={1: (1.0, 1.5)}, normalize="cosine", specs=qs,
+                  window={1: {"shape": 1.0, "width": 1.5}},
+                  normalize="cosine", specs=qs,
                   verbose=False)
     a = swept_similarity(qb, qw, qb, qw, [SIG_P, SIG_T], [1, 2], [False, False],
                          [False, False], [0.0, 0.0], locate="centroid", **common)
@@ -288,7 +292,8 @@ def test_query_windowed_with_weight_events():
     run = lambda q, w: np.asarray(swept_similarity(
         pc, wc, q, w, [30.0, 0.25], [1, 1], [False, False], [False, False],
         [0.0, 0.0], sweep={1: np.arange(6.0)}, align={1: "both"},
-        window={1: ("gauss", 2.0)}, normalize="cosine", verbose=False))
+        window={1: {"shape": "gauss", "width": 2.0}},
+        normalize="cosine", verbose=False))
     pq_w, wq_w, _ = unpack_pre_maet(weight_events(
         pq, wq, 1, 0, 0.5, 0.0, sd=0.8, drop_input_attr=False))
     plain, narrow = run(pq, wq), run(pq_w, wq_w)

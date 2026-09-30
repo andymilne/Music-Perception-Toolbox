@@ -80,7 +80,7 @@ def test_similarity_nested_locked_matches_handbuilt(spectral):
         ctx, w_ctx, qry, w_qry,
         [SIG_P, SIG_T], [1, 1], [False, False], [False, False], [0.0, 0.0],
         sweep={AXIS: sweep_values}, align={AXIS: "both"},
-        window={AXIS: ("rect", width)},
+        window={AXIS: {"shape": "rect", "width": width}},
         normalize="oneSidedDenom", target_attr=TARGET,
         specs=specs, verbose=False)
 
@@ -103,7 +103,7 @@ def test_similarity_nested_is_transposition_invariant():
                             [SIG_P, SIG_T], [1, 1], [False, False],
                             [False, False], [0.0, 0.0],
                             sweep={AXIS: sweep_values}, align={AXIS: "both"},
-                            window={AXIS: ("rect", width)},
+                            window={AXIS: {"shape": "rect", "width": width}},
                             target_attr=TARGET, specs=specs, verbose=False)
     # transpose the query super-event up a tritone; rel=1 => identical profile
     qry_t = [qry[0] + 6.0, qry[1]]
@@ -111,7 +111,7 @@ def test_similarity_nested_is_transposition_invariant():
                                [SIG_P, SIG_T], [1, 1], [False, False],
                                [False, False], [0.0, 0.0],
                                sweep={AXIS: sweep_values}, align={AXIS: "both"},
-                               window={AXIS: ("rect", width)},
+                               window={AXIS: {"shape": "rect", "width": width}},
                                target_attr=TARGET, specs=specs,
                                verbose=False)
     assert np.allclose(base, shifted, rtol=1e-9, atol=1e-9)
@@ -134,7 +134,7 @@ def test_entropy_nested_matches_handbuilt():
 
     got = swept_entropy(ctx, w_ctx, [SIG_P, SIG_T], [1, 1], [False, False],
                         [False, False], [0.0, 0.0], sweep={AXIS: sweep_values},
-                        window={AXIS: (1.0, width)}, method="renyi2",
+                        window={AXIS: {"shape": 1.0, "width": width}}, method="renyi2",
                         target_attr=TARGET, specs=specs, verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
 
@@ -148,7 +148,8 @@ def test_flat_path_unchanged_when_specs_none():
     p_attr = [pitch, onset]
     query = [np.array([[60., 64., 67.]]), np.array([[0., 0.5, 1.0]])]
     sweep_values = np.linspace(onset.min(), onset.max(), 9)
-    kw = dict(sweep={1: sweep_values}, align={1: "both"}, window={1: ("rect", 1.5)},
+    kw = dict(sweep={1: sweep_values}, align={1: "both"},
+              window={1: {"shape": "rect", "width": 1.5}},
               normalize="oneSidedDenom", verbose=False)
     a = swept_similarity(p_attr, None, query, None, [0.12, 0.05], [1, 1],
                          [False, False], [False, False], [0.0, 0.0], **kw)
@@ -187,7 +188,7 @@ def test_similarity_empty_window_scores_zero(spectral):
         ctx, w_ctx, qry, w_qry,
         [SIG_P, SIG_T], [1, 1], [True, False], [False, False], [0.0, 0.0],
         sweep={AXIS: sweep_values}, align={AXIS: "window"},
-        window={AXIS: ("rect", 0.6)}, drop=[AXIS],
+        window={AXIS: {"shape": "rect", "width": 0.6}}, drop=[AXIS],
         normalize="oneSidedDenom", specs=specs,
         verbose=False)).ravel()
     assert np.all(np.isfinite(got))

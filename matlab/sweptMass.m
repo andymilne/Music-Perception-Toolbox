@@ -1,6 +1,6 @@
 function [M, sv] = sweptMass(varargin)
 %SWEPTMASS  Align a window on a context at each of a list of sweep values
-%   and take the mass of the windowed density in a region at each.
+%   and take the total mass of the windowed density at each.
 %
 %   OVERVIEW. At each sweep value s, a window h(delta) on the context is
 %   aligned at s and weights each event n on the target attribute, as at
@@ -8,13 +8,13 @@ function [M, sv] = sweptMass(varargin)
 %
 %       w'(n) = w(n) * h(p_a(n) - s).
 %
-%   The windowed density is then built and its mass in 'region' taken by
-%   massMaet: how much of the local material lies in the region, or, with
-%   'normalize', 'total', what share of it does. The window weights events
-%   before the density is built; the region is read from the density, so a
-%   tuple just outside it still contributes the part of its kernel that
-%   crosses the edge, and a region can select tuples (the intervals of a
-%   relative attribute, say) where a window can only weight events.
+%   The windowed density is then built and its total mass taken by
+%   massMaet: the sum of its tuples' weight products, how much material
+%   the window holds (with unit weights and a rectangular window, its
+%   number of tuples). It is the natural normalizer for a windowed count:
+%   a one-sided sweptSimilarity against a query, multiplied by the query's
+%   mass over the window's, is the share of the window's tuples that match
+%   the query.
 %
 %   INPUT FORMS, as at sweptEntropy:
 %
@@ -22,17 +22,44 @@ function [M, sv] = sweptMass(varargin)
 %     M = sweptMass(pAttr, w, sigma, r, isRel, isPer, period, ...)
 %
 %   NAME-VALUE OPTIONS (per-attribute maps are N x 2 cells {a, value; ...})
-%     'sweep', 'start', 'stop', 'step', 'window', 'drop', 'locate',
-%     'targetAttr'
-%                    As at sweptEntropy. A dropped attribute is
-%                    marginalized before the mass is taken, so it cannot
-%                    be restricted.
-%     'region'       {a, spec; ...}, keyed by the context's attribute
-%                    indices, as at massMaet. Without it, the mass of the
-%                    whole windowed density: the window's weighted tuple
-%                    count.
-%     'normalize'    As at massMaet: 'none' (default), the mass; 'total',
-%                    its share of the windowed density's mass.
+%     'sweep'        {a, values; ...}: the sweep values of attribute a; a
+%                    bare attribute index, or a vector of them, asks for
+%                    the defaults below.
+%     'start', 'stop', 'step'
+%                    {a, value; ...}: generate attribute a's sweep values
+%                    in place of listing them; a bare number applies to
+%                    the swept attribute where 'sweep' names one. start
+%                    and stop default to the lowest and highest of the
+%                    context's values on the attribute; step defaults to
+%                    half the window's sd, and a pure rectangle without a
+%                    given step takes its pieces (as at sweptSimilarity).
+%     'window'       {a, {shape, name, value, ...}; ...}, with the names
+%                    'width' | 'sd' | 'decayRate', 'edges', and 'ref' (so
+%                    {a, {'gaussian', 'sd', 4}}), the same as
+%                    {a, struct('shape', .., ...); ...}, or {a, f; ...}: the
+%                    window on each swept attribute, aligned at the sweep
+%                    value, with its scale always named. shape is 'rect',
+%                    'gaussian', a number in [0, 1] blending the two
+%                    (0 Gaussian, 1 rectangle), or 'exponential',
+%                    'exponentialBefore', or 'exponentialAfter'. 'width' is
+%                    the full width of the rectangle, and 'sd' may be given
+%                    instead (a Gaussian of width w has sd w / (2 sqrt(3)));
+%                    the exponentials have no width, and take 'sd' or
+%                    'decayRate'. edges is 'halfOpen' (the default) or
+%                    'closed' (rectangles only). ref, for a rectangle of
+%                    given width, is the point of it placed at the sweep
+%                    value: 'centre' (the default), 'start', or 'end'.
+%                    f is a function handle taking the displacement
+%                    p_a(n) - s. Required for every swept attribute: its
+%                    scale is that of the local region, which nothing in
+%                    the data can supply. The full account is in
+%                    sweptSimilarity.
+%     'drop'         Vector of swept attributes marginalized after the
+%                    window has weighted the events, and so before the mass
+%                    is taken.
+%     'locate'       As at sweptSimilarity (default 'centroid').
+%     'targetAttr'   The attribute whose weights the window multiplies
+%                    (default: the first attribute not dropped).
 %     'specs', 'isExch', 'verbose'
 %                    As at sweptSimilarity.
 %
@@ -70,8 +97,6 @@ arguments
     nv.window = []
     nv.drop = []
     nv.locate = 'centroid'
-    nv.region = []
-    nv.normalize (1,:) char = 'none'
     nv.targetAttr = []
     nv.specs = []
     nv.isExch = []
@@ -100,29 +125,6 @@ if any(target == dropAxes)
          'kept attribute.'], target);
 end
 
-% The region is keyed by the context's attributes; after the drop, by
-% their positions among those kept.
-region = nv.region;
-if ~isempty(region)
-    [rKeys, rVals] = internal.parseMap(region);
-    region = cell(numel(rKeys), 2);
-    for i = 1:numel(rKeys)
-        if any(rKeys(i) == dropAxes)
-            error('sweptMass:regionDropped', ...
-                ['''region'' names attribute %d, which is dropped: it is ' ...
-                 'marginalized before the mass is taken. Keep it, or leave ' ...
-                 'it out of the region.'], rKeys(i));
-        end
-        region{i, 1} = find(keep == rKeys(i), 1);
-        if isempty(region{i, 1})
-            error('sweptMass:badRegion', ...
-                '''region'' names attribute %s, out of range for %d attributes.', ...
-                mat2str(rKeys(i)), A);
-        end
-        region{i, 2} = rVals{i};
-    end
-end
-
 nested = ~isempty(nv.specs);
 [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
 exchC = internal.subExchArgs(nv.isExch, keep);
@@ -145,6 +147,6 @@ for li = 1:prod(sizes)
     else
         dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);
     end
-    M(li) = massMaet(dens, 'region', region, 'normalize', nv.normalize);
+    M(li) = massMaet(dens);
 end
 end

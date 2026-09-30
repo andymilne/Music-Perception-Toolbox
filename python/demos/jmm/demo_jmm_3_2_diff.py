@@ -127,17 +127,16 @@ phase_at = pe.lag_at(sweep_values / (pe.NC * IOI))      # continuous lag
 def sweep(sig):
     """Windowed (dp, dt) Renyi-2 entropy at each sweep value.
 
-    A single swept_entropy sweep: a Gaussian window (shape 0) on the
-    absolute-onset attribute (attribute index 2) modulates the event weights,
-    and that onset attribute is dropped from the entropy density
-    (drop=[2]), leaving the two-attribute (dp, dt) density
-    whose Renyi-2 entropy is returned. The window standard deviation
-    WINDOW_SD maps to the variance-matched rectangular width 2*sqrt(3)*sd.
+    A single swept_entropy sweep: a Gaussian window, with standard
+    deviation WINDOW_SD, on the absolute-onset attribute (attribute index 2)
+    modulates the event weights, and that onset attribute is dropped from
+    the entropy density (drop=[2]), leaving the two-attribute (dp, dt)
+    density whose Renyi-2 entropy is returned.
     (The placeholder onset sigma is unused: that attribute is dropped.)
     """
     return swept_entropy(
         diff, sweep={2: sweep_values}, sigma=[SIGMA_DP, sig, 1.0],
-        window={2: (0.0, WINDOW_SD * 2.0 * np.sqrt(3.0))}, drop=[2],
+        window={2: {'shape': 'gaussian', 'sd': WINDOW_SD}}, drop=[2],
         method='renyi2', verbose=False,
     )
 

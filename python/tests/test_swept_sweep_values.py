@@ -23,7 +23,6 @@ S_LIST = np.arange(0, 28.5, 0.5)
 
 def _mass(**kw):
     return mpt.swept_mass(CTX, None, *GEOM, window={1: WIN}, drop=[1],
-                          region={0: (-50, 50)}, normalize="total",
                           return_sweep_values=True, **kw)
 
 
@@ -50,7 +49,7 @@ def test_defaulted_values_are_axes_of_profile():
 
 def test_default_return_unchanged():
     out = mpt.swept_mass(CTX, None, *GEOM, sweep=1, window={1: WIN},
-                         drop=[1], region={0: (-50, 50)})
+                         drop=[1])
     assert isinstance(out, np.ndarray)
 
 
@@ -74,7 +73,7 @@ def test_similarity_sweep_values_alone():
 def test_independent_gives_window_and_query_lists():
     s, sv = mpt.swept_similarity(
         CTX, None, QRY, None, *GEOM, sweep={1: ([0.0, 16.0], [0.0, 8, 16])},
-        align={1: "independent"}, window={1: ("rect", 8.0)},
+        align={1: "independent"}, window={1: {"shape": "rect", "width": 8.0}},
         return_sweep_values=True)
     w_vals, q_vals = sv[1]
     np.testing.assert_array_equal(w_vals, [0, 16])
@@ -90,28 +89,33 @@ def test_rectangle_takes_its_pieces():
     its piece."""
     width = 4.0
     m, sv = mpt.swept_mass(CTX, None, *GEOM, sweep=1,
-                           window={1: ("rect", width)}, drop=[1],
-                           region={0: (-50, 50)}, normalize="total",
-                           return_sweep_values=True)
+                           window={1: {"shape": "rect", "width": width}},
+                           drop=[1], return_sweep_values=True)
     s = sv[1]
     assert s[0] == T.min() and s[-1] == T.max()
-    breaks = np.unique(np.concatenate([T - width / 2, T + width / 2]))
-    breaks = breaks[(breaks > T.min()) & (breaks < T.max())]
-    inner = s[1:-1].reshape(-1, 2)
+    all_breaks = np.unique(np.concatenate([T - width / 2, T + width / 2]))
+    breaks = all_breaks[(all_breaks > T.min()) & (all_breaks < T.max())]
+    # an end of the range that is itself a breakpoint keeps its own value,
+    # and the piece beside it is sampled just inside it as well
+    at_lo, at_hi = T.min() in all_breaks, T.max() in all_breaks
+    assert at_hi                                  # 26 + 2 = 28
+    pieces = np.arange(s.size)[1 if at_lo else 0:
+                               s.size - 1 if at_hi else s.size]
+    inner = s[pieces][1:-1].reshape(-1, 2)
     np.testing.assert_allclose(inner.mean(axis=1), breaks, atol=1e-9)
     assert np.all(np.diff(inner, axis=1) < 1e-4)
     # each piece is constant: its midpoint has the value of its two ends
     edges = np.concatenate([[T.min()], breaks, [T.max()]])
     mids = (edges[:-1] + edges[1:]) / 2
     m_mid = mpt.swept_mass(CTX, None, *GEOM, sweep={1: mids},
-                           window={1: ("rect", width)}, drop=[1],
-                           region={0: (-50, 50)}, normalize="total")
-    left, right = m[0::2], m[1::2]
+                           window={1: {"shape": "rect", "width": width}},
+                           drop=[1])
+    left, right = m[pieces][0::2], m[pieces][1::2]
     np.testing.assert_allclose(left, m_mid, atol=1e-12)
     np.testing.assert_allclose(right, m_mid, atol=1e-12)
     # a given step keeps the uniform grid
     _, su = mpt.swept_mass(CTX, None, *GEOM, sweep=1, step=1.0,
-                           window={1: ("rect", width)}, drop=[1],
+                           window={1: {"shape": "rect", "width": width}}, drop=[1],
                            return_sweep_values=True)
     np.testing.assert_allclose(np.diff(su[1]), 1.0)
 

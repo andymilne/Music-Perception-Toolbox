@@ -35,7 +35,8 @@ def test_output_dimensions_follow_attribute_order(flat_triple, query, normalize)
     geom = ([SIG_P, SIG_T], [1, 1], [False, False], [False, False], [0.0, 0.0])
     pv = np.array([62.0, 64.0, 66.0])
     kw = dict(align={1: "window", 0: "both"}, drop=[1],
-              window={1: ("rect", 1.0), 0: ("rect", 8.0)},
+              window={1: {"shape": "rect", "width": 1.0},
+                      0: {"shape": "rect", "width": 8.0}},
               normalize=normalize, verbose=False)
     a = swept_similarity(p_attr, None, query, None, *geom,
                          sweep={1: sv, 0: pv}, **kw)
@@ -66,7 +67,9 @@ def test_multi_two_axis_map_shape_and_peak():
         pb, wb, qb, qw, [SIG_P, SIG_T], [1, 1], [False, False],
         [False, False], [0.0, 0.0], sweep={1: t_grid, 0: p_grid},
         align={1: "window", 0: "both"}, drop=[1],
-        window={0: ("rect", 5.0), 1: ("rect", 2.0)}, specs=sb, verbose=False)
+        window={0: {"shape": "rect", "width": 5.0},
+                1: {"shape": "rect", "width": 2.0}},
+        specs=sb, verbose=False)
     assert R.shape == (2, 2)                  # (pitch, time)
     # copy 1 at (t=1, pitch=60.5); copy 2 at (t=11, pitch=65.5)
     assert R[0, 0] > 0.99 and R[1, 1] > 0.99
@@ -117,7 +120,9 @@ def test_locate_map_names_the_axes_separately():
             [False, False], [0.0, 0.0],
             sweep={0: np.array([62.0, 67.0]), 1: np.array([1.0, 11.0])},
             align={0: "both", 1: "window"}, drop=[1],
-            window={0: ("rect", 5.0), 1: ("rect", 2.0)}, locate=locate,
+            window={0: {"shape": "rect", "width": 5.0},
+                    1: {"shape": "rect", "width": 2.0}},
+            locate=locate,
             specs=sb, verbose=False)
 
     map_default = at({1: "centroid"})
@@ -135,7 +140,7 @@ def test_drop_names_only_window_attributes(flat_triple, query):
         swept_similarity(
             p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
             [False, False], [0.0, 0.0], sweep={1: sv}, align={1: "window"},
-            window={1: ("rect", 1.0)}, drop=[0, 1], verbose=False)
+            window={1: {"shape": "rect", "width": 1.0}}, drop=[0, 1], verbose=False)
 
 
 def test_drop_all_axes_errors(flat_triple, query):
@@ -145,7 +150,9 @@ def test_drop_all_axes_errors(flat_triple, query):
             p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
             [False, False], [0.0, 0.0], sweep={0: np.array([60.]), 1: sv},
             align={0: "window", 1: "window"}, drop=[0, 1],
-            window={0: ("rect", 5.0), 1: ("rect", 1.0)}, verbose=False)
+            window={0: {"shape": "rect", "width": 5.0},
+                    1: {"shape": "rect", "width": 1.0}},
+            verbose=False)
 
 
 def test_target_cannot_be_dropped(flat_triple, query):
@@ -154,18 +161,25 @@ def test_target_cannot_be_dropped(flat_triple, query):
         swept_similarity(
             p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
             [False, False], [0.0, 0.0], sweep={1: sv}, align={1: "window"},
-            window={1: ("rect", 1.0)}, drop=[1], target_attr=1, verbose=False)
+            window={1: {"shape": "rect", "width": 1.0}}, drop=[1],
+            target_attr=1, verbose=False)
 
 
 def test_window_specification_forms_agree(flat_triple):
-    """(shape, width), {'shape', 'width'}, and {'shape', 'sd'} name the same
-    window when the width is the standard deviation times 2 sqrt 3."""
+    """{'shape', 'width'} and {'shape', 'sd'} name the same window when the
+    width is the standard deviation times 2 sqrt 3; a positional
+    (shape, width) and an unknown key are refused."""
     p_attr, sv = flat_triple
     W = 2.0 * np.sqrt(3.0)
     run = lambda spec: swept_entropy(
         p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False], [False, False],
         [0.0, 0.0], sweep={1: sv}, window={1: spec}, drop=[1],
         method="renyi2", verbose=False)
-    a = run((1.0, W))
-    assert np.array_equal(a, run({"shape": "rect", "width": W}))
+    a = run({"shape": "rect", "width": W})
+    assert np.array_equal(a, run({"shape": 1.0, "width": W}))
     assert np.allclose(a, run({"shape": 1.0, "sd": 1.0}), rtol=0, atol=1e-12)
+    for bad in [(1.0, W), ("rect", W, "closed"), ["gaussian", 1.0]]:
+        with pytest.raises(ValueError, match="name the window's scale"):
+            run(bad)
+    with pytest.raises(ValueError, match="unknown key"):
+        run({"shape": "gaussian", "decayRate": 1.0})

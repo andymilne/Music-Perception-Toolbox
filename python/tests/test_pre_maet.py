@@ -227,7 +227,7 @@ class TestWindowed:
         at = mpt.unpack_pre_maet(ctx)[0][1][0]
         out = np.asarray(mpt.swept_similarity(
             ctx, qry, sweep={1: at}, align={1: 'window'},
-            window={1: (1.0, 1.0)}, drop=[1],
+            window={1: {"shape": 1.0, "width": 1.0}}, drop=[1],
             normalize='oneSidedDenom', verbose=False)).ravel()
         assert out.shape == at.shape and np.all(np.isfinite(out))
 
@@ -251,7 +251,8 @@ class TestWindowed:
                                                       exch=True, sigma=0.5))
         with pytest.raises(ValueError, match="nests attribute|disagree on"):
             mpt.swept_similarity(nested, flat, sweep={0: [0.0]},
-                                 align={0: 'both'}, window={0: (1.0, 1.0)},
+                                 align={0: 'both'},
+                                 window={0: {"shape": 1.0, "width": 1.0}},
                                  verbose=False)
 
     @staticmethod
@@ -265,7 +266,8 @@ class TestWindowed:
                "sigma": 0.25, "is_per": False, "period": 0.0}]
         return pC, pQ, sp
 
-    KW = dict(align={1: "both"}, window={1: ("rect", 2.5)}, verbose=False)
+    KW = dict(align={1: "both"},
+              window={1: {"shape": "rect", "width": 2.5}}, verbose=False)
 
     def test_similarity_matches_the_positional_form(self):
         pC, pQ, sp = self._pair()
@@ -281,7 +283,7 @@ class TestWindowed:
     def test_entropy_matches_the_positional_form(self):
         pC, _, sp = self._pair()
         ctr = np.arange(0.0, 7.01, 0.5)
-        kw = dict(sweep={1: ctr}, window={1: ("gauss", 2.0)},
+        kw = dict(sweep={1: ctr}, window={1: {"shape": "gauss", "width": 2.0}},
                   method="renyi2", verbose=False)
         got = mpt.swept_entropy(mpt.pack_pre_maet(pC, specs=sp), **kw)
         ref = mpt.swept_entropy(

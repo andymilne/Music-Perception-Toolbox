@@ -38,7 +38,8 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %     - the query, where it is translated, has its reference value
 %       queryRef at s: it is translated by mu = s - queryRef;
 %     - a window, where there is one, has its reference value, delta = 0
-%       (the midpoint of its symmetric shape), at s.
+%       (the midpoint of its symmetric shape, or a rectangle's start or end
+%       where 'ref' says so), at s.
 %
 %   Nothing else places anything. For each swept attribute, 'align' says
 %   which of the two are placed:
@@ -255,16 +256,20 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %     'align'        {a, 'query' | 'both' | 'window' | 'independent'; ...}:
 %                    what is placed at attribute a's sweep values (THE
 %                    RULE). Default 'query' for every swept attribute.
-%     'window'       {a, {shape, width}; ...}, {a, {shape, width, edges}; ...},
-%                    {a, struct('shape', .., 'width' | 'sd' | 'decayRate', ..,
-%                    'edges', ..); ...}, or {a, f; ...}: the window h on
-%                    attribute a, any profile of weightEvents, which evaluates
-%                    it. shape is 'rect', 'gaussian', or a number in [0, 1]
-%                    blending the two (0 Gaussian, 1 rectangle); width is the
-%                    full width of the rectangle, and a Gaussian of the same
-%                    width has standard deviation width / (2 sqrt(3)), which
-%                    'sd' may give instead. 'exponential' decays on both sides
-%                    of the window's reference value, and 'exponentialBefore' /
+%     'window'       {a, {shape, name, value, ...}; ...}, with the names
+%                    'width' | 'sd' | 'decayRate', 'edges', and 'ref' (so
+%                    {a, {'gaussian', 'sd', 4}}), the same as
+%                    {a, struct('shape', .., ...); ...}, or {a, f; ...}: the
+%                    window h on attribute a, any profile of weightEvents,
+%                    which evaluates it. The scale is always named: a
+%                    positional {shape, width} is refused, since its number
+%                    could be read as a width or an sd. shape is 'rect',
+%                    'gaussian', or a number in [0, 1] blending the two
+%                    (0 Gaussian, 1 rectangle); width is the full width of
+%                    the rectangle, and a Gaussian of the same width has
+%                    standard deviation width / (2 sqrt(3)), which 'sd' may
+%                    give instead. 'exponential' decays on both sides of the
+%                    window's reference value, and 'exponentialBefore' /
 %                    'exponentialAfter' on one side only (zero on the other),
 %                    scaled by sd or decayRate; a function handle f takes the
 %                    displacement p_a(n) - s and returns the factors. The
@@ -275,16 +280,21 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %                    width: the lower edge included, the upper not, so that
 %                    windows a width apart share no event, for tiling a
 %                    context) or 'closed' (both edges, for holding a query).
+%                    ref, for a rectangle of given width: the point of it
+%                    placed at the sweep value, 'centre' (the default),
+%                    'start' (the window covers [s, s + width)), or 'end'
+%                    (it covers [s - width, s)).
 %                    Required for 'window' and 'independent', where the width
 %                    is the scale of the local region and nothing in the data
 %                    can supply it; not allowed for 'query'. For 'both' it may
-%                    be left out, or given with width []: the window is then
-%                    the smallest one that, placed by THE RULE, holds the
-%                    query, with a closed rectangle unless another shape or
-%                    edges is given, so an exact match scores 1. A window given
-%                    for 'both' that leaves out some of the query's own events
-%                    draws a warning, since the query can then never be matched
-%                    in full.
+%                    be left out, or given without a scale ({'rect', 'edges',
+%                    'halfOpen'}, say): the window is then the smallest one
+%                    that, placed by THE RULE, holds the query, with a closed
+%                    rectangle unless another shape or edges is given, so an
+%                    exact match scores 1. A window given for 'both' that
+%                    leaves out some of the query's own events draws a
+%                    warning, since the query can then never be matched in
+%                    full.
 %     'drop'         Vector of attributes marginalized after the window has
 %                    weighted the events. Only attributes whose align is
 %                    'window'.

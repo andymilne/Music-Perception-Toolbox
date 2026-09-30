@@ -168,7 +168,8 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
         prof = np.zeros(len(MUS))
         prof[idxs] = np.asarray(mpt.swept_similarity(
             ctx_flag if spec['flagged'] else ctx_plain, qd, sweep={1: at},
-            align={1: 'window'}, window={1: (1.0, 1.0)}, drop=[1],
+            align={1: 'window'}, window={1: {'shape': 'rect', 'width': 1.0}},
+            drop=[1],
             normalize=normalize, verbose=False)).ravel()
         out[name] = prof
     return out
@@ -189,7 +190,8 @@ def dyad_sweep(r_inner: int, use_flag: bool):
     so = np.full(len(MUS), np.nan)
     so[idxs] = np.asarray(mpt.swept_similarity(
         ctx, qd, sweep={1: at}, align={1: 'window'},
-        window={1: (1.0, 1.0)}, drop=[1], normalize=NORMALIZE,
+        window={1: {'shape': 'rect', 'width': 1.0}}, drop=[1],
+        normalize=NORMALIZE,
         verbose=False)).ravel()
     return WIN_BAR, so
 

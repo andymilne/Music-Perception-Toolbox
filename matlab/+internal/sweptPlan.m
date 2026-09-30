@@ -127,20 +127,21 @@ for k = 1:numel(mA)
         if isempty(wi) && hasQuery
             error([fname ':noWindow'], ...
                 ['attribute %d: align ''window'' aligns a window, so ' ...
-                 'give its shape and width: ''window'', {%d, {shape, ' ...
-                 'width}}.'], a, a);
+                 'give its shape and scale: ''window'', {%d, {shape, ' ...
+                 '''width'' | ''sd'', value}}.'], a, a);
         elseif isempty(wi)
             error([fname ':noWindow'], ...
                 ['attribute %d is swept, so give its window''s shape and ' ...
-                 'width: ''window'', {%d, {shape, width}}.'], a, a);
+                 'scale: ''window'', {%d, {shape, ''width'' | ''sd'', ' ...
+                 'value}}.'], a, a);
         end
         win = localWindow(wV{wi}, a, 'window', fname, []);
     elseif strcmp(m, 'independent')
         if isempty(wi)
             error([fname ':noWindow'], ...
                 ['attribute %d: align ''independent'' aligns a window apart ' ...
-                 'from the query, so give its shape and width: ''window'', ' ...
-                 '{%d, {shape, width}}.'], a, a);
+                 'from the query, so give its shape and scale: ''window'', ' ...
+                 '{%d, {shape, ''width'' | ''sd'', value}}.'], a, a);
         end
         win = localWindow(wV{wi}, a, 'window', fname, []);
     else
@@ -351,27 +352,46 @@ end
 
 function win = localWindow(spec, a, name, fname, defaultWidth)
 %LOCALWINDOW  The window on attribute a, a struct with fields prof
-%   (internal.resolveProfile), closed, isPer, and period, from {shape,
-%   width}, {shape, width, edges}, a function handle of the displacement,
-%   or struct('shape', .., 'width' | 'sd' | 'decayRate', .., 'edges', ..).
+%   (internal.resolveProfile), closed, isPer, and period, from
+%   {shape, name, value, ...} (names 'width', 'sd', 'decayRate', 'edges',
+%   and 'ref'), struct('shape', .., 'width' | 'sd' | 'decayRate', ..,
+%   'edges', .., 'ref', ..), or a function handle of the displacement. The scale is
+%   always named: a positional {shape, width} is refused, since its number
+%   could be read as a width or as an sd.
 %   The profiles are those of weightEvents: the rectangle-Gaussian family
 %   ('rect', 'gaussian', or a number in [0, 1]), scaled by width or sd; the
 %   exponentials aligned at the window's reference value ('exponential',
 %   and 'exponentialBefore' and 'exponentialAfter', which extend to one
 %   side of it only), scaled by sd or decayRate; and a function handle. The serial-position
 %   profiles, anchored at the first and last events rather than at the
-%   sweep value, are refused. The width may be left out ([] width, or the
-%   whole spec []) only where DEFAULTWIDTH, a function handle, supplies
+%   sweep value, are refused. The scale may be left out (absent, [] width,
+%   or the whole spec []) only where DEFAULTWIDTH, a function handle, supplies
 %   one; a rectangle whose width is defaulted is closed unless edges says
 %   otherwise, and one whose width is given is half-open unless edges says
-%   otherwise. Twin of the Python _parse_window.
-    edges = []; sd = NaN; width = NaN; rate = NaN;
-    if isempty(spec) && ~isa(spec, 'function_handle'), spec = {'rect', []}; end
+%   otherwise. ref, for a rectangle of given width, says which point of it
+%   is its reference value, placed at the sweep value: 'centre' (the
+%   default), 'start', or 'end'; the window struct carries it as shift,
+%   the displacement of the rectangle's centre from its reference value.
+%   Twin of the Python _parse_window.
+    edges = []; sd = NaN; width = NaN; rate = NaN; ref = 'centre';
+    if isempty(spec) && ~isa(spec, 'function_handle'), spec = {'rect'}; end
+    if iscell(spec)
+        spec = localWindowCell(spec, a, name, fname);
+    end
     if isa(spec, 'function_handle')
         shape = spec;
-    elseif isstruct(spec)
+    elseif isstruct(spec) && isscalar(spec)
+        bad = setdiff(fieldnames(spec), {'shape', 'width', 'sd', ...
+            'decayRate', 'edges', 'ref'});
+        if ~isempty(bad)
+            error([fname ':badWindow'], ...
+                ['%s for attribute %d: unknown field(s) %s; a window takes ' ...
+                 '''shape'', one of ''width'', ''sd'', or ''decayRate'', ' ...
+                 '''edges'', and ''ref''.'], name, a, strjoin(bad, ', '));
+        end
         if isfield(spec, 'shape'), shape = spec.shape; else, shape = 'rect'; end
         if isfield(spec, 'edges'), edges = spec.edges; end
+        if isfield(spec, 'ref'), ref = spec.ref; end
         given = isfield(spec, {'sd', 'width', 'decayRate'});
         if sum(given) > 1
             error([fname ':badWindow'], ...
@@ -381,16 +401,11 @@ function win = localWindow(spec, a, name, fname, defaultWidth)
         if given(1), sd = double(spec.sd); end
         if given(2) && ~isempty(spec.width), width = double(spec.width); end
         if given(3), rate = double(spec.decayRate); end
-    elseif iscell(spec) && (numel(spec) == 2 || numel(spec) == 3)
-        shape = spec{1};
-        if ~isempty(spec{2}), width = double(spec{2}); end
-        if numel(spec) == 3, edges = spec{3}; end
     else
         error([fname ':badWindow'], ...
-            ['%s for attribute %d: give {shape, width}, {shape, width, ' ...
-             'edges}, a function handle, or struct(''shape'', .., ' ...
-             '''width'' | ''sd'' | ''decayRate'', .., ''edges'', ..).'], ...
-            name, a);
+            ['%s for attribute %d: give {shape, ''width'' | ''sd'' | ' ...
+             '''decayRate'', value, ''edges'', e}, the same as a struct, ' ...
+             'or a function handle.'], name, a);
     end
     if isempty(shape), shape = 'rect'; end
     named = (ischar(shape) || isstring(shape)) && ~any(strcmpi(char(shape), ...
@@ -399,18 +414,11 @@ function win = localWindow(spec, a, name, fname, defaultWidth)
     if ~named && ~isa(shape, 'function_handle') && isnan(sd) && isnan(width)
         if isempty(defaultWidth)
             error([fname ':badWindow'], ...
-                '%s for attribute %d: a width is required, {shape, width}.', ...
-                name, a);
+                ['%s for attribute %d: a scale is required, {shape, ' ...
+                 '''width'', w} or {shape, ''sd'', s}.'], name, a);
         end
         width = defaultWidth();
         defaulted = true;
-    end
-    if named && ~isnan(width) && ~isstruct(spec)
-        error([fname ':badWindow'], ...
-            ['%s for attribute %d: profile ''%s'' has no width; give ' ...
-             'struct(''shape'', ''%s'', ''sd'', ..) or struct(''shape'', ' ...
-             '''%s'', ''decayRate'', ..).'], name, a, char(shape), ...
-            char(shape), char(shape));
     end
     prof = internal.resolveProfile(shape, sd, width, rate, [], [], 0.5, ...
         [fname ':window']);
@@ -425,7 +433,81 @@ function win = localWindow(spec, a, name, fname, defaultWidth)
         if defaulted, edges = 'closed'; else, edges = 'halfOpen'; end
     end
     closed = internal.resolveEdges(edges, prof, [fname ':window']);
-    win = struct('prof', prof, 'closed', closed, 'isPer', false, 'period', 0);
+    shift = localWindowShift(ref, prof, defaulted, a, name, fname);
+    win = struct('prof', prof, 'closed', closed, 'isPer', false, ...
+        'period', 0, 'shift', shift);
+end
+
+function shift = localWindowShift(ref, prof, defaulted, a, name, fname)
+%LOCALWINDOWSHIFT  The displacement of a rectangle's centre from its
+%   reference value: 0 for 'centre', half the width for 'start' (the
+%   rectangle lies above the sweep value), and minus half the width for
+%   'end'. A start and an end belong to a rectangle of given width only.
+    if ~((ischar(ref) || (isstring(ref) && isscalar(ref))) ...
+            && any(strcmpi(char(ref), {'centre', 'start', 'end'})))
+        error([fname ':windowRef'], ...
+            '%s for attribute %d: ''ref'' is ''centre'', ''start'', or ''end''.', ...
+            name, a);
+    end
+    ref = lower(char(ref));
+    shift = 0;
+    if strcmp(ref, 'centre'), return; end
+    if ~(strcmp(prof.kind, 'family') && prof.shape == 1)
+        error([fname ':windowRef'], ...
+            ['%s for attribute %d: ''ref'', ''%s'' needs a rectangle, which ' ...
+             'has a start and an end; this profile has none. Use ' ...
+             '''exponentialAfter'' or ''exponentialBefore'' for a one-sided ' ...
+             'window.'], name, a, ref);
+    end
+    if defaulted
+        error([fname ':windowRef'], ...
+            ['%s for attribute %d: ''ref'', ''%s'' needs a given width; ' ...
+             'the default window holds the query about its centre.'], ...
+            name, a, ref);
+    end
+    hw = prof.sd * sqrt(3);
+    if strcmp(ref, 'start'), shift = hw; else, shift = -hw; end
+end
+
+function spec = localWindowCell(c, a, name, fname)
+%LOCALWINDOWCELL  The struct named by a window cell {shape, name, value,
+%   ...}. A number or [] in the second place is the positional
+%   {shape, width} form, which is refused: its number could be read as a
+%   width or as an sd.
+    if numel(c) >= 2 && ~(ischar(c{2}) || (isstring(c{2}) && isscalar(c{2})))
+        error([fname ':positionalWindow'], ...
+            ['%s for attribute %d: name the window''s scale, {''rect'', ' ...
+             '''width'', w} or {''gaussian'', ''sd'', s}, rather than ' ...
+             'giving it by position, whose number could be read as a ' ...
+             'width or an sd.'], name, a);
+    end
+    if mod(numel(c), 2) ~= 1
+        error([fname ':badWindow'], ...
+            ['%s for attribute %d: a window cell is {shape, name, value, ' ...
+             '...}; the names and values do not pair up.'], name, a);
+    end
+    NAMES = {'width', 'sd', 'decayRate', 'edges', 'ref'};
+    spec = struct('shape', {c{1}});
+    for k = 2:2:numel(c)
+        if ~(ischar(c{k}) || (isstring(c{k}) && isscalar(c{k})))
+            error([fname ':badWindow'], ...
+                ['%s for attribute %d: element %d of the window cell ' ...
+                 'must be a name.'], name, a, k);
+        end
+        hit = find(strcmpi(char(c{k}), NAMES), 1);
+        if isempty(hit)
+            error([fname ':badWindow'], ...
+                ['%s for attribute %d: unknown name ''%s''; a window takes ' ...
+                 '''width'', ''sd'', ''decayRate'', ''edges'', and ''ref''.'], ...
+                name, a, char(c{k}));
+        end
+        if isfield(spec, NAMES{hit})
+            error([fname ':badWindow'], ...
+                '%s for attribute %d: ''%s'' is given twice.', ...
+                name, a, NAMES{hit});
+        end
+        spec.(NAMES{hit}) = c{k + 1};
+    end
 end
 
 function q = localQueryRef(pQuery, a, locate, rA, rV, middle)
@@ -459,7 +541,7 @@ function w = localHoldingWidth(pQuery, a, locate, ref, fname)
         error([fname ':noDefaultWidth'], ...
             ['attribute %d: the query''s events all lie at one value there, ' ...
              'so there is no width to take a default window from; give one, ' ...
-             '''window'', {%d, {shape, width}}.'], a, a);
+             '''window'', {%d, {shape, ''width'' | ''sd'', value}}.'], a, a);
     end
 end
 
@@ -536,11 +618,13 @@ function c = localRectPieces(pContext, a, locate, win, lo, hi)
 %   constant, so each piece is sampled just inside both its ends, and a
 %   line through the values draws the steps exactly, every value being the
 %   profile's value at its sweep value. The range [lo, hi] is sampled at
-%   its ends. Twin of the Python _rect_pieces.
+%   its ends; where an end is itself a breakpoint, the value there belongs
+%   to it alone, so the piece beside it is also sampled just inside it.
+%   Twin of the Python _rect_pieces.
     hw = win.prof.sd * sqrt(3);
     loc = internal.locateRow(pContext{a}, internal.axisLocate(locate, a));
     loc = double(loc(:)); loc = loc(isfinite(loc));
-    b = [loc - hw; loc + hw];
+    b = [loc - hw; loc + hw] - localShift(win);
     if win.isPer && win.period > 0
         P = win.period;
         kLo = floor((lo - max(b)) / P) - 1;
@@ -548,6 +632,8 @@ function c = localRectPieces(pContext, a, locate, win, lo, hi)
         b = reshape(b + P * (kLo:kHi), [], 1);
     end
     tol = 1e-9 * max([1, abs(lo), abs(hi), hw]);
+    atLo = any(abs(b - lo) <= tol) && hi > lo;
+    atHi = any(abs(b - hi) <= tol) && hi > lo;
     b = unique(b(b > lo + tol & b < hi - tol));
     if ~isempty(b)
         b = b([true; diff(b) > tol]);
@@ -559,15 +645,13 @@ function c = localRectPieces(pContext, a, locate, win, lo, hi)
     else
         epsv = 0;
     end
-    c = zeros(1, 2 * numel(b) + 2);
-    c(1) = lo;
-    c(2:2:2 * numel(b)) = b - epsv;
-    c(3:2:2 * numel(b) + 1) = b + epsv;
-    if hi > lo
-        c(end) = hi;
-    else
-        c = c(1:end - 1);
-    end
+    c = zeros(1, 2 * numel(b));
+    c(1:2:end) = b - epsv;
+    c(2:2:end) = b + epsv;
+    if atLo, c = [lo + epsv, c]; end
+    if atHi, c = [c, hi - epsv]; end
+    c = [lo, c];
+    if hi > lo, c = [c, hi]; end
 end
 
 
@@ -789,4 +873,11 @@ if numel(swA) ~= 1
          'names %d; give ''%s'', {a, value}.'], name, numel(swA), name);
 end
 v = {swA, v};
+end
+
+
+function d = localShift(win)
+%LOCALSHIFT  The window's shift (its centre's displacement from its
+%   reference value), 0 where it has none.
+    if isfield(win, 'shift'), d = win.shift; else, d = 0; end
 end

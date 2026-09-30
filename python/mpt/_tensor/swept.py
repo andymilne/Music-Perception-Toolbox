@@ -10,7 +10,7 @@ query has its reference value ``query_ref`` there, and a window has its
 reference value (displacement 0) there; per attribute, ``align`` says which
 of the two are placed. ``swept_entropy`` and ``swept_mass`` have no query: at each sweep value
 they align a window on the context and take the entropy of the windowed
-density, or its mass in a region.
+density, or its total mass.
 
 The window factors prune the context to the windowed region before the
 build. Where the windowed context is fixed across the query's translations,
@@ -111,20 +111,23 @@ def _resolve_locate(locate, axis):
 
 
 class _Window(tuple):
-    """A window on one attribute: ``(profile, closed, is_per, period)``,
-    the resolved weighting profile of :mod:`preprocessing` and the
-    geometry its displacement is measured in."""
+    """A window on one attribute: ``(profile, closed, is_per, period,
+    shift)``, the resolved weighting profile of :mod:`preprocessing`, the
+    geometry its displacement is measured in, and ``shift``, the
+    displacement of the window's centre from its reference value (half the
+    width for a rectangle aligned at its start, minus half for its end)."""
 
     __slots__ = ()
 
-    def __new__(cls, profile, closed, is_per=False, period=0.0):
+    def __new__(cls, profile, closed, is_per=False, period=0.0, shift=0.0):
         return tuple.__new__(cls, (profile, bool(closed), bool(is_per),
-                                   float(period)))
+                                   float(period), float(shift)))
 
     profile = property(lambda self: self[0])
     closed = property(lambda self: self[1])
     is_per = property(lambda self: self[2])
     period = property(lambda self: self[3])
+    shift = property(lambda self: self[4])
 
     @property
     def default_step(self):
@@ -137,14 +140,17 @@ class _Window(tuple):
         return self.profile.sd / 2.0
 
     def with_geometry(self, is_per, period):
-        return _Window(self.profile, self.closed, is_per, period)
+        return _Window(self.profile, self.closed, is_per, period,
+                       self.shift)
 
 
 def _window_factor(loc_row, at, win):
     """Per-event factor of window ``win`` aligned at ``at``, over a reduced
     locating row: the event weighting of :func:`weight_events`, through
-    the same implementation."""
-    return _weight_factor(loc_row, at, win.profile, is_per=win.is_per,
+    the same implementation. A window aligned at its start or end is
+    evaluated about its centre, ``win.shift`` from ``at``."""
+    return _weight_factor(loc_row, at + win.shift, win.profile,
+                          is_per=win.is_per,
                           period=win.period, closed=win.closed)
 
 
@@ -295,11 +301,15 @@ def _attr_list(v, n, name):
 
 
 
+_WINDOW_KEYS = ("shape", "width", "sd", "decay_rate", "edges", "ref")
+
+
 def _parse_window(spec, a, name, default_width=None):
-    """A :class:`_Window` from its specification: ``(shape, width)``,
-    ``(shape, width, edges)``, a profile function, or a dict with
-    ``'shape'`` and ``'width'``, ``'sd'``, or ``'decay_rate'``, and
-    ``'edges'``.
+    """A :class:`_Window` from its specification: a dict with ``'shape'``,
+    one of ``'width'``, ``'sd'``, or ``'decay_rate'``, and ``'edges'``, or
+    a profile function. The scale is always named: a positional
+    ``(shape, width)`` is refused, since its number could be read as a
+    width or as an sd.
 
     The profiles are those of :func:`weight_events`: the
     rectangle-Gaussian family (``'rect'``, ``'gaussian'``, or a number in
@@ -309,19 +319,31 @@ def _parse_window(spec, a, name, default_width=None):
     one side of it only), scaled by ``'sd'`` or ``'decay_rate'``; and a callable of the displacement. The
     serial-position profiles, anchored at the first and last events
     rather than at the sweep value, are refused. The width may be left
-    out (``None``, or the whole spec ``None``) only where
+    out (``None``, absent, or the whole spec ``None``) only where
     ``default_width``, a callable, supplies one; a rectangle whose width
     is defaulted is closed unless ``edges`` says otherwise, and one whose
-    width is given is half-open unless ``edges`` says otherwise."""
+    width is given is half-open unless ``edges`` says otherwise. ``'ref'``,
+    for a rectangle of given width, says which point of it is its
+    reference value, placed at the sweep value: ``'centre'`` (the
+    default), ``'start'``, or ``'end'``."""
     edges = None
+    ref = "centre"
     sd = width = rate = None
     if spec is None:
-        spec = ("rect", None)
+        spec = {"shape": "rect"}
     if callable(spec):
         shape = spec
     elif isinstance(spec, dict):
+        unknown = [k for k in spec if k not in _WINDOW_KEYS]
+        if unknown:
+            raise ValueError(
+                f"`{name}` for attribute {a}: unknown key(s) "
+                f"{', '.join(repr(k) for k in unknown)}; a window takes "
+                f"'shape', one of 'width', 'sd', or 'decay_rate', 'edges', "
+                f"and 'ref'.")
         shape = spec.get("shape", "rect")
         edges = spec.get("edges")
+        ref = spec.get("ref", "centre")
         given = [k for k in ("sd", "width", "decay_rate") if k in spec]
         if len(given) > 1:
             raise ValueError(
@@ -329,16 +351,17 @@ def _parse_window(spec, a, name, default_width=None):
                 f"or 'decay_rate', not {' and '.join(given)}.")
         sd, width, rate = (spec.get("sd"), spec.get("width"),
                            spec.get("decay_rate"))
-    elif isinstance(spec, (tuple, list)) and len(spec) in (2, 3):
-        shape, width = spec[0], spec[1]
-        if len(spec) == 3:
-            edges = spec[2]
+    elif isinstance(spec, (tuple, list)):
+        raise ValueError(
+            f"`{name}` for attribute {a}: name the window's scale, "
+            f"{{'shape': 'rect', 'width': w}} or {{'shape': 'gaussian', "
+            f"'sd': s}}, rather than giving it by position; got {spec!r}, "
+            f"whose number could be read as a width or an sd.")
     else:
         raise ValueError(
-            f"`{name}` for attribute {a}: give (shape, width), (shape, "
-            f"width, edges), a profile function, or {{'shape': ..., "
-            f"'width' | 'sd' | 'decay_rate': ..., 'edges': ...}}; got "
-            f"{spec!r}.")
+            f"`{name}` for attribute {a}: give {{'shape': ..., "
+            f"'width' | 'sd' | 'decay_rate': ..., 'edges': ...}} or a "
+            f"profile function; got {spec!r}.")
     if shape is None:
         shape = "rect"
     named = isinstance(shape, str) and shape.lower() not in _SHAPE_ALIASES
@@ -346,15 +369,10 @@ def _parse_window(spec, a, name, default_width=None):
     if not named and not callable(shape) and sd is None and width is None:
         if default_width is None:
             raise ValueError(
-                f"`{name}` for attribute {a}: a width is required, "
-                f"(shape, width).")
+                f"`{name}` for attribute {a}: a scale is required, "
+                f"{{'shape': ..., 'width' | 'sd': ...}}.")
         width = default_width()
         defaulted = True
-    if named and width is not None and not isinstance(spec, dict):
-        raise ValueError(
-            f"`{name}` for attribute {a}: profile {shape!r} has no width; "
-            f"give {{'shape': {shape!r}, 'sd': ...}} or "
-            f"{{'shape': {shape!r}, 'decay_rate': ...}}.")
     try:
         profile = _resolve_profile(shape, sd=sd, width=width,
                                    decay_rate=rate)
@@ -372,7 +390,35 @@ def _parse_window(spec, a, name, default_width=None):
         closed = _resolve_edges(edges, profile)
     except ValueError as err:
         raise ValueError(f"`{name}` for attribute {a}: {err}") from None
-    return _Window(profile, closed)
+    return _Window(profile, closed,
+                   shift=_window_shift(ref, profile, defaulted, a, name))
+
+
+def _window_shift(ref, profile, defaulted, a, name):
+    """The displacement of a rectangle's centre from its reference value:
+    0 for ``'centre'``, half the width for ``'start'`` (the rectangle lies
+    above the sweep value), and minus half the width for ``'end'``. A
+    start and an end belong to a rectangle of given width only."""
+    if not (isinstance(ref, str)
+            and ref.lower() in ("centre", "start", "end")):
+        raise ValueError(
+            f"`{name}` for attribute {a}: 'ref' is 'centre', 'start', or "
+            f"'end'; got {ref!r}.")
+    ref = ref.lower()
+    if ref == "centre":
+        return 0.0
+    if not (profile.kind == "family" and float(profile.shape) == 1.0):
+        raise ValueError(
+            f"`{name}` for attribute {a}: 'ref': {ref!r} needs a rectangle, "
+            f"which has a start and an end; this profile has none. Use "
+            f"'exponentialAfter' or 'exponentialBefore' for a one-sided "
+            f"window.")
+    if defaulted:
+        raise ValueError(
+            f"`{name}` for attribute {a}: 'ref': {ref!r} needs a given "
+            f"width; the default window holds the query about its centre.")
+    hw = float(profile.sd) * np.sqrt(3.0)
+    return hw if ref == "start" else -hw
 
 
 def _is_rect(win):
@@ -394,18 +440,22 @@ def _rect_pieces(p_context, a, locate, win, lo, hi, is_per=False,
     attribute). Between these breakpoints the profile is constant, so each
     piece is sampled just inside both its ends, and a line through the
     values draws the steps exactly, every value being the profile's value
-    at its sweep value. The range ``[lo, hi]`` is sampled at its ends.
+    at its sweep value. The range ``[lo, hi]`` is sampled at its ends;
+    where an end is itself a breakpoint, the value there belongs to it
+    alone, so the piece beside it is also sampled just inside it.
     """
     hw = float(win.profile.sd) * np.sqrt(3.0)
     loc = np.asarray(_locate_row(p_context[a], _resolve_locate(locate, a)),
                      dtype=float).ravel()
     loc = loc[np.isfinite(loc)]
-    b = np.concatenate([loc - hw, loc + hw])
+    b = np.concatenate([loc - hw, loc + hw]) - win.shift
     if is_per and period and period > 0:
         k_lo = int(np.floor((lo - b.max()) / period)) - 1
         k_hi = int(np.ceil((hi - b.min()) / period)) + 1
         b = np.concatenate([b + k * period for k in range(k_lo, k_hi + 1)])
     tol = 1e-9 * max(1.0, abs(lo), abs(hi), hw)
+    at_lo = hi > lo and bool(np.any(np.abs(b - lo) <= tol))
+    at_hi = hi > lo and bool(np.any(np.abs(b - hi) <= tol))
     b = np.unique(b[(b > lo + tol) & (b < hi - tol)])
     if b.size:
         b = b[np.concatenate([[True], np.diff(b) > tol])]
@@ -414,8 +464,12 @@ def _rect_pieces(p_context, a, locate, win, lo, hi, is_per=False,
     eps = min(1e-6 * hw, 0.25 * float(gaps[gaps > 0].min())) \
         if np.any(gaps > 0) else 0.0
     vals = [lo]
+    if at_lo:
+        vals.append(lo + eps)
     for x in b:
         vals.extend([x - eps, x + eps])
+    if at_hi:
+        vals.append(hi - eps)
     if hi > lo:
         vals.append(hi)
     return np.asarray(vals, dtype=float)
@@ -735,14 +789,15 @@ def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
                     (f"attribute {a}: align='window' aligns a window, so "
                      f"give its " if has_query else
                      f"attribute {a} is swept, so give its window's ")
-                    + f"shape and width: window={{{a}: (shape, width)}}.")
+                    + f"shape and scale: window={{{a}: {{'shape': ..., "
+                    f"'width' | 'sd': ...}}}}.")
             win = _parse_window(window[a], a, "window")
         elif m == "independent":
             if a not in window:
                 raise ValueError(
                     f"attribute {a}: align='independent' aligns a window "
-                    f"apart from the query, so give its shape and width: "
-                    f"window={{{a}: (shape, width)}}.")
+                    f"apart from the query, so give its shape and scale: "
+                    f"window={{{a}: {{'shape': ..., 'width' | 'sd': ...}}}}.")
             win = _parse_window(window[a], a, "window")
         else:
             # 'both': window and query reference share each sweep value. The
@@ -907,7 +962,7 @@ def _holding_width(p_query, a, locate, ref):
         raise ValueError(
             f"attribute {a}: the query's events all lie at one value there, "
             f"so there is no width to take a default window from; give one, "
-            f"window={{{a}: (shape, width)}}.")
+            f"window={{{a}: {{'shape': ..., 'width' | 'sd': ...}}}}.")
     return w
 
 
@@ -1071,23 +1126,11 @@ def _run_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
 
 
 def _run_mass(p_context, w_context, sigma, r, is_rel, is_per, period,
-              is_exch, specs, plan, locate, target_attr, region, normalize):
+              is_exch, specs, plan, locate, target_attr):
     from .mass import mass_maet
-    n = len(p_context)
-    drop = plan[1]
-    keep = [i for i in range(n) if i not in drop]
-    reg = {}
-    for a, spec in _attr_map(region, n, "region").items():
-        if a in drop:
-            raise ValueError(
-                f"`region` names attribute {a}, which is dropped: it is "
-                f"marginalized before the mass is taken. Keep it, or "
-                f"leave it out of the region.")
-        reg[keep.index(a)] = spec
     return _run_local(
         p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
-        specs, plan, locate, target_attr,
-        lambda dens: mass_maet(dens, reg or None, normalize=normalize))
+        specs, plan, locate, target_attr, mass_maet)
 
 
 @_with_dispatch_scope
@@ -1140,7 +1183,8 @@ def swept_similarity(p_context, w_context=None, p_query=None,
       ``query_ref`` at :math:`s`: it is translated by
       :math:`\mu = s - \mathrm{queryRef}`;
     - a window, where there is one, has its reference value,
-      :math:`\delta = 0` (the midpoint of its symmetric shape), at :math:`s`.
+      :math:`\delta = 0` (the midpoint of its symmetric shape, or a
+      rectangle's start or end where ``ref`` says so), at :math:`s`.
 
     Nothing else places anything. For each swept attribute, ``align`` says
     which of the two are placed:
@@ -1355,15 +1399,16 @@ def swept_similarity(p_context, w_context=None, p_query=None,
         at attribute ``a``'s sweep values (*The rule*). Default ``'query'``
         for every swept attribute.
     window : dict
-        ``{a: (shape, width)}``, ``{a: (shape, width, edges)}``,
         ``{a: {'shape': ..., 'width' | 'sd' | 'decay_rate': ...,
-        'edges': ...}}``, or ``{a: f}``: the window :math:`h` on attribute
+        'edges': ..., 'ref': ...}}`` or ``{a: f}``: the window :math:`h` on attribute
         ``a``, any profile of :func:`weight_events`, which evaluates it.
-        ``shape`` is ``'rect'``, ``'gaussian'``, or a number in [0, 1]
-        blending the two (0 Gaussian, 1 rectangle); ``width`` is the full
-        width of the rectangle, and a Gaussian of the same width has
-        standard deviation width / (2 sqrt 3), which ``sd`` may give
-        instead. ``'exponential'`` decays on both sides of the window's
+        The scale is always named (``{'shape': 'gaussian', 'sd': 4}``);
+        a positional ``(shape, width)`` is refused, since its number could
+        be read as a width or an sd. ``shape`` is ``'rect'``,
+        ``'gaussian'``, or a number in [0, 1] blending the two (0 Gaussian,
+        1 rectangle); ``width`` is the full width of the rectangle, and a
+        Gaussian of the same width has standard deviation
+        width / (2 sqrt 3), which ``sd`` may give instead. ``'exponential'`` decays on both sides of the window's
         reference value, and ``'exponentialBefore'`` /
         ``'exponentialAfter'`` on one side only (zero on the other), scaled
         by ``sd`` or ``decay_rate``; a callable ``f`` takes the
@@ -1374,10 +1419,13 @@ def swept_similarity(p_context, w_context=None, p_query=None,
         rectangles: ``'halfOpen'`` (the default for a given width: the lower
         edge included, the upper not, so that windows a width apart share
         no event, for tiling a context) or ``'closed'`` (both edges, for
-        holding a query). Required for ``'window'`` and ``'independent'``,
+        holding a query). ``ref``, for a rectangle of given width: the
+        point of it placed at the sweep value, ``'centre'`` (the default),
+        ``'start'`` (the window covers :math:`[s, s + w)`), or ``'end'``
+        (it covers :math:`[s - w, s)`). Required for ``'window'`` and ``'independent'``,
         where the width is the scale of the local region and nothing in the
         data can supply it; not allowed for ``'query'``. For ``'both'`` it
-        may be left out, or given with width ``None``: the window is then
+        may be left out, or given without a scale: the window is then
         the smallest one that, placed by *the rule*, holds the query, with a
         closed rectangle unless another shape or ``edges`` is given, so an
         exact match scores 1. A window given for ``'both'`` that leaves out
@@ -1597,14 +1645,24 @@ def swept_entropy(p_context, w_context=None, sigma=None, r=None,
         without a given ``step`` takes its pieces (as at
         :func:`swept_similarity`).
     window : dict
-        ``{a: (shape, width)}``, ``{a: (shape, width, edges)}``,
         ``{a: {'shape': ..., 'width' | 'sd' | 'decay_rate': ...,
-        'edges': ...}}``, or ``{a: f}``: the window on each swept
-        attribute, any profile aligned at the sweep value, as at
-        :func:`swept_similarity`; ``edges`` is ``'halfOpen'`` (the
-        default) or ``'closed'`` (rectangles only). Required for every
-        swept attribute: its scale is that of the local region, which
-        nothing in the data can supply.
+        'edges': ..., 'ref': ...}}`` or ``{a: f}``: the window on each swept
+        attribute, aligned at the sweep value, with its scale named
+        (``{'shape': 'gaussian', 'sd': 4}``). ``shape`` is ``'rect'``,
+        ``'gaussian'``, a number in [0, 1] blending the two (0 Gaussian,
+        1 rectangle), or ``'exponential'``, ``'exponentialBefore'``, or
+        ``'exponentialAfter'``. ``'width'`` is the full width of
+        the rectangle, and ``'sd'`` may be given instead (a Gaussian of
+        width :math:`w` has sd :math:`w / (2\sqrt{3})`); the exponentials
+        have no width, and take ``'sd'`` or ``'decay_rate'``. ``edges`` is
+        ``'halfOpen'`` (the default) or ``'closed'`` (rectangles only).
+        ``ref``, for a rectangle of given width, is the point of it placed
+        at the sweep value: ``'centre'`` (the default), ``'start'``, or
+        ``'end'``. ``f`` is a callable taking the
+        displacement :math:`p_a(n) - s`. Required for every swept
+        attribute: its scale is that of the local region, which nothing in
+        the data can supply. The full account is at
+        :func:`swept_similarity`.
     drop : int or list of int, optional
         Swept attributes marginalized after the window has weighted the
         events. An attribute kept stays in the density whose entropy is
@@ -1672,23 +1730,23 @@ def swept_mass(p_context, w_context=None, sigma=None, r=None,
                is_rel=None, is_per=None, period=None, *,
                sweep=None, start=None, stop=None, step=None,
                window=None, drop=None, locate="centroid",
-               target_attr=None, region=None, normalize="none",
+               target_attr=None,
                is_exch=None, rel=None, exch=None, specs=None,
                return_sweep_values=False, verbose=False):
     r"""Align a window on a context at each of a list of sweep values and
-    take the mass of the windowed density in a region at each.
+    take the total mass of the windowed density at each.
 
     **Overview.** At each sweep value :math:`s`, a window on the context
     is aligned at :math:`s` and weights each event on the target
     attribute, :math:`w'(n) = w(n)\, h(p_a(n) - s)`, as at
     :func:`swept_entropy`. The windowed density is then built and its
-    mass in ``region`` taken by :func:`mass_maet`: how much of the local
-    material lies in the region, or, with ``normalize='total'``, what
-    share of it does. The window weights events before the density is
-    built; the region is read from the density, so a tuple just outside
-    it still contributes the part of its kernel that crosses the edge,
-    and a region can select tuples (the intervals of a relative
-    attribute, say) where a window can only weight events.
+    total mass taken by :func:`mass_maet`: the sum of its tuples' weight
+    products, how much material the window holds (with unit weights and
+    a rectangular window, its number of tuples). It is the natural
+    normalizer for a windowed count: a one-sided
+    :func:`swept_similarity` against a query, multiplied by the query's
+    mass over the window's, is the share of the window's tuples that
+    match the query.
 
     **Input forms**: ``swept_mass(pm, ...)`` with a whole pre-MAET, or
     the raw positional form ``swept_mass(p_context, w_context, sigma, r,
@@ -1696,16 +1754,44 @@ def swept_mass(p_context, w_context=None, sigma=None, r=None,
 
     Parameters
     ----------
-    sweep, start, stop, step, window, drop, locate, target_attr
-        As at :func:`swept_entropy`. A dropped attribute is marginalized
-        before the mass is taken, so it cannot be restricted.
-    region : dict, optional
-        ``{a: spec}``, keyed by the context's attribute indices, as at
-        :func:`mass_maet`. Without it, the mass of the whole windowed
-        density: the window's weighted tuple count.
-    normalize : {'none', 'total'}, default 'none'
-        As at :func:`mass_maet`: the mass, or its share of the windowed
-        density's mass.
+    sweep : dict, int, or list of int
+        ``{a: values}``: the sweep values of attribute ``a``; a bare
+        attribute index, or a list of them, asks for the defaults below.
+    start, stop, step : dict or float, optional
+        ``{a: value}``: generate attribute ``a``'s sweep values in place of
+        listing them; a bare number applies to the swept attribute where
+        ``sweep`` names one. ``start`` and ``stop`` default to the lowest and
+        highest of the context's values on the attribute; ``step`` defaults
+        to half the window's standard deviation, and a pure rectangle
+        without a given ``step`` takes its pieces (as at
+        :func:`swept_similarity`).
+    window : dict
+        ``{a: {'shape': ..., 'width' | 'sd' | 'decay_rate': ...,
+        'edges': ..., 'ref': ...}}`` or ``{a: f}``: the window on each swept
+        attribute, aligned at the sweep value, with its scale named
+        (``{'shape': 'gaussian', 'sd': 4}``). ``shape`` is ``'rect'``,
+        ``'gaussian'``, a number in [0, 1] blending the two (0 Gaussian,
+        1 rectangle), or ``'exponential'``, ``'exponentialBefore'``, or
+        ``'exponentialAfter'``. ``'width'`` is the full width of
+        the rectangle, and ``'sd'`` may be given instead (a Gaussian of
+        width :math:`w` has sd :math:`w / (2\sqrt{3})`); the exponentials
+        have no width, and take ``'sd'`` or ``'decay_rate'``. ``edges`` is
+        ``'halfOpen'`` (the default) or ``'closed'`` (rectangles only).
+        ``ref``, for a rectangle of given width, is the point of it placed
+        at the sweep value: ``'centre'`` (the default), ``'start'``, or
+        ``'end'``. ``f`` is a callable taking the
+        displacement :math:`p_a(n) - s`. Required for every swept
+        attribute: its scale is that of the local region, which nothing in
+        the data can supply. The full account is at
+        :func:`swept_similarity`.
+    drop : int or list of int, optional
+        Swept attributes marginalized after the window has weighted the
+        events, and so before the mass is taken.
+    locate : str, callable, or dict, default ``'centroid'``
+        As at :func:`swept_similarity`.
+    target_attr : int, optional
+        The attribute whose weights the window multiplies (default: the
+        first attribute not dropped).
     is_exch, specs, verbose
         As at :func:`swept_similarity`.
     return_sweep_values : bool, default False
@@ -1747,8 +1833,7 @@ def swept_mass(p_context, w_context=None, sigma=None, r=None,
                        step, None, window, drop, None, locate,
                        "swept_mass", sigma, is_per, period)
     M = _run_mass(p_context, w_context, sigma, r, is_rel, is_per,
-                  period, is_exch, specs, plan, locate, target_attr,
-                  region, normalize)
+                  period, is_exch, specs, plan, locate, target_attr)
     return (M, _sweep_values(plan)) if return_sweep_values else M
 
 

@@ -14,7 +14,7 @@ Module layout:
                     transforms).
   swept.py          swept_similarity, swept_entropy, swept_mass (event
                     weighting).
-  mass.py           mass_maet (the mass of a density in a region).
+  mass.py           mass_maet (the total mass of a density).
   canonical.py      Canonical-form key helpers for batched dedup.
   dispatch.py       Path-selection cost model + shared helpers.
   eval.py           eval_maet (joint centres / factored / Möbius).

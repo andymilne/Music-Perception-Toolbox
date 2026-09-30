@@ -122,16 +122,15 @@ sweepValues = linspace(min(tAbs), max(tAbs), N_SWEEP);
 phaseAt = pe.lagAt(sweepValues / (pe.nc * IOI));     % continuous lag
 
 % Windowed (dp, dt) Renyi-2 entropy at each sweep value. A single
-% sweptEntropy sweep: a Gaussian window (shape 0) on the absolute-onset
-% attribute (attribute 3) modulates the event weights, and that onset attribute is
-% dropped from the entropy density ('drop', 3), leaving the
-% two-attribute (dp, dt) density whose Renyi-2 entropy is returned. The
-% window standard deviation WINDOW_SD maps to the variance-matched
-% rectangular width 2*sqrt(3)*sd. (The placeholder onset sigma is unused:
-% that attribute is dropped.)
+% sweptEntropy sweep: a Gaussian window, with standard deviation WINDOW_SD,
+% on the absolute-onset attribute (attribute 3) modulates the event
+% weights, and that onset attribute is dropped from the entropy density
+% ('drop', 3), leaving the two-attribute (dp, dt) density whose Renyi-2
+% entropy is returned. (The placeholder onset sigma is unused: that
+% attribute is dropped.)
 sweep = @(sig) sweptEntropy( ...
     diffPm, 'sweep', {3, sweepValues}, 'sigma', [SIGMA_DP, sig, 1.0], ...
-    'window', {3, {0.0, WINDOW_SD * 2.0 * sqrt(3.0)}}, 'drop', 3, ...
+    'window', {3, {'gaussian', 'sd', WINDOW_SD}}, 'drop', 3, ...
     'method', 'renyi2', 'verbose', false);
 
 H_jnd  = sweep(SIGMA_JND);

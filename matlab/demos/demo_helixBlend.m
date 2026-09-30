@@ -182,10 +182,9 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
 
     TIME = 3;                                    % the swept attribute
 
-    % The window family has fixed variance sd^2 for every shape; the
-    % width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
+    % The window family has fixed variance sd^2 for every shape.
     sd_time = win_size_time * sigma_time;
-    timeWindow = {win_mix, 2 * sqrt(3) * sd_time};
+    timeWindow = {win_mix, 'sd', sd_time};
 
     % Only the pitch-height width varies across the sweep, so the two
     % pre-MAETs are built once and each call names that one parameter.

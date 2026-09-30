@@ -33,8 +33,8 @@ def _by_weight_events(ctx, qry, at, **profile):
 
 
 @pytest.mark.parametrize("spec, profile", [
-    (("rect", 2.0), dict(shape=1.0, width=2.0)),
-    (("gaussian", 2.0), dict(shape=0.0, width=2.0)),
+    ({"shape": "rect", "width": 2.0}, dict(shape=1.0, width=2.0)),
+    ({"shape": "gaussian", "width": 2.0}, dict(shape=0.0, width=2.0)),
     ({"shape": "exponential", "sd": 1.0},
      dict(shape="exponential", sd=1.0)),
     ({"shape": "exponentialBefore", "decay_rate": 0.5},
@@ -97,10 +97,11 @@ def test_anchored_profiles_refused(melody):
 
 def test_exponential_takes_no_width(melody):
     ctx, qry = melody
-    with pytest.raises(ValueError, match="has no width"):
+    with pytest.raises(ValueError, match="does not apply"):
         swept_similarity(ctx, None, qry, None, *GEOM,
                          sweep={1: np.array([1.0])}, align={1: "window"},
-                         window={1: ("exponential", 2.0)}, drop=[1],
+                         window={1: {"shape": "exponential", "width": 2.0}},
+                         drop=[1],
                          verbose=False)
 
 
@@ -109,7 +110,8 @@ def test_closed_edges_only_for_rectangles(melody):
     with pytest.raises(ValueError, match="rectangle"):
         swept_similarity(ctx, None, qry, None, *GEOM,
                          sweep={1: np.array([1.0])}, align={1: "window"},
-                         window={1: ("gaussian", 2.0, "closed")},
+                         window={1: {"shape": "gaussian", "width": 2.0,
+                                     "edges": "closed"}},
                          drop=[1], verbose=False)
 
 
@@ -121,7 +123,7 @@ def test_periodic_window_wraps():
     p = np.array([[60.0, 64.0, 67.0]])
     geom = ([0.5, 0.1], [1, 1], [False, False], [False, True], [0.0, 4.0])
     H = swept_entropy([p, t], None, *geom, sweep={1: np.array([0.0])},
-                      window={1: ("rect", 1.0)}, drop=[1],
+                      window={1: {"shape": "rect", "width": 1.0}}, drop=[1],
                       method="renyi2", verbose=False)
     pm = weight_events([p, t], None, 1, 0, 0.0, 1.0, width=1.0, is_per=True,
                        period=4.0, drop_input_attr=True)

@@ -197,7 +197,8 @@ print(f"  'query', whole melody  : {S4[i]:.3f} at beat {mu4[1][i]:.2f}")
 for width in (3, 4, 6, 8):
     S4, mu4 = mpt.swept_similarity(
         melody, query, sweep=1, align={1: 'both'},
-        window={1: ('rect', float(width))}, normalize='cosine',
+        window={1: {'shape': 'rect', 'width': float(width)}},
+        normalize='cosine',
         return_offsets=True)
     i = np.argmax(S4)
     print(f"  'both', window {width} beats : {S4[i]:.3f} at beat "
@@ -220,7 +221,8 @@ print("=== 5. align='window', onset dropped ===")
 # order or rhythm.
 bar_centres = 4.0 * BARS + 2.0
 S5 = mpt.swept_similarity(melody, query, sweep={1: bar_centres},
-                          align={1: 'window'}, window={1: ('rect', 4.0)},
+                          align={1: 'window'},
+                          window={1: {'shape': 'rect', 'width': 4.0}},
                           drop=[1])
 print("  bar: " + "  ".join(f"{b:5d}" for b in BARS))
 print("  sim: " + "  ".join(f"{s:5.2f}" for s in np.ravel(S5)))
@@ -258,7 +260,8 @@ S6 = {}
 for norm in ('oneSidedDenom', 'cosine'):
     S6[norm] = mpt.swept_similarity(
         melody, query, sweep={0: transp, 1: bar_centres},
-        align={0: 'query', 1: 'window'}, window={1: ('rect', 4.0)},
+        align={0: 'query', 1: 'window'},
+        window={1: {'shape': 'rect', 'width': 4.0}},
         drop=[1], normalize=norm)
 print(f"  surface {S6['cosine'].shape[0]} transpositions x "
       f"{S6['cosine'].shape[1]} bars; best transposition in each bar:")
@@ -302,7 +305,8 @@ mpt.show_pre_maet(bound_qry)
 # only the spacing. Translation would change nothing on a relative
 # attribute, so 'window' is the role.
 S7 = mpt.swept_similarity(bound_mel, bound_qry, sweep={0: bar_centres},
-                          align={0: 'window'}, window={0: ('rect', 4.0)})
+                          align={0: 'window'},
+                          window={0: {'shape': 'rect', 'width': 4.0}})
 print("  bar: " + "  ".join(f"{b:5d}" for b in BARS))
 print("  sim: " + "  ".join(f"{s:5.2f}" for s in np.ravel(S7)))
 print("  Every statement has the query's rhythm, so all four are found;")
@@ -327,7 +331,8 @@ midi_b[onset >= 16] += 4
 voice_b = mpt.pack_pre_maet([midi_b[None, :], onset[None, :]], None,
                             specs)
 S8 = mpt.swept_similarity(melody, voice_b, sweep={1: bar_centres},
-                          align={1: 'window'}, window={1: ('rect', 4.0)})
+                          align={1: 'window'},
+                          window={1: {'shape': 'rect', 'width': 4.0}})
 whole = float(mpt.sim_maet(melody, voice_b, normalize='oneSidedDenom',
                            verbose=False))
 print("  bar: " + "  ".join(f"{b:5d}" for b in BARS))
@@ -365,7 +370,8 @@ win_pos = np.arange(2.0, 30.01, 2.0)
 lags = np.arange(-0.2, 0.8001, 0.01)
 S9 = mpt.swept_similarity(part_a, part_b, sweep={1: (win_pos, lags)},
                           align={1: 'independent'},
-                          window={1: ('rect', 4.0)}, query_ref={1: 0.0})
+                          window={1: {'shape': 'rect', 'width': 4.0}},
+                          query_ref={1: 0.0})
 best_lag = lags[np.argmax(S9, axis=1)]
 print(f"  correlogram {S9.shape[0]} window positions x {S9.shape[1]} lags")
 print("  best lag rises with position, as the second part runs ahead:")

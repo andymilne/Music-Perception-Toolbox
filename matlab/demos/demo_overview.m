@@ -40,10 +40,10 @@ clave     = [0, 3, 6, 10, 12];                       % 16-step cycle
 
 % An expectation tensor replaces each element of a multiset with a
 % Gaussian of width sigma and sums them, over r-tuples of elements. 1a
-% builds one from a chord. Three things are computed from one: the
-% similarity of two of them (1b), the entropy of one (1c), and the mass
-% it holds in a region (1d). Four parameters decide what it represents
-% (1e).
+% builds one from a chord. Two things are computed from one: the
+% similarity of two of them (1b), and the entropy of one (1c); a second
+% normalization of the similarity asks how much of one is present in
+% another (1d). Four parameters decide what it represents (1e).
 
 % --- 1a. A chord as a density ---
 
@@ -127,29 +127,43 @@ end
 % lowest; the chromatic scale holds every interval equally often, so its
 % entropy is highest.
 
-% --- 1d. Mass: how much of a density lies in a region ---
+% --- 1d. Normalization: resemblance or amount ---
 
-% The mass of a density within a region, as a proportion of its whole
-% mass ('normalize', 'total'), is in effect the weighted proportion of
-% tuples whose values fall in the region. On a relative tensor at r = 2
-% the tuples are pairs of notes and their values intervals, so here it
-% is the share of each scale's pairs of notes that lie a fifth or a
-% fourth apart. Because the density is relative, periodic, and
-% exchangeable, every pair of notes a fifth or fourth apart contributes
-% the same two coincident kernels, at 700 and 500 cents, whatever its
-% transposition, octave, or order; the two regions together therefore
-% count each such pair once.
-fprintf('\n=== 1d. Share of pairs a fifth or fourth apart ===\n');
+% A similarity divides the inner product of two densities by a
+% normalization, and the normalization decides the question it answers.
+% The cosine (1b) divides by the sizes of both densities, so it scores
+% how closely their shapes resemble each other. 'normalize',
+% 'oneSidedDenom' divides by the second density's self inner product
+% only, so it scores how much of the second is present in the first.
+% Here the second is a single fifth, as a relative dyad tensor like those
+% of 1c. The density is relative, periodic, and exchangeable, so a pair
+% of notes a fifth or a fourth apart holds the same two intervals as the
+% fifth, 700 and 500 cents, whatever its transposition, octave, or order,
+% and the one-sided similarity counts such pairs. massMaet gives a
+% density's total mass, the sum of its tuples' weights: here the number
+% of ordered pairs of notes. Scaling the count by the fifth's mass over
+% the scale's gives the share of the scale's pairs that are a fifth or a
+% fourth apart.
+fprintf('\n=== 1d. Each scale against a fifth: cosine, count, and share ===\n');
+fifth = [0, 700];
+mFifth = massMaet(buildMaet(fifth, [], 10, 2, true, true, 1200, ...
+                            'verbose', false));
 for k = 1:numel(scales)
-    dens = buildMaet(scales{k}, [], 10, 2, true, true, 1200, ...
-                     'verbose', false);
-    m = massMaet(dens, 'region', {1, [650 750]}, 'normalize', 'total') ...
-      + massMaet(dens, 'region', {1, [450 550]}, 'normalize', 'total');
-    fprintf('  %-10s: %.3f\n', scaleNames{k}, m);
+    cosk = simMaet(scales{k}, [], fifth, [], 10, 2, true, true, 1200, ...
+                   'verbose', false);
+    countk = simMaet(scales{k}, [], fifth, [], 10, 2, true, true, 1200, ...
+                     'normalize', 'oneSidedDenom', 'verbose', false);
+    mScale = massMaet(buildMaet(scales{k}, [], 10, 2, true, true, 1200, ...
+                                'verbose', false));
+    fprintf('  %-10s: cosine %.3f, pairs %5.2f, share %.3f\n', ...
+            scaleNames{k}, cosk, countk, countk * mFifth / mScale);
 end
-% Six of the diatonic scale's 21 pairs are a fifth apart (0.286), twelve
-% of the chromatic scale's 66 (0.182), and none of the whole-tone
-% scale's.
+% The diatonic scale's interval content resembles a lone fifth more
+% closely than the chromatic scale's does (cosine 0.626 against 0.426),
+% yet the chromatic scale holds twice as many pairs a fifth or a fourth
+% apart (12 against 6). As a share of all pairs, the diatonic scale holds
+% more (6 of 21, 0.286, against 12 of 66, 0.182). The whole-tone scale
+% holds none.
 
 % --- 1e. The parameters that define a tensor ---
 
@@ -325,56 +339,65 @@ legend(ax2, 'Location', 'northeast');
 linkaxes([ax1 ax2], 'x');
 xlim(ax2, [-5 29]);
 
-% --- 2d. Mass in a moving window: each triad's share of the notes ---
+% --- 2d. A window over time: each triad's share of the notes ---
 
-% The second cycle is the first a fifth higher, so the melody's pitches
-% move from the tones of the C major triad (C, E, G) to those of the G
-% major triad (G, B, D). sweptMass shows where. Time is the onset
+% The melody's first cycle, C D E G E, is the C major triad (C, E, G)
+% with a passing tone, D; the second, G A B D B, is the first a fifth
+% higher, the G major triad (G, B, D) with a passing tone, A. The D is
+% also a tone of the G major triad, but the A belongs to neither, so a
+% window holding it gives neither triad all of its notes. A windowed
+% similarity shows where each triad's tones prevail. Time is the onset
 % attribute, measured in steps of the 16-step clave cycle. At each of a
-% list of times s, a Gaussian window centred on s, with a standard
-% deviation of 4 steps, weights each note according to its distance in
-% time from s, so the notes near s count most. The onset attribute is
-% then dropped, leaving a density over pitch class alone, and its mass
-% is taken inside a region: the range of values to be counted, here the
-% pitch classes within 50 cents of one triad tone (pc - 50 to pc + 50
-% cents), each note counting by the part of its pitch kernel that falls
-% in that range. With 'normalize', 'total', the mass is divided by the
-% density's whole mass, so the result is the share of the weighted notes
-% near s that lie in the range. A region takes a single range per
-% attribute, so a triad's share is the sum of three calls, one per tone.
-% The times s are left to the defaults, from the first onset to the last
-% in steps of half the window's sd (2 steps), and come back as the
-% second output, for the plot.
-fprintf('\n=== 2d. Share of each triad''s tones, in a window over onset ===\n');
-win = struct('shape', 'gaussian', 'sd', 4);
-triads = {'C major', [0 400 700]; 'G major', [700 1100 200]};
-share = [];
-for t = 1:size(triads, 1)
-    mt = 0;
-    for pc = triads{t, 2}
-        [m, sv] = sweptMass(melody, 'sweep', 2, ...
-            'window', {2, win}, 'drop', 2, ...
-            'region', {1, [pc - 50, pc + 50]}, 'normalize', 'total');
-        mt = mt + m;
-    end
-    share(t, :) = mt; %#ok<AGROW>
-end
+% list of times s, a rectangular window 10 steps wide keeps the notes
+% with onsets from s up to, but not including, s + 10: it starts at s
+% because of 'ref', 'start' (by default a window is centred on s).
+% 'align', 'window' places only the window at s, and the onset attribute
+% is then dropped, leaving the pitch classes of the notes in the window.
+% They are compared with each triad, a query of three notes (its onsets
+% are placeholders, dropped with the melody's), under 'normalize',
+% 'oneSidedDenom', which, as in 1d, counts the matches: here the notes on
+% the triad's tones, in units of the triad's three.
+% sweptMass gives the window's total mass, its number of notes, so the
+% count scaled by the triad's mass over the window's is the share of the
+% notes in the window that are the triad's tones. The times s are left to
+% the defaults: for a rectangular window, the times at which a note
+% enters or leaves it (each onset, and each onset less 10), between which
+% the share is constant. They come back as the second output, and are
+% passed on to sweptSimilarity so that the two sweeps agree.
+fprintf('\n=== 2d. Each triad''s share of the notes, in a window over onset ===\n');
+win = {'rect', 'width', 10, 'ref', 'start'};
+[mWin, sv] = sweptMass(melody, 'sweep', 2, 'window', {2, win}, 'drop', 2);
 s = sv{2};                                   % the sweep values, 0 to 28
-for x = [4 12 20 28]
-    fprintf('  onset %2d: C major %.2f, G major %.2f\n', x, ...
-            share(1, s == x), share(2, s == x));
+triads = {'C major', [60 64 67]; 'G major', [67 71 74]};
+share = zeros(size(triads, 1), numel(s));
+for t = 1:size(triads, 1)
+    tones = transformAttributes(triads{t, 2}, [], {'midi', 'cents'});
+    triad = packPreMaet({tones, zeros(1, 3)}, [], specs);
+    count = sweptSimilarity(melody, triad, 'sweep', {2, s}, ...
+        'align', {2, 'window'}, 'window', {2, win}, 'drop', 2, ...
+        'normalize', 'oneSidedDenom');
+    share(t, :) = count * massMaet(triad) ./ mWin;
 end
-% The C major triad holds most of the weighted notes through the first
-% cycle and the G major triad through the second, the two crossing just
-% after step 16, where the transposition begins. They overlap on G, the
-% tone they share, so the two shares do not sum to 1.
+for t = 1:size(triads, 1)
+    top = share(t, :) >= max(share(t, :)) - 1e-9;
+    fprintf('  %s: largest share %.3f, for s from %g to %g\n', ...
+            triads{t, 1}, max(share(t, :)), round(min(s(top))), ...
+            round(max(s(top))));
+end
+% Each triad's share is the proportion of the notes in the window that
+% are its tones. C major holds every note for s from just above 3 to 9:
+% there the window starts after the D at onset 3 and ends before the A at
+% onset 19, and holds only E, G, E, and the G at onset 16, which the two
+% triads share. G major holds every note from just above s = 19, once the
+% window starts after the A, to the last onset. The two shares overlap on
+% G, so they do not sum to 1.
 
 figure('Name', 'Triad shares', 'Position', [100 100 900 300]);
 plot(s, share, 'LineWidth', 2);
 xline(16, '--', 'Color', [0.6 0.6 0.6]);
-xlabel('window centre s (steps)');
-ylabel('share of the weighted notes');
-title('Each triad''s share of the weighted notes');
+xlabel('window start s (steps)');
+ylabel('share of the notes');
+title('Each triad''s share of the notes in the window');
 legend(triads(:, 1), 'Location', 'east');
 ylim([0 1]);
 

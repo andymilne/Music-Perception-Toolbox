@@ -105,7 +105,7 @@ The consumer wrappers compose the tier-2 primitives into measures with musical i
 
 - **Entropy**: `entropy_maet` evaluates the density's entropy (Shannon or normalized Shannon by cell masses on absolute densities or by grid evaluation on relative ones, differential by adaptive grid refinement with Richardson extrapolation, or Rényi-2 in closed form as the self inner product `sim_maet(dens, dens, normalize='none')` — through the inner-product selector, so every route and cost model of §4 serves it — over the squared closed-form total mass); `swept_entropy` sweeps it across a window; `n_tuple_entropy` is a convenience wrapper composing `difference_events` + `bind_events` + `build_maet` + `entropy_maet` for the integer-step n-gram entropy of Milne & Dean (2016).
 
-- **Mass**: `mass_maet` integrates the density over a region (a box, in erf products wherever the kernel's coordinates are independent, or a soft Gaussian region), each tuple's kernel taken with unit mass and the sum factored across attributes within each event, so no joint tuple set is built; `swept_mass` takes it at each window position.
+- **Mass**: `mass_maet` gives the density's total mass, the sum of its tuples' weight products (each kernel taken with unit mass), factored across attributes within each event, so no joint tuple set is built; it normalizes a one-sided similarity into a share. `swept_mass` takes it at each window position.
 
 - **Circular measures**: `balance`, `evenness`, `coherence`, `sameness`, `edges`, `proj_centroid`, `mean_offset`, `circ_apm`, `markov_s`, with the DFT engine `dft_circular` and `dft_circular_simulate`. Some compose tensor primitives; others are direct DFT-based or symbolic computations independent of the tensor stack.
 
@@ -185,7 +185,7 @@ mpt/
 │   │                      (per-attribute sweep plan and the four
 │   │                      placements; translation through
 │   │                      sweep_sim_maet), swept_entropy, swept_mass
-│   ├── mass.py            mass_maet: the mass of a density in a region,
+│   ├── mass.py            mass_maet: the total mass of a density,
 │   │                      factored across attributes per event
 │   ├── explain.py         explain_dispatch: reports a call's routing and why
 │   └── _timeest.py        Self-calibrated up-front time estimate for eval

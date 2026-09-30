@@ -95,19 +95,18 @@ sweepValues = linspace(tLo, tHi, N_SWEEP);
 phaseAt = pe.lagAt(sweepValues / (pe.nc * pe.baseIoi));        % continuous lag
 
 % Windowed joint (pitch, time) Renyi-2 entropy at each sweep value. A
-% single sweptEntropy sweep: a Gaussian localization window (shape 0)
-% on the time attribute (attribute 2) modulates the event weights, with the
-% time attribute retained (not dropped) so the joint (pitch, time)
-% density is built and its Renyi-2 entropy returned. The window standard
-% deviation WIN_SD maps to the variance-matched rectangular width
-% 2*sqrt(3)*sd. The window is truncated at truncationSigmas standard
-% deviations (the toolbox default, 6), so events far from the sweep value carry
-% zero weight and need no separate pruning.
+% single sweptEntropy sweep: a Gaussian localization window, with standard
+% deviation WIN_SD, on the time attribute (attribute 2) modulates the event
+% weights, with the time attribute retained (not dropped) so the joint
+% (pitch, time) density is built and its Renyi-2 entropy returned. The
+% window is truncated at truncationSigmas standard deviations (the toolbox
+% default, 6), so events far from the sweep value carry zero weight and need
+% no separate pruning.
 showPreMaet(piece, 'sigma', [SIGMA_PITCH, SIGMAS_T(1)], 'maxEvents', 4);
 
 sweep = @(sigmaT) sweptEntropy( ...
     piece, 'sweep', {2, sweepValues}, 'sigma', [SIGMA_PITCH, sigmaT], ...
-    'window', {2, {0.0, WIN_SD * 2.0 * sqrt(3.0)}}, ...
+    'window', {2, {'gaussian', 'sd', WIN_SD}}, ...
     'method', 'renyi2', 'verbose', false);
 
 H = cell(1, numel(SIGMAS_T));

@@ -43,7 +43,7 @@ Andrew J. Milne, Western Sydney University
 
 The Music Perception Toolbox is an open-source toolbox — available in MATLAB and Python — for computing perceptually and cognitively motivated measures of music. It models how similar musical materials are, from single chords and scales to whole passages; where material recurs, and how any of its measures change through a piece; how that material is distributed — how concentrated or dispersed, and so how predictable, it is, and how much of it lies in a given range; how consonant or harmonic a sound is; and how the pitches of a scale or the onsets of a rhythm are arranged around their cycle. Its input may be a score, an audio recording, material constructed to test a theoretical question, or the stimuli of an experiment.
 
-Most of these measures belong to one family, built on the expectation tensor (Milne, Sethares, Laney, & Sharp, 2011) and its multi-attribute generalization, the MAET (Milne, 2026). An expectation tensor represents a weighted collection of values — the pitches of a chord, the onsets of a rhythm — as a density: a Gaussian mixture, with a kernel centred on each value, or on each pair, triple, or larger tuple of values where intervals and patterns matter. The width of each kernel models uncertainty. On the sounding surface this is perceptual uncertainty, a pitch or an onset never being heard exactly; but it applies equally to cognitive abstractions, such as a voice, an instrument, a metrical position, or a supplied analysis of the music's structure, and it allows an equivalence such as octave or transposition to be imposed fully or held to any degree. A MAET gives each event several such attributes at once — pitch and time, say, or pitch, voice, and instrument — each with its own kernel width and its own equivalences. The similarity of two densities, the entropy of one, and the mass it holds in a region are the measures read from it; the similarity and the mass have closed forms, and so, among the entropies, does the Rényi-2.
+Most of these measures belong to one family, built on the expectation tensor (Milne, Sethares, Laney, & Sharp, 2011) and its multi-attribute generalization, the MAET (Milne, 2026). An expectation tensor represents a weighted collection of values — the pitches of a chord, the onsets of a rhythm — as a density: a Gaussian mixture, with a kernel centred on each value, or on each pair, triple, or larger tuple of values where intervals and patterns matter. The width of each kernel models uncertainty. On the sounding surface this is perceptual uncertainty, a pitch or an onset never being heard exactly; but it applies equally to cognitive abstractions, such as a voice, an instrument, a metrical position, or a supplied analysis of the music's structure, and it allows an equivalence such as octave or transposition to be imposed fully or held to any degree. A MAET gives each event several such attributes at once — pitch and time, say, or pitch, voice, and instrument — each with its own kernel width and its own equivalences. The similarity of two densities and the entropy of one are the measures read from it; the similarity has a closed form, and so, among the entropies, does the Rényi-2.
 
 A second, separate family measures the arrangement of points on a cycle — the pitch classes of a scale, the onsets of a rhythmic cycle — directly, without building a density. The balance and evenness measures (Milne, Bulger, & Herff, 2017) draw on the discrete Fourier transform of that arrangement, and identify a novel class of perfectly balanced patterns. Further measures in the family describe how consistently a scale's step sizes follow their order, and where a rhythm's onsets cluster or thin out, and were developed and validated for modelling rhythmic perception and performance (Milne & Herff, 2020; Milne, Dean, & Bulger, 2023). A third group measures the consonance and harmonicity of a sound from its spectrum, and several of its measures are built on expectation tensors.
 
@@ -121,7 +121,7 @@ Two generalizations make the construction musically useful. First, the density c
 
 Each attribute is independently *absolute* or *relative* (invariant to transposition of the whole tuple), *periodic* or not (pitch classes and metrical positions wrap; pitches and absolute times do not), and *exchangeable* or *ordered* (whether the order of an event's values matters, as it does for a chord's voicing but not for its pitches). These three *flags* — `[rel]`, `[per]`, and `[exch]` — together with the tuple size, are what turn one construction into the different measures the toolbox provides. Collections of unequal size compare directly, since each is embedded as a density before any comparison is made, and no correspondence between their elements is required.
 
-Three things are computed from a density: the *cosine similarity* of two of them, which measures how alike two collections are; the *entropy* of one, which measures how evenly its mass is spread; and the *mass* it holds in a region. The similarity, the mass, and the Rényi-2 entropy have closed forms, so no grid or resolution parameter enters; the other entropies need one (§16).
+Two things are computed from a density: the *similarity* of two of them, which measures how alike two collections are, or how much of one is present in the other; and the *entropy* of one, which measures how evenly its mass is spread. Its total *mass*, the number of tuples it holds where every weight is 1, turns a count into a share. The similarity, the mass, and the Rényi-2 entropy have closed forms, so no grid or resolution parameter enters; the other entropies need one (§16).
 
 **Demos.** `demo_overview` / `demo_overview.py` (part 1: a chord as a density and the four parameters drawn); `demo_maetPlots` / `demo_maet_plots.py` (every combination of the parameters, drawn).
 
@@ -209,7 +209,7 @@ Each attribute is a row, headed by its parameters (`[rel], [per] = 0` is short f
 | `plotMaet` | Draw a density of one, two, or three dimensions |
 | `simMaet` | Cosine similarity of two densities; with spectral enrichment, spectral pitch (class) similarity |
 | `entropyMaet` | Entropy of a density, by four estimators |
-| `massMaet` | Mass of a density in a region, or its share of the whole |
+| `massMaet` | Total mass of a density: its number of tuples, where every weight is 1 |
 | `sweptSimilarity`, `sweptEntropy`, `sweptMass` | Similarity, entropy, or mass at each of a list of values on an attribute: a query translated along a context, a window stepped through it, or both |
 | `sweepSimMaet` | Similarity of one density against translated copies of another, in one pass |
 | `maetCentres` | The points at which a density places its kernels |
@@ -422,8 +422,8 @@ pm = preMaetFromAttrTable(t, 'attributes', { ...
                'r', 1, 'exch', true, 'isPer', true, 'period', 12), ...
         struct('column', 'onset', 'sigma', 0.25)}, 'time', 'beats');
 showPreMaet(pm, 'maxEvents', 6);
-H = sweptEntropy(pm, 'sweep', 2, 'window', {2, {'rect', 4}}, 'drop', 2, ...
-                 'method', 'renyi2');
+H = sweptEntropy(pm, 'sweep', 2, 'window', {2, {'rect', 'width', 4}}, ...
+                 'drop', 2, 'method', 'renyi2');
 ```
 
 **Python:**
@@ -434,7 +434,8 @@ pm = mpt.pre_maet_from_attr_table(t, attributes=[
      'exch': True, 'is_per': True, 'period': 12},
     {'column': 'onset', 'sigma': 0.25}], time='beats')
 mpt.show_pre_maet(pm, max_events=6)
-H = mpt.swept_entropy(pm, sweep=1, window={1: ('rect', 4.0)}, drop=1,
+H = mpt.swept_entropy(pm, sweep=1,
+                      window={1: {'shape': 'rect', 'width': 4.0}}, drop=1,
                       method='renyi2')
 ```
 
@@ -916,7 +917,7 @@ Windowing in the toolbox is always event weighting of this kind: the window mult
 
 ## 8. Densities and measures
 
-This section covers building a density from a pre-MAET, reading it — its value at points, its similarity to another, its entropy, its mass in a region — drawing it, and taking any of these measures at each of a list of values along an attribute. The function entries are in §12.4, and the mathematics of the density in §13.
+This section covers building a density from a pre-MAET, reading it — its value at points, its similarity to another, its entropy, its total mass — drawing it, and taking any of these measures at each of a list of values along an attribute. The function entries are in §12.4, and the mathematics of the density in §13.
 
 ### 8.1 Building a density
 
@@ -940,7 +941,7 @@ The cosine similarity of two densities is the toolbox's central measure of resem
 
 `'normalize'` sets the denominator. `'cosine'` (the default) scores the match of shape alone, bounded in $[-1, 1]$ and unchanged by rescaling either density's weights. `'oneSidedDenom'` divides by the second density's self inner product only, so it scores how much of the second is present in the first: 1 on a self-match, and more where the first carries more matching mass. `'none'` returns the bare inner product. `simMaet` takes two densities, two pre-MAETs, or the raw values; one against a list (one value per entry); and batched matrices, one pair per row (§10.6). Two densities compared must share their attribute structure and per-attribute parameters (§13.2).
 
-**Demos.** `demo_overview` / `demo_overview.py` (part 1b); `demo_triadSpcsGrid` / `demo_triad_spcs_grid.py`; `demo_scoreCategoricals` / `demo_score_categoricals.py` (what each encoding asks of a re-voiced chord); `demo_softeningEquivalences` / `demo_softening_equivalences.py`; `demo_jmm_1_2_similarity` (JMM); `demo_jmm_1_4_tonic_tuple_size` (JMM).
+**Demos.** `demo_overview` / `demo_overview.py` (part 1b; part 1d: the cosine against `'oneSidedDenom'`, a scale against a fifth); `demo_triadSpcsGrid` / `demo_triad_spcs_grid.py`; `demo_scoreCategoricals` / `demo_score_categoricals.py` (what each encoding asks of a re-voiced chord); `demo_softeningEquivalences` / `demo_softening_equivalences.py`; `demo_jmm_1_2_similarity` (JMM); `demo_jmm_1_4_tonic_tuple_size` (JMM).
 
 ### 8.4 Entropy
 
@@ -948,11 +949,11 @@ The cosine similarity of two densities is the toolbox's central measure of resem
 
 **Demos.** `demo_overview` / `demo_overview.py` (part 1c); `demo_rhythmTensors` / `demo_rhythm_tensors.py` (part 3: entropy as rhythmic complexity); `demo_dispatchAndKernelControls` / `demo_dispatch_and_kernel_controls.py` (part 7: the estimators compared); `demo_jmm_1_1_entropy` (JMM).
 
-### 8.5 Mass in a region
+### 8.5 Total mass
 
-`massMaet` gives the mass of a density inside a region: how much of the material lies in a range of pitches, say, or near a configuration, and with `'normalize', 'total'` what share of the whole it is. Each tuple's kernel carries unit mass, so a tuple counts by the share of its kernel inside the region, and one just outside a box still contributes the part of its kernel that crosses the edge. A region is a box on some of the attributes, the rest integrated over entirely, or a soft Gaussian region. It can select tuples as well as events — the fifths among all pairs of notes, as a region around 700 cents on a relative attribute at r = 2 — which no weighting of events can. The rules for regions are in the entry in §12.4.
+`massMaet` gives the total mass of a density: the sum of its tuples' weight products, each kernel carrying unit mass. Where every weight is 1 it is the number of tuples, so at r = 2 the number of pairs of values. It is the normalizer that turns a count into a share. A one-sided similarity (§8.3) of a context with a query counts, in units of the query, the context's tuples that match it: the pairs of a scale's notes a fifth or a fourth apart, say, against a lone fifth as a relative dyad density. Multiplied by the query's mass over the context's, that count is their share of all the context's pairs. The match counts each tuple by a Gaussian of the kernel's width about the query's tuples, so it can select tuples by the relations among their values, which no weighting of events can.
 
-**Demos.** `demo_overview` / `demo_overview.py` (part 1d: the share of a scale's pairs of notes a fifth or fourth apart, as a region of a relative density at r = 2; part 2d: each of two triads' share of a melody's notes, in a window moved along the melody with `sweptMass`).
+**Demos.** `demo_overview` / `demo_overview.py` (part 1d: a density's total mass, as the number of pairs a share is taken of; part 2d: a window's total mass, as the number of notes a share is taken of).
 
 ### 8.6 Drawing a density
 
@@ -1149,7 +1150,7 @@ A window on the context (event weighting, §7.5) can be added, to make each comp
 **The rule.** At each sweep value $s$ on the swept attribute:
 
 - the query, where it is translated, has its *reference value* `queryRef` at $s$: it is translated by $\mu = s - \mathrm{queryRef}$;
-- a window, where there is one, has its reference value, $\delta = 0$ of the window function $h(\delta)$ (the midpoint of the rectangle, the Gaussian, or their blend, each symmetric about it), at $s$.
+- a window, where there is one, has its reference value, $\delta = 0$ of the window function $h(\delta)$ (the midpoint of the rectangle, the Gaussian, or their blend, each symmetric about it, unless `'ref'` places a rectangle's start or end there), at $s$.
 
 Nothing else places anything. For each swept attribute, `align` says which of the two are placed:
 
@@ -1199,7 +1200,7 @@ Several attributes can be swept at once, each in its own role, and each absolute
 
 **Reading the output.** One dimension per sweep list, in attribute order; `'independent'` contributes two, the window's first. A sweep value is where the query's reference lands (under `'window'`, where the window is aligned).
 
-**Window family.** A window is `{shape, width}` (MATLAB; Python `(shape, width)`), `{shape, width, edges}`, or a struct / dict with `'shape'`, `'width'` or `'sd'`, and `'edges'`: the shape parameter $\gamma \in [0, 1]$ (or `'gaussian'` / `'rect'`) and the full width $W$ of the equivalent rectangle, with standard deviation $W / (2\sqrt{3})$ held fixed across the whole shape family, exactly as in `weightEvents`. The swept functions evaluate their windows through `weightEvents`' own implementation, so a window may be any of its profiles that is aligned at a reference value: the exponentials, symmetric (`'exponential'`) or extending to one side only (`'exponentialBefore'`, `'exponentialAfter'`), given as a struct / dict with `'sd'` or `'decayRate'`, and a function of the displacement $p_a(n) - s$. The serial-position profiles, anchored at the first and last events rather than at the sweep value, are refused. On a periodic attribute the displacement wraps, as in `weightEvents`. A rectangle is *half-open* by default, including its lower edge and not its upper, so windows placed a width apart share no event — the right choice for tiling a context; a *closed* rectangle includes both edges, the right choice for a window that must hold a query. The width is the scale of the comparison and nothing in the data can supply it for `'window'` and `'independent'`, where it is required; for `'both'` it may be omitted, and the window is then the smallest closed rectangle that, placed by the rule, holds the query, so an exact match scores 1. A window given for `'both'` that leaves out some of the query's own events (narrower than the query, or a half-open rectangle exactly as wide as it) draws a warning, since the query can then never be matched in full. Generated sweep values (a bare attribute in `'sweep'`, or `start` / `stop` / `step`, each of which overrides one default) depend on the role. Where the sweep values translate the query (`'query'`, `'both'`) they cover every placement at which the query overlaps the context (from its highest value on the context's lowest to its lowest on the context's highest), or one period on a periodic attribute, stepped at half the standard deviation of the profile's peaks, $\sigma\sqrt{2/r}/2$, window or no window. Where they place a window only (`'window'`, and the window's list of `'independent'`) they cover the context's full range, stepped at half the window width (neighbouring windows overlapping by half). The query's list of `'independent'` is always given explicitly.
+**Window family.** A window is a shape followed by named options: MATLAB `{'gaussian', 'sd', 4}` or `{'rect', 'width', 2, 'edges', 'closed'}` (or the same as a struct), Python `{'shape': 'gaussian', 'sd': 4}`. The shape is $\gamma \in [0, 1]$ (or `'gaussian'` / `'rect'`), and the scale is either `'width'`, the full width $W$ of the equivalent rectangle, or `'sd'`, the standard deviation $W / (2\sqrt{3})$, held fixed across the whole shape family, exactly as in `weightEvents`. The scale is always named, since a bare number could be read as either; a positional `{shape, width}` is refused. The swept functions evaluate their windows through `weightEvents`' own implementation, so a window may be any of its profiles that is aligned at a reference value: the exponentials, symmetric (`'exponential'`) or extending to one side only (`'exponentialBefore'`, `'exponentialAfter'`), given as a struct / dict with `'sd'` or `'decayRate'`, and a function of the displacement $p_a(n) - s$. The serial-position profiles, anchored at the first and last events rather than at the sweep value, are refused. On a periodic attribute the displacement wraps, as in `weightEvents`. A rectangle is *half-open* by default, including its lower edge and not its upper, so windows placed a width apart share no event — the right choice for tiling a context; a *closed* rectangle includes both edges, the right choice for a window that must hold a query. A rectangle's reference value, the point placed at each sweep value, is its centre by default; `'ref', 'start'` places its start there instead, so that it covers $[s, s + W)$, and `'ref', 'end'` its end, covering $[s - W, s)$ (MATLAB `{'rect', 'width', 4, 'ref', 'start'}`, Python `{'shape': 'rect', 'width': 4, 'ref': 'start'}`). The sweep values then read as the windows' starts or ends, and a rectangle's default sweep values shift with them. A start or end belongs to a rectangle of given width only; `'exponentialAfter'` and `'exponentialBefore'` are the one-sided smooth windows. The width is the scale of the comparison and nothing in the data can supply it for `'window'` and `'independent'`, where it is required; for `'both'` it may be omitted, and the window is then the smallest closed rectangle that, placed by the rule, holds the query, so an exact match scores 1. A window given for `'both'` that leaves out some of the query's own events (narrower than the query, or a half-open rectangle exactly as wide as it) draws a warning, since the query can then never be matched in full. Generated sweep values (a bare attribute in `'sweep'`, or `start` / `stop` / `step`, each of which overrides one default) depend on the role. Where the sweep values translate the query (`'query'`, `'both'`) they cover every placement at which the query overlaps the context (from its highest value on the context's lowest to its lowest on the context's highest), or one period on a periodic attribute, stepped at half the standard deviation of the profile's peaks, $\sigma\sqrt{2/r}/2$, window or no window. Where they place a window only (`'window'`, and the window's list of `'independent'`) they cover the context's full range, stepped at half the window's sd. The query's list of `'independent'` is always given explicitly.
 
 **Normalization.** The `normalize` keyword (also accepted as `normalise`) selects the denominator. The default, `'oneSidedDenom'`, divides the inner product of the windowed context $h \cdot f_X$ and the query $f_Y$ by the query's own self inner product:
 
@@ -1211,7 +1212,7 @@ This is *magnitude-aware*: self-similarity at full window coverage equals 1, the
 
 `sweptEntropy` / `swept_entropy` shares the sweep values, window, `locate`, and `drop` arguments, but has no query, so its sweep values always align the window: at each sweep value the windowed density is built, with any dropped attribute first marginalized, and its entropy taken with the chosen `method` (§11.2). Every swept attribute needs a window with a width, the scale of the local region. This is the windowed-entropy construction of §7.7 packaged as a sweep; a sweep value whose window catches no event returns `NaN`, under every method.
 
-`sweptMass` / `swept_mass` takes the same arguments and, at each sweep value, the mass of the windowed density in a region (`massMaet`): how much of the local material lies in a range of pitches, or near a configuration, and with `'normalize', 'total'` what share of it does. The window and the region do different jobs. The window weights events before the density is built, as in the other swept functions; the region is read from the built density, so it counts each tuple by the share of its kernel inside it, and it can select tuples – the fifths among all pairs of notes in a window, say, as a region around 700 cents on a relative attribute at r = 2 – which no weighting of events can. Where the region concerns single events and σ is small, weighting the events with a rectangle on the region's attribute and taking the total mass gives nearly the same answer.
+`sweptMass` / `swept_mass` takes the same arguments and, at each sweep value, the total mass of the windowed density (`massMaet`): how much material the window holds, with unit weights and a rectangular window its number of tuples. It is the normalizer for a windowed count: a one-sided `sweptSimilarity` against a query, with `'align', 'window'`, multiplied by the query's mass over the window's, is the share of the window's tuples that match the query (`demo_overview`, part 2d).
 
 #### Translation sweeps in one pass
 
@@ -1245,7 +1246,7 @@ S = mpt.sweep_sim_maet(melody, query, offsets)
 
 **Relative-and-periodic attributes** raise a question of measure rather than of speed. The single-wrap and transposition-average kernels agree only below a $\sigma / P$ limit, and above it the attribute's `wrap` selects between them — `'single-image'` for the former, `'full-image'` for the latter — exactly as it does for a comparison made offset by offset.
 
-**Demos.** `demo_sweptSimilarity` / `demo_swept_similarity.py`; `demo_overview` / `demo_overview.py` (part 2d: `sweptMass`); `demo_helixBlend` / `demo_helix_blend.py`; `demo_tempoInvariance` / `demo_tempo_invariance.py` (part 3: a sweep under a tempo-tolerant kernel); `demo_batchProcessing` / `demo_batch_processing.py` (sweepSimMaet against translated copies); `demo_dispatchAndKernelControls` / `demo_dispatch_and_kernel_controls.py` (part 3: sweeps in one pass); `demo_jmm_1_1_entropy` (JMM); `demo_jmm_1_3_cadence_nesting` (JMM); `demo_jmm_2_3_spectral` (JMM); `demo_jmm_3_1_texture` (JMM); `demo_jmm_3_2_diff` (JMM); `demo_jmm_3_3_xcorr` (JMM).
+**Demos.** `demo_sweptSimilarity` / `demo_swept_similarity.py`; `demo_overview` / `demo_overview.py` (part 2d: a window over time, with each triad's share of the notes in it); `demo_helixBlend` / `demo_helix_blend.py`; `demo_tempoInvariance` / `demo_tempo_invariance.py` (part 3: a sweep under a tempo-tolerant kernel); `demo_batchProcessing` / `demo_batch_processing.py` (sweepSimMaet against translated copies); `demo_dispatchAndKernelControls` / `demo_dispatch_and_kernel_controls.py` (part 3: sweeps in one pass); `demo_jmm_1_1_entropy` (JMM); `demo_jmm_1_3_cadence_nesting` (JMM); `demo_jmm_2_3_spectral` (JMM); `demo_jmm_3_1_texture` (JMM); `demo_jmm_3_2_diff` (JMM); `demo_jmm_3_3_xcorr` (JMM).
 
 ---
 
@@ -1794,11 +1795,11 @@ Two forms. Given a single weighted multiset, as above, the function returns the 
 | `simMaet` | `sim_maet` | cosine similarity of two densities (single, list, or batched-raw) |
 | `sweepSimMaet` | `sweep_sim_maet` | similarity against uniformly translated copies of a density, as one reduced sweep |
 | `entropyMaet` | `entropy_maet` | Shannon, normalized, differential, or Rényi-2 entropy of an expectation tensor |
-| `massMaet` | `mass_maet` | the mass of a density in a region (a box or a Gaussian), or its share of the whole |
+| `massMaet` | `mass_maet` | the total mass of a density, the normalizer of a count |
 | `maetCentres` | `maet_centres` | the points at which a density places its Gaussians, materialised on demand |
 | `sweptSimilarity` | `swept_similarity` | sliding-window similarity profile by event weighting (magnitude-aware or cosine) |
 | `sweptEntropy` | `swept_entropy` | sliding-window entropy profile by event weighting |
-| `sweptMass` | `swept_mass` | sliding-window mass (or share) in a region, by event weighting |
+| `sweptMass` | `swept_mass` | sliding-window total mass, by event weighting |
 
 **buildMaet(p, w, sigma, r, isRel, isPer, period)**
 
@@ -1854,9 +1855,9 @@ Similarity of `densX` against `densY` with every value of attribute $a$ shifted 
 
 Entropy of the expectation tensor. Also accepts a precomputed struct as the first argument (`MaetDensity`). The estimator is selected by the `'method'` name-value pair (see [§11.2](#112-the-four-entropy-estimators), "Four-method entropy API"): `'shannon'` (default) is the raw discrete Shannon entropy on a fine grid; `'normalized'` is the same divided by $\log_b N$ into $[0, 1]$ (the ratio of the published measures); `'differential'` is the adaptive continuous differential entropy; and `'renyi2'` is the closed-form Rényi-2 (collision) entropy $H_2 = -\log_b\!\big(\langle T, T\rangle / Z^2\big)$, which needs no grid. The earlier `'normalize'` keyword has been removed — use `method='normalized'` for the $[0, 1]$ ratio. A zero-mass density (every weight zero, or a window aligned at a sweep value with no event in its support) returns `NaN` under every method, its entropy being undefined. Other optional name-value pairs: `'spectrum'`, `'base'` (default: 2), `'nPointsPerDim'` (grid resolution for the grid-based methods), `'xMin'`, `'xMax'` (required when `isPer = false` for grid methods), `'gridLimit'` (default: 10⁸ total grid points), and the kernel-evaluation controls `'truncationSigmas'` and `'kernelPrecision'` (see [§11.3](#113-kernel-evaluation-controls)).
 
-**massMaet(dens [, 'region', {a, spec; ...}] [, 'normalize', n])**
+**massMaet(dens [, 'verbose', v])**
 
-The mass of the density in a region. Each tuple's kernel is taken with unit mass, so the whole density's mass is the sum of its tuples' weight products, and the mass in a region $R$ counts each tuple by the share of its kernel inside it, $m(R) = \sum_j w_j P_j(R)$: the integral over $R$ of what `evalMaet` returns under `'gaussian'`. `'normalize', 'total'` divides by the whole density's mass, giving the share of the density in the region. An attribute the region does not name is integrated over entirely, so without a region the result is the total mass. Each `spec` is a box, `[lo hi]` on every coordinate of the attribute or a row `[lo hi]` per coordinate, or a soft Gaussian region `{'gaussian', centre, sd}` of unit height at its centre; the coordinates are those of the attribute's `evalMaet` query (the $r$ values of an absolute tuple, the $r - 1$ above the first of a relative one). The density factors across attributes within each event, so the joint tuple set is never built, and the integrals are closed forms in the error function. A box needs the kernel's coordinates to be independent, as they are on an absolute attribute and on a relative one of two values; on a relative attribute of three or more, whose coordinates are correlated, a box is refused and a Gaussian region can be used (non-periodic). On a periodic attribute a box spans at most one period and its bounds may wrap. Because a kernel has width, a tuple just outside a box contributes the part of its kernel that crosses the edge, and a region can select tuples, such as the intervals of a relative attribute, where event weighting can only weight events. An exchangeable density holds every ordering of a tuple, so a region on a relative attribute at r = 2 that should ignore order takes the region and its negative. Accepts a pre-MAET, or a cell / list of densities or pre-MAETs (one value per entry). Python: `mass_maet(dens, region={a: spec}, normalize=...)`, with a Gaussian region written `('gaussian', centre, sd)`.
+The total mass of the density. Each tuple's kernel is taken with unit mass, so the mass is the sum of the tuples' weight products, $M = \sum_j w_j$, the integral of what `evalMaet` returns under `'gaussian'`; where every weight is 1 it is the number of tuples. The density factors across attributes within each event, so the joint tuple set is never built. A one-sided similarity (`simMaet`, `'normalize', 'oneSidedDenom'`) of a context with a query, multiplied by the query's mass over the context's, is the share of the context's tuples that match the query. Accepts a pre-MAET, or a cell / list of densities or pre-MAETs (one value per entry). Python: `mass_maet(dens)`.
 
 **maetCentres(dens)**
 
@@ -1868,17 +1869,17 @@ The points at which the density places its Gaussians: a cell / list of one `(r_a
 
 Each windows or translates at each of a list of sweep values and applies a core measure there, exposing a common analysis as one function (§8.7). `nTupleEntropy`, which chains `differenceEvents`, `bindEvents`, and `entropyMaet`, is another such composition; its entry is in §12.7.
 
-**[S, mu] = sweptSimilarity(pmContext, pmQuery [, six-parameter overrides] [, ...])** or **[S, mu] = sweptSimilarity(pContext, wContext, pQuery, wQuery, sigma, r, isRel, isPer, period [, 'sweep', {a, values; ...} | a] [, 'start' / 'stop' / 'step', {a, value; ...} | value] [, 'align', {a, m; ...}] [, 'window', {a, {shape, width[, edges]}; ...}] [, 'drop', a] [, 'queryRef', {a, value; ...}] [, 'locate', l] [, 'targetAttr', t] [, 'normalize', n] [, 'specs', specs] [, 'isExch', exch] [, 'verbose', v])**
+**[S, mu] = sweptSimilarity(pmContext, pmQuery [, six-parameter overrides] [, ...])** or **[S, mu] = sweptSimilarity(pContext, wContext, pQuery, wQuery, sigma, r, isRel, isPer, period [, 'sweep', {a, values; ...} | a] [, 'start' / 'stop' / 'step', {a, value; ...} | value] [, 'align', {a, m; ...}] [, 'window', {a, {shape, 'width' | 'sd', value[, 'edges', e][, 'ref', ref]}; ...}] [, 'drop', a] [, 'queryRef', {a, value; ...}] [, 'locate', l] [, 'targetAttr', t] [, 'normalize', n] [, 'specs', specs] [, 'isExch', exch] [, 'verbose', v])**
 
-Similarity profile over a list of sweep values (a pre-MAET cross-correlation; §8.7). Takes two whole pre-MAETs (§6.1), the context first — the shared geometry is read from the context's specs and any of the six per-attribute parameters may be given alongside to override it, in full or selective form — or the raw `pAttr` and `wAttr` of a context and a query together with the shared per-attribute geometry of `buildMaet`'s raw form. For each swept attribute `a`, `'sweep'` gives its *sweep values* (or a bare attribute index, `'sweep', a`, or `'start'` / `'stop'` / `'step'` generate them: for `'query'` and `'both'`, every offset at which query and context overlap, or one period on a periodic attribute, at no more than half the peaks' standard deviation $\sigma\sqrt{2/r}$, on the values' lattice where they lie on one; for `'window'`, the context's range at half the window's sd). One rule places everything: at each sweep value $s$, a translated query has its reference value `queryRef` at $s$ (it is translated by $\mu = s - \mathrm{queryRef}$), and a window has its reference value ($\delta = 0$ of the window function $h$) at $s$, weighting each context event on `targetAttr` (default: the first attribute not dropped) by $h(p_a(n) - s)$, $p_a(n)$ being the event's value on the swept attribute $a$. `'align'` says which are placed: `'query'` (the default: translation over the whole context, one pass over all sweep values; `queryRef` defaults to 0, so the sweep values are offsets), `'both'` (query and window at each sweep value; `queryRef` defaults to the query's middle, so the window is aligned at the query's middle), `'window'` (a window only; the attribute may be dropped, `'drop'`, relative, or compared as it stands, the query then compared in place), or `'independent'` (`'sweep'`, `{a, {windowValues, queryValues}}`: every combination, the correlogram; the query's list may be a matrix with one row per window value; `queryRef` defaults to the query's middle). `locate` (`'centroid'` (default), `'start'`, `'end'`, `'mid'`, a function handle, or a map `{a, rule; ...}`) says which value stands for an event holding several. `'window'` is `{shape, width}`, `{shape, width, edges}`, or `struct('shape', ., 'width' | 'sd', ., 'edges', .)` — shape $\gamma \in [0, 1]$ or `'gaussian'` / `'rect'`, full rectangle-equivalent width $W$ with standard deviation $W / (2\sqrt{3})$, and edges `'halfOpen'` (the default for a given width: lower edge included, upper not, for tiling) or `'closed'`. It is required for `'window'` and `'independent'` and refused for `'query'`; for `'both'` it may be left out (or its width given as `[]`), and is then the smallest closed rectangle that, so placed, holds the query; a given window there that leaves out some of the query's own events draws a warning. The query is not windowed here; apply `weightEvents` to it before the call to window it. `normalize` is `'oneSidedDenom'` (default, magnitude-aware), `'cosine'` (bounded shape-only cosine), or `'none'`. `specs` carries nested geometry from `bindEvents`; `isExch` is the per-attribute exchangeability vector of the raw positional form (required for ordered attributes carrying a matrix-valued kernel covariance) and is mutually exclusive with `specs`. Returns `S`, one dimension per sweep list in attribute order (`'independent'` contributing two, the window's first; a single list gives a $1 \times n$ row), and optionally `mu`, a $1 \times A$ cell of the translations applied, $\mu = s - \mathrm{queryRef}$, per attribute the query is translated along (Python: `return_offsets=True`, a dict), and `sv`, a $1 \times A$ cell of the sweep values of each swept attribute (Python: `return_sweep_values=True`, a dict; with both flags the order is `S, offsets, sweep_values`).
+Similarity profile over a list of sweep values (a pre-MAET cross-correlation; §8.7). Takes two whole pre-MAETs (§6.1), the context first — the shared geometry is read from the context's specs and any of the six per-attribute parameters may be given alongside to override it, in full or selective form — or the raw `pAttr` and `wAttr` of a context and a query together with the shared per-attribute geometry of `buildMaet`'s raw form. For each swept attribute `a`, `'sweep'` gives its *sweep values* (or a bare attribute index, `'sweep', a`, or `'start'` / `'stop'` / `'step'` generate them: for `'query'` and `'both'`, every offset at which query and context overlap, or one period on a periodic attribute, at no more than half the peaks' standard deviation $\sigma\sqrt{2/r}$, on the values' lattice where they lie on one; for `'window'`, the context's range at half the window's sd). One rule places everything: at each sweep value $s$, a translated query has its reference value `queryRef` at $s$ (it is translated by $\mu = s - \mathrm{queryRef}$), and a window has its reference value ($\delta = 0$ of the window function $h$) at $s$, weighting each context event on `targetAttr` (default: the first attribute not dropped) by $h(p_a(n) - s)$, $p_a(n)$ being the event's value on the swept attribute $a$. `'align'` says which are placed: `'query'` (the default: translation over the whole context, one pass over all sweep values; `queryRef` defaults to 0, so the sweep values are offsets), `'both'` (query and window at each sweep value; `queryRef` defaults to the query's middle, so the window is aligned at the query's middle), `'window'` (a window only; the attribute may be dropped, `'drop'`, relative, or compared as it stands, the query then compared in place), or `'independent'` (`'sweep'`, `{a, {windowValues, queryValues}}`: every combination, the correlogram; the query's list may be a matrix with one row per window value; `queryRef` defaults to the query's middle). `locate` (`'centroid'` (default), `'start'`, `'end'`, `'mid'`, a function handle, or a map `{a, rule; ...}`) says which value stands for an event holding several. `'window'` is `{shape, 'width' | 'sd', value}`, with `'edges', e` and `'ref', ref` optionally after (`ref`, for a rectangle, `'centre'`, `'start'`, or `'end'`: the point of it placed at the sweep value), or the same as `struct('shape', ., 'width' | 'sd', ., 'edges', .)`, the scale always named — shape $\gamma \in [0, 1]$ or `'gaussian'` / `'rect'`, full rectangle-equivalent width $W$ with standard deviation $W / (2\sqrt{3})$, and edges `'halfOpen'` (the default for a given width: lower edge included, upper not, for tiling) or `'closed'`. It is required for `'window'` and `'independent'` and refused for `'query'`; for `'both'` it may be left out (or given without a scale), and is then the smallest closed rectangle that, so placed, holds the query; a given window there that leaves out some of the query's own events draws a warning. The query is not windowed here; apply `weightEvents` to it before the call to window it. `normalize` is `'oneSidedDenom'` (default, magnitude-aware), `'cosine'` (bounded shape-only cosine), or `'none'`. `specs` carries nested geometry from `bindEvents`; `isExch` is the per-attribute exchangeability vector of the raw positional form (required for ordered attributes carrying a matrix-valued kernel covariance) and is mutually exclusive with `specs`. Returns `S`, one dimension per sweep list in attribute order (`'independent'` contributing two, the window's first; a single list gives a $1 \times n$ row), and optionally `mu`, a $1 \times A$ cell of the translations applied, $\mu = s - \mathrm{queryRef}$, per attribute the query is translated along (Python: `return_offsets=True`, a dict), and `sv`, a $1 \times A$ cell of the sweep values of each swept attribute (Python: `return_sweep_values=True`, a dict; with both flags the order is `S, offsets, sweep_values`).
 
-**sweptEntropy(pm [, six-parameter overrides] [, ...])** or **sweptEntropy(pAttr, wAttr, sigma, r, isRel, isPer, period [, 'sweep', {a, values; ...} | a] [, 'start' / 'stop' / 'step', ...] [, 'window', {a, {shape, width[, edges]}; ...}] [, 'drop', a] [, 'locate', l] [, 'targetAttr', t] [, 'method', m] [, 'base', b] [, 'nPointsPerDim', n] [, 'xMin', lo] [, 'xMax', hi] [, 'gridLimit', g] [, 'specs', specs] [, 'isExch', exch] [, ...])**
+**sweptEntropy(pm [, six-parameter overrides] [, ...])** or **sweptEntropy(pAttr, wAttr, sigma, r, isRel, isPer, period [, 'sweep', {a, values; ...} | a] [, 'start' / 'stop' / 'step', ...] [, 'window', {a, {shape, 'width' | 'sd', value[, 'edges', e][, 'ref', ref]}; ...}] [, 'drop', a] [, 'locate', l] [, 'targetAttr', t] [, 'method', m] [, 'base', b] [, 'nPointsPerDim', n] [, 'xMin', lo] [, 'xMax', hi] [, 'gridLimit', g] [, 'specs', specs] [, 'isExch', exch] [, ...])**
 
 Entropy profile over a list of sweep values. Takes the sweep values, window, `locate`, and `drop` arguments of `sweptSimilarity`, but has no query, so the sweep values always align the window: at each sweep value (or combination of them) the windowed density is built, with any dropped attribute first marginalized, and its entropy taken with `entropyMaet` under the given `method` (default `'differential'`) and `base`; the grid of the discrete methods (`'nPointsPerDim'`, required for `'shannon'` and `'normalized'`; `'xMin'` and `'xMax'` for a kept non-periodic attribute; `'gridLimit'`) is passed to `entropyMaet` at every sweep value, so every window's entropy is taken on the same grid. Every swept attribute needs a `'window'` with a width, the scale of the local region. A window that catches no event gives a zero-mass density, which returns `NaN` under every method. `[H, sv] = sweptEntropy(...)` also returns the sweep values, a $1 \times A$ cell (Python: `return_sweep_values=True`, a dict).
 
-**sweptMass(pm [, six-parameter overrides] [, ...])** or **sweptMass(pAttr, wAttr, sigma, r, isRel, isPer, period [, 'sweep', ...] [, 'start' / 'stop' / 'step', ...] [, 'window', ...] [, 'drop', a] [, 'locate', l] [, 'targetAttr', t] [, 'region', {a, spec; ...}] [, 'normalize', n] [, 'specs', specs] [, 'isExch', exch] [, ...])**
+**sweptMass(pm [, six-parameter overrides] [, ...])** or **sweptMass(pAttr, wAttr, sigma, r, isRel, isPer, period [, 'sweep', ...] [, 'start' / 'stop' / 'step', ...] [, 'window', ...] [, 'drop', a] [, 'locate', l] [, 'targetAttr', t] [, 'specs', specs] [, 'isExch', exch] [, ...])**
 
-Mass profile over a list of sweep values. Takes the arguments of `sweptEntropy`, and at each sweep value takes the mass of the windowed density in `'region'` with `massMaet`, or with `'normalize', 'total'` its share of the windowed density. The region is keyed by the context's attributes and cannot name a dropped one. Without a region, the result is the window's weighted tuple count. `[M, sv] = sweptMass(...)` also returns the sweep values, a $1 \times A$ cell (Python: `return_sweep_values=True`, a dict). See §8.7.
+Mass profile over a list of sweep values. Takes the arguments of `sweptEntropy`, and at each sweep value takes the total mass of the windowed density with `massMaet`: the window's weighted tuple count, the normalizer of a windowed one-sided similarity. `[M, sv] = sweptMass(...)` also returns the sweep values, a $1 \times A$ cell (Python: `return_sweep_values=True`, a dict). See §8.7.
 
 ### 12.5 Consonance and harmonicity
 
@@ -2075,7 +2076,7 @@ prof = mpt.swept_similarity(
     p_context, w_context, p_query, w_query,
     [Sigma, sigma_t], [3, 1], [False, False], [False, False], [0.0, 0.0],
     is_exch=[False, True], sweep={1: onsets}, align={1: 'window'},
-    drop=[1], window={1: ("rect", 2.0)})
+    drop=[1], window={1: {'shape': 'rect', 'width': 2.0}})
 ```
 
 **Demos.** `demo_tempoInvariance` / `demo_tempo_invariance.py`; `demo_softeningEquivalences` / `demo_softening_equivalences.py` (the kernelCov identity); `demo_repetitionHandling` / `demo_repetition_handling.py`.
@@ -2275,15 +2276,15 @@ For a time-resolved view — how probe fit varies moment by moment along the con
 % per-event salience-and-decay weight vector computed above.
 probeC = transformAttributes(60, [], {'midi', 'cents'});
 
-% Align a Gaussian window of standard deviation 1 time unit (full width
-% 2 * sqrt(3)) at each sweep value along the context.
+% Align a Gaussian window of standard deviation 1 time unit at each sweep
+% value along the context.
 t_sweep = linspace(-0.5, 4.5, 51);
 profile = sweptSimilarity({context, t_events}, {w{1}, ones(1, 4)}, ...
                           {probeC, 0}, [], ...
                           [10 0.3], [1 1], [false false], ...
                           [true false], [1200 0], ...
                           'sweep', {2, t_sweep}, 'align', {2, 'window'}, ...
-                          'drop', 2, 'window', {2, {'gaussian', 2 * sqrt(3)}});
+                          'drop', 2, 'window', {2, {'gaussian', 'sd', 1}});
 plot(t_sweep, profile);
 xlabel('Time'); ylabel('Fit of probe C');
 title('Time-resolved probe fit');
@@ -2299,7 +2300,7 @@ profile = mpt.swept_similarity(
     [probe_C[None, :], np.array([[0.]])], None,
     [10., 0.3], [1, 1], [False, False], [True, False], [1200., 0.],
     sweep={1: t_sweep}, align={1: 'window'}, drop=[1],
-    window={1: ("gaussian", 2 * np.sqrt(3))}, verbose=False)
+    window={1: {'shape': 'gaussian', 'sd': 1.0}}, verbose=False)
 ```
 
 The resulting profile peaks at time 4, the final C, which carries the most weight, with a smaller local peak near time 0, the first C, and is lower between them. The pooled-context scan and the time-resolved scan are complementary: the former asks "how well does the probe fit the context as a whole?", the latter "where within the context does the probe fit best?".
@@ -2342,11 +2343,10 @@ sigma = [50 0.3]; r = [1 1]; isRel = [false false];
 isPer = [false false]; period = [0 0];
 
 % At each sweep value a Gaussian time window of standard deviation 0.6
-% (full width 0.6 * 2 * sqrt(3)) is aligned there and the query's middle
-% lands there too ('align', 'both'), so the window is centred on the
-% query. The sweep values are stepped across the melody (start and stop
-% default to its extent), and the second output is the translation
-% applied at each, mu. Melody and query were both written from time 0
+% is aligned there and the query's middle lands there too ('align',
+% 'both'), so the window is centred on the query. The sweep values are
+% stepped across the melody (start and stop default to its extent), and
+% the second output is the translation applied at each, mu. Melody and query were both written from time 0
 % before differencing, so mu is the time at which the original query
 % starts in the melody. Differencing shifted the query's middle (to 1.5,
 % the mean time of its two intervals), and the window with it, but mu is
@@ -2354,7 +2354,7 @@ isPer = [false false]; period = [0 0];
 [S, mu] = sweptSimilarity(mel_pd, [], qry_pd, [], ...
                           sigma, r, isRel, isPer, period, ...
                           'step', {2, 0.25}, 'align', {2, 'both'}, ...
-                          'window', {2, {'gaussian', 0.6 * 2 * sqrt(3)}});
+                          'window', {2, {'gaussian', 'sd', 0.6}});
 offsets = mu{2};
 bar(offsets, S);
 xlabel('Offset of the query (time at which it starts)');
@@ -2381,7 +2381,7 @@ S, mu = mpt.swept_similarity(
     mel_pd, None, qry_pd, None,
     [50., 0.3], [1, 1], [False, False], [False, False], [0., 0.],
     step={1: 0.25}, align={1: 'both'},
-    window={1: ("gaussian", 0.6 * 2 * np.sqrt(3))},
+    window={1: {'shape': 'gaussian', 'sd': 0.6}},
     return_offsets=True, verbose=False)
 offsets = mu[1]
 ```
@@ -2475,7 +2475,7 @@ MATLAB demo scripts are in `matlab/demos/`. To run a demo, open it in the MATLAB
 | Script | Description | Based on |
 |:---|:---|:---|
 | `demo_0_startHere` | A guide to the demos, printed when run: where to begin, how the demos fit together, and the demos by topic (a demo appears under every topic it covers) | — |
-| `demo_overview` | Quick tour of all major function families: a spectrally enriched chord as a density over pitch, SPCS, entropy, and the mass in a region of a single multiset's density, the four tensor parameters drawn, a multi-attribute motif search in absolute and differenced form, each of two triads' share of a melody's notes in a moving window, harmonicity, roughness, balance, evenness, coherence, sameness, n-tuple entropy, mean offset (including the brightness of the diatonic modes), edges, the APM phase sum, and Markov; each section points to the demos that go further | — |
+| `demo_overview` | Quick tour of all major function families: a spectrally enriched chord as a density over pitch, SPCS, entropy, and a one-sided similarity counting a scale's fifths, the four tensor parameters drawn, a multi-attribute motif search in absolute and differenced form, each of two triads' share of a melody's notes in a moving window, harmonicity, roughness, balance, evenness, coherence, sameness, n-tuple entropy, mean offset (including the brightness of the diatonic modes), edges, the APM phase sum, and Markov; each section points to the demos that go further | — |
 | `demo_audioAnalysis` | Two-pass peak extraction (unsmoothed then smoothed) from audio files, with spectral similarity, harmonicity, roughness, and virtual pitch analysis | — |
 | `demo_batchProcessing` | Analysing experimental data: a trial table of scale x chord x root, with a paired measure (SPCS via batched-raw `simMaet`) and single-set measures (spectral entropy, template and tensor harmonicity, roughness) per trial. The trial matrix goes straight in: every batched feature deduplicates its rows internally. Workflow 3 sets that row-wise sense of batching against the other one — a cell of whole pre-MAETs, which loops rather than collapses, and the translation sweep that is the exception | — |
 | `demo_edoApprox` | PCS of n-EDOs against a JI chord | Milne et al. (2011), Ex. 6.3 / Fig. 4 |

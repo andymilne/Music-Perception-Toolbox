@@ -372,7 +372,8 @@ for kname, _, kw in KERNELS:
         [kw["sigma"], 0.25], [3, 1], [False, False],
         [False, False], [0.0, 0.0],
         specs=[kw["spec"], sp_bound[1]], sweep={1: tri_times},
-        align={1: "window"}, drop=[1], window={1: ("rect", 0.1)},
+        align={1: "window"}, drop=[1],
+        window={1: {"shape": "rect", "width": 0.1}},
         normalize="oneSidedDenom", verbose=False)
 
 print("\n  Profile at each cell's own trigram:\n")

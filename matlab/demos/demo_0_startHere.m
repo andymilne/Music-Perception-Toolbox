@@ -69,7 +69,7 @@
 %    it.
 %  * Measures read the density or compare two: simMaet (similarity),
 %    entropyMaet (entropy), evalMaet (the density at chosen points),
-%    massMaet (the mass in a region), and the swept forms
+%    massMaet (the total mass), and the swept forms
 %    sweptSimilarity, sweptEntropy, sweptMass, and sweepSimMaet.
 %
 %  For single chords, scales, or rhythms, and for a matrix of them,

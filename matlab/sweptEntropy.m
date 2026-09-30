@@ -41,14 +41,27 @@ function [H, sv] = sweptEntropy(varargin)
 %                    context's values on the attribute; step defaults to
 %                    half the window's sd, and a pure rectangle without a
 %                    given step takes its pieces (as at sweptSimilarity).
-%     'window'       {a, {shape, width}; ...}, {a, {shape, width, edges}; ...},
-%                    {a, struct('shape', .., 'width' | 'sd' | 'decayRate', ..,
-%                    'edges', ..); ...}, or {a, f; ...}: the window on each
-%                    swept attribute, any profile aligned at the sweep value,
-%                    as in sweptSimilarity; edges is 'halfOpen' (the
-%                    default) or 'closed' (rectangles only). Required for every
-%                    swept attribute: its scale is that of the local region,
-%                    which nothing in the data can supply.
+%     'window'       {a, {shape, name, value, ...}; ...}, with the names
+%                    'width' | 'sd' | 'decayRate', 'edges', and 'ref' (so
+%                    {a, {'gaussian', 'sd', 4}}), the same as
+%                    {a, struct('shape', .., ...); ...}, or {a, f; ...}: the
+%                    window on each swept attribute, aligned at the sweep
+%                    value, with its scale always named. shape is 'rect',
+%                    'gaussian', a number in [0, 1] blending the two
+%                    (0 Gaussian, 1 rectangle), or 'exponential',
+%                    'exponentialBefore', or 'exponentialAfter'. 'width' is
+%                    the full width of the rectangle, and 'sd' may be given
+%                    instead (a Gaussian of width w has sd w / (2 sqrt(3)));
+%                    the exponentials have no width, and take 'sd' or
+%                    'decayRate'. edges is 'halfOpen' (the default) or
+%                    'closed' (rectangles only). ref, for a rectangle of
+%                    given width, is the point of it placed at the sweep
+%                    value: 'centre' (the default), 'start', or 'end'.
+%                    f is a function handle taking the displacement
+%                    p_a(n) - s. Required for every swept attribute: its
+%                    scale is that of the local region, which nothing in
+%                    the data can supply. The full account is in
+%                    sweptSimilarity.
 %     'drop'         Vector of swept attributes marginalized after the
 %                    window has weighted the events. An attribute kept
 %                    stays in the density whose entropy is taken.

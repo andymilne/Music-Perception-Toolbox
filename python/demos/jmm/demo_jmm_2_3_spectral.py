@@ -173,12 +173,14 @@ show_pre_maet(qry_rel_spec, max_events=1, decimals=2)
 print('computing A1 (fundamental, relative) ...')
 A1 = np.asarray(swept_similarity(
     ctx_rel_fund, qry_rel_fund, sweep={1: sweep_values},
-    align={1: 'window'}, window={1: ('rect', WIN)}, drop=[1],
+    align={1: 'window'}, window={1: {'shape': 'rect', 'width': WIN}},
+    drop=[1],
     locate='start', normalize='oneSidedDenom')).ravel()
 print('computing A2 (spectral, relative) ...')
 A2 = np.asarray(swept_similarity(
     ctx_rel_spec, qry_rel_spec, sweep={1: sweep_values},
-    align={1: 'window'}, window={1: ('rect', WIN)}, drop=[1],
+    align={1: 'window'}, window={1: {'shape': 'rect', 'width': WIN}},
+    drop=[1],
     locate='start', normalize='oneSidedDenom')).ravel()
 
 # --- B1 and B2: pitch offset by time --------------------------------------
@@ -196,14 +198,14 @@ B1 = np.asarray(swept_similarity(
     ctx_abs_fund, qry_abs_fund,
     sweep={0: OFFSETS, 1: sweep_values},
     align={0: 'query', 1: 'window'}, drop=[1],
-    window={1: ('rect', WIN)}, locate={1: 'start'},
+    window={1: {'shape': 'rect', 'width': WIN}}, locate={1: 'start'},
     normalize='oneSidedDenom'))
 print('computing B2 (spectral, absolute) ...')
 B2 = np.asarray(swept_similarity(
     ctx_abs_spec, qry_abs_spec,
     sweep={0: OFFSETS, 1: sweep_values},
     align={0: 'query', 1: 'window'}, drop=[1],
-    window={1: ('rect', WIN)}, locate={1: 'start'},
+    window={1: {'shape': 'rect', 'width': WIN}}, locate={1: 'start'},
     normalize='oneSidedDenom'))
 
 for tag, panel in [('A1', A1), ('A2', A2), ('B1', B1), ('B2', B2)]:
@@ -220,7 +222,7 @@ print(f'A1 vs A2 correlation: {np.corrcoef(A1, A2)[0, 1]:.4f}; '
 # reproduce the motif's rhythm as well as its pitch pattern.
 Aj = np.asarray(swept_similarity(
     ctx_rel_fund, qry_rel_fund, sweep={1: sweep_values},
-    align={1: 'window'}, window={1: ('rect', WIN)},
+    align={1: 'window'}, window={1: {'shape': 'rect', 'width': WIN}},
     locate='start', normalize='oneSidedDenom')).ravel()
 early = sweep_values < 250.0
 at = float(sweep_values[early][A1[early].argmax()])

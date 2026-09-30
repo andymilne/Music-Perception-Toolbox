@@ -38,9 +38,10 @@ from .tensor import (
     separate_attributes,
     weight_events,
     TranslateAttributesNoOpWarning,
-    TranslatedSweep,
-    windowed_similarity,
-    windowed_entropy,
+    swept_similarity,
+    swept_entropy,
+    swept_mass,
+    mass_maet,
 )
 
 # --- Circular measures ---
@@ -98,6 +99,7 @@ from ._defaults import (
     show_defaults,
 )
 
+
 __all__ = [
     "explain_dispatch",
     "pack_pre_maet",
@@ -126,14 +128,15 @@ __all__ = [
     "ungrid_attr_table",
     "pre_maet_from_attr_table",
     "translate_attributes",
-    "TranslatedSweep",
     "select_pre_maet",
     "bind_attributes",
     "separate_attributes",
     "weight_events",
     "TranslateAttributesNoOpWarning",
-    "windowed_similarity",
-    "windowed_entropy",
+    "swept_similarity",
+    "swept_entropy",
+    "swept_mass",
+    "mass_maet",
     # circular
     "dft_circular",
     "dft_circular_simulate",

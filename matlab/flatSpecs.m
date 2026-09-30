@@ -27,8 +27,9 @@ function specs = flatSpecs(pAttr, nvArgs)
 %   a width that a step could not carry forward.
 %
 %   Inputs
-%       pAttr - 1 x A cell of per-attribute value matrices (used only for
-%               its length A; values are not inspected).
+%       pAttr - 1 x A cell of attributes, each given per event or as a
+%               matrix (see packPreMaet); used only for its length A,
+%               the values not being inspected.
 %
 %   Name-value pairs
 %       'r'    - scalar or 1 x A per-attribute tuple size (default 1).

@@ -52,7 +52,8 @@ function pm = differenceEvents(varargin)
 %
 %   Inputs
 %       pm        - Pre-MAET, in place of pAttr and wAttr.
-%       pAttr     - 1 x A cell of K_a x N per-attribute value matrices.
+%       pAttr     - 1 x A cell of K_a x N per-attribute value matrices, or
+%                   of attributes given per event (see packPreMaet).
 %       wAttr     - Weights ([], scalar, or 1 x A cell); rolling product
 %                   over the k_a + 1 constituent events per differenced
 %                   attribute.

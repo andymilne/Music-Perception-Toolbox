@@ -1,9 +1,9 @@
-%% test_windowed_premaet.m — pre-MAET windowedSimilarity / windowedEntropy
+%% test_swept_premaet.m — pre-MAET sweptSimilarity / sweptEntropy
 %
-%  Validates the pre-MAET windowedSimilarity and windowedEntropy against
+%  Validates the pre-MAET sweptSimilarity and sweptEntropy against
 %  the equivalent inline pipeline (weightEvents / translateAttributes /
 %  buildMaet / entropyMaet / simMaet) they replace. Mirror of
-%  Python's tests/test_windowed_premaet.py.
+%  Python's tests/test_swept_premaet.py.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
 
@@ -53,12 +53,39 @@ for k = 1:size(methodsShapes, 1)
         dens = buildMaet(pw, ww, SIGP, 1, false, false, 0.0, 'verbose', false);
         ref(i) = entropyMaet(dens, 'method', method, 'verbose', false);
     end
-    got = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
-        [false, false], [0.0, 0.0], centres, ...
-        'contextWindow', {shape, WW}, 'method', method, ...
-        'windowAttr', 2, 'dropWindowAttr', true, 'verbose', false);
+    got = sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+        [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+        'window', {2, {shape, WW}}, 'drop', 2, 'method', method, ...
+        'verbose', false);
     ok = max(abs(got(:) - ref(:))) < tol;
-    results(end+1, :) = {sprintf('windowedEntropy drop window attribute %s shape=%g', method, shape), ok}; %#ok<SAGROW>
+    results(end+1, :) = {sprintf('sweptEntropy drop window attribute %s shape=%g', method, shape), ok}; %#ok<SAGROW>
+end
+
+% ----- 1b. the discrete methods take their grid through sweptEntropy ------
+gridArgs = {'nPointsPerDim', 400, 'xMin', 40, 'xMax', 80};
+for method = {'shannon', 'normalized'}
+    ref = zeros(1, numel(centres));
+    for i = 1:numel(centres)
+        [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), 0.0, ...
+            'sd', SD, 'dropInputAttr', true));
+        dens = buildMaet(pw, ww, SIGP, 1, false, false, 0.0, 'verbose', false);
+        ref(i) = entropyMaet(dens, 'method', method{1}, gridArgs{:}, ...
+            'verbose', false);
+    end
+    got = sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+        [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+        'window', {2, {0.0, WW}}, 'drop', 2, 'method', method{1}, ...
+        gridArgs{:}, 'verbose', false);
+    ok = max(abs(got(:) - ref(:))) < tol;
+    try
+        sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+            [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+            'window', {2, {0.0, WW}}, 'drop', 2, 'method', method{1}, ...
+            'verbose', false);
+        ok = false;                     % the grid is required
+    catch
+    end
+    results(end+1, :) = {sprintf('sweptEntropy %s takes the grid', method{1}), ok}; %#ok<SAGROW>
 end
 
 % ----- 2. entropy, retain the time attribute (joint pitch-time renyi2) --------
@@ -70,10 +97,10 @@ for i = 1:numel(centres)
         [false, false], [0.0, 0.0], 'verbose', false);
     ref(i) = entropyMaet(dens, 'method', 'renyi2', 'verbose', false);
 end
-got = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
-    [false, false], [0.0, 0.0], centres, ...
-    'contextWindow', {1.0, WW}, 'method', 'renyi2', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
-results(end+1, :) = {'windowedEntropy joint (retain attribute)', ...
+got = sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+    [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+    'window', {2, {1.0, WW}}, 'method', 'renyi2', 'verbose', false);
+results(end+1, :) = {'sweptEntropy joint (retain attribute)', ...
     max(abs(got(:) - ref(:))) < tol}; %#ok<SAGROW>
 
 % ----- 3. similarity, locked template sweep (oneSidedDenom & cosine) -----
@@ -89,14 +116,15 @@ for nm = {'oneSidedDenom', 'cosine'}
             [false, false], [false, false], [0.0, 0.0], ...
             'normalize', normalize, 'verbose', false);
     end
-    got = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
-        [false, false], [false, false], [0.0, 0.0], centres, ...
-        'normalize', normalize, 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
+    got = sweptSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
+        [false, false], [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+        'align', {2, 'both'}, 'window', {2, {'rect', qExt}}, ...
+        'normalize', normalize, 'verbose', false);
     ok = isequal(size(got), [1, numel(centres)]) && max(abs(got(:) - ref(:))) < tol;
-    results(end+1, :) = {sprintf('windowedSimilarity locked %s', normalize), ok}; %#ok<SAGROW>
+    results(end+1, :) = {sprintf('sweptSimilarity locked %s', normalize), ok}; %#ok<SAGROW>
 end
 
-% ----- 4. similarity, offsets correlogram (lag sweep) --------------------
+% ----- 4. similarity, correlogram (lag measured from each window value) ---
 anchors = centres(2:8);
 tau     = linspace(-1.0, 1.0, 9);
 half    = 1.5;
@@ -114,89 +142,84 @@ for ia = 1:numel(anchors)
     end
 end
 qc2d = anchors(:) - tau(:).';        % nA x nTau query positions
-got = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
-    [false, false], [false, false], [0.0, 0.0], anchors, ...
-    'offsets', qc2d - muQ, 'contextWindow', {1.0, 2 * half}, ...
-    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
+got = sweptSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
+    [false, false], [false, false], [0.0, 0.0], ...
+    'sweep', {2, {anchors, qc2d}}, 'align', {2, 'independent'}, ...
+    'window', {2, {1.0, 2 * half}}, 'normalize', 'oneSidedDenom', ...
+    'verbose', false);
 ok = isequal(size(got), size(ref)) && max(abs(got(:) - ref(:))) < tol;
-results(end+1, :) = {'windowedSimilarity offsets correlogram (2-D)', ok}; %#ok<SAGROW>
+results(end+1, :) = {'sweptSimilarity independent correlogram (2-D)', ok}; %#ok<SAGROW>
 
-% ----- 5. generative sweep matches explicit centres ----------------------
+% ----- 5. generated sweep values match listed ones -----------------------
+% A window-only role: its generated sweep values default to the context's
+% extent, stepped at half the window's sd.
+geom5 = {[SIGP, SIGT], [1, 1], [false, false], [false, false], [0.0, 0.0]};
+common5 = {'align', {2, 'window'}, 'drop', 2, 'window', {2, {'rect', 1.0}}, ...
+           'normalize', 'oneSidedDenom', 'verbose', false};
 explicit = onset(1):1.0:onset(end);
-gExp = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
-    [false, false], [false, false], [0.0, 0.0], explicit, ...
-    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
-gGen = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
-    [false, false], [false, false], [0.0, 0.0], [], ...
-    'start', onset(1), 'stop', onset(end), 'step', 1.0, ...
-    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
-ok = isequal(size(gGen), size(gExp)) && max(abs(gGen(:) - gExp(:))) < tol;
-results(end+1, :) = {'windowedSimilarity generative == explicit', ok}; %#ok<SAGROW>
+gExp = sweptSimilarity(pAttr, [], query, [], geom5{:}, ...
+    'sweep', {2, explicit}, common5{:});
+gGen = sweptSimilarity(pAttr, [], query, [], geom5{:}, ...
+    'start', {2, onset(1)}, 'stop', {2, onset(end)}, 'step', {2, 1.0}, ...
+    common5{:});
+gDef = sweptSimilarity(pAttr, [], query, [], geom5{:}, ...
+    'step', {2, 1.0}, common5{:});            % start / stop: the context's extent
+% A Gaussian window takes half its sd as the default step; a pure
+% rectangle takes its pieces instead (test_swept_sweep_values).
+gauss5 = {'align', {2, 'window'}, 'drop', 2, 'window', {2, {0.0, 1.0}}, ...
+          'normalize', 'oneSidedDenom', 'verbose', false};
+stHalf = 1.0 / (2 * sqrt(3)) / 2;          % half the sd, width-1 equivalent
+nHalf = floor((onset(end) - onset(1)) / stHalf + 1e-9) + 1;
+gHalf = sweptSimilarity(pAttr, [], query, [], geom5{:}, ...
+    'sweep', {2, onset(1) + stHalf * (0:nHalf - 1)}, gauss5{:});
+gDflt = sweptSimilarity(pAttr, [], query, [], geom5{:}, ...
+    'start', {2, onset(1)}, gauss5{:});       % step: half the window's sd
+ok = isequal(size(gGen), size(gExp)) && max(abs(gGen(:) - gExp(:))) < tol ...
+     && isequal(gDef, gGen) && isequal(size(gDflt), size(gHalf)) ...
+     && max(abs(gDflt(:) - gHalf(:))) < tol;
+results(end+1, :) = {'sweptSimilarity generated == listed sweep values', ok}; %#ok<SAGROW>
 
 % ----- 6. error paths -----------------------------------------------------
-gotR2 = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 2], [false, false], ...
-    [false, false], [0.0, 0.0], centres, 'contextWindow', {1.0, WW}, ...
-    'windowAttr', 2, 'dropWindowAttr', true, 'verbose', false);
+gotR2 = sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 2], [false, false], ...
+    [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+    'window', {2, {1.0, WW}}, 'drop', 2, 'verbose', false);
 okR2 = isequal(size(gotR2), [1, numel(centres)]) && all(isfinite(gotR2(:)));
-results(end+1, :) = {'windowedEntropy drop r>=2 now allowed', okR2}; %#ok<SAGROW>
-
-threwMarg = true;
-for spellMarg = {'marginalize', 'marginalise'}
-    try
-        windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
-            [false, false], [0.0, 0.0], centres, 'contextWindow', {1.0, WW}, ...
-            'windowAttr', 2, 'dropWindowAttr', false, spellMarg{1}, 1, ...
-            'verbose', false);
-        threwMarg = false;
-    catch errMarg
-        threwMarg = threwMarg && strcmp(errMarg.identifier, ...
-            'windowedEntropy:marginalizeNotImplemented');
-    end
-end
-results(end+1, :) = {'windowedEntropy marginalize not implemented (either spelling)', threwMarg}; %#ok<SAGROW>
+results(end+1, :) = {'sweptEntropy drop r>=2 now allowed', okR2}; %#ok<SAGROW>
 
 threwWidth = false;
 try
-    windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
-        [false, false], [0.0, 0.0], centres, 'contextWindow', {1.0, []}, ...
-        'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
-catch
-    threwWidth = true;
+    sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+        [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+        'window', {2, {1.0, []}}, 'verbose', false);
+catch errW
+    threwWidth = strcmp(errW.identifier, 'sweptEntropy:badWindow');
 end
-results(end+1, :) = {'windowedEntropy requires width', threwWidth}; %#ok<SAGROW>
+results(end+1, :) = {'sweptEntropy requires width', threwWidth}; %#ok<SAGROW>
 
 threwBoth = false;
 try
-    windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
-        [false, false], [false, false], [0.0, 0.0], centres, ...
-        'step', 1.0, 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
-catch
-    threwBoth = true;
+    sweptSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
+        [false, false], [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+        'step', {2, 1.0}, 'align', {2, 'both'}, 'window', {2, {'rect', 1.0}}, ...
+        'verbose', false);
+catch errB
+    threwBoth = strcmp(errB.identifier, 'sweptSimilarity:sweepAndGenerator');
 end
-results(end+1, :) = {'windowedSimilarity centres+step errors', threwBoth}; %#ok<SAGROW>
+results(end+1, :) = {'sweptSimilarity sweep + step errors', threwBoth}; %#ok<SAGROW>
 
-% ----- 7. one-window-attribute == one-entry multi-window-attribute sweep ---------------------
-sgl = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
-    [false, false], [false, false], [0.0, 0.0], centres, ...
-    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
-mlt = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
-    [false, false], [false, false], [0.0, 0.0], ...
-    'sweep', {2, centres}, 'drop', {2, false}, ...
-    'normalize', 'oneSidedDenom', 'verbose', false);
-ok = isequal(size(sgl), size(mlt)) && max(abs(sgl(:) - mlt(:))) < tol;
-results(end+1, :) = {'windowedSimilarity single == one-entry sweep', ok}; %#ok<SAGROW>
-
-% ----- 8. multi-window-attribute two-attribute map (pitch swept+compared, time dropped) ---
+% ----- 8. two swept attributes (pitch translated with its window, time dropped) ---
 patP = [60, 63, 60, 65]; patT = [0, 0.5, 1.5, 2.0];
 PP = [patP, patP + 5]; TT = [patT, patT + 10];
 [pb8, wb8, sb8] = unpackPreMaet(bindEvents({PP, TT}, [], [4, 4], 'step', 1, 'relOuter', [false, false]));
 [qb8, qw8, ~]   = unpackPreMaet(bindEvents({patP, patT}, [], [4, 4], 'step', 1, 'relOuter', [false, false]));
-R8 = windowedSimilarity(pb8, wb8, qb8, qw8, [SIGP, SIGT], [1, 1], [false, false], ...
+R8 = sweptSimilarity(pb8, wb8, qb8, qw8, [SIGP, SIGT], [1, 1], [false, false], ...
     [false, false], [0.0, 0.0], 'sweep', {2, [1.0, 11.0]; 1, [62.0, 67.0]}, ...
-    'drop', {2, true; 1, false}, 'specs', sb8, 'verbose', false);
+    'align', {2, 'window'; 1, 'both'}, 'drop', 2, ...
+    'window', {1, {'rect', 5.0}; 2, {'rect', 2.0}}, 'specs', sb8, 'verbose', false);
+% one dimension per swept attribute, in attribute order: (pitch, time)
 ok = isequal(size(R8), [2, 2]) && R8(1,1) > 0.99 && R8(2,2) > 0.99 ...
      && R8(1,2) < 0.5 && R8(2,1) < 0.5;
-results(end+1, :) = {'windowedSimilarity two-attribute map', ok}; %#ok<SAGROW>
+results(end+1, :) = {'sweptSimilarity two-attribute map', ok}; %#ok<SAGROW>
 
 % ----- 8b. locate as a per-attribute map -------------------------------------
 % A map {a, rule; ...} names each window attribute's rule, and an attribute the map
@@ -204,8 +227,10 @@ results(end+1, :) = {'windowedSimilarity two-attribute map', ok}; %#ok<SAGROW>
 % reproduce the scalar default on the pitch attribute, and differ from the
 % scalar rule applied to both.
 common8b = {'sweep', {2, [1.0, 11.0]; 1, [62.0, 67.0]}, ...
-            'drop', {2, true; 1, false}, 'specs', sb8, 'verbose', false};
-R8b = @(loc) windowedSimilarity(pb8, wb8, qb8, qw8, [SIGP, SIGT], [1, 1], ...
+            'align', {2, 'window'; 1, 'both'}, 'drop', 2, ...
+            'window', {1, {'rect', 5.0}; 2, {'rect', 2.0}}, 'specs', sb8, ...
+            'verbose', false};
+R8b = @(loc) sweptSimilarity(pb8, wb8, qb8, qw8, [SIGP, SIGT], [1, 1], ...
     [false, false], [false, false], [0.0, 0.0], 'locate', loc, common8b{:});
 mapDefault = R8b({2, 'centroid'});
 mapStart   = R8b({2, 'start'});
@@ -214,67 +239,119 @@ bothStart  = R8b('start');
 ok = max(abs(mapDefault(:) - R8(:))) < tol && ...
      max(abs(mapStart(:) - mapBoth(:))) < tol && ...
      max(abs(mapStart(:) - bothStart(:))) > 0.1;
-results(end+1, :) = {'windowedSimilarity locate map', ok}; %#ok<SAGROW>
+results(end+1, :) = {'sweptSimilarity locate map', ok}; %#ok<SAGROW>
 
 % ----- 9. locate is wired (centroid vs start peak at different centres) --
 [qb9, qw9, qs9] = unpackPreMaet(bindEvents({[60, 64], [0.0, 0.6]}, [], [1, 2], 'step', 1, 'relOuter', [false, false]));
 cc9 = linspace(-0.4, 0.7, 12);
-common9 = {'windowAttr', 2, 'dropWindowAttr', false, 'contextWindow', {1.0, 1.5}, ...
+common9 = {'sweep', {2, cc9}, 'align', {2, 'both'}, 'window', {2, {1.0, 1.5}}, ...
            'normalize', 'cosine', 'specs', qs9, 'verbose', false};
-aC = windowedSimilarity(qb9, qw9, qb9, qw9, [SIGP, SIGT], [1, 2], [false, false], ...
-    [false, false], [0.0, 0.0], cc9, 'locate', 'centroid', common9{:});
-aS = windowedSimilarity(qb9, qw9, qb9, qw9, [SIGP, SIGT], [1, 2], [false, false], ...
-    [false, false], [0.0, 0.0], cc9, 'locate', 'start', common9{:});
+aC = sweptSimilarity(qb9, qw9, qb9, qw9, [SIGP, SIGT], [1, 2], [false, false], ...
+    [false, false], [0.0, 0.0], 'locate', 'centroid', common9{:});
+aS = sweptSimilarity(qb9, qw9, qb9, qw9, [SIGP, SIGT], [1, 2], [false, false], ...
+    [false, false], [0.0, 0.0], 'locate', 'start', common9{:});
 [~, iC] = max(aC); [~, iS] = max(aS);
 ok = max(aC) > 0.9 && max(aS) > 0.9 && abs(cc9(iC) - cc9(iS)) > 0.2 && ~isequal(aC, aS);
-results(end+1, :) = {'windowedSimilarity locate wired', ok}; %#ok<SAGROW>
+results(end+1, :) = {'sweptSimilarity locate wired', ok}; %#ok<SAGROW>
 
 
-% ---- Query window is applied ------------------------------------------
-%  Regression: queryWindow was accepted, validated, and threaded to the
-%  one-window-attribute worker, but never read, so a caller asking for a windowed
-%  query silently got an unwindowed one. The query is deliberately
+% ---- A query windowed with weightEvents before the call ----------------
+%  The documented route for a window on the query. The query is
 %  asymmetric --- two close events plus one far one --- so a narrow window
-%  reshapes it rather than rescaling it uniformly, which a scale-invariant
-%  normaliser would not see.
+%  around the close pair reshapes it rather than rescaling it, and the
+%  reshaped query matches the context better.
 pcQ = {[0, 100, 200, 300, 400, 500], [0, 1, 2, 3, 4, 5]};
 wcQ = {ones(1, 6), ones(1, 6)};
 pqQ = {[0, 100, 500], [0, 1, 4]};
 wqQ = {ones(1, 3), ones(1, 3)};
-commonQ = {'windowAttr', 2, 'dropWindowAttr', false, 'normalize', 'cosine', ...
-           'verbose', false};
-runQ = @(varargin) windowedSimilarity(pcQ, wcQ, pqQ, wqQ, [30.0, 0.25], ...
-    [1, 1], [false, false], [false, false], [0.0, 0.0], 0:5, ...
-    commonQ{:}, varargin{:});
-plainQ  = runQ('contextWindow', {'gauss', 2.0});
-narrowQ = runQ('contextWindow', {'gauss', 2.0}, 'queryWindow', {'gauss', 0.8});
+commonQ = {'sweep', {2, 0:5}, 'align', {2, 'both'}, ...
+           'window', {2, {'gauss', 2.0}}, 'normalize', 'cosine', 'verbose', false};
+runQ = @(pq, wq, varargin) sweptSimilarity(pcQ, wcQ, pq, wq, [30.0, 0.25], ...
+    [1, 1], [false, false], [false, false], [0.0, 0.0], commonQ{:}, varargin{:});
+[pqW, wqW] = unpackPreMaet(weightEvents(pqQ, wqQ, 2, 1, 0.5, 0, 'sd', 0.8, ...
+    'dropInputAttr', false));
+plainQ  = runQ(pqQ, wqQ);
+narrowQ = runQ(pqW, wqW);
 ok = ~isequal(plainQ, narrowQ) && max(narrowQ) > max(plainQ) && ...
      min(narrowQ) >= 0 && max(narrowQ) <= 1 + 1e-12;
-results(end+1, :) = {'windowedSimilarity queryWindow applied', ok}; %#ok<SAGROW>
+results(end+1, :) = {'sweptSimilarity query windowed with weightEvents', ok}; %#ok<SAGROW>
 
-% ---- A wide rectangular query window is an exact no-op -----------------
-%  A rectangle wider than the query's own extent admits every query event
-%  at unit weight, so it must reproduce the unwindowed profile exactly.
-wideQ = runQ('contextWindow', {'gauss', 2.0}, 'queryWindow', {'rect', 1000.0});
-results(end+1, :) = {'windowedSimilarity wide rect queryWindow is a no-op', ...
-    isequal(plainQ, wideQ)}; %#ok<SAGROW>
 
-% ---- A widening Gaussian query window converges to the no-op ----------
-%  The residual is the window's curvature across the query span, so each
-%  tenfold widening must cut the difference by about a hundred.
-dQ = zeros(1, 3); sdQ = [100.0, 1000.0, 10000.0];
-for iQ = 1:3
-    dQ(iQ) = max(abs(runQ('contextWindow', {'gauss', 2.0}, ...
-        'queryWindow', {'gauss', sdQ(iQ)}) - plainQ));
+% ---- Windows are evaluated by weightEvents' implementation ---------------
+%  Every profile of weightEvents aligned at a reference value is a window,
+%  with the same factors: exponentials (symmetric and extending to one
+%  side only) and a function handle, compared with the inline weightEvents
+%  pipeline.
+profs = {struct('shape', 'exponential', 'sd', 1.0), {'exponential', 'sd', 1.0}; ...
+         struct('shape', 'exponentialBefore', 'decayRate', 0.5), ...
+             {'exponentialBefore', 'decayRate', 0.5}; ...
+         struct('shape', 'exponentialAfter', 'sd', 1.5), ...
+             {'exponentialAfter', 'sd', 1.5}; ...
+         @(d) exp(-abs(d)), {@(d) exp(-abs(d))}};
+for k = 1:size(profs, 1)
+    weArgs = profs{k, 2};
+    ref = zeros(1, numel(centres));
+    for i = 1:numel(centres)
+        [pw, ww] = unpackPreMaet(weightEvents(pAttr, [], 2, 1, centres(i), ...
+            weArgs{1}, weArgs{2:end}, 'dropInputAttr', true));
+        dens = buildMaet(pw, ww, SIGP, 1, false, false, 0.0, 'verbose', false);
+        ref(i) = entropyMaet(dens, 'method', 'renyi2', 'verbose', false);
+    end
+    got = sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+        [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+        'window', {2, profs{k, 1}}, 'drop', 2, 'method', 'renyi2', ...
+        'verbose', false);
+    ok = max(abs(got(:) - ref(:))) < tol;
+    results(end+1, :) = {sprintf('window profile %d is weightEvents', k), ok}; %#ok<SAGROW>
 end
-ok = dQ(1) > dQ(2) && dQ(2) > dQ(3) && ...
-     all(dQ(1:2) ./ dQ(2:3) > 50) && all(dQ(1:2) ./ dQ(2:3) < 200);
-results(end+1, :) = {'windowedSimilarity queryWindow converges to no-op', ok}; %#ok<SAGROW>
 
+% Serial-position profiles are anchored at the first and last events, not
+% at the sweep value, so they are refused as windows; an exponential has no
+% width; closed edges belong to rectangles.
+badWins = {struct('shape', 'uShape', 'sd', 1.0), 'sweptEntropy:badWindow'; ...
+           {'exponential', 2.0}, 'sweptEntropy:badWindow'; ...
+           {'gaussian', 2.0, 'closed'}, 'sweptEntropy:window:edgesNotRect'};
+for k = 1:size(badWins, 1)
+    try
+        sweptEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+            [false, false], [0.0, 0.0], 'sweep', {2, centres}, ...
+            'window', {2, badWins{k, 1}}, 'drop', 2, 'verbose', false);
+        ok = false;
+    catch e
+        ok = strcmp(e.identifier, badWins{k, 2});
+    end
+    results(end+1, :) = {sprintf('window refusal %d', k), ok}; %#ok<SAGROW>
+end
+
+% On a periodic attribute the window's displacement wraps, as weightEvents
+% wraps it: a window aligned at 0 on a cycle of 4 reaches an event at 3.9.
+pPer = {[60 64 67], [0.1 3.9 2.0]};
+[pw, ww] = unpackPreMaet(weightEvents(pPer, [], 2, 1, 0.0, 1.0, ...
+    'width', 1.0, 'isPer', true, 'period', 4.0, 'dropInputAttr', true));
+dens = buildMaet(pw, ww, 0.5, 1, false, false, 0.0, 'verbose', false);
+ref = entropyMaet(dens, 'method', 'renyi2', 'verbose', false);
+got = sweptEntropy(pPer, [], [0.5, 0.1], [1, 1], [false, false], ...
+    [false, true], [0.0, 4.0], 'sweep', {2, 0}, 'window', {2, {'rect', 1.0}}, ...
+    'drop', 2, 'method', 'renyi2', 'verbose', false);
+ok = isequal(ww{1}(:).', [1 1 0]) && abs(got - ref) < tol;
+results(end+1, :) = {'window wraps on a periodic attribute', ok}; %#ok<SAGROW>
+
+% weightEvents reduces a multi-valued input by locate, and closes a
+% rectangle's upper edge with edges 'closed'.
+tK = [0 1 2; 0.5 1.5 2.5];
+[~, wS] = unpackPreMaet(weightEvents({[60 62 64], tK}, [], 2, 1, 1.0, 1.0, ...
+    'width', 2.0, 'locate', 'start', 'dropInputAttr', true));
+[~, wO] = unpackPreMaet(weightEvents({[60 62 64], [0 1 2]}, [], 2, 1, 1.0, ...
+    1.0, 'width', 2.0, 'dropInputAttr', true));
+[~, wC] = unpackPreMaet(weightEvents({[60 62 64], [0 1 2]}, [], 2, 1, 1.0, ...
+    1.0, 'width', 2.0, 'edges', 'closed', 'dropInputAttr', true));
+ok = isequal(wS{1}(:).', [1 1 0]) && isequal(wO{1}(:).', [1 1 0]) && ...
+     isequal(wC{1}(:).', [1 1 1]);
+results(end+1, :) = {'weightEvents locate and edges', ok}; %#ok<SAGROW>
 
 if standalone
     nPass = sum([results{:, 2}]);
-    fprintf('test_windowed_premaet: %d/%d passed\n', nPass, size(results, 1));
+    fprintf('test_swept_premaet: %d/%d passed\n', nPass, size(results, 1));
     for i = 1:size(results, 1)
         if ~results{i, 2}
             fprintf('  FAIL: %s\n', results{i, 1});

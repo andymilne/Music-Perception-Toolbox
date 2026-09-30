@@ -14,7 +14,7 @@
 %               ordered-at-r > 1 refusal, as in Python);
 %    A-12       the flat selector's working-set guard;
 %    A-13       'factored' is not an accepted method (the set is shared);
-%    A-14       the raw-MA scalar-vs-list form honours a forced method
+%    A-14       a list of raw pAttr cells is refused
 %               and its r = 1 fast path returns the per-pair numbers;
 %    A-15       the single-attribute helper route agrees with the
 %               log-kernel core within the floor and honours
@@ -107,31 +107,17 @@ results{end+1, 1} = 'parity round2: method=factored is rejected (shared method s
 results{end, 2}   = throwsErrorWithId(@() simMaet(fx, fy, ...
     'method', 'factored', 'verbose', false), 'simMaet:badMethod');
 
-% --- A-14: raw-MA scalar-vs-list: the r = 1 fast path returns the
-%     per-pair numbers and a forced method is honoured ---
+% --- A-14: a list of raw pAttr cells is refused, the error pointing to
+%     the pre-MAET list form and the sweep functions ---
 rng(11, 'twister');
 refP = {sort(rp2_P * rand(5, 2), 1)};
 lstP = cell(1, 4);
 for m = 1:4
     lstP{m} = {sort(rp2_P * rand(5, 2), 1)};
 end
-sFast = simMaet(refP, [], lstP, [], 0.5, 1, false, false, 0, ...
-                      'verbose', false);
-sRev = simMaet(lstP, [], refP, [], 0.5, 1, false, false, 0, ...
-                     'verbose', false);
-sMob = simMaet(refP, [], lstP, [], 0.5, 1, false, false, 0, ...
-                     'method', 'mobius', 'verbose', false);
-sPair = zeros(1, 4);
-for m = 1:4
-    sPair(m) = simMaet(refP, [], lstP{m}, [], 0.5, 1, false, ...
-                             false, 0, 'method', 'mobius', 'verbose', false);
-end
-results{end+1, 1} = 'parity round2: raw-MA r=1 list fast path matches the per-pair numbers';
-results{end, 2}   = numel(sFast) == 4 ...
-    && max(abs([sFast{:}] - sPair)) <= 1e-9 ...
-    && max(abs([sRev{:}] - sPair)) <= 1e-9;
-results{end+1, 1} = 'parity round2: raw-MA list form honours method=mobius';
-results{end, 2}   = max(abs([sMob{:}] - sPair)) <= 1e-12;
+results{end+1, 1} = 'parity round2: raw-MA list form is refused';
+results{end, 2}   = throwsErrorWithId(@() simMaet(refP, [], lstP, [], ...
+    0.5, 1, false, false, 0, 'verbose', false), 'simMaet:rawListNotSupported');
 
 % --- A-15: the single-attribute helper route agrees with the
 %     log-kernel core within the floor. A second attribute holding one

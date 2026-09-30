@@ -400,46 +400,26 @@ results{end+1,1} = 'sweep: offsets shape is validated';
 results{end,2} = ok;
 
 
-% --- translateAttributes carries its offsets ----------------------------
+% --- Translated copies, compared entry by entry --------------------------
 
-[pmSw, sw] = translateAttributes({zeros(2, 3), zeros(2, 3)}, [], ...
-    {baseOff, 0.5 * baseOff});
-pOut = pmSw.pAttr;
-% offsets is A x M, so compare against the A x M matrix rather than a
-% flattened vector: unrolling column-major interleaves the attributes,
-% which has the same element count as the concatenation and so compares
-% silently false rather than erroring.
-expectedOff = [baseOff; 0.5 * baseOff];
-results{end+1,1} = 'sweep: translateAttributes returns sweep offsets';
-results{end,2} = iscell(pOut) && numel(pOut) == numel(baseOff) ...
-    && isstruct(sw) && isfield(sw, 'offsets') ...
-    && isequal(size(sw.offsets), size(expectedOff)) ...
-    && max(abs(sw.offsets(:) - expectedOff(:))) < 1e-15 ...
-    && isfield(sw, 'base') && iscell(sw.base) && numel(sw.base) == 2;
-
-[~, swSingle] = translateAttributes({zeros(2, 3)}, [], {5});
-results{end+1,1} = 'sweep: single translation carries no sweep struct';
-results{end,2} = isempty(swSingle);
-
-% The carried offsets drive the reduction directly.
+% Densities of the translated copies (one translateAttributes call per
+% offset), compared one by one, equal sweepSimMaet's one pass.
 rng(70);
 pXt = {randn(3, 6) * 3, randn(3, 6) * 3};
 pYt = {randn(3, 3) * 3, randn(3, 3) * 3};
-[~, swT] = translateAttributes(pYt, [], {baseOff, 0.5 * baseOff});
+offT = [baseOff; 0.5 * baseOff];
 dXt = buildMaet(pXt, [], sig, rv, z, z, pd, exch, 'verbose', false);
-dYt = buildMaet(swT.base, [], sig, rv, z, z, pd, exch, 'verbose', false);
-gotT = sweepSimMaet(dXt, dYt, swT.offsets, ...
-    'truncationSigmas', Inf, 'verbose', false);
-refT = zeros(1, numel(baseOff));
-for m = 1:numel(baseOff)
-    dYm = buildMaet({pYt{1} + swT.offsets(1, m), ...
-                        pYt{2} + swT.offsets(2, m)}, [], ...
-        sig, rv, z, z, pd, exch, 'verbose', false);
-    refT(m) = simMaet(dXt, dYm, 'method', 'bulger', ...
-        'truncationSigmas', Inf, 'verbose', false);
+dYt = buildMaet(pYt, [], sig, rv, z, z, pd, exch, 'verbose', false);
+copiesT = cell(1, size(offT, 2));
+for m = 1:size(offT, 2)
+    pT = unpackPreMaet(translateAttributes(pYt, [], {offT(1, m), offT(2, m)}));
+    copiesT{m} = buildMaet(pT, [], sig, rv, z, z, pd, exch, 'verbose', false);
 end
-results{end+1,1} = 'sweep: carried offsets drive the reduction';
-results{end,2} = max(abs(gotT - refT) ./ max(abs(refT), 1e-12)) <= tol;
+loopT = cell2mat(simMaet(dXt, copiesT, 'truncationSigmas', Inf, ...
+    'verbose', false));
+gotT = sweepSimMaet(dXt, dYt, offT, 'truncationSigmas', Inf, 'verbose', false);
+results{end+1,1} = 'sweep: translated copies agree with sweepSimMaet';
+results{end,2} = max(abs(gotT(:) - loopT(:)) ./ max(abs(loopT(:)), 1e-12)) <= 1e-9;
 
 
 % --- Orbit route --------------------------------------------------------

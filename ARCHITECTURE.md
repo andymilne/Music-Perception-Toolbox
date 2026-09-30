@@ -1,6 +1,6 @@
 # Music Perception Toolbox – Architecture
 
-A developer-facing map of what is in the toolbox, how the pieces relate, and the design rationale for the parts that are not obvious from a casual reading of the source. For *user-facing* documentation – what the functions do and how to call them – see [USER_GUIDE.md](USER_GUIDE.md). This document assumes the reader has either read USER_GUIDE §3 and §7 or is comfortable with the expectation-tensor framework from the source papers (Milne et al. 2011, 2015, 2016, 2020).
+A developer-facing map of what is in the toolbox, how the pieces relate, and the design rationale for the parts that are not obvious from a casual reading of the source. For *user-facing* documentation – what the functions do and how to call them – see [USER_GUIDE.md](USER_GUIDE.md). This document assumes the reader has either read USER_GUIDE §3 and §13 or is comfortable with the expectation-tensor framework from the source papers (Milne et al. 2011, 2015, 2016, 2020).
 
 This document describes the toolbox as it currently exists. It was last verified line-by-line against the Python and MATLAB source in September 2026; §4 carries the routing decisions as figures, with the vocabulary they use. The two languages share every routing rule drawn there; only the fitted cost constants differ.
 
@@ -29,7 +29,7 @@ At the broadest level the toolbox stacks three computational tiers:
                       │  Consumer wrappers                 │
                       │  (harmonicity, entropy, circular   │
                       │  measures, sequential utilities,   │
-                      │  windowed and swept similarity, …) │
+                      │  swept similarity and entropy, …)  │
                       └──────────────┬─────────────────────┘
                                      │  consume
                                      ▼
@@ -47,7 +47,7 @@ At the broadest level the toolbox stacks three computational tiers:
                       └────────────────────────────────────┘
 ```
 
-Read top-down for *what calls what*; bottom-up for *what gets called by whom*. The density layer is the data structure shared by everything above it; the primitives layer is where the dispatchers live; the consumer layer is the published function set in §6 of USER_GUIDE.
+Read top-down for *what calls what*; bottom-up for *what gets called by whom*. The density layer is the data structure shared by everything above it; the primitives layer is where the dispatchers live; the consumer layer is the published function set in §12 of USER_GUIDE.
 
 There is one density type. A "single-multiset" density – one flat attribute holding one weighted multiset, the expectation tensor of Milne et al. (2011) – is not a separate class or a separate code path; it is the `A = N = 1` corner of `MaetDensity`, recognized by shape (`is_single_multiset` / `internal.isSingleMultiset`) and read through a flat-field view (`single_multiset_view` / `internal.singleMultisetView`) where a few faster kernels apply. The corner is a branch of the multi-attribute path and must return the same numbers as the general path; see §2.
 
@@ -63,9 +63,9 @@ The three computational tiers each correspond to a distinct mathematical operati
 
 ### Tier 1: Density objects
 
-A weighted multiset $(\mathbf{p}, \mathbf{w})$ of $K$ values at tuple order $r$ defines an *r-ad expectation tensor density* – a Gaussian-mixture probability density on the $r$-fold product space, with one Gaussian centred at each $r$-tuple of distinct source values. A multi-attribute expectation tensor (MAET) density generalizes this to $N$ events, each carrying $A$ attributes; the density is the sum over events of the tensor product over attributes of the per-attribute densities. The density object stores the source multisets and geometry and precomputes – lazily – the tuple indices, weight products, and tuple centres; subsequent operations read from it without revisiting the source.
+A weighted multiset $(\mathbf{p}, \mathbf{w})$ of $K$ values at tuple size $r$ defines an *r-ad expectation tensor density* – a Gaussian-mixture probability density on the $r$-fold product space, with one Gaussian centred at each $r$-tuple of distinct source values. A multi-attribute expectation tensor (MAET) density generalizes this to $N$ events, each carrying $A$ attributes; the density is the sum over events of the tensor product over attributes of the per-attribute densities. The density object stores the source multisets and geometry and precomputes – lazily – the tuple indices, weight products, and tuple centres; subsequent operations read from it without revisiting the source.
 
-- `MaetDensity` (Python class; MATLAB struct with `tag == 'MaetDensity'`): $A$ attributes, $N$ events, per-attribute tuple order $r_a$, kernel width $\sigma_a$, periodicity flag and period, relativity flag, symmetry flag (`is_exch`: exchangeable tuples, or ordered), periodic measure declaration (`wrap`: `'full-image'` or `'single-image'`, §4), and an optional *nested* specification (a tag tree with per-level `r` and `exch` vectors, as produced by `bind_events`). An attribute may also carry an anisotropic kernel covariance (`kernel_cov`; the attribute's values are stored whitened with $\sigma = 1$). The effective space is the product of per-attribute effective spaces, each $\mathbb{R}^{r_a}$ (absolute) or its $(r_a - 1)$-dimensional translation quotient (relative).
+- `MaetDensity` (Python class; MATLAB struct with `tag == 'MaetDensity'`): $A$ attributes, $N$ events, per-attribute tuple size $r_a$, kernel width $\sigma_a$, periodicity flag and period, relativity flag, symmetry flag (`is_exch`: exchangeable tuples, or ordered), periodic measure declaration (`wrap`: `'full-image'` or `'single-image'`, §4), and an optional *nested* specification (a tag tree with per-level `r` and `exch` vectors, as produced by `bind_events`). An attribute may also carry an anisotropic kernel covariance (`kernel_cov`; the attribute's values are stored whitened with $\sigma = 1$). The effective space is the product of per-attribute effective spaces, each $\mathbb{R}^{r_a}$ (absolute) or its $(r_a - 1)$-dimensional translation quotient (relative).
 
 - The **single-multiset corner** is `A = N = 1` with a flat first attribute. `is_single_multiset` tests exactly that shape; `single_multiset_view` exposes the flat names (`p`, `w`, scalar `sigma`, `r`, `is_rel`, `is_per`, `period`, and the per-tuple arrays) over the underlying `MaetDensity` so that the single-multiset kernels read one layout. The view is idempotent and, in Python, cached on the density by weak reference so that batch deduplication (which pairs operands by identity) stays stable. The `A = 1, r = 1, N > 1` case never reaches the corner as such: the build collapses it into one pooled event, so every downstream consumer meets the canonical `N = 1` form. Evaluation strategy for the corner is *shape-gated, not type-gated*: the corner offers speed (the direct kernel-sum leaf in evaluation, the single-attribute helper route in the Python inner product, canonical-key deduplication in batched forms), never a different value.
 
@@ -99,21 +99,23 @@ The decompositions are alternatives for the same analytical integral; their resu
 
 The consumer wrappers compose the tier-2 primitives into measures with musical interpretation:
 
-- **Similarity**: `sim_maet`, `sweep_sim_maet` (one density against uniformly translated copies of another, in one pass: as a Gaussian mixture in the offset, through the Möbius per-attribute matrices at the shifted values, or, for a nested density, through the nested contraction with the offsets on its batch axis), and `windowed_similarity` (a pre-MAET sliding window over raw events – the window reweights the events before each build – with each window position routed through `sim_maet`, except that where the window stays fixed while the query is translated, as in a correlogram or on a translated attribute that carries no window, the offsets at that position go through `sweep_sim_maet` in one pass) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
+- **Similarity**: `sim_maet`, `sweep_sim_maet` (one density against uniformly translated copies of another, in one pass: as a Gaussian mixture in the offset, through the Möbius per-attribute matrices at the shifted values, or, for a nested density, through the nested contraction with the offsets on its batch axis), and `swept_similarity` (a pre-MAET sweep over raw events: by default the query translated across the whole context, through `sweep_sim_maet` in one pass; optionally with a window that reweights the context's events before each build, each window position then routed through `sim_maet`, except that where the window stays fixed while the query is translated, as in a correlogram or on a translated attribute that carries no window, the offsets at that position go through `sweep_sim_maet` in one pass) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
 
 - **Harmonicity and consonance**: `template_harmonicity` cross-correlates a chord's composite spectrum against a harmonic template; `tensor_harmonicity` queries the density of interval patterns within a single harmonic series; `spectral_entropy` computes Shannon entropy of a spectral density; `roughness` (sensory roughness) is a direct frequency-pair calculation independent of the tensor framework; `virtual_pitches` extracts likely fundamentals via template harmonicity.
 
-- **Entropy**: `entropy_maet` evaluates the density's entropy (Shannon or normalized Shannon by cell masses on absolute densities or by grid evaluation on relative ones, differential by adaptive grid refinement with Richardson extrapolation, or Rényi-2 in closed form as the self inner product `sim_maet(dens, dens, normalize='none')` — through the inner-product selector, so every route and cost model of §4 serves it — over the squared closed-form total mass); `windowed_entropy` sweeps it across a window; `n_tuple_entropy` is a convenience wrapper composing `difference_events` + `bind_events` + `build_maet` + `entropy_maet` for the integer-step n-gram entropy of Milne & Dean (2016).
+- **Entropy**: `entropy_maet` evaluates the density's entropy (Shannon or normalized Shannon by cell masses on absolute densities or by grid evaluation on relative ones, differential by adaptive grid refinement with Richardson extrapolation, or Rényi-2 in closed form as the self inner product `sim_maet(dens, dens, normalize='none')` — through the inner-product selector, so every route and cost model of §4 serves it — over the squared closed-form total mass); `swept_entropy` sweeps it across a window; `n_tuple_entropy` is a convenience wrapper composing `difference_events` + `bind_events` + `build_maet` + `entropy_maet` for the integer-step n-gram entropy of Milne & Dean (2016).
+
+- **Mass**: `mass_maet` integrates the density over a region (a box, in erf products wherever the kernel's coordinates are independent, or a soft Gaussian region), each tuple's kernel taken with unit mass and the sum factored across attributes within each event, so no joint tuple set is built; `swept_mass` takes it at each window position.
 
 - **Circular measures**: `balance`, `evenness`, `coherence`, `sameness`, `edges`, `proj_centroid`, `mean_offset`, `circ_apm`, `markov_s`, with the DFT engine `dft_circular` and `dft_circular_simulate`. Some compose tensor primitives; others are direct DFT-based or symbolic computations independent of the tensor stack.
 
 - **Sequential utilities**: `continuity` (smoothed direction-continuity). `serial.py` also holds `kernel_cov`, which belongs to the tensor stack rather than to these: it constructs the matrix-valued `sigma` an ordered difference attribute is built with, giving graded control over the position, interval, and shift variances that `is_rel` fixes at their limiting values. Serial-position weight profiles are `weight_events`' named and callable shapes, applied over any attribute.
 
-- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `select_pre_maet`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `sim_maet` recognizes and reduces to a sweep.
+- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `select_pre_maet`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses.
 
 - **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `pre_maet_from_attr_table` (MIDI and MusicXML input, the first returning an attribute table -- a MATLAB `table`, a pandas `DataFrame` -- and the second a pre-MAET), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
 
-The consumer layer is where measure-specific documentation belongs (see USER_GUIDE §6); the layering in this document stops at the tier-2 primitives.
+The consumer layer is where measure-specific documentation belongs (see USER_GUIDE §12); the layering in this document stops at the tier-2 primitives.
 
 ---
 
@@ -179,9 +181,12 @@ mpt/
 │   ├── sweep.py           sweep_sim_maet: translation sweeps on the
 │   │                      mixture, orbit, and contraction routes, and the
 │   │                      route chooser
-│   ├── windowed.py        Pre-MAET windowed sweeps: windowed_similarity
-│   │                      (fixed-window offsets through sweep_sim_maet),
-│   │                      windowed_entropy
+│   ├── swept.py           Pre-MAET sweeps: swept_similarity
+│   │                      (per-attribute sweep plan and the four
+│   │                      placements; translation through
+│   │                      sweep_sim_maet), swept_entropy, swept_mass
+│   ├── mass.py            mass_maet: the mass of a density in a region,
+│   │                      factored across attributes per event
 │   ├── explain.py         explain_dispatch: reports a call's routing and why
 │   └── _timeest.py        Self-calibrated up-front time estimate for eval
 ├── circular.py            Re-export shim over _circular/
@@ -228,7 +233,7 @@ mpt/
 matlab/
 ├── *.m                    One file per public function (simMaet,
 │                          evalMaet, entropyMaet, sweepSimMaet,
-│                          windowedSimilarity, explainDispatch, mptDefaults,
+│                          sweptSimilarity, explainDispatch, mptDefaults,
 │                          …) – MATLAB requires one top-level function per
 │                          file. The large entry points (simMaet.m,
 │                          evalMaet.m, entropyMaet.m, sweepSimMaet.m)
@@ -319,7 +324,7 @@ Tests are predominantly organized by feature rather than by module – e.g. the 
 
 ## 4. The dispatcher pattern
 
-The dispatchers are the toolbox's most distinctive design feature. USER_GUIDE §5 ("Method selection") describes the user-facing API – the `method` keyword, the `wrap` declaration, `truncation_sigmas`, the kernel-evaluation controls, and when to override defaults. This section covers the *internals* that make `method='auto'` work, at architecture level; the figures below draw every selector's rules in the order they fire, and the source is the reference when a detail here is not enough.
+The dispatchers are the toolbox's most distinctive design feature. USER_GUIDE §11.1 ("Method selection") describes the user-facing API – the `method` keyword, the `wrap` declaration, `truncation_sigmas`, the kernel-evaluation controls, and when to override defaults. This section covers the *internals* that make `method='auto'` work, at architecture level; the figures below draw every selector's rules in the order they fire, and the source is the reference when a detail here is not enough.
 
 Four points are useful to internalize before reading the dispatch code:
 
@@ -343,7 +348,7 @@ The threshold is `_orbit_sigma_over_p_threshold` / `internal.relPerSigmaOverPThr
 
 The same pattern recurs in five places; the flat cosine selector is the canonical instance.
 
-**The flat selector** (`_select_ma_inner_product_method` / `internal.selectMaInnerProductMethod`) chooses among the Bulger, centres, and Möbius arms for a density pair without nested attributes. Its rules fire in order: (1) a user `method` other than `'auto'` is returned unchanged, bypassing everything below; (2) if every $r_a \leq 1$, Bulger; (3) if any $r_a$ exceeds the shipped-table ceiling of 8, Bulger, after a feasibility guard that raises `SingleImageInfeasibleError` / `mpt:dispatch:singleImageInfeasible` when the joint tuple-pair kernel would exceed the memory budget (4 GiB fixed in Python; half of available memory clamped to 1–4 GiB in MATLAB); (4) below the σ/P threshold, a working-set guard sends a large flat density to Möbius when either side's tuple-centres working set would exceed 256 MiB; (5) the measure rule above; (6) the cost race – the predicted Bulger cost from the fitted law against the predicted Möbius cost, which itself takes, per relative attribute, the cheaper of the tuple-centres and grid realizations, floored by a per-order set-up cost. Ties go to Bulger. After the selector, an *ordered* attribute (`is_exch == false`, $r_a > 1$) on either side silently overrides the answer to Bulger, including an explicit `'mobius'` or `'centres'`.
+**The flat selector** (`_select_ma_inner_product_method` / `internal.selectMaInnerProductMethod`) chooses among the Bulger, centres, and Möbius arms for a density pair without nested attributes. Its rules fire in order: (1) a user `method` other than `'auto'` is returned unchanged, bypassing everything below; (2) if every $r_a \leq 1$, Bulger; (3) if any $r_a$ exceeds the shipped-table ceiling of 8, Bulger, after a feasibility guard that raises `SingleImageInfeasibleError` / `mpt:dispatch:singleImageInfeasible` when the joint tuple-pair kernel would exceed the memory budget (4 GiB fixed in Python; half of available memory clamped to 1–4 GiB in MATLAB); (4) below the σ/P threshold, a working-set guard sends a large flat density to Möbius when either side's tuple-centres working set would exceed 256 MiB; (5) the measure rule above; (6) the cost race – the predicted Bulger cost from the fitted law against the predicted Möbius cost, which itself takes, per relative attribute, the cheaper of the tuple-centres and grid realizations, floored by a per-tuple-size set-up cost. Ties go to Bulger. After the selector, an *ordered* attribute (`is_exch == false`, $r_a > 1$) on either side silently overrides the answer to Bulger, including an explicit `'mobius'` or `'centres'`.
 
 **The Möbius arm** (`_sim_maet_ma_orbit` / `localCosSimMAOrbit`) decides, per relative attribute, between the tuple-centres closed form and the grid (`_ma_rel_attr_prefers_centres` / `mobius.maRelAttrPrefersCentres`): the closed form is inadmissible above the σ/P threshold (it carries the minimum-image reading) and when either side has fewer values than $r_a$; otherwise a small wall-time model races the two, an explicit `method='mobius'` pins the grid, and the calibration setting `rel_attr_route` pins either. Inside the grid branch a *spectral gate* substitutes the Fourier Gram matrix for $2 \leq r \leq 4$ when its mode grid is at most $4 \times 10^6$ points (a memory guard that is never bypassed) and cheaper than the grid by a cost gate (bypassed by `SPECTRAL_IP_FORCE` for testing). A *sparse gate* switches the absolute non-periodic contraction and the relative-periodic grid to sparse kernels when the kernel is large ($K_x K_y \geq 200{,}000$) and at most 20 % dense.
 
@@ -351,7 +356,7 @@ The same pattern recurs in five places; the flat cosine selector is the canonica
 
 **The eval selector** (`_select_ma_eval` / `internal.selectMaEval`) chooses between the centres branch and the Möbius evaluator for `eval_maet`: `'centres'` returns at once; `'mobius'` returns after rejecting ordered attributes (on a nested density it runs the per-level Möbius evaluator, `_nested_mobius_eval.py` / `mobius.evalNestedAttrOrbit`, which applies the set-partition identity at every symmetric level of the tag tree and a dynamic programme at every ordered one, integrating a co-transposition unit over its own translation grid inside the recursion; it touches no tuple centre); under `'auto'`, ordered or all-$r_a \leq 1$ densities go to centres, and a nested density is decided by its own cost row (`_nested_eval_costs_ms` / `internal.nestedEvalCostsMs`: the tag-tree centres enumeration, counted by `nested_tuple_count` / `internal.nestedTupleCount`, against the per-level evaluator, fitted by `tools/fit_nested_eval_cost.py` on the `bench_nested_eval` grid; a mixed density adds that row to the flat law); $r_a > 10$ goes to centres after a feasibility guard on the joint working set; the measure rule on the first relative-periodic attribute above the threshold forces the arm; otherwise the cost model `_ma_eval_costs_ms` / `internal.maEvalCostsMs` estimates both, and the Möbius route is taken when it is predicted cheaper by a safety factor of 1.5 (when the centres working set exceeds 256 MiB) or 1.0. Inside the centres branch the shape rules pick the single-multiset kernel-sum leaf, the factored per-attribute form (every $r_a \geq 2$, no kernel covariance), or the joint materialization.
 
-**The sweep chooser** (`sweep_sim_maet` with `_choose_sweep_route` in `sweep.py` / `sweepSimMaet` with its `localChooseRoute`) serves the translation sweep, and `windowed_similarity` wherever the window stays fixed while the query is translated. A density with a nested attribute goes first to the *contraction* route, the nested plan of Figure R3 with the offsets on its batch axis, when every swept attribute is absolute and isotropic with no inner or intermediate relative unit and the plan covers the densities; under `'auto'` an uncovered case falls through, and under `'contract'` it raises. The remaining two routes have different admissibility sets rather than different costs alone: the *mixture* route needs every swept attribute absolute, non-periodic, and isotropic (an attribute that is not swept may carry a kernel covariance), while the *orbit* route needs every attribute exchangeable and flat, no swept relative attribute, and no kernel covariance, and it covers a swept periodic attribute, which the mixture refuses. Where both are admissible the chooser takes the mixture when a swept attribute has $r_a = 1$, the orbit route when the mixture's stored components would exceed the `kernel_chunk_bytes` budget, the mixture below $10^6$ tuple pairs, and otherwise whichever a work-ratio rule favours (Figure R5).
+**The sweep chooser** (`sweep_sim_maet` with `_choose_sweep_route` in `sweep.py` / `sweepSimMaet` with its `localChooseRoute`) serves the translation sweep, and `swept_similarity` wherever the window stays fixed while the query is translated. A density with a nested attribute goes first to the *contraction* route, the nested plan of Figure R3 with the offsets on its batch axis, when every swept attribute is absolute and isotropic with no inner or intermediate relative unit and the plan covers the densities; under `'auto'` an uncovered case falls through, and under `'contract'` it raises. The remaining two routes have different admissibility sets rather than different costs alone: the *mixture* route needs every swept attribute absolute, non-periodic, and isotropic (an attribute that is not swept may carry a kernel covariance), while the *orbit* route needs every attribute exchangeable and flat, no swept relative attribute, and no kernel covariance, and it covers a swept periodic attribute, which the mixture refuses. Where both are admissible the chooser takes the mixture when a swept attribute has $r_a = 1$, the orbit route when the mixture's stored components would exceed the `kernel_chunk_bytes` budget, the mixture below $10^6$ tuple pairs, and otherwise whichever a work-ratio rule favours (Figure R5).
 
 ### Vocabulary of the routes
 
@@ -413,9 +418,9 @@ The decline conditions named in the first node are the shapes the contraction do
 
 Rule 2 prices a nested attribute on its own fitted row — tag-tree centres as $\text{setup} + \text{per-tuple}\cdot T + n_q\,\text{per-query}\,T^{\gamma} d^{\delta}$ in the tuple count $T$, against per-level Möbius as $\text{setup} + N(\text{per-event} + n_q\,\text{per-op}\,(Ks)^{\alpha} n_u)$ — and a density mixing nested and flat attributes adds that row to the flat law at rule 6 instead of deciding here.
 
-For the entropies, `'differential'` takes an adaptive grid of point evaluations through the eval selector; `'shannon'` and `'normalized'` take erf cell masses on absolute densities, a periodic attribute integrating the wrapped Gaussian under `wrap='full-image'` and the nearest image under `'single-image'`, and the eval grid otherwise; `'renyi2'` takes $\langle T, T\rangle$ from the cosine itself under `normalize='none'` (Figure R1, by whatever route the selector picks) divided by a closed-form total mass, so no entropy-specific route remains. `windowed_entropy` calls `entropy_maet` at every window position.
+For the entropies, `'differential'` takes an adaptive grid of point evaluations through the eval selector; `'shannon'` and `'normalized'` take erf cell masses on absolute densities, a periodic attribute integrating the wrapped Gaussian under `wrap='full-image'` and the nearest image under `'single-image'`, and the eval grid otherwise; `'renyi2'` takes $\langle T, T\rangle$ from the cosine itself under `normalize='none'` (Figure R1, by whatever route the selector picks) divided by a closed-form total mass, so no entropy-specific route remains. `swept_entropy` calls `entropy_maet` at every window position.
 
-**Figure R5. The translation sweep** (`sweep_sim_maet` / `sweepSimMaet`). One density is compared with $M$ uniformly translated copies of another in a single pass; an attribute is *swept* when its offset is non-zero at any of the $M$ positions. `windowed_similarity` reaches this tree under `'auto'` wherever the window stays fixed while the query is translated (a correlogram, or a translated attribute that carries no window), comparing position by position through Figure R1 where no route applies; every other window position is a cosine call under `'auto'`. In Python, a list tagged by `translate_attributes` (a `TranslatedSweep`) passed to `sim_maet` under `'auto'` is also reduced to this sweep.
+**Figure R5. The translation sweep** (`sweep_sim_maet` / `sweepSimMaet`). One density is compared with $M$ uniformly translated copies of another in a single pass; an attribute is *swept* when its offset is non-zero at any of the $M$ positions. `swept_similarity` reaches this tree under `'auto'` wherever the window stays fixed while the query is translated (a correlogram, or a translated attribute that carries no window), comparing position by position through Figure R1 where no route applies; every other window position is a cosine call under `'auto'`.
 
 ![Figure R5: the translation-sweep dispatcher](docs/figures/routing_r5.png)
 
@@ -423,7 +428,7 @@ In rule 6, $n_\mathrm{pairs}$ is the tuple-pair count the mixture enumerates and
 
 ### Cost models
 
-Every "fastest" decision but one reads a fitted cost model rather than an operation count; the exception is the sweep chooser, which compares work units against a measured crossover ratio (Figure R5). The inner-product models share one shape: for each route and coarse structure key (tuple order for the flat model, total tuple order for the nested model) a power law $t_{\mathrm{ms}} = e^{a} \cdot \mathrm{term}^{b}$ in the quantity the route actually works over – tuple-pair entries for Bulger and the tuple-centres route, node count times value count for the grid – with the exponents fitted rather than pinned at their structural values, because they absorb amortization that an explicit overhead term does not capture. Around the laws sit floors (a per-order set-up cost the Möbius route cannot go under, applied with `max`, which matters only at $r = 2$), memory guards (the feasibility budget – 4 GiB in Python, half of available memory clamped to 1–4 GiB in MATLAB – and the 256 MiB working-set soft budget), and safety factors (2.0 on the nested enumeration race, 1.5 on the eval race when memory is tight).
+Every "fastest" decision but one reads a fitted cost model rather than an operation count; the exception is the sweep chooser, which compares work units against a measured crossover ratio (Figure R5). The inner-product models share one shape: for each route and coarse structure key (tuple size for the flat model, total tuple size for the nested model) a power law $t_{\mathrm{ms}} = e^{a} \cdot \mathrm{term}^{b}$ in the quantity the route actually works over – tuple-pair entries for Bulger and the tuple-centres route, node count times value count for the grid – with the exponents fitted rather than pinned at their structural values, because they absorb amortization that an explicit overhead term does not capture. Around the laws sit floors (a per-tuple-size set-up cost the Möbius route cannot go under, applied with `max`, which matters only at $r = 2$), memory guards (the feasibility budget – 4 GiB in Python, half of available memory clamped to 1–4 GiB in MATLAB – and the 256 MiB working-set soft budget), and safety factors (2.0 on the nested enumeration race, 1.5 on the eval race when memory is tight).
 
 The constants are per-language by design: the two implementations amortize differently, so each carries its own fitted row (`_REL_COST_LAW` / `internal.relRouteCostMs`, `_NESTED_COST_LAW` / `internal.nestedCost`, the eval constants in `dispatch.py` / `internal.maEvalCostsMs`, and the nested eval row `_NESTED_COST_*` / `internal.nestedEvalCostsMs`), while the rule structure that consumes them is identical. The rows were fitted on the maintainer's machine from timed sweeps (the flat law on 666 cells across orders, value counts, event counts, widths, periodicities, and weight profiles, each route timed in isolation) and cross-validated on the *routing decision* – held-out routing regret over random halves – rather than on absolute time, so that they generalize to other hardware: the hardware factor scales every route alike and cancels in the comparison. The calibration scripts under `python/tools/` and `matlab/tools/` regenerate them, and their header comments record the validation figures and the earlier fits that scored well and shipped badly because an axis was missing from the sweep.
 
@@ -519,7 +524,7 @@ This distinction matters for development: the eval-side Möbius code (`eval_orbi
 
 | Function | Layer | Purpose |
 |:---|:---|:---|
-| `get_orbit_table(r)` | – | Load or build the orbit table for tensor order $r$ |
+| `get_orbit_table(r)` | – | Load or build the orbit table for tuple size $r$ |
 | `orbit_count(r)` | – | $\lvert\Omega_r\rvert$, the orbit table's length, without loading or building the table |
 | `inner_product_orbit(K, w_A, w_B, r, ...)` | 1+2 | Distinct-index inner product from one kernel matrix, single pair |
 | `inner_product_orbit_grid(K, w_A, w_B, r, ...)` | 1+2 | Inner product over a stack of kernel matrices (translation nodes), shared weights |
@@ -570,7 +575,7 @@ Beyond the goldens, the parity commitment is that the two languages apply the *s
 
 ## 7. Twin-language conventions
 
-The MATLAB and Python implementations are intentionally parallel. USER_GUIDE §5 ("API conventions") covers the *user-facing* mapping (function-name mapping table, weight-argument convention, query-point convention, etc.). This section adds the *developer-facing* rules for keeping the two sides aligned – what to mirror, what is allowed to diverge, and how the test parity discipline works.
+The MATLAB and Python implementations are intentionally parallel. USER_GUIDE §10 ("API conventions") covers the *user-facing* mapping (function-name mapping table, weight-argument convention, query-point convention, etc.). This section adds the *developer-facing* rules for keeping the two sides aligned – what to mirror, what is allowed to diverge, and how the test parity discipline works.
 
 ### The parity principle
 
@@ -587,7 +592,7 @@ Parity is defined at the level of *decisions*, not of constants. Every selector,
 | Package internals | `+mobius/canonicalForm.m` | `_mobius.canonical_form` |
 | Local functions of an entry point | `localCosSimMA` inside `simMaet.m` | `_sim_maet_ma` in `_tensor/cosine.py` |
 
-The function-name mapping is the most consequential. Every public Python function `mpt.foo_bar` should have a MATLAB sibling `fooBar` with semantically identical inputs, outputs, and side effects (after applying the absence-sentinel and container-type conventions below). The known exceptions are the circular measures `balance` / `evenness`, whose MATLAB files are `balanceCircular.m` / `evennessCircular.m`, and `TranslatedSweep`, which has no MATLAB twin.
+The function-name mapping is the most consequential. Every public Python function `mpt.foo_bar` should have a MATLAB sibling `fooBar` with semantically identical inputs, outputs, and side effects (after applying the absence-sentinel and container-type conventions below). The known exceptions are the circular measures `balance` / `evenness`, whose MATLAB files are `balanceCircular.m` / `evennessCircular.m`.
 
 ### Absence sentinels
 
@@ -622,7 +627,7 @@ Both languages follow the same broadcast convention for weights:
 - Per-slot vector (length $K_a$ for MA inputs): one weight per slot, broadcast across events.
 - Full per-event-per-slot matrix ($K_a \times N$): explicit per-slot per-event weights.
 
-The same rules apply to MAET inputs at the per-attribute level. The full mapping is documented in USER_GUIDE §5 ("Weight arguments").
+The same rules apply to MAET inputs at the per-attribute level. The full mapping is documented in USER_GUIDE §10.4 ("Weight arguments").
 
 ### Call-scope guards
 
@@ -656,10 +661,10 @@ The cross-language golden tests are the ultimate parity check: any value that dr
 Twin-language parity is the default but not a rule. Acceptable divergences:
 
 - Plotting features that one language has and the other does not (e.g., `audioPeaks.m`'s `'plot'` option, which has no Python equivalent because `matplotlib` would be a heavy optional dependency for one convenience feature).
-- Language-idiomatic conveniences that do not change semantics (e.g., Python dataclass defaults, MATLAB `arguments` block validation, the Python `TranslatedSweep` reduction and per-density caches, which are speed-only).
+- Language-idiomatic conveniences that do not change semantics (e.g., Python dataclass defaults, MATLAB `arguments` block validation, per-density caches, which are speed-only).
 - Performance optimizations that exploit per-language strengths (e.g., Python's single-attribute helper route in the inner-product core versus MATLAB's log-kernel form). The output must agree within the accuracy floor.
 - The fitted constants of the cost models (above).
-- Shape rules that are idiomatic in one language and not in the other, where each language's rule is the one its users expect. The standing case is the batched-raw dispatch of `simMaet` / `sim_maet`, `evalMaet` / `eval_maet`, and `entropyMaet` / `entropy_maet`: MATLAB enters batched-raw on an operand that is a matrix with both dimensions greater than one, so a `K`-by-1 column is a vector and is broadcast as one shared multiset, while Python enters it on `ndim == 2`, so a `(K, 1)` array is K rows of one element each. Forcing either to the other's convention would make one side read as a translation of the other. The divergence is documented in each entry point's docstring and in USER_GUIDE §6, and pinned by `test_batched_shape_rule.py` / `.m`; a batch of one-element multisets is written the same way in both languages by padding to two columns with NaN, which the batched path strips per row.
+- Shape rules that are idiomatic in one language and not in the other, where each language's rule is the one its users expect. The standing case is the batched-raw dispatch of `simMaet` / `sim_maet`, `evalMaet` / `eval_maet`, and `entropyMaet` / `entropy_maet`: MATLAB enters batched-raw on an operand that is a matrix with both dimensions greater than one, so a `K`-by-1 column is a vector and is broadcast as one shared multiset, while Python enters it on `ndim == 2`, so a `(K, 1)` array is K rows of one element each. Forcing either to the other's convention would make one side read as a translation of the other. The divergence is documented in each entry point's docstring and in USER_GUIDE §12, and pinned by `test_batched_shape_rule.py` / `.m`; a batch of one-element multisets is written the same way in both languages by padding to two columns with NaN, which the batched path strips per row.
 
 - Drawing methods one language's plotting library supports and the other's does not. The standing case is `plotMaet` / `plot_maet`. Both dispatch on the drawn dimensionality and offer the same three methods — `kernels`, which is geometry; `points`, a scatter, at three dimensions only; and `density`, the density itself. One combination is MATLAB only: `density` at three dimensions, which draws the volume as a stack of texture-mapped surfaces with per-texel opacity. matplotlib has no texture-mapped 3-D surface, so the Python side would need a different mechanism rather than a translation, and it raises there naming `points`. Everything else is in both. Related, and worth knowing before reimplementing either: MATLAB draws truecolour marks with unmapped opacity opaque once the figure settles while rendering them correctly during a drag, so `points` uses mapped colour and a scaled alphamap, and a surface uses `AlphaData` with `FaceColor` and `FaceAlpha` both `texturemap` — per-vertex opacity on a large surface renders blank. Both of those render dependably, and the obvious first implementation does not. The marker-size budget in `points` exists only for MATLAB: matplotlib depth-sorts and blends its marks, so the Python side sizes them as asked.
 
@@ -683,7 +688,7 @@ A walk-through for adding a new measure to the toolbox. The example: imagine add
 
 ### 2. Decide which file it lives in
 
-In Python: `harmony.py` if the measure is harmony-flavoured; a new module otherwise. In MATLAB: a new top-level `.m` file. Match the categorization USER_GUIDE §6 uses.
+In Python: `harmony.py` if the measure is harmony-flavoured; a new module otherwise. In MATLAB: a new top-level `.m` file. Match the categorization USER_GUIDE §12 uses.
 
 ### 3. Decide which existing primitives it consumes
 
@@ -718,7 +723,7 @@ Write the MATLAB and Python implementations side-by-side. The function signature
 ### 9. Document
 
 - Per-function docstring: full NumPy-doc style in Python, full H1 style in MATLAB. Document every parameter, return value, and side effect.
-- USER_GUIDE entry: add to the appropriate section in §6 (function reference).
+- USER_GUIDE entry: add to the appropriate section in §12 (function reference), and to the tables of §3.
 
 ### 10. Update CHANGELOG
 

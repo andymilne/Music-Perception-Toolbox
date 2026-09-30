@@ -56,9 +56,27 @@ Compositions
 Spectral enrichment (add_spectra), the sixth preprocessing operation of
 the article, is demonstrated in jmm/demo_jmm_2_3_spectral.py.
 
+Where the operations are taken further
+    swept_similarity,    translation and event weighting swept along a
+    swept_entropy        piece, a similarity or an entropy at each sweep
+                         value (demo_swept_similarity.py;
+                         jmm/demo_jmm_1_1_entropy.py).
+    sweep_sim_maet       a translation sweep on built densities, in one
+                         pass.
+    n_tuple_entropy      the D o B pipeline of Section 6, packaged
+                         (demo_rhythm_tensors.py, demo_sigma_space.py).
+    demo_tempo_invariance.py, demo_repetition_handling.py
+                         D, B, and F composed for tempo and
+                         interval-scale invariance.
+    demo_score_workflow.py, demo_score_categoricals.py
+                         a pre-MAET built from a score, with
+                         select_pre_maet and separate_attributes.
+    demo_pre_maet_io.py  showing, writing, and reading a pre-MAET.
+
 See also: show_pre_maet, difference_events, bind_events,
 translate_attributes, weight_events, select_pre_maet, bind_attributes,
-separate_attributes, transform_attributes.
+separate_attributes, transform_attributes, swept_similarity,
+swept_entropy, sweep_sim_maet.
 
 The MATLAB mirror is demo_preprocessing.m.
 """
@@ -118,7 +136,11 @@ print("=== 2. difference_events (D) ===")
 # weights on the differenced attribute, and the surviving metre weights
 # on the undifferenced one. The differenced attribute's sigma grows by
 # sqrt(2), since a difference of two uncertain values is less certain
-# than either; difference_events says so as it runs.
+# than either; difference_events says so as it runs. Differencing is how
+# interval (transposition-invariant) and inter-onset (time-shift-
+# invariant) content is obtained: demo_overview.py, section 2c, uses it
+# to find a motif at any transposition, and demo_tempo_invariance.py and
+# demo_repetition_handling.py build on it.
 diff_orders = [1, 0]
 pmD = mpt.difference_events(pm, diff_orders)
 
@@ -139,16 +161,19 @@ print("=== 3. bind_events (B) ===")
 # the source r/is_rel/is_exch). A' = A = 2. Trailing-drop alignment gives
 # N' = N - max(L) + 1 = 6. B gathers each super-event's constituent
 # weights alongside its values rather than combining them, so both of a
-# 2-gram's metre weights survive, in order, inside the cell.
+# 2-gram's metre weights survive, in order, inside the cell. Binding is
+# how n-grams and nested multisets are compared: n_tuple_entropy is
+# differencing then binding (Section 6), and
+# jmm/demo_jmm_1_3_cadence_nesting.py finds cadences with nested bound
+# events.
 bind_orders = [2, 2]
 pmB = mpt.bind_events(pm, bind_orders)
-specB = pmB["specs"]
 
 print(f"  bind_orders = {bind_orders}   "
       f"(A' = {len(pmB['p_attr'])}: each source attribute -> one nested "
       f"attribute)")
 mpt.show_pre_maet(pmB)
-s0 = specB[0]
+s0 = pmB["specs"][0]
 print(f"  spec[0]: r = {s0['r']}, exch = {s0['exch']}, rel = {s0['rel']}, "
       f"tags = {np.asarray(s0['tags']).ravel().tolist()}")
 print()
@@ -219,6 +244,12 @@ print("=== 4. translate_attributes (T) ===")
 # attribute's values (here K = 1 each). is_rel is read from the specs
 # (both attributes absolute), so neither translation is a no-op. T moves
 # values only: the weights below are the metre weights unchanged.
+#
+# One call makes one translation. To compare a query with a context at
+# each of many translations -- a sliding comparison, the canonical use of
+# translation -- use swept_similarity (pre-MAETs;
+# demo_swept_similarity.py) or sweep_sim_maet (densities), which compute
+# every offset in one pass rather than building a copy per offset.
 mu_pitch = 5.0
 mu = [mu_pitch, 0.0]
 pmT = mpt.translate_attributes(pm, mu)
@@ -241,6 +272,12 @@ print("=== 5. weight_events (W) ===")
 # kept (drop_input_attr=False). The window multiplies the metre weights
 # it finds rather than replacing them, so the time row below carries
 # metre times envelope, and the pitch row is untouched.
+#
+# One call weights the events at one position. Sweeping a window along
+# a piece, with an entropy or a similarity at each position, is
+# swept_entropy, or swept_similarity with align='window'
+# (demo_swept_similarity.py, sections 5 to 8;
+# jmm/demo_jmm_1_1_entropy.py).
 pmW = mpt.weight_events(
     pm,
     input_attr=1, target_attr=1,
@@ -267,7 +304,8 @@ print("=== 5b. select_pre_maet (S) ===")
 # Here the cadence's three chords (events 4 to 6) on the pitch attribute
 # alone; the kept items come back in the order given, and each keeps its
 # tuple size and flags, so a selection cannot change what an attribute
-# means.
+# means. demo_score_workflow.py and demo_score_categoricals.py use it on
+# pre-MAETs read from a score.
 pmS = mpt.select_pre_maet(pm, attributes=[0], events=[4, 5, 6])
 
 print("  attributes = [0] (pitch); events = [4, 5, 6] (the cadence)")
@@ -314,7 +352,9 @@ print("=== 6. D o B == B o D (event differencing and event binding commute) ==="
 # commutes with it, on the ordered, K = 1 domain where a difference is
 # defined. The two operations propagate weights by different rules ---
 # D takes the rolling product, B gathers --- and the composition agrees
-# on the weights as well.
+# on the weights as well. This pipeline is the n-tuple entropy of Milne
+# and Dean (2016), which n_tuple_entropy packages
+# (demo_rhythm_tensors.py, demo_sigma_space.py).
 #   D then B: difference each attribute (order 1), then bind 2-grams.
 pmDB = mpt.bind_events(mpt.difference_events(pm, [1, 1]), [2, 2])
 #   B then D: bind 2-grams, then difference each nested attribute
@@ -408,13 +448,18 @@ f_hz = np.array([392.00, 369.99, 329.63])          # G4, F#4, E4 in Hz
 p_cents = mpt.transform_attributes(f_hz, None, ('hz', 'cents'))
 print(f"  Hz -> cents: [{p_cents[0]:.1f} {p_cents[1]:.1f} {p_cents[2]:.1f}]")
 
+# A log scale turns uniform scaling -- a tempo change, or an
+# augmentation of a melody's intervals -- into a translation, which the
+# relative flag or a translation sweep can then absorb:
+# demo_repetition_handling.py and demo_tempo_invariance.py build on
+# this.
+
 # Order with differencing carries meaning. (i) F then D on inter-onset
 # intervals in log2 gives log ratios: a doubling is +1, a halving -1.
 ioi = np.array([[0.25, 0.5, 0.5, 1.0]])            # seconds
 pmLD = mpt.difference_events(
     mpt.transform_attributes([ioi], None, [('log', {'base': 2})]), 1)
-p_ld = pmLD["p_attr"]
-print(f"  log2(IOI) then D: {p_ld[0].ravel()}  (log ratios)")
+print(f"  log2(IOI) then D: {pmLD['p_attr'][0].ravel()}  (log ratios)")
 
 # (ii) D then a compressive transform on the signed pitch intervals.
 # log(x + 1) admits the zero of a repeated note with the constant written
@@ -424,9 +469,8 @@ print(f"  log2(IOI) then D: {p_ld[0].ravel()}  (log ratios)")
 # after its source, so the pre-MAET grows from one attribute to two.
 pmDp = mpt.difference_events(mpt.select_pre_maet(pm, attributes=[0]), 1)
 pmF = mpt.transform_attributes(pmDp, [('log', {'offset': 1})], sign=True)
-p_dp = pmDp["p_attr"]
 p_f, s_f = pmF["p_attr"], pmF["specs"]
-print(f"  D(pitch)        = {p_dp[0].ravel()}")
+print(f"  D(pitch)        = {pmDp['p_attr'][0].ravel()}")
 print(f"  log(|D(pitch)|+1) = {np.round(p_f[0].ravel(), 4)}, "
       f"sign = {p_f[1].ravel()} (spec name '{s_f[1]['name']}')")
 # A log has no single image of the old width, so the rescaled attributes
@@ -556,6 +600,8 @@ assert delta_d < 1e-12, "Section 10d: sim_maet pre-MAET and density forms disagr
 #   entry 1:  sim(orig, T), which matches 9c.
 #   entry 2:  sim(orig, W), the same values under the cadence window of
 #             Section 5, so only the weights differ.
+# demo_batch_processing.py takes the list forms further, on a table of
+# trials.
 sim_list = mpt.sim_maet([dens_orig, dens_T, dens_W], dens_orig,
                         verbose=False)
 sim_list_vals = [float(v) for v in sim_list]

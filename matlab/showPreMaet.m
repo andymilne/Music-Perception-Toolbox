@@ -10,7 +10,10 @@ function out = showPreMaet(varargin)
 %   the admitted tuples are formed. A cell is brace-delimited where the
 %   attribute is unordered ([exch] = 1) and parenthesis-delimited where it
 %   is ordered; a nested attribute is bracketed level by level, the
-%   outermost level outermost. A single element is written bare. Where
+%   outermost level outermost. A single element is written bare. On an
+%   ordered attribute the slot is the level (a voice, a coordinate), so
+%   an empty slot (NaN) before the event's last value is written as a
+%   blank, (62, _, 67); on an unordered one empty slots are omitted. Where
 %   the weights are not uniform they are written as parenthesized
 %   superscripts on their values, 60^(0.6). The markdown rendering is
 %   plain ASCII, so that its column widths are the same in MATLAB and in
@@ -222,6 +225,7 @@ end
 if ~iscell(pAttr)
     pAttr = {pAttr};
 end
+[pAttr, w] = internal.perEventParts(pAttr, w);
 A = numel(pAttr);
 P = cell(1, A);
 for a = 1:A
@@ -236,17 +240,14 @@ end
 if isempty(w)
     W = [];
 else
-    if ~iscell(w), w = {w}; end
+    if ~iscell(w), w = repmat({w}, 1, A); end
     if numel(w) ~= A
         error('showPreMaet:wSize', ...
             'w has %d attributes but pAttr has %d.', numel(w), A);
     end
     W = cell(1, A);
     for a = 1:A
-        W{a} = double(w{a});
-        if isvector(W{a}) && size(W{a}, 1) == 1
-            W{a} = reshape(W{a}, size(P{a}));
-        end
+        W{a} = localWeightsLike(w{a}, P{a}, a);
     end
 end
 
@@ -330,6 +331,30 @@ end
 end
 
 
+function W = localWeightsLike(M, P, a)
+%LOCALWEIGHTSLIKE  An attribute's weights spread across its value matrix:
+%   [] is unit weights, and a scalar, a per-event row, or a per-value
+%   column is broadcast, as at build time.
+[K, N] = size(P);
+if isempty(M)
+    W = ones(K, N);
+    return;
+end
+M = double(M);
+if isvector(M) && numel(M) == K && K ~= N
+    M = reshape(M, K, 1);
+elseif isvector(M) && numel(M) == N
+    M = reshape(M, 1, N);
+end
+if ~((size(M, 1) == 1 || size(M, 1) == K) && (size(M, 2) == 1 || size(M, 2) == N))
+    error('showPreMaet:wShape', ...
+        'Attribute %d: weights of size %dx%d do not match its %dx%d values.', ...
+        a, size(M, 1), size(M, 2), K, N);
+end
+W = repmat(M, K / size(M, 1), N / size(M, 2));
+end
+
+
 function names = localNames(given, sp, A)
 names = cell(1, A);
 for a = 1:A
@@ -373,7 +398,20 @@ finite = isfinite(pCol);
 exchLevels = localLevels(spec, 'exch', 1);
 
 if ~isfield(spec, 'tags') || isempty(spec.tags)
-    node = localLeaves(find(finite), pCol, wCol, maxElements); %#ok<FNDSB>
+    if ~isempty(exchLevels) && ~exchLevels(1)
+        % Ordered: the slot is the level (a voice, a coordinate), so an
+        % empty slot before the last value is shown as a blank and the
+        % values keep their positions. Trailing empty slots are left off,
+        % since reading a cell fills slots from the first. Index 0 marks
+        % a blank for localLeaves.
+        last = find(finite, 1, 'last');
+        if isempty(last), last = 0; end
+        idx = 1:last;
+        idx(~finite(idx)) = 0;
+        node = localLeaves(idx, pCol, wCol, maxElements);
+    else
+        node = localLeaves(find(finite), pCol, wCol, maxElements); %#ok<FNDSB>
+    end
     return;
 end
 
@@ -436,6 +474,10 @@ end
 
 
 function lf = localLeaf(k, pCol, wCol)
+if k == 0
+    lf = '_';                          % an empty slot of an ordered attribute
+    return;
+end
 if isempty(wCol)
     lf = [pCol(k), NaN];
 else
@@ -481,7 +523,9 @@ items = cell(1, numel(leaves));
 for k = 1:numel(leaves)
     lf = leaves{k};
     if ischar(lf)
-        if isLatex
+        if strcmp(lf, '_')
+            if isLatex, items{k} = '\_'; else, items{k} = '_'; end
+        elseif isLatex
             items{k} = '\dots';
         else
             items{k} = '...';

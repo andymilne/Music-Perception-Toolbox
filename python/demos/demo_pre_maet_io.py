@@ -54,13 +54,12 @@ print("=== 1. One pre-MAET, four renderings ===\n")
 
 # Three chords of a cadence, with their onsets. Pitch is an unordered
 # multiset read at r = 2 (shared pitch pairs) and periodic at the octave;
-# time is a single value per event, and not periodic.
+# time is a single value per event, and not periodic. The pitch attribute
+# is written per event, one entry per chord; the pre-MAET stores it as a
+# matrix, one column per chord, padded with NaN below the three-note chord.
 p_attr = [
-    np.array([[62.0, 55.0, 60.0],       # a chord per column, NaN-padded
-              [65.0, 59.0, 64.0],
-              [69.0, 62.0, 67.0],
-              [72.0, 65.0, np.nan]]),
-    np.array([[0.0, 1.0, 2.0]]),
+    [[62, 65, 69, 72], [55, 59, 62, 65], [60, 64, 67]],
+    [0.0, 1.0, 2.0],
 ]
 specs = [
     {"name": "pitch", "r": 2, "rel": False, "exch": True,
@@ -98,7 +97,7 @@ print(f"  written to {os.path.basename(path)}")
 pm_back = mpt.read_pre_maet(path)
 again = mpt.write_pre_maet(None, pm_back)
 
-vals_ok = all(np.allclose(p_attr[a], pm_back["p_attr"][a], equal_nan=True)
+vals_ok = all(np.allclose(pm["p_attr"][a], pm_back["p_attr"][a], equal_nan=True)
               for a in range(2))
 print(f"  values identical : {vals_ok}")
 print(f"  file identical   : {again == written}")
@@ -191,7 +190,7 @@ print("=== 6. NA, where a step could not carry a parameter ===\n")
 # sigma. NA marks the absence of a canonical choice, and the analyst
 # supplies the width the new units call for.
 pm_log = mpt.transform_attributes(
-    mpt.pack_pre_maet([p_attr[1] + 1.0], specs=[specs[1]]), ["log"])
+    mpt.pack_pre_maet([pm["p_attr"][1] + 1.0], specs=[specs[1]]), ["log"])
 mpt.show_pre_maet(pm_log)
 try:
     mpt.build_maet(pm_log, verbose=False)

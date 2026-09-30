@@ -1,15 +1,24 @@
-%% demo_scoreWorkflow.m — from a score (MusicXML, MIDI) to a MAET analysis
+%% demo_scoreWorkflow.m — from a score to a MAET analysis
 %
-%  This demo is the spine of the demo_score* family. It reads a score into
-%  an attribute table, looks at that table, samples it on a grid, encodes a
-%  categorical column, builds the density, and runs an analysis on it.
-%  Where a step has more to it than the one choice made here, a comment
-%  names the demo that goes further:
+%  This demo shows how to convert a score (a MIDI or musicXML file) into an
+%  attribute table then into a pre-MAET to allow a final MAET analysis. An
+%  attribute table is an ordinary MATLAB table with one row per note (or,
+%  once sampled on a grid, per time slice) and one column per attribute:
+%  onset, duration, pitch, velocity, part, and so on. It sits between the
+%  score and the pre-MAET because it is the score as data, before any
+%  analytic choice: it can be inspected, filtered, and extended with
+%  ordinary table tools, and one table can feed many pre-MAETs, each
+%  choosing which columns become attributes and with what kernel
+%  parameters. The demo reads a score into an attribute table, looks at
+%  that table, samples it on a grid, encodes a categorical column, builds
+%  the density, and runs an analysis on it. Where a step has more to it
+%  than the one choice made here, a comment names the demo that goes into
+%  more depth:
 %
 %    demo_scoreGrid          choosing the grid step and the weighting
 %    demo_scoreCategoricals  the three ways to encode a category
 %
-%  The functions that get a score to a pre-MAET:
+%  The functions that can get a score to a pre-MAET:
 %
 %    score file (MIDI or MusicXML)
 %      readScore              -> attribute table, sampled per note
@@ -28,17 +37,15 @@
 %      readPreMaet            -> a pre-MAET read back from that, which
 %                                stands in for every step above
 %
-%  Rows of attribute tables are selected with MATLAB's own indexing rather
-%  than a toolbox function. What happens to a pre-MAET next --
-%  selectPreMaet and the other preprocessing operations, buildMaet, and the
-%  measures -- is a separate family, and demo_preprocessing covers it.
+%  What happens to a pre-MAET next -- selectPreMaet and the other
+%  preprocessing operations, buildMaet, and the measures -- is a separate
+%  family, and demo_preprocessing covers it.
 %
 %  The conversion from attribute table to pre-MAET transposes, and
-%  regroups. An attribute table carries its attributes across the columns,
-%  as any data table does; a pre-MAET carries attributes down the rows and
-%  events across the columns, which is the layout of the article's pre-MAET
-%  table and of showPreMaet's output, so a table's column becomes a
-%  pre-MAET's row and each attribute's values are a K_a x N matrix. This
+%  regroups. A pre-MAET carries attributes down the rows and events across
+%  the columns, which is the layout of the article's pre-MAET table and of
+%  showPreMaet's output, so a table's column becomes a pre-MAET's row and
+%  each attribute's values are a K_a x N matrix. This
 %  horizontal/wide format is preferred because it corresponds to that used
 %  in musical scores and DAWs.
 %
@@ -85,7 +92,6 @@ fprintf('%d notes from a %s score; the first five rows:\n', ...
 disp(head(t, 5));
 
 %% 2. Look and select
-% The return is a MATLAB table, inspected and filtered with MATLAB.
 fprintf('parts: %s\n', strjoin(categories(t.part).', ', '));
 fprintf('pitch range: %g to %g\n', min(t.pitch), max(t.pitch));
 fprintf('notes under a fermata: %d\n', sum(t.fermata));

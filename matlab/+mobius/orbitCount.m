@@ -2,7 +2,7 @@ function n = orbitCount(r)
 %MOBIUS.ORBITCOUNT  |Omega_r|, the orbit table's length, without the table.
 %
 %   N = MOBIUS.ORBITCOUNT(R) returns the number of orbits in the orbit
-%   table at tensor order R (2 <= R <= 12). Cost models need only this
+%   table at tuple size R (2 <= R <= 12). Cost models need only this
 %   count, so it is read from a closed table rather than from the orbit
 %   table itself: pricing a route at an order beyond the shipped tables
 %   must never trigger a build (hours at r = 9).

@@ -30,7 +30,7 @@ function sop = relPerSigmaOverPThreshold(truncationSigmas)
 %   The table is the calibration and no functional form is fitted to it.
 %   The largest entry inside the floor is taken rather than
 %   interpolated, so the answer is always one the measurements support.
-%   Measured by tools/calibrate_sigma_over_p.py over tuple orders 2 to
+%   Measured by tools/calibrate_sigma_over_p.py over tuple sizes 2 to
 %   4, value counts 4 to 12, and six weight profiles. The two entries
 %   below 0.04 sit at floating-point noise rather than at a measured
 %   departure. The departure peaks at r = 3 rather than at the largest

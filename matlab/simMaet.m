@@ -57,16 +57,9 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   to buildMaet). Builds the two MaetDensity structs internally
 %   and returns a scalar.
 %
-%   sCell = simMaet(refPAttr, refWAttr, {pAttrA, pAttrB, ...}, ...
-%                          qryWAttr, sigma, r, isRel, isPer, periods[, isExch]):
-%   Raw multi-attribute scalar-vs-list mode (sweep). Exactly one of
-%   the two pAttr arguments is a cell-of-cells (a 1-by-M cell whose
-%   entries are themselves 1-by-A pAttr cells, e.g. the matrix-form
-%   output of translateAttributes); the other is a single 1-by-A pAttr
-%   cell. The scalar operand is built once; the list operand is
-%   built once per entry. Weights for the list side are shared
-%   across every entry (a single wAttr value, not a cell of weights).
-%   Returns a 1-by-M cell of similarity scalars.
+%   A translation sweep -- one density compared with translated copies
+%   of another -- is sweepSimMaet (densities) or sweptSimilarity
+%   (pre-MAETs), which compute every offset in one pass.
 %
 %   s = simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period[, isExch]):
 %   Batched-raw mode. At least one of P1, P2 is an M-by-K
@@ -188,12 +181,9 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   Inputs (MA raw calling convention):
 %     pAttr1, pAttr2  — 1-by-A cells of K_a-by-N matrices (per-attribute
 %                       value rows; the same shape one would pass to
-%                       buildMaet). For the scalar-vs-list sweep
-%                       form, exactly one of these is a 1-by-M cell of
-%                       such cells; the other is a single pAttr cell.
+%                       buildMaet).
 %     wAttr1, wAttr2  — Weights paired with pAttr1, pAttr2 (see
-%                       buildMaet for the accepted shapes). Shared
-%                       across every list entry in the sweep form.
+%                       buildMaet for the accepted shapes).
 %     sigmaVec        — 1-by-G per-group Gaussian widths.
 %     rVec            — 1-by-A per-attribute tuple sizes.
 %     isRelVec        — 1-by-A per-attribute relative flags.
@@ -574,91 +564,50 @@ elseif nArgs == 9
     a = varargin{1};
     c = varargin{3};
     if iscell(a) || iscell(c)
-        % --- MA raw: cell of attribute matrices (9-arg form).
-        %     Distinguishes a single MA pAttr (cell of numeric matrices)
-        %     from a list-of-MA (cell of cells) by the first inner
-        %     element. ---
+        % --- MA raw: cell of attributes (9-arg form). An attribute may
+        %     be given per event (a cell of the events' values); it is
+        %     converted to its NaN-padded matrix here. A list of MA pAttr
+        %     cells (a cell of cells of attributes) fails that
+        %     conversion and is refused with a pointer to the supported
+        %     forms. ---
         if ~iscell(a) || ~iscell(c)
             error('simMaet:cellPairNeedsCells', ...
                 ['The multi-attribute form requires both p1 (1st) and ' ...
                  'p2 (3rd) to be cells (multi-attribute pAttr).']);
         end
-        aIsListOfMA = ~isempty(a) && iscell(a{1});
-        bIsListOfMA = ~isempty(c) && iscell(c{1});
-        pAttr1    = varargin{1};
-        w1        = varargin{2};
-        pAttr2    = varargin{3};
-        w2        = varargin{4};
+        aIsListOfMA = false;
+        bIsListOfMA = false;
+        try
+            [pAttr1, w1] = internal.perEventParts(varargin{1}, varargin{2});
+        catch err
+            aIsListOfMA = localLooksLikeListOfMA(a);
+            if ~aIsListOfMA, rethrow(err); end
+        end
+        try
+            [pAttr2, w2] = internal.perEventParts(varargin{3}, varargin{4});
+        catch err
+            bIsListOfMA = localLooksLikeListOfMA(c);
+            if ~bIsListOfMA, rethrow(err); end
+        end
         sigmaVec  = varargin{5};
         rVec      = varargin{6};
         isRelVec  = varargin{7};
         isPerVec  = varargin{8};
         periodVec = varargin{9};
-        if aIsListOfMA && bIsListOfMA
-            error('simMaet:listVsListNotSupported', ...
-                  ['Raw multi-attribute list-vs-list is not supported; pass ' ...
-                   'explicit density structs via the density list mode ' ...
-                   '(build each entry with buildMaet first).']);
+        if aIsListOfMA || bIsListOfMA
+            error('simMaet:rawListNotSupported', ...
+                  ['A list of raw pAttr cells is not accepted. Pass pre-MAETs ' ...
+                   'or densities as a cell, simMaet(ref, {pm1, ..., pmM}); ' ...
+                   'for a translation sweep use sweptSimilarity or ' ...
+                   'sweepSimMaet, which compute every offset in one pass.']);
         end
-        if ~aIsListOfMA && ~bIsListOfMA
-            dens_x_ma = buildMaet(pAttr1, w1, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', verbose);
-            dens_y_ma = buildMaet(pAttr2, w2, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', verbose);
-            s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
-                              verbose, truncationSigmas, [], [], ...
-                              kernelPrecision);
-            return;
-        end
-        % Scalar-vs-list broadcast. Build the scalar side once, iterate
-        % over the list. Weights for the list side are shared across all
-        % entries.
-        if bIsListOfMA
-            scalarPAttr = pAttr1;  scalarW = w1;
-            listPAttr   = pAttr2;  listW   = w2;
-            scalarFirst = true;
-        else
-            scalarPAttr = pAttr2;  scalarW = w2;
-            listPAttr   = pAttr1;  listW   = w1;
-            scalarFirst = false;
-        end
-        dens_scalar = buildMaet(scalarPAttr, scalarW, sigmaVec, rVec, ...
+        dens_x_ma = buildMaet(pAttr1, w1, sigmaVec, rVec, ...
             isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', verbose);
-        M = numel(listPAttr);
-        s = cell(1, M);
-        densList = cell(1, M);
-        for m = 1:M
-            densList{m} = buildMaet(listPAttr{m}, listW, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', false);
-        end
-        % Batched all-r = 1 sweep (see localR1BroadcastFast); the
-        % per-pair loop below is the fallback for every other shape.
-        if any(strcmp(method, {'auto', 'bulger'}))
-            [okFast, sFast] = localR1BroadcastFast(dens_scalar, densList, ...
-                scalarFirst, normalize, localSelfIpEmpty(), ...
-                truncationSigmas);
-            if okFast
-                s = sFast;
-                return;
-            end
-        end
-        % Thread the scalar side's self-IP memo across the sweep so its
-        % self inner product is paid once, not once per entry.
-        cacheScalar = localSelfIpEmpty();
-        for m = 1:M
-            dens_m = densList{m};
-            if scalarFirst
-                [s{m}, cacheScalar] = localCosSimMA(dens_scalar, dens_m, ...
-                                     method, normalize, false, ...
-                                     truncationSigmas, cacheScalar, ...
-                                     localSelfIpEmpty(), kernelPrecision);
-            else
-                [s{m}, ~, cacheScalar] = localCosSimMA(dens_m, dens_scalar, ...
-                                     method, normalize, false, ...
-                                     truncationSigmas, localSelfIpEmpty(), ...
-                                     cacheScalar, kernelPrecision);
-            end
-        end
+        dens_y_ma = buildMaet(pAttr2, w2, sigmaVec, rVec, ...
+            isRelVec, isPerVec, periodVec, exchArgs{:}, 'verbose', verbose);
+        s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
+                          verbose, truncationSigmas, [], [], ...
+                          kernelPrecision);
         return;
     end
     if ~isnumeric(a) || ~isnumeric(c)
@@ -2531,17 +2480,6 @@ function cache = localSelfIpSet(cache, key, val)
 end
 
 
-function hit = localSelfIpMemoised(cache)
-%LOCALSELFIPMEMOISED  True when any inner-product route has memoised this
-%   density's self inner product.
-%
-%   Delegates to INTERNAL.SELFIPMEMOISED, which documents why the flag is
-%   shared by the routes a selector compares rather than read off each
-%   route's own memo. Twin of the Python cosine._self_ip_memoised.
-    hit = internal.selfIpMemoised(cache);
-end
-
-
 function cache = localSelfIpPurgeRoute(cache, route)
 %LOCALSELFIPPURGEROUTE  Drop every entry of the given route (used when
 %   the post-hoc guard rejects a Möbius run, so a broken run never
@@ -2860,4 +2798,15 @@ function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
             sCell{i} = ipXY(i) / denom;
         end
     end
+end
+
+
+function tf = localLooksLikeListOfMA(p)
+%LOCALLOOKSLIKELISTOFMA  True for a cell whose first entry is itself a cell
+%   holding an attribute (a numeric matrix or a cell) rather than an
+%   event's values, i.e. a list of pAttr cells. Called only once reading
+%   p per event has failed; a list whose attributes are all vectors is
+%   indistinguishable from the per-event form and is read as that.
+tf = ~isempty(p) && iscell(p{1}) && ~isempty(p{1}) && ...
+     any(cellfun(@(x) iscell(x) || (isnumeric(x) && ~isvector(x)), p{1}));
 end

@@ -12,8 +12,8 @@ function varargout = nestedCost(cmd, varargin)
 %
 %     * one fitted power law t_ms = exp(a) * term ^ b per route and
 %       coarse structure key, keyed the way the flat RELROUTECOSTMS law
-%       is keyed (there by tuple order, here by the nested attribute's
-%       *total* tuple order);
+%       is keyed (there by tuple size, here by the nested attribute's
+%       *total* tuple size);
 %     * a per-route setup floor applied with MAX (never added), because
 %       a multiplicative law carries no fixed cost and extrapolates
 %       below what the route can do once the term is small;
@@ -160,7 +160,7 @@ function varargout = nestedCost(cmd, varargin)
     %  regret does, at 1.03, which is the whole reason the model is
     %  consumed as a ratio.
     %
-    %  Structure key: the nested attribute's *total* tuple order,
+    %  Structure key: the nested attribute's *total* tuple size,
     %  prod(rLevels) --- the number of leaf positions a tuple carries,
     %  which is what dens.r(a) holds. The per-entry and per-node costs
     %  both grow with it (the relative quadratic form is O(R^2) per

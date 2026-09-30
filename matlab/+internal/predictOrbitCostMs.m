@@ -21,13 +21,13 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
     % tuple-centres closed form and the batched grid contraction
     % (three matrices each) by the fitted laws of
     % INTERNAL.RELROUTECOSTMS, with the centres term blocked above the
-    % sigma/P threshold; absolute attributes at the per-order constants
+    % sigma/P threshold; absolute attributes at the per-tuple-size constants
     % ABS (measured r = 2..6, extrapolated above).
     %
     % SKIPXX / SKIPYY exclude a self matrix that is memoised or not
     % consumed (mirroring predictPairwiseKernelSize). The centres term
     % drops the skipped self work exactly; the grid term and the
-    % per-order absolute constants were fitted on the full
+    % per-tuple-size absolute constants were fitted on the full
     % three-matrix computation, so they are scaled by the fraction of
     % matrices still to be computed --- an approximation that
     % understates the reduction (setup is not per-matrix), biasing near-crossover
@@ -39,7 +39,7 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
     % setup it already estimates; the per-attribute floor below is applied
     % with max instead.
     % Setup floor for the Moebius route on one relative attribute, in
-    % ms, as [fixed, perMatrix] by tuple order (rows r = 2, 3, 4; higher
+    % ms, as [fixed, perMatrix] by tuple size (rows r = 2, 3, 4; higher
     % orders reuse the r = 4 row); the floor for a call computing
     % nMatrices of the three inner matrices is fixed + perMatrix *
     % nMatrices, applied with max, not added. Twin of the Python

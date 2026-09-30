@@ -49,8 +49,10 @@ fprintf('=== 1. One pre-MAET, four renderings ===\n\n');
 
 % Three chords of a cadence, with their onsets. Pitch is an unordered
 % multiset read at r = 2 (shared pitch pairs) and periodic at the octave;
-% time is a single value per event, and not periodic.
-pAttr = { [62 55 60; 65 59 64; 69 62 67; 72 65 NaN], ...
+% time is a single value per event, and not periodic. The pitch attribute
+% is written per event, one entry per chord; the pre-MAET stores it as a
+% matrix, one column per chord, padded with NaN below the three-note chord.
+pAttr = { {[62 65 69 72], [55 59 62 65], [60 64 67]}, ...
           [0 1 2] };
 specs = { struct('name', 'pitch', 'r', 2, 'rel', false, 'exch', true, ...
                  'sigma', 0.15, 'isPer', true, 'period', 12), ...
@@ -87,7 +89,7 @@ again = writePreMaet([], pmBack);
 
 valsOk = true;
 for a = 1:2
-    valsOk = valsOk && isequaln(pAttr{a}, pmBack.pAttr{a});
+    valsOk = valsOk && isequaln(pm.pAttr{a}, pmBack.pAttr{a});
 end
 fprintf('  values identical : %d\n', valsOk);
 fprintf('  file identical   : %d\n', strcmp(again, written));
@@ -178,7 +180,7 @@ fprintf('=== 6. NA, where a step could not carry a parameter ===\n\n');
 % varies across the range, so no single value is the image of the old
 % sigma. NA marks the absence of a canonical choice, and the analyst
 % supplies the width the new units call for.
-pmLog = transformAttributes(packPreMaet({pAttr{2} + 1}, [], specs(2)), ...
+pmLog = transformAttributes(packPreMaet({pm.pAttr{2} + 1}, [], specs(2)), ...
     {'log'});
 showPreMaet(pmLog);
 try

@@ -253,7 +253,7 @@ def test_cos_sim_ma_invariant_to_dead_events():
 # Realistic weight_events truncation case (MA)
 # ---------------------------------------------------------------------
 
-def _windowed_ma_inputs(n_events: int, seed: int):
+def _swept_ma_inputs(n_events: int, seed: int):
     rng = np.random.default_rng(seed)
     pitches = rng.uniform(60.0, 84.0, size=(1, n_events))
     times = np.arange(n_events, dtype=float) * 0.25
@@ -277,7 +277,7 @@ def test_renyi2_ma_windowed_matches_manual_prune():
     """
     mpt.set_default(truncation_sigmas=3.0)
     n_events = 600
-    p_w, w_w, g_w = _windowed_ma_inputs(n_events, seed=2)
+    p_w, w_w, g_w = _swept_ma_inputs(n_events, seed=2)
 
     # weight_events(drop_input_attr=True) removes the time attribute, so the
     # windowed density carries a single multiset (pitch) whose column was
@@ -305,7 +305,7 @@ def test_renyi2_ma_windowed_bounded_time():
     """
     mpt.set_default(truncation_sigmas=3.0)
     n_events = 3000
-    p_w, w_w, g_w = _windowed_ma_inputs(n_events, seed=3)
+    p_w, w_w, g_w = _swept_ma_inputs(n_events, seed=3)
     d = build_maet(p_w, w_w, [0.5], [1], 
                        [False], [False], [0.0], verbose=False)
     t0 = time.time()

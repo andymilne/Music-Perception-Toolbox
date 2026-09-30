@@ -9,8 +9,9 @@ function pm = readPreMaet(source, varargin)
 %
 %   The cells use the notation of the article and of showPreMaet: braces
 %   for an unordered multiset, parentheses for an ordered one, brackets
-%   within brackets for a nested attribute, and 60^(0.6) for a weighted
-%   value. writePreMaet is the inverse, so a pre-MAET survives a round
+%   within brackets for a nested attribute, 60^(0.6) for a weighted
+%   value, and _ for an empty slot of an ordered attribute, so (_, 65)
+%   puts 65 in the second slot. writePreMaet is the inverse, so a pre-MAET survives a round
 %   trip through a spreadsheet unchanged.
 %
 %   The header is fixed: name, sigma, r, rel, per, P, exch followed by one

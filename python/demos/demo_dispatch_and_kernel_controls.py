@@ -13,7 +13,7 @@ A tour of the toolbox's performance controls:
   3. Sweeps -- the similarity at many translations of a query is
      computed in one pass by `sweep_sim_maet` (mixture, orbit, or
      contraction route), not one comparison per offset;
-     `windowed_similarity` takes the same routes automatically.
+     `swept_similarity` takes the same routes automatically.
   4. Kernel truncation -- `truncation_sigmas` skips Gaussian
      contributions beyond k standard deviations from a centre.
   5. Single-precision kernel -- `kernel_precision='single'` casts the
@@ -33,7 +33,7 @@ The MATLAB mirror is demo_dispatchAndKernelControls.m.
 
 # ---- user-adjustable parameters ----
 N_EVENTS = 20         # number of source events per density
-R = 3                 # tensor order
+R = 3                 # tuple size
 SIGMA = 30.0          # Gaussian uncertainty (cents)
 N_REPEATS = 3         # repetitions per timing measurement
 RNG_SEED = 0
@@ -176,8 +176,8 @@ print(mpt.explain_dispatch(dens_nx, dens_ny))
 # evaluates the Möbius inner product at the shifted values; the
 # 'contract' route (densities with a nested attribute) carries the
 # offsets through the level-by-level contraction. 'auto' picks. The
-# same routes serve windowed_similarity wherever its window does not
-# move with the query (see demo_translate_sweep).
+# same routes serve swept_similarity wherever the context is the
+# same at every translation (see demo_swept_similarity).
 
 print(f"\n=== 3. Sweeps (41 translations of the query) ===\n")
 

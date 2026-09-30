@@ -43,7 +43,7 @@
 % rhythm, so under A1 it scores a full match --- a false positive of a
 % pitch-only comparison. Comparing the rhythm as well sends it to nearly
 % zero while leaving the closing run alone; this is the same call with
-% 'dropWindowAttr', false.
+% the onset attribute kept in the comparison rather than dropped.
 %
 % Pre-MAET structure:
 %
@@ -59,7 +59,7 @@
 %
 % Data: jmm.acknowledgement (the solo, from your own MIDI transcription at
 % data/AwakeningSolo.mid). Toolbox: preMaetFromAttrTable, addSpectra,
-% bindEvents, windowedSimilarity. Runtime: a few minutes (about four on
+% bindEvents, sweptSimilarity. Runtime: a few minutes (about four on
 % two cores), three of them the two spectral panels; the spectral
 % pitch-offset sweep alone is some 80,000 windowed comparisons of
 % twelve-partial super-events.
@@ -94,7 +94,7 @@ WIN           = 0.6;     % full support of the rectangular time window (QN)
 Q_ROOT        = 56;      % query root (MIDI); offset 0 reads as this root
 ALS_IV        = [0 3 0 5];           % the motif, from its root
 MOTIF_ONSETS  = [0 0.5 1.5 2.0];     % its rhythm: (0.5, 1.0, 0.5) QN
-CENTRE_STEP   = 0.5;     % QN between window centres; below the window's
+SWEEP_STEP    = 0.5;     % QN between sweep values; below the window's
                          % support, so every position of the passage is covered
 OFFSETS       = -14:0.5:14;          % semitones, for B1 and B2
 BEATS_PER_BAR = 4;       % 4/4 throughout
@@ -102,12 +102,12 @@ BEATS_PER_BAR = 4;       % 4/4 throughout
 C_FUND = [0.122 0.306 0.722];
 C_SPEC = [0.761 0.314 0.031];
 
-% --- the passage, the query, and the window centres -------------------------
+% --- the passage, the query, and the sweep values ---------------------------
 notes = jmm.acknowledgement();
 onset = notes.onsetBeats;
-centres = min(onset):CENTRE_STEP:max(onset);
-fprintf('%d notes; span %.1f QN; %d window centres\n', ...
-        height(notes), max(onset), numel(centres));
+sweepValues = min(onset):SWEEP_STEP:max(onset);
+fprintf('%d notes; span %.1f QN; %d sweep values\n', ...
+        height(notes), max(onset), numel(sweepValues));
 
 % The query is a four-note score carrying the motif's own rhythm, and goes
 % through the same steps as the passage below. Where onset time is dropped
@@ -160,40 +160,42 @@ showPreMaet(qryRelFund, 'maxEvents', 1);
 showPreMaet(qryRelSpec, 'maxEvents', 1, 'decimals', 2);
 
 % --- A1 and A2: transposition-invariant similarity against time ------------
-% The window attribute is time, attribute 2: a rectangular window of full support
-% WIN slides over the passage. Onset time is dropped from the comparison
-% ('dropWindowAttr', true), so it only places the window, on the group's
-% first onset ('locate', 'start'), which lands each peak on the statement's
-% onset. Pitch is then the sole compared attribute.
+% The window attribute is time, attribute 2: a rectangular window of full
+% support WIN is aligned at each sweep value ('align', 'window').
+% Onset time is dropped from the comparison ('drop', 2), so it only places
+% the window, evaluated at the group's first onset ('locate', 'start'),
+% which lands each peak on the statement's onset. Pitch is then the sole
+% compared attribute.
 fprintf('computing A1 (fundamental, relative) ...\n');
-A1 = windowedSimilarity(ctxRelFund, qryRelFund, centres, ...
-    'contextWindow', {'rect', WIN}, 'windowAttr', 2, ...
-    'dropWindowAttr', true, 'locate', 'start', ...
-    'normalize', 'oneSidedDenom');
+A1 = sweptSimilarity(ctxRelFund, qryRelFund, 'sweep', {2, sweepValues}, ...
+    'align', {2, 'window'}, 'window', {2, {'rect', WIN}}, 'drop', 2, ...
+    'locate', 'start', 'normalize', 'oneSidedDenom');
 fprintf('computing A2 (spectral, relative) ...\n');
-A2 = windowedSimilarity(ctxRelSpec, qryRelSpec, centres, ...
-    'contextWindow', {'rect', WIN}, 'windowAttr', 2, ...
-    'dropWindowAttr', true, 'locate', 'start', ...
-    'normalize', 'oneSidedDenom');
+A2 = sweptSimilarity(ctxRelSpec, qryRelSpec, 'sweep', {2, sweepValues}, ...
+    'align', {2, 'window'}, 'window', {2, {'rect', WIN}}, 'drop', 2, ...
+    'locate', 'start', 'normalize', 'oneSidedDenom');
 
 % --- B1 and B2: pitch offset by time ---------------------------------------
-% One call moves the query over both attributes at once: pitch
-% (attribute 1) is translated by the transposition offsets and compared,
-% with no window; time (attribute 2) is the window attribute, the window
-% placed at each centre and time then marginalized, exactly as in A1 and
-% A2. An offset is measured from the query as written, so offset 0 is the
-% untransposed query (root 56). Pitch has no window, so at each centre
-% the offsets are computed in one pass (for the nested spectral attribute
-% of B2, level by level).
+% One call sweeps both attributes at once: pitch (attribute 1) translates
+% the query only ('align', 'query'), with no window, and is compared;
+% time (attribute 2) sweeps the window only, aligned at each sweep value
+% and then marginalized, exactly as in A1 and A2. With no window on
+% pitch, each pitch sweep value is the transposition added to the query as
+% written (queryRef defaults to 0 there), so 0 is the untransposed query
+% (root 56). Pitch has no window, so at
+% each time sweep value the transpositions are computed in one pass (for
+% the nested spectral attribute of B2, level by level).
 fprintf('computing B1 (fundamental, absolute) ...\n');
-B1 = windowedSimilarity(ctxAbsFund, qryAbsFund, [], ...
-    'offsets', {1, OFFSETS}, 'sweep', {2, centres}, 'drop', {2, true}, ...
-    'contextWindow', {2, struct('shape', 'rect', 'width', WIN)}, ...
+B1 = sweptSimilarity(ctxAbsFund, qryAbsFund, ...
+    'sweep', {1, OFFSETS; 2, sweepValues}, ...
+    'align', {1, 'query'; 2, 'window'}, ...
+    'drop', 2, 'window', {2, {'rect', WIN}}, ...
     'locate', {2, 'start'}, 'normalize', 'oneSidedDenom');
 fprintf('computing B2 (spectral, absolute) ...\n');
-B2 = windowedSimilarity(ctxAbsSpec, qryAbsSpec, [], ...
-    'offsets', {1, OFFSETS}, 'sweep', {2, centres}, 'drop', {2, true}, ...
-    'contextWindow', {2, struct('shape', 'rect', 'width', WIN)}, ...
+B2 = sweptSimilarity(ctxAbsSpec, qryAbsSpec, ...
+    'sweep', {1, OFFSETS; 2, sweepValues}, ...
+    'align', {1, 'query'; 2, 'window'}, ...
+    'drop', 2, 'window', {2, {'rect', WIN}}, ...
     'locate', {2, 'start'}, 'normalize', 'oneSidedDenom');
 
 panelTags = {'A1', 'A2', 'B1', 'B2'};
@@ -208,25 +210,26 @@ fprintf('A1 vs A2 correlation: %.4f; max|A2 - A1| = %.3f\n', ...
         rho12(1, 2), max(abs(A2 - A1)));
 
 % --- the rhythm-aware reading -----------------------------------------------
-% A1's call again, with the onset attribute compared rather than dropped
-% ('dropWindowAttr', false): a match must then reproduce the motif's rhythm,
-% which the query carries, as well as its pitch pattern.
-Aj = windowedSimilarity(ctxRelFund, qryRelFund, centres, ...
-    'contextWindow', {'rect', WIN}, 'windowAttr', 2, ...
-    'dropWindowAttr', false, 'locate', 'start', ...
-    'normalize', 'oneSidedDenom');
-early = centres < 250;
+% A1's call again, with the onset attribute kept in the comparison rather
+% than dropped. Onset is relative, so it is compared through its
+% within-tuple differences, the query's inter-onset intervals, and the
+% query needs no translating ('align', 'window' still): a match must then
+% reproduce the motif's rhythm as well as its pitch pattern.
+Aj = sweptSimilarity(ctxRelFund, qryRelFund, 'sweep', {2, sweepValues}, ...
+    'align', {2, 'window'}, 'window', {2, {'rect', WIN}}, ...
+    'locate', 'start', 'normalize', 'oneSidedDenom');
+early = sweepValues < 250;
 [bestEarly, iEarly] = max(A1(early));
-earlyCentres = centres(early);
+earlyValues = sweepValues(early);
 fprintf(['\nthe early statement, bar %d: pitch-only match %.3f, match ' ...
          'with the rhythm compared %.3f\n'], ...
-        floor(earlyCentres(iEarly) / BEATS_PER_BAR) + 1, bestEarly, max(Aj(early)));
+        floor(earlyValues(iEarly) / BEATS_PER_BAR) + 1, bestEarly, max(Aj(early)));
 fprintf(['whole passage: %d unit matches on pitch alone, %d with the ' ...
          'rhythm compared\n'], sum(A1 > 0.99), sum(Aj > 0.99));
 
 % --- figure -----------------------------------------------------------------
 % Bar numbers from 1: bar b spans the axis from b to b + 1.
-bars = centres / BEATS_PER_BAR + 1;
+bars = sweepValues / BEATS_PER_BAR + 1;
 fig = figure('Position', [50 50 1300 620], 'Color', 'w');
 axA1 = axes('Parent', fig, 'Position', [0.09 0.62 0.38 0.29]);
 axA2 = axes('Parent', fig, 'Position', [0.55 0.62 0.38 0.29]);

@@ -152,7 +152,7 @@ results{end,2}   = abs(entropyMaet(pmK, 'method', 'renyi2', ...
 results{end+1,1} = 'packPreMaet: simMaet takes a pre-MAET'; %#ok<SAGROW>
 results{end,2}   = abs(simMaet(pmK, pmK, 'verbose', false) - 1) < 1e-10;
 
-% ---- windowedSimilarity and windowedEntropy take whole pre-MAETs ----
+% ---- sweptSimilarity and sweptEntropy take whole pre-MAETs ----
 
 pWC = {[60 64 67 60 64 67], [0 1 2 5 6 7]};
 pWQ = {[60 64 67], [0 1 2]};
@@ -163,37 +163,39 @@ spW = {struct('name','pitch','r',1,'rel',false,'exch',true, ...
 pmWC = packPreMaet(pWC, [], spW);
 pmWQ = packPreMaet(pWQ, [], spW);
 ctrW = 0:0.5:7;
-kwW  = {'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false};
+kwW  = {'sweep', {2, ctrW}, 'align', {2, 'both'}, ...
+        'window', {2, {'rect', 2.5}}, 'verbose', false};
 
-wsPm  = windowedSimilarity(pmWC, pmWQ, ctrW, kwW{:});
-wsPos = windowedSimilarity(pWC, [], pWQ, [], [0.5 0.25], [1 1], ...
-    [false false], [true false], [12 0], ctrW, kwW{:});
-results{end+1,1} = 'packPreMaet: windowedSimilarity matches the positional form'; %#ok<SAGROW>
+wsPm  = sweptSimilarity(pmWC, pmWQ, kwW{:});
+wsPos = sweptSimilarity(pWC, [], pWQ, [], [0.5 0.25], [1 1], ...
+    [false false], [true false], [12 0], kwW{:});
+results{end+1,1} = 'packPreMaet: sweptSimilarity matches the positional form'; %#ok<SAGROW>
 results{end,2}   = isequal(size(wsPm), size(wsPos)) ...
                    && max(abs(wsPm - wsPos)) == 0;
 
-kwE = [kwW, {'contextWindow', {0, 2}, 'method', 'renyi2'}];
-wePm  = windowedEntropy(pmWC, ctrW, kwE{:});
-wePos = windowedEntropy(pWC, [], [0.5 0.25], [1 1], [false false], ...
-    [true false], [12 0], ctrW, kwE{:});
-results{end+1,1} = 'packPreMaet: windowedEntropy matches the positional form'; %#ok<SAGROW>
+kwE = {'sweep', {2, ctrW}, 'window', {2, {0, 2}}, 'method', 'renyi2', ...
+       'verbose', false};
+wePm  = sweptEntropy(pmWC, kwE{:});
+wePos = sweptEntropy(pWC, [], [0.5 0.25], [1 1], [false false], ...
+    [true false], [12 0], kwE{:});
+results{end+1,1} = 'packPreMaet: sweptEntropy matches the positional form'; %#ok<SAGROW>
 results{end,2}   = max(abs(wePm - wePos)) == 0;
 
-wsSel = windowedSimilarity(pmWC, pmWQ, ctrW, 'sigma', {2, []}, kwW{:});
-wsRef = windowedSimilarity(pWC, [], pWQ, [], [2 0.25], [1 1], ...
-    [false false], [true false], [12 0], ctrW, kwW{:});
+wsSel = sweptSimilarity(pmWC, pmWQ, 'sigma', {2, []}, kwW{:});
+wsRef = sweptSimilarity(pWC, [], pWQ, [], [2 0.25], [1 1], ...
+    [false false], [true false], [12 0], kwW{:});
 results{end+1,1} = 'packPreMaet: selective override sweeps one attribute'; %#ok<SAGROW>
 results{end,2}   = max(abs(wsSel - wsRef)) == 0 ...
                    && max(abs(wsSel - wsPm)) > 1e-6;
 
 results{end+1,1} = 'packPreMaet: windowed form requires specs'; %#ok<SAGROW>
-results{end,2}   = throwsError(@() windowedSimilarity(packPreMaet(pWC), ...
-    packPreMaet(pWQ), ctrW, kwW{:}));
+results{end,2}   = throwsError(@() sweptSimilarity(packPreMaet(pWC), ...
+    packPreMaet(pWQ), kwW{:}));
 
 spW2 = spW; spW2{1}.rel = true;
 results{end+1,1} = 'packPreMaet: windowed form requires agreeing geometry'; %#ok<SAGROW>
-results{end,2}   = throwsError(@() windowedSimilarity(pmWC, ...
-    packPreMaet(pWQ, [], spW2), ctrW, kwW{:}));
+results{end,2}   = throwsError(@() sweptSimilarity(pmWC, ...
+    packPreMaet(pWQ, [], spW2), kwW{:}));
 
 % ---- a nested query may hold fewer values than the context ----------
 % The two sides of one comparison share the nesting they are read under,
@@ -210,9 +212,9 @@ nqC = nqBind(nqCtx, nqAxC);
 nqQ = nqBind(nqQry, nqAxQ);
 nqPAttr = unpackPreMaet(nqC);
 nqCentres = nqPAttr{2};
-nqOut = windowedSimilarity(nqC, nqQ, nqCentres, ...
-    'contextWindow', {1.0, 1.0}, 'windowAttr', 2, ...
-    'dropWindowAttr', true, 'normalize', 'oneSidedDenom', 'verbose', false);
+nqOut = sweptSimilarity(nqC, nqQ, 'sweep', {2, nqCentres}, ...
+    'align', {2, 'window'}, 'window', {2, {1.0, 1.0}}, 'drop', 2, ...
+    'normalize', 'oneSidedDenom', 'verbose', false);
 nqOut = nqOut(:).';
 nqDirect = zeros(1, numel(nqCentres));
 nqQD = buildMaet(selectPreMaet(nqQ, 'attributes', 1), 'verbose', false);
@@ -233,9 +235,9 @@ nqNest = bindEvents({nqQry}, [], 2, 'relOuter', true, ...
     'specs', flatSpecs({nqQry}, 'r', 1, 'rel', false, 'exch', true, ...
                        'sigma', 0.5));
 results{end+1,1} = 'packPreMaet: both sides must share the nesting'; %#ok<SAGROW>
-results{end,2}   = throwsError(@() windowedSimilarity(nqNest, nqFlat, 0, ...
-    'contextWindow', {1.0, 1.0}, 'windowAttr', 1, ...
-    'dropWindowAttr', false, 'verbose', false));
+results{end,2}   = throwsError(@() sweptSimilarity(nqNest, nqFlat, ...
+    'sweep', {1, 0}, 'align', {1, 'both'}, 'window', {1, {1.0, 1.0}}, ...
+    'verbose', false));
 
 % ---- a cell of pre-MAETs stands wherever a cell of densities does ----
 
@@ -262,22 +264,19 @@ refEv = evalMaet({dL1, dL2}, Xq2, 'verbose', false);
 results{end+1,1} = 'packPreMaet: evalMaet takes a cell'; %#ok<SAGROW>
 results{end,2}   = abs(gotEv{1} - refEv{1}) == 0 && abs(gotEv{2} - refEv{2}) == 0;
 
-% translateAttributes' sweep form carries one pre-MAET whose pAttr is a
-% 1 x M sweep; it stands as a cell of densities on the shared geometry.
-pmSweep = translateAttributes(pmL1, {[0 3 7], []});
-gotSw = simMaet(pmL1, pmSweep, 'verbose', false);
-refSw = cell(1, 3);
-for m = 1:3
-    refSw{m} = buildMaet( ...
-        packPreMaet(pmSweep.pAttr{m}, pmSweep.wAttr, pmSweep.specs), ...
-        'verbose', false);
-end
+% Translated copies, one translateAttributes call each, stand as a cell
+% of pre-MAETs, built on the shared geometry.
+copiesT = arrayfun(@(mu) translateAttributes(pmL1, {mu, []}), [0 3 7], ...
+                   'UniformOutput', false);
+gotSw = simMaet(pmL1, copiesT, 'verbose', false);
+refSw = cellfun(@(c) buildMaet(c, 'verbose', false), copiesT, ...
+                'UniformOutput', false);
 refSwS = simMaet(dL1, refSw, 'verbose', false);
 okSw = abs(gotSw{1} - 1) < 1e-12;
 for m = 1:3
     okSw = okSw && abs(gotSw{m} - refSwS{m}) == 0;
 end
-results{end+1,1} = 'packPreMaet: a sweep pre-MAET is a cell of densities'; %#ok<SAGROW>
+results{end+1,1} = 'packPreMaet: translated copies stand as a cell'; %#ok<SAGROW>
 results{end,2}   = okSw;
 
 % ---- r / rel / exch overrides ----

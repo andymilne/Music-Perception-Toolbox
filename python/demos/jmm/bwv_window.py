@@ -23,7 +23,7 @@ nested multisets"):
   sigma_flag = 0.1) carried by query and context alike.
 
 Context and queries are bound with the toolbox's ``bind_events``; the
-demo compares them with ``windowed_similarity``. ``show_pre_maet`` is
+demo compares them with ``swept_similarity``. ``show_pre_maet`` is
 re-exported for the demo. Data come from ``jmm_data`` (the bundled
 MusicXML read with ``mpt.read_score``).
 """

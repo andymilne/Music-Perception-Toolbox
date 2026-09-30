@@ -56,7 +56,11 @@ function pm = transformAttributes(varargin)
 %                            struct('from', ..., 'to', ...).
 %     @f                   - a function handle applied to the attribute's
 %                            K_total x N value matrix; the result must have
-%                            the same shape and be finite everywhere.
+%                            the same shape and be finite wherever the
+%                            matrix holds a value.
+%
+%   Slots holding no value (NaN, the padding of events with fewer values
+%   than others) pass through unchanged.
 %
 %   Domain. Values outside a transform's domain are refused with a message
 %   naming the attribute and events and the remedies. In particular a zero
@@ -247,10 +251,13 @@ for a = 1:A
         end
         continue;
     end
-    if ~all(isfinite(x(:)))
+    % NaN marks a slot holding no value (the padding of events with
+    % fewer values than others); it is carried through unchanged.
+    absent = isnan(x);
+    if any(isinf(x(:)))
         error('transformAttributes:nonFiniteInput', ...
-              '%s: values must be finite; non-finite at %s.', ...
-              localAttrLabel(a, specsIn{a}), localOffending(~isfinite(x)));
+              '%s: values must be finite or NaN (no value); infinite at %s.', ...
+              localAttrLabel(a, specsIn{a}), localOffending(isinf(x)));
     end
     if signV(a)
         src = abs(x);
@@ -265,7 +272,8 @@ for a = 1:A
               localAttrLabel(a, specsIn{a}), tr.label, ...
               num2str(size(y)), num2str(size(x)));
     end
-    bad = ~isfinite(y);
+    bad = ~isfinite(y) & ~absent;
+    y(absent) = NaN;
     if any(bad(:))
         vals = src(bad);
         error('transformAttributes:nonFiniteOutput', ...

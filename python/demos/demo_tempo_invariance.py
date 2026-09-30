@@ -2,7 +2,7 @@
 
 Anisotropic kernels for tempo tolerance and tempo invariance:
 searching for a rhythmic motif in an onset stream with
-`kernel_cov` and `windowed_similarity`.
+`kernel_cov` and `swept_similarity`.
 
 A matrix-valued kernel covariance (accepted wherever `sigma` is, on an
 ordered, absolute, non-periodic, non-nested attribute whose tuple is
@@ -54,7 +54,7 @@ Each candidate rhythm occupies a 3-interval cell; the stream is scanned
 by its overlapping log-IOI trigrams, each an ordered K = 3 element
 multiset read at r = 3 (the matrix covariance requires r == K), with
 an onset time as a second attribute that only places the sliding
-window (`window_attr`, `drop_window_attr=True`); each trigram is timed
+window (`align='window'`, then `drop`); each trigram is timed
 at the onset that completes its last interval, the stamp the
 difference/bind pipeline gives it (both operations end-align). The trigram
 attribute must be ORDERED: one foil is the motif reversed, which has
@@ -72,7 +72,7 @@ Four sections:
   2. Constructor  The three covariance terms, printed, and the penalty
                   each pure kernel puts on three canonical
                   perturbations of the motif.
-  3. The search   `windowed_similarity` sweeps over every trigram
+  3. The search   `swept_similarity` sweeps over every trigram
                   under six kernels; the candidate table contrasts
                   value (timing) tolerance with tempo tolerance,
                   and both with exact tempo invariance.
@@ -172,7 +172,7 @@ sp_bound_rel = mpt.bind_events(pm_diff, [3, 1], rel_outer=True)["specs"]
 # Two quantities read off the bound triple feed the search below:
 N_TRI = p_bound[0].shape[1]      # number of trigrams (windows to place)
 tri_times = p_bound[1].ravel()   # window-placing times (the sweep
-                                 # centres); trigram i is timed at
+                                 # values); trigram i is timed at
                                  # onsets[i + 3], the onset completing it
 
 # Presentation only -- no effect on the search, which is blind to cell
@@ -334,19 +334,19 @@ print("  The large-shift kernel's within-shape term is matched to the")
 print("  rel kernel's sigma, so its enormous ridge should reproduce the")
 print("  rel column almost exactly (Section 4 gives the limit argument).")
 
-# One windowed_similarity sweep per kernel. The rect window (full
+# One swept_similarity sweep per kernel. The rect window (full
 # width 0.1 s, narrower than the smallest trigram spacing of 0.125 s)
-# restricts each comparison to the single trigram at its centre; the
-# time attribute only places the window and is dropped from the
-# comparison, so each profile value is the plain similarity of that
-# trigram to the query under the kernel. The search itself uses no
-# knowledge of where the cells sit: every event of the stream starts a
-# candidate trigram and receives a window, boundary-straddling
-# trigrams included. Window centres are anchored
-# to the trigram times rather than laid on a uniform grid, so
-# their spacing follows the stream's own inter-onset intervals --
-# denser where the music is faster, widest across the silences. A
-# uniform grid (available via start/stop/step) would add nothing at
+# restricts each comparison to the single trigram it is aligned at; the
+# time attribute only places the window (align='window') and is
+# dropped from the comparison, so each profile value is the plain
+# similarity of that trigram to the query under the kernel. The search
+# itself uses no knowledge of where the cells sit: every event of the
+# stream starts a candidate trigram and receives a window,
+# boundary-straddling trigrams included. The sweep values are the
+# trigram times rather than a uniform grid, so their spacing follows
+# the stream's own inter-onset intervals -- denser where the music is
+# faster, widest across the silences. A uniform grid (available via
+# start/stop/step) would add nothing at
 # this window width: a window containing one trigram returns that
 # trigram's similarity wherever within its span the window is placed,
 # and a window containing none returns zero, its context density
@@ -367,12 +367,12 @@ print()
 
 profiles = {}
 for kname, _, kw in KERNELS:
-    profiles[kname] = mpt.windowed_similarity(
+    profiles[kname] = mpt.swept_similarity(
         p_context, w_context, p_query, w_query,
         [kw["sigma"], 0.25], [3, 1], [False, False],
         [False, False], [0.0, 0.0],
-        specs=[kw["spec"], sp_bound[1]], centres=tri_times, window_attr=1,
-        drop_window_attr=True, context_window=("rect", 0.1),
+        specs=[kw["spec"], sp_bound[1]], sweep={1: tri_times},
+        align={1: "window"}, drop=[1], window={1: ("rect", 0.1)},
         normalize="oneSidedDenom", verbose=False)
 
 print("\n  Profile at each cell's own trigram:\n")

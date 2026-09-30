@@ -1,14 +1,15 @@
-function args = windowedPreMaetArgs(args, fname, nPre)
-%WINDOWEDPREMAETARGS  Expand pre-MAET arguments into the positional form.
+function args = sweptPreMaetArgs(args, fname, nPre)
+%SWEPTPREMAETARGS  Expand pre-MAET arguments into the positional form.
 %
-%   windowedSimilarity and windowedEntropy take their geometry
+%   sweptSimilarity and sweptEntropy take their geometry
 %   positionally, as vectors shared by both operands. Given whole
 %   pre-MAETs instead, this reads the shared geometry out of their specs,
 %   applies any of the six per-attribute overrides passed as name-value
 %   arguments, and returns the call in the positional form the workers
-%   already speak.
+%   already speak. Attributes given per event are converted to their
+%   NaN-padded matrices in either form.
 %
-%   The two pre-MAETs of windowedSimilarity describe one comparison, so
+%   The two pre-MAETs of sweptSimilarity describe one comparison, so
 %   they must agree on the structural geometry: same attribute count, and
 %   the same r, [rel], [exch], and nesting on every attribute. The context
 %   supplies the geometry; a disagreement is an error rather than a silent
@@ -22,7 +23,7 @@ function args = windowedPreMaetArgs(args, fname, nPre)
 %       args  - 1 x n cell of the arguments as received.
 %       fname - caller's name, for error messages.
 %       nPre  - number of pre-MAET operands the caller takes (2 for
-%               windowedSimilarity, 1 for windowedEntropy).
+%               sweptSimilarity, 1 for sweptEntropy).
 %
 %   Output
 %       args - the arguments with each pre-MAET replaced by its pAttr and
@@ -30,7 +31,14 @@ function args = windowedPreMaetArgs(args, fname, nPre)
 %              the overriding name-value arguments removed.
 
 if numel(args) < nPre || ~internal.isPreMaet(args{1})
-    return;                                  % positional form; unchanged
+    % Positional form: only the per-event attributes are converted.
+    for k = 1:nPre
+        if numel(args) >= 2*k
+            [args{2*k - 1}, args{2*k}] = ...
+                internal.perEventParts(args{2*k - 1}, args{2*k});
+        end
+    end
+    return;
 end
 for k = 2:nPre
     if ~internal.isPreMaet(args{k})
@@ -71,8 +79,8 @@ period = internal.resolveKernelParam(kw.period, specKernel.period, ...
 
 parts = cell(1, 2 * nPre);
 for k = 1:nPre
-    parts{2*k - 1} = pms{k}.pAttr;
-    parts{2*k}     = pms{k}.wAttr;
+    [parts{2*k - 1}, parts{2*k}] = ...
+        internal.perEventParts(pms{k}.pAttr, pms{k}.wAttr);
 end
 args = [parts, {sigma, rVec, isRelVec, isPer, period}, rest];
 if any(~cellfun(@isempty, nestedList))

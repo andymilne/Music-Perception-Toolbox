@@ -15,7 +15,7 @@ This module hosts the small preprocessing layer that sits *before*
 It also exposes :func:`simplex_vertices`, the categorical-encoding
 helper for level-symmetric MAET inputs.
 
-See USER_GUIDE §7.3 ("Pre-MAET processing") for the conceptual
+See USER_GUIDE §7 ("Preprocessing") for the conceptual
 introduction and :doc:`/ARCHITECTURE` §2 for the layering.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ import numpy as np
 from scipy.special import erf as _erf
 
 from .._utils import validate_weights
-from .premaet import make_pre_maet, pack_pre_maet, shift_lead
+from .premaet import pack_pre_maet, shift_lead
 
 
 class TranslateAttributesNoOpWarning(UserWarning):
@@ -79,7 +79,7 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
     kernel width: ``sigma`` on an attribute of order ``k_a`` is scaled by
     ``sqrt(C(2 k_a, k_a))`` (``sqrt(2)`` for a first difference), the width
     of a difference of independent values, and the scaling is announced
-    while ``show_hints`` is on (User Guide §7.4.3). The level structure (``tags``, ``r``, ``exch``,
+    while ``show_hints`` is on (User Guide §6.3). The level structure (``tags``, ``r``, ``exch``,
     ``rel``) passes through unchanged. Output values are raw; periodic
     wrapping, when desired, is the kernel's job in :func:`build_maet`.
 
@@ -102,7 +102,8 @@ def difference_events(p_attr, w_attr=None, diff_orders=None, *,
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
     p_attr : list/tuple of array-like
-        Length-A list of ``(K_a, N)`` per-attribute value matrices.
+        Length-A list of ``(K_a, N)`` per-attribute value matrices, or of
+        attributes given per event (see :func:`pack_pre_maet`).
         ``K_a >= 1``; ``K_a = 0`` is rejected. ``K_a > 1`` is differenced
         index by index when the attribute is ordered (see above).
     w_attr : None, scalar, or length-A list
@@ -493,8 +494,9 @@ def flat_specs(p_attr, *, r=1, rel=False, exch=True, name=None,
     Parameters
     ----------
     p_attr : list/tuple of array-like
-        Length-A list of per-attribute value matrices (used only for its
-        length A; values are not inspected).
+        Length-A list of attributes, each given per event or as a matrix
+        (see :func:`pack_pre_maet`); used only for its length A, the
+        values not being inspected.
     r : int or length-A, keyword-only
         Per-attribute tuple size (default 1).
     rel, exch : bool or length-A, keyword-only
@@ -657,7 +659,7 @@ def bind_events(
                                          # four onsets, an ordered tuple
 
     The second carries the rhythm (and lets ``locate`` in
-    :func:`windowed_similarity` or :func:`windowed_entropy` choose among
+    :func:`swept_similarity` or :func:`swept_entropy` choose among
     the onsets); the first carries only a position. A scalar
     ``bind_orders`` applies to every attribute, so ``bind_events(pm, 4)``
     is the second form.
@@ -698,7 +700,8 @@ def bind_events(
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
     p_attr : list/tuple of array-like
-        Length-A list of ``(K_a, N)`` per-attribute value matrices.
+        Length-A list of ``(K_a, N)`` per-attribute value matrices, or of
+        attributes given per event (see :func:`pack_pre_maet`).
     w_attr : None, scalar, or length-A list
         Weights (same convention as :func:`build_maet`). Each bound
         attribute's value weights are the windowed-and-stacked input
@@ -1261,12 +1264,15 @@ def weight_events(
     alpha=0.5,
     is_per=False,
     period=0.0,
+    locate="centroid",
+    edges=None,
     drop_input_attr,
 ) -> tuple:
     r"""Apply a per-event weight via an input-to-target window factor.
 
-    Per-event preprocessing for multi-attribute tensor input. Reads the
-    K=1 value at every event from ``input_attr``, evaluates the profile
+    Per-event preprocessing for multi-attribute tensor input. Reads one
+    value per event from ``input_attr`` (where an event holds several, the
+    one ``locate`` picks), evaluates the profile
     ``shape`` over those values, and writes the resulting
     :math:`(1, N)` per-event factor into the weight entry of
     ``target_attr``, multiplied into any existing weight already there.
@@ -1323,9 +1329,11 @@ def weight_events(
     - :math:`\gamma = 0`: pure Gaussian
       :math:`h(\delta) = \exp(-\delta^2 / (2 s^2))`.
     - :math:`\gamma = 1`: pure rectangle
-      :math:`h(\delta) = \mathbb{1}[|\delta| \le s\sqrt 3]`,
+      :math:`h(\delta) = \mathbb{1}[-s\sqrt 3 \le \delta < s\sqrt 3]`,
       i.e., total support :math:`2 s\sqrt 3` (equivalently
-      ``= width`` when the caller supplied ``width``).
+      ``= width`` when the caller supplied ``width``); half-open, so
+      rectangles a width apart share no event, unless
+      ``edges='closed'``.
 
     The window is peak-normalised so :math:`h(0) = 1`. For a periodic
     input group (``is_per=True``), the difference
@@ -1356,7 +1364,8 @@ def weight_events(
         ``w_attr`` and ``specs`` come from it and the positional
         arguments below move one place earlier.
     p_attr : list/tuple of array-like
-        Length-``A`` list of ``(K_a, N)`` per-attribute value matrices.
+        Length-``A`` list of ``(K_a, N)`` per-attribute value matrices, or
+        of attributes given per event (see :func:`pack_pre_maet`).
         ``K_a >= 1``.
     w_attr : None, scalar, or list/tuple
         Existing weights. ``None``, scalar, or length-``A`` list of
@@ -1372,8 +1381,9 @@ def weight_events(
         periodic input) ``is_per``/``period``.
     input_attr : int
         Index of the attribute supplying the window's values. Must
-        satisfy ``0 <= input_attr < A`` and the attribute's
-        ``K_input == 1`` (single value per event).
+        satisfy ``0 <= input_attr < A``. Where an event holds several
+        values there (the onsets of a bound super-event, say), ``locate``
+        picks the one the profile is evaluated at.
     target_attr : int
         Index of the attribute receiving the window factor in its
         weight entry. Must satisfy ``0 <= target_attr < A``. May equal
@@ -1412,6 +1422,18 @@ def weight_events(
         the input attribute's units. Internally translated to a
         standard deviation as ``sd = width / (2 sqrt(3))``. Exactly
         one of ``sd`` or ``width`` must be supplied.
+    locate : str or callable, keyword-only, default ``'centroid'``
+        The single value that stands for an event holding several values
+        on ``input_attr``: ``'centroid'`` (their mean), ``'start'`` (the
+        first), ``'end'`` (the last), ``'mid'`` (the midpoint of the first
+        and last), or a callable taking the ``(K, N)`` value matrix and
+        returning ``N`` values. No effect where each event holds one
+        value.
+    edges : {None, 'halfOpen', 'closed'}, keyword-only
+        For a rectangle (``shape = 1``): ``'halfOpen'`` (the default) keeps
+        the lower edge and not the upper, so rectangles a width apart
+        share no event; ``'closed'`` keeps both. Refused for other
+        profiles.
     drop_input_attr : bool, keyword-only, REQUIRED
         Whether to remove the input attribute from the output. If
         ``True`` and ``input_attr != target_attr``, drops the input
@@ -1499,12 +1521,6 @@ def weight_events(
         raise ValueError(
             f"input_attr must be in 0..{A - 1}; got {input_attr_int}."
         )
-    if p_attr[input_attr_int].shape[0] != 1:
-        raise ValueError(
-            f"input_attr {input_attr_int} has K = "
-            f"{p_attr[input_attr_int].shape[0]}; weight_events requires the "
-            f"input attribute to have K = 1 (single value per event)."
-        )
 
     # --- Validate target_attr ---
     if isinstance(target_attr, (bool, np.bool_)):
@@ -1544,34 +1560,127 @@ def weight_events(
     # --- Validate centre, the profile and its scale, is_per, period ---
     centre_f = (float("nan") if centre is None
                 else _scalarize(centre, "centre", dtype=float))
-    # Three profile kinds. A numeric shape is the rectangle-Gaussian
-    # family and takes exactly one of `sd` or `width`. A named
-    # exponential takes `sd` alone, having no finite support for a
-    # width to describe. A callable carries its own scale, so neither
-    # is accepted.
-    is_callable = callable(shape)
-    is_named = isinstance(shape, str)
-    is_anchored = is_named and shape in _ANCHORED_PROFILES
+    profile = _resolve_profile(
+        shape, sd=sd, width=width, decay_rate=decay_rate,
+        decay_rate_start=decay_rate_start, decay_rate_end=decay_rate_end,
+        alpha=alpha)
+    closed = _resolve_edges(edges, profile)
+    is_per_b = _scalarize(is_per, "is_per", dtype=bool)
+    period_f = _scalarize(period, "period", dtype=float)
+
+    if profile.kind == "anchored":
+        if centre is not None and np.isfinite(centre_f):
+            raise ValueError(
+                f"Profile {shape!r} anchors itself at the first and last "
+                f"events' values, so centre does not apply; pass None."
+            )
+    elif not np.isfinite(centre_f):
+        raise ValueError(f"centre must be finite; got {centre_f}.")
+    if is_per_b and period_f <= 0:
+        raise ValueError(
+            f"period must be > 0 when is_per is True; got {period_f}."
+        )
+
+    # --- Compute factor h(delta) from the input attribute's values ---
+    # Each event is represented by one value: its only value, or, where it
+    # holds several (a bound super-event's onsets), the one `locate` picks.
+    val_row = _locate_row(p_attr[input_attr_int], locate)  # (1, N)
+    factor = _weight_factor(val_row, centre_f, profile, is_per=is_per_b,
+                            period=period_f, closed=closed)
+
+    # --- Normalise w to length-A list; multiply factor into target entry ---
+    w_out = _normalise_weights_to_list(w, A)
+    w_out[target_attr_int] = _multiply_weights(
+        w_out[target_attr_int], factor, target_attr_int,
+    )
+
+    # --- Build output structures, applying drop_input_attr if requested ---
+    if drop_input_attr:
+        keep = [a for a in range(A) if a != input_attr_int]
+        p_attr_out = [p_attr[a] for a in keep]
+        w_out_kept = [w_out[a] for a in keep]
+        specs_out = [specs_in[a] for a in keep]
+    else:
+        p_attr_out = list(p_attr)
+        w_out_kept = list(w_out)
+        specs_out = list(specs_in)
+
+    return pack_pre_maet(p_attr_out, w_out_kept, specs_out)
+
+
+_WEIGHT_PROFILES = (
+    "exponential", "exponentialBefore", "exponentialAfter",
+    "exponentialFromStart", "exponentialFromEnd", "uShape", "uAsym",
+)
+
+#: Profiles anchored at the first and last events' values rather than
+#: at a centre.
+_ANCHORED_PROFILES = (
+    "exponentialFromStart", "exponentialFromEnd", "uShape", "uAsym",
+)
+
+
+#: Aliases for the two ends of the rectangle-Gaussian family.
+_SHAPE_ALIASES = {
+    "rect": 1.0, "rectangular": 1.0, "box": 1.0,
+    "gaussian": 0.0, "gauss": 0.0, "normal": 0.0,
+}
+
+_EDGES = ("halfOpen", "closed")
+
+
+class _Profile(tuple):
+    """A resolved weighting profile: ``(shape, sd, opts, kind)``.
+
+    ``kind`` is ``'family'`` (the rectangle-Gaussian family, ``shape`` its
+    gamma), ``'named'`` (a centre-anchored exponential), ``'anchored'`` (a
+    serial-position profile, anchored at the first and last events'
+    values), or ``'callable'``. ``sd`` is the profile's scale in the input
+    attribute's units (the decay constant for an exponential; NaN for a
+    callable)."""
+
+    __slots__ = ()
+
+    def __new__(cls, shape, sd, opts, kind):
+        return tuple.__new__(cls, (shape, sd, opts, kind))
+
+    shape = property(lambda self: self[0])
+    sd = property(lambda self: self[1])
+    opts = property(lambda self: self[2])
+    kind = property(lambda self: self[3])
+
+
+def _resolve_profile(shape, *, sd=None, width=None, decay_rate=None,
+                     decay_rate_start=None, decay_rate_end=None, alpha=0.5):
+    """Validate a weighting profile and its scale, as :func:`weight_events`
+    and the swept functions take them, and return a :class:`_Profile`.
+
+    Three kinds of profile. A numeric shape (or ``'rect'`` /
+    ``'gaussian'``) is the rectangle-Gaussian family and takes exactly one
+    of ``sd`` or ``width``. A named exponential takes ``sd`` or
+    ``decay_rate``, having no finite support for a width to describe. A
+    callable carries its own scale, so takes none of them."""
     alpha_f = _scalarize(alpha, "alpha", dtype=float)
     if not (0.0 <= alpha_f <= 1.0):
         raise ValueError(f"alpha must lie in [0, 1]; got {alpha_f}.")
     opts = {"tau": float("nan"), "tau_start": float("nan"),
             "tau_end": float("nan"), "alpha": alpha_f}
-    if is_callable:
+    if isinstance(shape, str) and shape.lower() in _SHAPE_ALIASES:
+        shape = _SHAPE_ALIASES[shape.lower()]
+    if callable(shape):
         if sd is not None or width is not None or decay_rate is not None:
             raise TypeError(
                 "A profile function carries its own scale, so `sd`, "
                 "`width`, and `decay_rate` are not accepted with one."
             )
-        sd_f = float("nan")
-        shape_f = shape
-    elif is_named:
+        return _Profile(shape, float("nan"), opts, "callable")
+    if isinstance(shape, str):
         if shape not in _WEIGHT_PROFILES:
             raise ValueError(
                 f"Unknown profile {shape!r}. Named profiles are "
-                f"{sorted(_WEIGHT_PROFILES)}; a numeric shape in [0, 1] "
-                f"selects the rectangle-Gaussian family, and a callable "
-                f"supplies any other profile."
+                f"{sorted(_WEIGHT_PROFILES)}; 'rect', 'gaussian', or a "
+                f"numeric shape in [0, 1] selects the rectangle-Gaussian "
+                f"family, and a callable supplies any other profile."
             )
         if width is not None:
             raise TypeError(
@@ -1619,110 +1728,126 @@ def weight_events(
                 "`decay_rate_start` and `decay_rate_end` apply to 'uAsym' "
                 f"alone; profile {shape!r} has one rate."
             )
-        shape_f = shape
-    else:
-        if decay_rate is not None or decay_rate_start is not None \
-                or decay_rate_end is not None:
-            raise TypeError(
-                "`decay_rate` and its asymmetric companions apply to the "
-                "named exponential profiles; the rectangle-Gaussian family "
-                "is scaled by `sd` or `width`."
-            )
-        # Exactly one of sd or width must be supplied. Convert width →
-        # sd internally; the rest of the body operates on sd_f.
-        if (sd is None) == (width is None):
-            raise TypeError(
-                "weight_events requires exactly one of `sd` or `width` "
-                "(keyword-only). `sd` is the window standard deviation; "
-                "`width` is the full support of the rectangle at "
-                "shape=1, equivalent to sd * 2 * sqrt(3). Got "
-                f"sd={sd!r}, width={width!r}."
-            )
-        if sd is not None:
-            sd_f = _scalarize(sd, "sd", dtype=float)
-            if not np.isfinite(sd_f) or sd_f <= 0:
-                raise ValueError(f"sd must be finite and > 0; got {sd_f}.")
-        else:
-            width_f = _scalarize(width, "width", dtype=float)
-            if not np.isfinite(width_f) or width_f <= 0:
-                raise ValueError(
-                    f"width must be finite and > 0; got {width_f}.")
-            sd_f = width_f / (2.0 * np.sqrt(3.0))
-        shape_f = _scalarize(shape, "shape", dtype=float)
-        if not (0.0 <= shape_f <= 1.0):
-            raise ValueError(
-                f"shape (gamma) must lie in [0, 1]: gamma = 0 is pure "
-                f"Gaussian, gamma = 1 is pure rectangle, intermediate "
-                f"values are the fixed-variance convolution family. Got "
-                f"{shape_f}."
-            )
-    is_per_b = _scalarize(is_per, "is_per", dtype=bool)
-    period_f = _scalarize(period, "period", dtype=float)
-
-    if is_anchored:
-        if centre is not None and np.isfinite(centre_f):
-            raise ValueError(
-                f"Profile {shape!r} anchors itself at the first and last "
-                f"events' values, so centre does not apply; pass None."
-            )
-    elif not np.isfinite(centre_f):
-        raise ValueError(f"centre must be finite; got {centre_f}.")
-    if is_per_b and period_f <= 0:
-        raise ValueError(
-            f"period must be > 0 when is_per is True; got {period_f}."
+        kind = "anchored" if shape in _ANCHORED_PROFILES else "named"
+        return _Profile(shape, sd_f, opts, kind)
+    if decay_rate is not None or decay_rate_start is not None \
+            or decay_rate_end is not None:
+        raise TypeError(
+            "`decay_rate` and its asymmetric companions apply to the "
+            "named exponential profiles; the rectangle-Gaussian family "
+            "is scaled by `sd` or `width`."
         )
-
-    # --- Compute factor h(delta) from input attribute values ---
-    val_row = p_attr[input_attr_int].astype(np.float64, copy=False)  # (1, N)
-    delta = val_row if is_anchored else val_row - centre_f
-    if is_per_b:
-        delta = delta - period_f * np.floor(delta / period_f + 0.5)
-    factor = _evaluate_weight_profile(val_row, delta, sd_f, shape_f, opts)  # (1, N)
-
-    # Truncate: zero factor entries whose distance exceeds
-    # truncation_sigmas · sd. Uniform convention with the kernel
-    # truncation in the IP/eval paths: at that distance a Gaussian
-    # window's value is exp(-truncation_sigmas² / 2), the same
-    # threshold the kernel truncation uses. Reads the global default
-    # so changes via mpt.set_default(truncation_sigmas=...) propagate
-    # without an extra kwarg. Per the truncation contract, math.inf
-    # resolves to the finite accuracy-floor width (the 1e-12 floor),
-    # so truncation always applies --- never a "disabled" state.
-    from .._defaults import get_default, resolve_truncation_sigmas
-    trunc_sig = resolve_truncation_sigmas(get_default('truncation_sigmas'))
-    if not is_callable and not is_anchored:
-        factor[np.abs(delta) > trunc_sig * sd_f] = 0.0
-
-    # --- Normalise w to length-A list; multiply factor into target entry ---
-    w_out = _normalise_weights_to_list(w, A)
-    w_out[target_attr_int] = _multiply_weights(
-        w_out[target_attr_int], factor, target_attr_int,
-    )
-
-    # --- Build output structures, applying drop_input_attr if requested ---
-    if drop_input_attr:
-        keep = [a for a in range(A) if a != input_attr_int]
-        p_attr_out = [p_attr[a] for a in keep]
-        w_out_kept = [w_out[a] for a in keep]
-        specs_out = [specs_in[a] for a in keep]
+    # Exactly one of sd or width must be supplied. Convert width -> sd.
+    if (sd is None) == (width is None):
+        raise TypeError(
+            "The rectangle-Gaussian family takes exactly one of `sd` or "
+            "`width`. `sd` is the window standard deviation; `width` is "
+            "the full support of the rectangle at shape=1, equivalent to "
+            f"sd * 2 * sqrt(3). Got sd={sd!r}, width={width!r}."
+        )
+    if sd is not None:
+        sd_f = _scalarize(sd, "sd", dtype=float)
+        if not np.isfinite(sd_f) or sd_f <= 0:
+            raise ValueError(f"sd must be finite and > 0; got {sd_f}.")
     else:
-        p_attr_out = list(p_attr)
-        w_out_kept = list(w_out)
-        specs_out = list(specs_in)
+        width_f = _scalarize(width, "width", dtype=float)
+        if not np.isfinite(width_f) or width_f <= 0:
+            raise ValueError(
+                f"width must be finite and > 0; got {width_f}.")
+        sd_f = width_f / (2.0 * np.sqrt(3.0))
+    shape_f = _scalarize(shape, "shape", dtype=float)
+    if not (0.0 <= shape_f <= 1.0):
+        raise ValueError(
+            f"shape (gamma) must lie in [0, 1]: gamma = 0 is pure "
+            f"Gaussian, gamma = 1 is pure rectangle, intermediate "
+            f"values are the fixed-variance convolution family. Got "
+            f"{shape_f}."
+        )
+    return _Profile(shape_f, sd_f, opts, "family")
 
-    return pack_pre_maet(p_attr_out, w_out_kept, specs_out)
+
+def _resolve_edges(edges, profile):
+    """Whether a rectangle includes its upper edge: ``edges`` is ``None``
+    or ``'halfOpen'`` (lower edge only, the default) or ``'closed'``
+    (both), and only a rectangle has edges to close."""
+    if edges is None:
+        return False
+    if edges not in _EDGES:
+        raise ValueError(
+            f"edges must be 'halfOpen' or 'closed'; got {edges!r}.")
+    if edges == "closed" and not (profile.kind == "family"
+                                  and profile.shape == 1.0):
+        raise ValueError(
+            "edges='closed' applies to a rectangle (shape 1) alone; the "
+            "other profiles have no edges to close.")
+    return edges == "closed"
 
 
-_WEIGHT_PROFILES = (
-    "exponential", "exponentialBefore", "exponentialAfter",
-    "exponentialFromStart", "exponentialFromEnd", "uShape", "uAsym",
-)
+def _locate_row(M, locate):
+    """Reduce a ``(K, N)`` attribute to one value per event, ``(1, N)``:
+    the values a weighting profile is evaluated at. ``'centroid'`` (the
+    mean), ``'start'`` (the first), ``'end'`` (the last), ``'mid'`` (the
+    midpoint of the first and last), or a callable taking the ``(K, N)``
+    matrix and returning ``N`` values. An attribute with one value per
+    event is returned as it is, whatever ``locate`` says."""
+    M = np.asarray(M, dtype=float)
+    if M.shape[0] == 1:
+        return M
+    if callable(locate):
+        return np.asarray(locate(M), dtype=float).reshape(1, -1)
+    if locate == "centroid":
+        return np.nanmean(M, axis=0, keepdims=True)
+    if locate == "start":
+        return M[0:1, :]
+    if locate == "end":
+        return M[-1:, :]
+    if locate == "mid":
+        return 0.5 * (M[0:1, :] + M[-1:, :])
+    raise ValueError(
+        f"locate must be 'centroid', 'start', 'end', 'mid', or a callable; "
+        f"got {locate!r}")
 
-#: Profiles anchored at the first and last events' values rather than
-#: at a centre.
-_ANCHORED_PROFILES = (
-    "exponentialFromStart", "exponentialFromEnd", "uShape", "uAsym",
-)
+
+def _weight_factor(val_row, reference, profile, *, is_per=False,
+                   period=0.0, closed=False):
+    """The per-event factor ``h(value - reference)``, shape ``(1, N)``, of
+    a resolved :class:`_Profile`: the one implementation of event
+    weighting, shared by :func:`weight_events` and the swept functions.
+
+    On a periodic attribute the displacement is wrapped to ``[-P/2, P/2)``.
+    A rectangle is half-open (its lower edge included, its upper not)
+    unless ``closed``. Entries farther than ``truncation_sigmas`` times the
+    profile's scale are hard-zeroed, as the kernel truncation does; a
+    callable or an anchored profile is not truncated."""
+    val_row = np.asarray(val_row, dtype=np.float64)
+    anchored = profile.kind == "anchored"
+    delta = val_row if anchored else val_row - reference
+    if is_per:
+        delta = delta - period * np.floor(delta / period + 0.5)
+    factor = np.array(_evaluate_weight_profile(
+        val_row, delta, profile.sd, profile.shape, profile.opts),
+        dtype=np.float64)
+    if closed:
+        # Both edges included: |delta| <= phi, with the same tolerance as
+        # the half-open test of _evaluate_shape.
+        phi = profile.sd * np.sqrt(3.0)
+        scale = max(abs(phi), 1.0)
+        if delta.size and np.any(np.isfinite(delta)):
+            scale = max(scale, float(np.nanmax(np.abs(delta))))
+        factor[np.abs(delta) <= phi + 1e-9 * scale] = 1.0
+    # Truncate: zero factor entries whose distance exceeds
+    # truncation_sigmas * sd. Uniform convention with the kernel
+    # truncation in the IP/eval paths: at that distance a Gaussian
+    # window's value is exp(-truncation_sigmas^2 / 2), the same
+    # threshold the kernel truncation uses. Per the truncation contract,
+    # math.inf resolves to the finite accuracy-floor width, so truncation
+    # always applies --- never a "disabled" state.
+    if profile.kind in ("family", "named"):
+        from .._defaults import get_default, resolve_truncation_sigmas
+        trunc_sig = resolve_truncation_sigmas(
+            get_default('truncation_sigmas'))
+        factor[np.abs(delta) > trunc_sig * profile.sd] = 0.0
+    return factor
 
 
 def _evaluate_weight_profile(vals, delta, sd, shape, opts):
@@ -1852,41 +1977,6 @@ def _evaluate_shape(delta, width, gamma):
 
 
 
-class TranslatedSweep(list):
-    """A translation sweep, carrying the offsets that produced it.
-
-    A plain ``list`` of length-*A* value-lists --- exactly what
-    :func:`translate_attributes` has always returned in sweep mode ---
-    with the generating offsets attached. Every existing consumer sees a
-    list and is unaffected; :func:`~mpt.sim_maet` reads the
-    attached offsets and, where they describe a uniform per-attribute
-    translation, evaluates the sweep as a mixture in the offset rather
-    than one inner product per entry.
-
-    The offsets are carried rather than recovered. Recovering them from
-    the translated values would mean comparing floating-point
-    differences against a tolerance, and no tolerance both admits every
-    honestly translated sweep and preserves the toolbox's parity floor;
-    reading them from the call that produced them has neither problem.
-
-    Attributes
-    ----------
-    sweep_offsets : ndarray
-        ``(A, M)`` array of per-attribute uniform translations, with
-        ``NaN`` in any (attribute, sweep index) cell whose offset was
-        not uniform across the attribute's positions.
-    sweep_base : list of ndarray
-        The length-*A* untranslated value matrices.
-    """
-
-    __slots__ = ("sweep_offsets", "sweep_base")
-
-    def __init__(self, entries, *, sweep_offsets, sweep_base):
-        super().__init__(entries)
-        self.sweep_offsets = sweep_offsets
-        self.sweep_base = sweep_base
-
-
 def _normalise_weights_to_list(w, A):
     """Coerce ``w`` to a length-A list, preserving entries."""
     if w is None:
@@ -1954,28 +2044,21 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     - scalar or 1-D length 1 --- broadcast to all ``K_total`` values.
     - 1-D length ``K_total`` --- per-value (typed as a plain vector; it is
       aligned to the rows internally, no transpose needed).
-    - 2-D ``(1, M)`` --- a per-sweep global shift: one scalar per sweep
-      index, broadcast across values.
-    - 2-D ``(K_total, M)`` --- per-value by sweep index: values down, sweep
-      index across (the only meaningful 2-D layout; the second axis is an
-      enumeration of the ``M`` candidate offsets, unrelated to events).
 
     ``NaN`` entries skip the corresponding value (left untranslated);
-    ``+/-inf`` is rejected. All 2-D entries must agree on ``M`` (scalar,
-    1-D, and single-column entries broadcast across the call's ``M``).
+    ``+/-inf`` is rejected.
 
-    **Sweep.** When any entry implies ``M > 1`` the call is a batched
-    sweep: it returns ``M`` translated copies --- a length-``M`` list of
-    length-``A`` value-lists --- each a separate pre-MAET input to build
-    and compare (the canonical sliding-transposition cosine use), sharing
-    one ``w`` and one ``specs``. With ``M = 1`` it returns a single
-    length-``A`` value-list.
+    One call makes one translation. A translation sweep --- a query
+    compared with a context at each of many offsets --- is
+    :func:`~mpt.swept_similarity` (pre-MAETs) or
+    :func:`~mpt.sweep_sim_maet` (densities), which compute every offset
+    in one pass rather than building a copy per offset.
 
     **Relative attributes.** ``is_rel`` is read per-attribute from
     ``specs`` (no separate argument). A *uniform* shift cancels in every
     within-tuple difference, so on an attribute whose **outermost level
     is relative** a uniform finite offset is a structural no-op: that
-    column is left unchanged and a single
+    attribute is left unchanged and a single
     :class:`TranslateAttributesNoOpWarning` is emitted per call. A
     *non-uniform* (per-value) offset is **not** a no-op even on a relative
     attribute --- it shifts the within-tuple differences --- so it
@@ -1993,7 +2076,8 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
         arguments below move one place earlier.
     p_attr : list/tuple of array-like
         Length-A list of ``K_total x N`` per-attribute value matrices
-        (a 1-D entry is taken as a ``1 x N`` row).
+        (a 1-D entry is taken as a ``1 x N`` row), or of attributes given
+        per event (see :func:`pack_pre_maet`).
     w_attr : None, scalar, or length-A list
         Weights. Passed through unchanged (translation does not touch
         weights); returned as-is for clean chaining.
@@ -2006,11 +2090,8 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     Returns
     -------
     dict
-        The pre-MAET. Its ``p_attr`` is, for a single translation
-        (``M = 1``), a length-A list of ``K_total x N`` arrays, and for a
-        sweep (``M > 1``) a length-M list of such lists, carrying the
-        offsets that produced it; its ``w_attr`` and ``specs`` are
-        unchanged from the input (or synthesised).
+        The pre-MAET, with the translated ``p_attr``; its ``w_attr``
+        and ``specs`` are unchanged from the input (or synthesised).
 
     Warns
     -----
@@ -2020,8 +2101,8 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
 
     See Also
     --------
-    difference_events, bind_events, flat_specs, build_maet,
-    windowed_similarity
+    swept_similarity, sweep_sim_maet, difference_events, bind_events,
+    flat_specs, build_maet
     """
     p_attr, w_attr, (offsets,), specs = shift_lead(
         p_attr, w_attr, [offsets], specs, func="translate_attributes")
@@ -2062,135 +2143,77 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
             )
         specs_out = list(specs)
 
-    matrix_mode, M_sweep, blocks = _normalise_translate_offsets(offsets, K, A)
+    blocks = _normalise_translate_offsets(offsets, K, A)
 
     # --- Relative no-op: a uniform finite shift on an outermost-relative
-    # --- attribute is a structural no-op; skip that column, warn once. ---
+    # --- attribute is a structural no-op; skip it and warn. ---
     warned = False
     for a in range(A):
-        if not _outermost_relative(specs_out[a]):
-            continue
-        col = blocks[a]
-        for m in range(M_sweep):
-            cm = col[:, m]
-            finite = np.isfinite(cm)
-            if finite.all() and finite.size and np.allclose(cm, cm.flat[0]):
-                blocks[a][:, m] = np.nan
-                warned = True
+        cm = blocks[a]
+        if (_outermost_relative(specs_out[a]) and cm.size
+                and np.all(np.isfinite(cm)) and np.all(cm == cm[0])):
+            blocks[a] = np.full_like(cm, np.nan)
+            warned = True
     if warned:
         warnings.warn(
             "A uniform finite offset was applied to an attribute whose "
             "outermost level is relative; a uniform shift cancels in "
             "every within-tuple difference, so it is a structural no-op "
-            "and that column is left unchanged. (A non-uniform per-value "
-            "offset would apply, as it shifts the relative structure.)",
+            "and that attribute is left unchanged. (A non-uniform "
+            "per-value offset would apply, as it shifts the relative "
+            "structure.)",
             TranslateAttributesNoOpWarning,
             stacklevel=2,
         )
 
     # --- Apply: value + per-value offset, broadcast across events; NaN ---
     # --- values are left untranslated. ---
-    cols_out: list[list[np.ndarray]] = []
-    for m in range(M_sweep):
-        col_list: list[np.ndarray] = []
-        for a in range(A):
-            Marr = p_arr[a]
-            off = blocks[a][:, m]
-            finite = np.isfinite(off)
-            if not finite.any():
-                col_list.append(Marr.copy())
-            else:
-                add = np.where(finite, off, 0.0).reshape(-1, 1)
-                col_list.append(Marr + add)
-        cols_out.append(col_list)
-
-    if matrix_mode:
-        # Carry the offsets with the sweep. A cell is uniform when every
-        # value of that attribute moved by the same finite amount (a NaN
-        # entry leaves its value in place, so it breaks uniformity unless
-        # the whole column is NaN, which is no translation at all).
-        uni = np.full((A, M_sweep), np.nan)
-        for a in range(A):
-            for m in range(M_sweep):
-                cm = blocks[a][:, m]
-                finite = np.isfinite(cm)
-                if not finite.any():
-                    uni[a, m] = 0.0
-                elif finite.all() and np.all(cm == cm.flat[0]):
-                    uni[a, m] = float(cm.flat[0])
-        sweep = TranslatedSweep(
-            cols_out, sweep_offsets=uni,
-            sweep_base=[M.copy() for M in p_arr],
-        )
-        return make_pre_maet(sweep, w, specs_out)
-    return pack_pre_maet(cols_out[0], w, specs_out)
+    p_out: list[np.ndarray] = []
+    for a in range(A):
+        off = blocks[a]
+        finite = np.isfinite(off)
+        if not finite.any():
+            p_out.append(p_arr[a].copy())
+        else:
+            p_out.append(p_arr[a] + np.where(finite, off, 0.0).reshape(-1, 1))
+    return pack_pre_maet(p_out, w, specs_out)
 
 
 def _normalise_translate_offsets(offsets, K, A):
-    """Coerce a length-A offsets list to per-attribute ``(K_a, M)`` blocks.
+    """Coerce a length-A offsets list to per-attribute ``(K_a,)`` vectors.
 
-    Each block is a float array with ``NaN`` marking values to skip; a
-    scalar/1-D/single-column entry is broadcast across the common sweep
-    width ``M``. Returns ``(matrix_mode, M, blocks)``.
+    ``None`` skips the attribute (all ``NaN``), a scalar or length-1
+    entry is broadcast to every value, and a 1-D length-``K_total`` entry
+    is per value. ``NaN`` marks values to skip.
     """
     if not isinstance(offsets, (list, tuple)) or len(offsets) != A:
         raise ValueError(
             f"offsets must be a length-A ({A}) list, one entry per "
-            f"attribute (scalar, per-value vector, (1, M) or (K_total, M) "
-            f"block, or None)."
+            f"attribute (None, a scalar, or a per-value vector)."
         )
-    raw = []
-    M = 1
+    blocks = []
     for a, o in enumerate(offsets):
         if o is None:
-            raw.append(None)
+            blocks.append(np.full(K[a], np.nan))
             continue
         arr = np.asarray(o, dtype=np.float64)
         if np.any(np.isinf(arr)):
             raise ValueError(
                 f"offsets[{a}] contains +/-inf; entries must be finite or "
-                f"NaN (NaN skips a row)."
+                f"NaN (NaN skips a value)."
             )
-        if arr.ndim == 0:
-            raw.append(arr.reshape(1, 1))
-        elif arr.ndim == 1:
-            if arr.size not in (1, K[a]):
-                raise ValueError(
-                    f"offsets[{a}] is a 1-D length-{arr.size} vector; "
-                    f"expected length 1 or K_total = {K[a]}."
-                )
-            raw.append(arr.reshape(-1, 1))
-        elif arr.ndim == 2:
-            if arr.shape[0] not in (1, K[a]):
-                raise ValueError(
-                    f"offsets[{a}] has {arr.shape[0]} rows; expected 1 or "
-                    f"K_total = {K[a]} (values down)."
-                )
-            raw.append(arr)
-            M = max(M, arr.shape[1])
+        if arr.size == 1:
+            blocks.append(np.full(K[a], float(arr.reshape(-1)[0])))
+        elif arr.size == K[a] and (arr.ndim == 1 or arr.shape == (K[a], 1)):
+            blocks.append(arr.reshape(-1).copy())
         else:
             raise ValueError(
-                f"offsets[{a}] must be None, scalar, 1-D, or 2-D; got "
-                f"ndim = {arr.ndim}."
+                f"offsets[{a}] must be None, a scalar, or a per-value vector "
+                f"of length K_total = {K[a]}; got shape {arr.shape}. One call "
+                f"makes one translation: for a translation sweep use "
+                f"swept_similarity or sweep_sim_maet."
             )
-    matrix_mode = M > 1
-    blocks = []
-    for a, r in enumerate(raw):
-        if r is None:
-            blocks.append(np.full((K[a], M), np.nan))
-            continue
-        rows, cols = r.shape
-        if rows == 1 and K[a] > 1:
-            r = np.repeat(r, K[a], axis=0)
-        if cols == 1 and M > 1:
-            r = np.repeat(r, M, axis=1)
-        elif cols not in (1, M):
-            raise ValueError(
-                f"offsets[{a}] has {cols} sweep columns; expected 1 or "
-                f"M = {M} (all swept entries must agree on M)."
-            )
-        blocks.append(r)
-    return matrix_mode, M, blocks
+    return blocks
 
 
 def _outermost_relative(spec):
@@ -2321,7 +2344,8 @@ def select_pre_maet(p_attr, w_attr=None, attributes=None, events=None, *,
     Parameters
     ----------
     p_attr : list of array-like, or pre-MAET
-        A whole pre-MAET, or the per-attribute value matrices.
+        A whole pre-MAET, or the per-attribute values, per event or as
+        matrices (see :func:`pack_pre_maet`).
     w_attr : list of array-like, optional
         The per-attribute weight matrices, or ``None``.
     attributes : sequence, optional
@@ -2399,7 +2423,8 @@ def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
     Parameters
     ----------
     p_attr : list of array-like, or pre-MAET
-        A whole pre-MAET, or the per-attribute value matrices.
+        A whole pre-MAET, or the per-attribute values, per event or as
+        matrices (see :func:`pack_pre_maet`).
     w_attr : list of array-like, optional
         The per-attribute weight matrices, or ``None``.
     attributes : sequence
@@ -2532,7 +2557,8 @@ def separate_attributes(p_attr, w_attr=None, attribute=None, *, names=None,
     Parameters
     ----------
     p_attr : list of array-like, or pre-MAET
-        A whole pre-MAET, or the per-attribute value matrices.
+        A whole pre-MAET, or the per-attribute values, per event or as
+        matrices (see :func:`pack_pre_maet`).
     w_attr : list of array-like, optional
         The per-attribute weight matrices, or ``None``.
     attribute : int or str

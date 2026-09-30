@@ -394,23 +394,24 @@ def test_weight_events_truncation_periodic_after_wrap():
 
 
 def test_window_factor_default_inf_resolves_to_accuracy_floor():
-    """The windowed-sweep locate factor (:func:`mpt._tensor.windowed
-    ._window_factor`, the sibling of :func:`weight_events` used by
-    :func:`windowed_similarity` / :func:`windowed_entropy`) must honour
-    the same truncation contract: ``mpt.set_default(truncation_sigmas
-    =math.inf)`` resolves to the finite accuracy-floor width, so the
-    factor is bit-identical to setting the default to
-    :func:`accuracy_floor_sigmas` explicitly, and events beyond that
-    width are hard-zeroed."""
+    """The windowed-sweep factor (:func:`mpt._tensor.swept
+    ._window_factor`, which evaluates windows for
+    :func:`swept_similarity` / :func:`swept_entropy` through the
+    implementation :func:`weight_events` uses) must honour the same
+    truncation contract: ``mpt.set_default(truncation_sigmas=math.inf)``
+    resolves to the finite accuracy-floor width, so the factor is
+    bit-identical to setting the default to :func:`accuracy_floor_sigmas`
+    explicitly, and events beyond that width are hard-zeroed."""
     from mpt._defaults import accuracy_floor_sigmas
-    from mpt._tensor.windowed import _window_factor
+    from mpt._tensor.swept import _window_factor, _parse_window
     loc_row = np.linspace(-10.0, 10.0, 201)
+    win = _parse_window({"shape": "gaussian", "sd": 1.0}, 0, "window")
     prev = mpt.get_default('truncation_sigmas')
     try:
         mpt.set_default(truncation_sigmas=float('inf'))
-        f_inf = _window_factor(loc_row, centre=0.0, gamma=0.0, sd=1.0)
+        f_inf = _window_factor(loc_row, 0.0, win)
         mpt.set_default(truncation_sigmas=accuracy_floor_sigmas())
-        f_floor = _window_factor(loc_row, centre=0.0, gamma=0.0, sd=1.0)
+        f_floor = _window_factor(loc_row, 0.0, win)
     finally:
         mpt.set_default(truncation_sigmas=prev)
     np.testing.assert_array_equal(f_inf, f_floor)

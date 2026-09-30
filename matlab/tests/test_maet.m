@@ -868,10 +868,11 @@ results{end,2}   = throwsErrorWithId( ...
     @() weightEvents({[1 2]}, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', false), ...
     'weightEvents:badInputAttr');
 
-results{end+1,1} = 'weightEvents: input K > 1 errors (inputAttrNotK1 id)';
-results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2; 3 4]}, [], 1, 1, 1, 0, 'sd', 1, 'dropInputAttr', false), ...
-    'weightEvents:inputAttrNotK1');
+results{end+1,1} = 'weightEvents: input K > 1 reduced by locate';
+pmK = weightEvents({[60 62; 64 65]}, [], 1, 1, 62, 0, 'sd', 2, ...
+    'locate', 'start', 'dropInputAttr', false);
+wK = pmK.wAttr{1};
+results{end,2} = max(abs(wK(1, :) - exp(-([60 62] - 62).^2 / 8))) < 1e-12;
 
 results{end+1,1} = 'weightEvents: drop_input_attr=true with input==target errors';
 results{end,2}   = throwsErrorWithId( ...
@@ -899,7 +900,7 @@ results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 % its tests now live in tests/test_translate.m. The old groups / isRel /
 % isPer / period positional contract has been removed.
 
-% -- simMaet raw-MA scalar-vs-list mode --
+% -- simMaet raw-MA scalar form, and the refused raw list --
 
 p_ref     = {transformAttributes([60 62 64 65 67 69 71], [], {'midi', 'cents'}), 0:6};
 p_qry     = {transformAttributes([60 64 67], [], {'midi', 'cents'}),             0:2};
@@ -917,62 +918,18 @@ s_scalar = simMaet(p_ref, [], p_qry, [], ...
 results{end+1,1} = 'simMaet raw-MA scalar dispatch returns numeric scalar';
 results{end,2}   = isnumeric(s_scalar) && isscalar(s_scalar) && isfinite(s_scalar);
 
-% (b) Scalar-vs-list broadcast: matrix-form translateAttributes feed.
-offs_rma  = {[-100 0 100 200], [0 1 2 1]};
-pm_qry_swept = translateAttributes(p_qry, [], offs_rma);
-qry_swept = pm_qry_swept.pAttr;
-s_list = simMaet(p_ref, [], qry_swept, [], ...
-    sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
-    'verbose', false);
-results{end+1,1} = 'simMaet raw-MA list returns 1-by-M cell';
-results{end,2}   = iscell(s_list) && numel(s_list) == 4 ...
-                   && all(cellfun(@(x) isnumeric(x) && isscalar(x) && isfinite(x), ...
-                                  s_list));
-
-% (c) Floating-point parity with manual build loop.
-dens_ref = buildMaet(p_ref, [], sigma_ma, r_ma, ...
-    isRel_ma, isPer_ma, period_ma, 'verbose', false);
-s_manual = zeros(1, numel(qry_swept));
-for m = 1:numel(qry_swept)
-    dens_q = buildMaet(qry_swept{m}, [], sigma_ma, r_ma, ...
-        isRel_ma, isPer_ma, period_ma, 'verbose', false);
-    s_manual(m) = simMaet(dens_ref, dens_q, 'verbose', false);
-end
-s_list_num = cell2mat(s_list);
-results{end+1,1} = 'simMaet raw-MA list parity with manual buildMaet loop';
-results{end,2}   = max(abs(s_list_num - s_manual)) < 1e-12;
-
-% (d) Operand order symmetric.
-s_rev = simMaet(qry_swept, [], p_ref, [], ...
-    sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
-    'verbose', false);
-s_rev_num = cell2mat(s_rev);
-results{end+1,1} = 'simMaet raw-MA list symmetric in operand order';
-results{end,2}   = max(abs(s_list_num - s_rev_num)) < 1e-12;
-
-% (e) List-vs-list rejected.
-pm_qry_swept_2 = translateAttributes(p_qry, [], {[0 100], [0 0]});
-pm_ref_swept   = translateAttributes(p_ref, [], {[0 50], [0 0]});
-qry_swept_2 = pm_qry_swept_2.pAttr;
-ref_swept   = pm_ref_swept.pAttr;
-results{end+1,1} = 'simMaet raw-MA list-vs-list rejected';
+% (b) A list of raw pAttr cells is refused, pointing to the pre-MAET
+%     list form and the sweep functions. (A list whose attributes are all
+%     vectors reads as the per-event form, so one attribute here is a
+%     K x N matrix.)
+p_qry2   = {repmat(p_qry{1}, 2, 1), p_qry{2}};
+qry_list = {p_qry2, p_qry2};
+results{end+1,1} = 'simMaet raw-MA list of pAttr cells refused';
 results{end,2}   = throwsErrorWithId( ...
-    @() simMaet(ref_swept, [], qry_swept_2, [], ...
+    @() simMaet(p_ref, [], qry_list, [], ...
         sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
         'verbose', false), ...
-    'simMaet:listVsListNotSupported');
-
-% (f) Self-sweep peaks at zero offset.
-offs_self = {[-200 -100 0 100 200], [0 0 0 0 0]};
-pm_ref_self = translateAttributes(p_ref, [], offs_self);
-ref_self  = pm_ref_self.pAttr;
-s_self    = simMaet(p_ref, [], ref_self, [], ...
-    sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
-    'verbose', false);
-s_self_num = cell2mat(s_self);
-[~, iMax]  = max(s_self_num);
-results{end+1,1} = 'simMaet raw-MA list peaks at self-match (offset 0)';
-results{end,2}   = iMax == 3 && abs(s_self_num(3) - 1) < 1e-9;
+    'simMaet:rawListNotSupported');
 
 
 %% ---- Standalone summary ----

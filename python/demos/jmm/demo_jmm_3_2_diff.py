@@ -14,7 +14,7 @@ attributes are first-differenced to (dp, dt), while a third copy of the onset
 attribute is passed through (order 0) to carry absolute time for the windowing
 sweep (after alignment all three share the N-1 grid). A broad Gaussian window
 is swept over the piece and the windowed Renyi-2 entropy of the (dp, dt)
-density is read at each centre.
+density is read at each sweep value.
 
 The analysis is run at two values of the time-difference kernel width:
 
@@ -47,7 +47,7 @@ Pre-MAET structure (after differencing)::
 
 Data: ``piano_phase`` (the rendered Piano Phase voices). Toolbox: ``pre_maet_from_attr_table``, ``difference_events``,
 ``select_pre_maet``, ``build_maet``, ``eval_maet``,
-``windowed_entropy``. Runtime: a few seconds.
+``swept_entropy``. Runtime: a few seconds.
 """
 import os
 import numpy as np
@@ -65,7 +65,7 @@ from mpt import unpack_pre_maet
 _prev_defaults = mpt.set_default(show_hints=False)
 from mpt import (difference_events, build_maet, eval_maet,
                  show_pre_maet,
-                 windowed_entropy)
+                 swept_entropy)
 
 import piano_phase as pe
 
@@ -121,26 +121,24 @@ Z = eval_maet(static, np.column_stack([DP.ravel(), DT.ravel()]).T,
 print('static density evaluated')
 
 # --- (b) windowed (dp, dt) Renyi-2 entropy across the piece, two widths ---
-centres = np.linspace(t_abs.min(), t_abs.max(), N_SWEEP)
-phase_at = pe.lag_at(centres / (pe.NC * IOI))      # continuous lag
+sweep_values = np.linspace(t_abs.min(), t_abs.max(), N_SWEEP)
+phase_at = pe.lag_at(sweep_values / (pe.NC * IOI))      # continuous lag
 
 def sweep(sig):
-    """Windowed (dp, dt) Renyi-2 entropy at each sweep centre.
+    """Windowed (dp, dt) Renyi-2 entropy at each sweep value.
 
-    A single windowed_entropy sweep: a Gaussian window (shape 0) on the
+    A single swept_entropy sweep: a Gaussian window (shape 0) on the
     absolute-onset attribute (attribute index 2) modulates the event weights,
     and that onset attribute is dropped from the entropy density
-    (drop_window_attr=True), leaving the two-attribute (dp, dt) density
+    (drop=[2]), leaving the two-attribute (dp, dt) density
     whose Renyi-2 entropy is returned. The window standard deviation
     WINDOW_SD maps to the variance-matched rectangular width 2*sqrt(3)*sd.
     (The placeholder onset sigma is unused: that attribute is dropped.)
     """
-    return windowed_entropy(
-        diff, centres, sigma=[SIGMA_DP, sig, 1.0],
-        context_window=(0.0, WINDOW_SD * 2.0 * np.sqrt(3.0)),
-        method='renyi2',
-        window_attr=2, drop_window_attr=True,
-        verbose=False,
+    return swept_entropy(
+        diff, sweep={2: sweep_values}, sigma=[SIGMA_DP, sig, 1.0],
+        window={2: (0.0, WINDOW_SD * 2.0 * np.sqrt(3.0))}, drop=[2],
+        method='renyi2', verbose=False,
     )
 
 H_jnd  = sweep(SIGMA_JND)
@@ -168,19 +166,19 @@ fig.colorbar(pcm, ax=axD, fraction=0.046, pad=0.04, label='density')
 
 for s in pe.shift_centre_times():
     axH.axvline(s, color='#c25008', lw=0.7, alpha=0.5)
-axH.plot(centres, H_jnd,  color=C_JND,  lw=1.9,
+axH.plot(sweep_values, H_jnd,  color=C_JND,  lw=1.9,
          label=r'$\sigma_t = 6$ ms (IOI JND): flat')
-axH.plot(centres, H_fine, color=C_FINE, lw=1.6,
+axH.plot(sweep_values, H_fine, color=C_FINE, lw=1.6,
          label=r'$\sigma_t = 0.1$ ms: resolves tempo modulation')
 ax2 = axH.twinx()
-ax2.plot(centres, phase_at, color='#bbb', lw=1.0, zorder=0)
+ax2.plot(sweep_values, phase_at, color='#bbb', lw=1.0, zorder=0)
 ax2.set_ylabel('phase $k$ (pulses)', color='#999')
 ax2.set_yticks(range(0, 13, 3)); ax2.set_ylim(-1, 13); ax2.tick_params(colors='#999')
 lo = min(np.nanmin(H_jnd), np.nanmin(H_fine))
 hi = max(np.nanmax(H_jnd), np.nanmax(H_fine))
 pad = 0.12 * (hi - lo)
 axH.set_ylim(lo - pad, hi + pad)
-axH.set_xlabel('window-centre offset (s); accelerandi marked orange, phase grey')
+axH.set_xlabel('window time (s); accelerandi marked orange, phase grey')
 axH.set_ylabel('Renyi-2 entropy (bits)')
 axH.set_title(r'Windowed $(\Delta p,\ \Delta t)$ entropy at two kernel widths')
 axH.legend(loc='center left', framealpha=0.9, fontsize=14)

@@ -63,7 +63,7 @@ function results = calibrateRelIpCost(varargin)
 %                 notes into data rows. A third of one run was lost that
 %                 way.
 %
-% Runtime. 171 combinations of tuple order, value counts, weight profile
+% Runtime. 171 combinations of tuple size, value counts, weight profile
 % and event count x 2 widths x 2 periodicities x 1 seed = 684 cells, each
 % timing three arms. The same 684 as the twin sweep in
 % tools/calibrate_rel_ip_cost.py. Three things keep the runtime manageable: an
@@ -100,11 +100,11 @@ function results = calibrateRelIpCost(varargin)
     mptDefaults('showHints', false);
     cleanup = onCleanup(@() localRestore(prevHints, prevRoute));
 
-    % Value counts per tuple order. Bulger's method builds K!/(K-r)!
+    % Value counts per tuple size. Bulger's method builds K!/(K-r)!
     % tuples per side, so the feasible range narrows sharply with r.
     % K = 100 at r = 2 is dropped: through the MA path its Bulger arm runs
     % for seconds, and the r = 2 curve is already determined by K = 64.
-    % Three value counts per order rather than six: the event count is
+    % Three value counts per tuple size rather than six: the event count is
     % now a swept axis too, and a full factorial over both would run for
     % hours. Geometric spacing separates a power law as well as a dense
     % grid does.
@@ -143,7 +143,7 @@ function results = calibrateRelIpCost(varargin)
     % is what the routing fit is scored on. Dropping them would discard
     % exactly the cells where the decision is most consequential.
     %
-    % Capped by tuple order. Cost grows with the tuple order, the value
+    % Capped by tuple size. Cost grows with the tuple size, the value
     % count and the event count together, and the budget can only decline
     % to START an arm --- neither language can interrupt one already
     % running --- so the worst cell has to be bounded by construction.
@@ -178,7 +178,7 @@ function results = calibrateRelIpCost(varargin)
     results = struct('r', {}, 'K', {}, 'isPer', {}, 'sigma', {}, ...
                      'seed', {}, 'nu', {}, 'M', {}, 't', {});
     nCell = 0;
-    % Running per-arm, per-order cost estimate, built from the cells
+    % Running per-arm, per-tuple-size cost estimate, built from the cells
     % already timed in this run and used to skip an arm whose predicted
     % time exceeds the budget. Each arm is estimated by the quantity it
     % scales with -- Bulger's method and the centres route by the

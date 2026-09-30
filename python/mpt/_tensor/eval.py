@@ -14,7 +14,7 @@ the normalisation helpers, etc.).
 The eval path reaches into :mod:`._tensor.dispatch` for path
 selection.
 
-See USER_GUIDE §5 ("Method selection") and :doc:`/ARCHITECTURE` §4
+See USER_GUIDE §11.1 ("Method selection") and :doc:`/ARCHITECTURE` §4
 ("Dispatcher pattern") for the conceptual description.
 """
 from __future__ import annotations
@@ -2008,11 +2008,7 @@ def _build_pre_maet_args(args, *, verbose=True):
     needs, so it stands wherever a density does and is built here. That
     goes for a *list* of them too: a list of pre-MAETs stands wherever a
     list of densities does, so the list and scalar-vs-list forms take
-    them without the caller building each one first. A translation sweep
-    (:class:`~mpt._tensor.preprocessing.TranslatedSweep`) carried inside
-    a pre-MAET is one such list, sharing one geometry, and is expanded
-    the same way, its offsets carried through so the mixture reduction
-    still applies.
+    them without the caller building each one first.
 
     The loose triple has no such form, since the three parts are not
     distinguishable from the surrounding positional geometry.
@@ -2020,10 +2016,6 @@ def _build_pre_maet_args(args, *, verbose=True):
     ``verbose`` governs these builds too, so a quiet call stays quiet.
     """
     from .premaet import is_pre_maet
-    from .preprocessing import TranslatedSweep
-
-    def _is_sweep_pm(a):
-        return is_pre_maet(a) and isinstance(a.get("p_attr"), TranslatedSweep)
 
     def _listish(a):
         return isinstance(a, (list, tuple)) and any(is_pre_maet(x) for x in a)
@@ -2033,19 +2025,6 @@ def _build_pre_maet_args(args, *, verbose=True):
     from .build import build_maet
 
     def _one(a):
-        if _is_sweep_pm(a):
-            # One geometry, one density per sweep entry; the offsets ride
-            # along so sim_maet can still reduce the sweep to a
-            # mixture in the offset.
-            sweep = a["p_attr"]
-            built = [build_maet({"p_attr": list(block),
-                                     "w_attr": a.get("w_attr"),
-                                     "specs": a.get("specs")},
-                                    verbose=verbose)
-                     for block in sweep]
-            return TranslatedSweep(built,
-                                   sweep_offsets=sweep.sweep_offsets,
-                                   sweep_base=sweep.sweep_base)
         if is_pre_maet(a):
             return build_maet(a, verbose=verbose)
         if _listish(a):

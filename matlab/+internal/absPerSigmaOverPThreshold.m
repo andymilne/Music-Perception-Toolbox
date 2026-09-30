@@ -20,7 +20,7 @@ function sop = absPerSigmaOverPThreshold()
 %   single-image kernel is a product of one-dimensional nearest-image
 %   kernels, one per coordinate, and a product of positive-definite
 %   kernels is positive-definite, so its one-dimensional Fourier
-%   coefficients decide the question for every tuple order at once. By
+%   coefficients decide the question for every tuple size at once. By
 %   Bochner's theorem the kernel is positive-definite exactly when every
 %   coefficient is non-negative: measured, they sit at floating-point
 %   noise (about 2e-16) through sigma/P = 0.044 and lift off from 0.046,

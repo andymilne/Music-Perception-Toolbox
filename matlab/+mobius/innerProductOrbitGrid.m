@@ -28,7 +28,7 @@ function [vals, ratios, termMass, termMassSum] = innerProductOrbitGrid(K_u, w_A,
 %     K_U  (N_u, n_A, n_B) double — stack of kernels per u-grid point.
 %     W_A  (n_A, 1)        double — A-side weights (shared across u).
 %     W_B  (n_B, 1)        double — B-side weights (shared across u).
-%     R    integer         — tensor order, 2 <= R <= 12.
+%     R    integer         — tuple size, 2 <= R <= 12.
 %
 %   See also MOBIUS.INNERPRODUCTORBIT, MOBIUS.INNERPRODUCTORBITPWBATCHED.
 

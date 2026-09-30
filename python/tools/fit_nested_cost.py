@@ -161,7 +161,7 @@ def read_rows(paths):
 def route_key(row):
     """Structure key for the fitted laws.
 
-    The per-attribute routes key on the nested attribute's total tuple order;
+    The per-attribute routes key on the nested attribute's total tuple size;
     the enumeration keys on the density's largest ``r``, which for these
     single-nested cells is that same order (a flat companion at ``r = 1`` or
     ``r = 2`` never exceeds it in this grid).

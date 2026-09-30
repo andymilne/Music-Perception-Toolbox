@@ -3,7 +3,7 @@
 Covers ``kernel_cov`` (the constructor), the whitening
 implementation in ``build_maet`` / ``eval_maet`` /
 ``sim_maet`` / ``entropy_maet``, the raw sliding-comparison
-path (``windowed_similarity``), the mode-constraint error paths, and
+path (``swept_similarity``), the mode-constraint error paths, and
 the analytical cross-checks agreed for the release:
 
 - reduction to the scalar-``sigma`` behaviour at ``Sigma = sigma**2 I``;
@@ -388,7 +388,7 @@ class TestEntropyClosedForms:
         np.testing.assert_allclose(got, want, rtol=1e-4)
 
 
-class TestWindowedSimilarity:
+class TestSweptSimilarity:
     """End-to-end sliding comparison with an anisotropic interval
     attribute, swept on a scalar time attribute."""
 
@@ -410,12 +410,12 @@ class TestWindowedSimilarity:
         w_context = [np.ones((r, 5)), np.ones((1, 5))]
         p_query = [np.array([[-0.70], [-0.70]]), np.array([[0.0]])]
         w_query = [np.ones((r, 1)), np.ones((1, 1))]
-        prof = mpt.windowed_similarity(
+        prof = mpt.swept_similarity(
             p_context, w_context, p_query, w_query,
             [Sigma, 0.25], [r, 1], [False, False], [False, False],
             [0.0, 0.0], is_exch=[False, True],
-            centres=onsets.ravel(), window_attr=1, drop_window_attr=True,
-            context_window=("rect", 0.5),
+            sweep={1: onsets.ravel()}, align={1: "window"}, drop=[1],
+            window={1: ("rect", 0.5)},
             normalize="oneSidedDenom", verbose=False)
         assert prof.shape == (5,)
         assert int(np.argmax(prof)) == 2
@@ -582,7 +582,7 @@ class TestDegenerateNestedFlattening:
 
     def test_windowed_bound_specs_equals_flat_is_exch(self):
         # The demo pipeline: difference -> log -> bind, swept with
-        # windowed_similarity via specs=, against the manually stacked
+        # swept_similarity via specs=, against the manually stacked
         # flat surface via is_exch=.
         onsets = np.array([0.0, 0.5, 0.75, 1.0, 2.0, 2.5, 2.75, 3.0,
                            4.0, 4.4, 4.6, 4.8])
@@ -600,14 +600,14 @@ class TestDegenerateNestedFlattening:
         p_q = [q[:, None], np.array([[0.0]])]
         w_q = [np.ones((3, 1)), np.ones((1, 1))]
         tsp = {"r": 1, "exch": True, "rel": False}
-        kw = dict(centres=tri_times, window_attr=1,
-                  drop_window_attr=True, context_window=("rect", 0.1),
+        kw = dict(sweep={1: tri_times}, align={1: "window"}, drop=[1],
+                  window={1: ("rect", 0.1)},
                   normalize="oneSidedDenom", verbose=False)
-        a = mpt.windowed_similarity(
+        a = mpt.swept_similarity(
             [p_b[0], tri_times[None, :]], w_ctx, p_q, w_q,
             [self.SIG, 0.25], [3, 1], [False, False], [False, False],
             [0.0, 0.0], specs=[sp_b[0], tsp], **kw)
-        b = mpt.windowed_similarity(
+        b = mpt.swept_similarity(
             [tri_manual, tri_times[None, :]], w_ctx, p_q, w_q,
             [self.SIG, 0.25], [3, 1], [False, False], [False, False],
             [0.0, 0.0], is_exch=[False, True], **kw)
@@ -842,7 +842,7 @@ class TestBareInnerProductScale:
 
     def test_multi_attribute(self):
         """Two matrix-sigma attributes (r = 3 and r = 2) tensored with a
-        scalar one; raw single, raw broadcast, and density forms."""
+        scalar one; raw and density forms."""
         rng = np.random.default_rng(7)
         N = 3
         P1x, P1y = rng.normal(size=(3, N)), rng.normal(size=(3, 1))
@@ -864,11 +864,6 @@ class TestBareInnerProductScale:
         v_sca = mpt.sim_maet(px, wx, py, wy, sig_sca, *geom,
                              normalize="none", verbose=False)
         np.testing.assert_allclose(v_mat, v_sca, rtol=1e-12)
-        b_mat = mpt.sim_maet(px, wx, [py, py], wy, sig_mat, *geom,
-                             normalize="none", verbose=False)
-        b_sca = mpt.sim_maet(px, wx, [py, py], wy, sig_sca, *geom,
-                             normalize="none", verbose=False)
-        np.testing.assert_allclose(b_mat, b_sca, rtol=1e-12)
         d_mat = [mpt.build_maet(p, w, sig_mat, *geom, verbose=False)
                  for p, w in ((px, wx), (py, wy))]
         d_sca = [mpt.build_maet(p, w, sig_sca, *geom, verbose=False)
@@ -923,7 +918,7 @@ class TestBareInnerProductScale:
         want = self._direct_bare([P], [1.0], [Q], [1.0], D)
         np.testing.assert_allclose(got, want, rtol=1e-12)
 
-    def test_windowed_similarity(self):
+    def test_swept_similarity(self):
         r = 2
         shapes = np.array([[0.0, 0.3, 0.2, 0.5],
                            [0.4, 0.1, 0.2, 0.0]])
@@ -935,11 +930,12 @@ class TestBareInnerProductScale:
         s = 0.3
 
         def run(sig, drop):
-            return mpt.windowed_similarity(
+            return mpt.swept_similarity(
                 pc, wc, pq, wq, [sig, 0.25], [r, 1], [False, False],
                 [False, False], [0.0, 0.0], is_exch=[False, True],
-                centres=onsets.ravel(), window_attr=1,
-                drop_window_attr=drop, context_window=("rect", 0.5),
+                sweep={1: onsets.ravel()},
+                align={1: "window" if drop else "both"},
+                drop=[1] if drop else None, window={1: ("rect", 0.5)},
                 normalize="none", verbose=False)
 
         for drop in (True, False):

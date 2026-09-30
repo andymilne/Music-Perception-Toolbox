@@ -8,7 +8,7 @@ preprocessing layer before :func:`build_maet`, and it absorbs the
 pitch and frequency scale conversions that ``convert_pitch`` used to
 provide on bare arrays.
 
-See USER_GUIDE §7.3 ("Pre-MAET processing") for the conceptual
+See USER_GUIDE §7 ("Preprocessing") for the conceptual
 introduction, including the order in which a transform composes with
 differencing.
 """
@@ -419,7 +419,10 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
       ``'greenwood'``; every pair routes through Hz.
     - a callable ``f(x) -> y`` applied to the attribute's ``K_total x N``
       value matrix; ``y`` must have the same shape and be finite
-      everywhere.
+      wherever ``x`` holds a value.
+
+    Slots holding no value (``NaN``, the padding of events with fewer
+    values than others) pass through unchanged.
 
     **Domain.** Values outside a transform's domain are refused with a
     message naming the attribute and events and the remedies. In
@@ -448,7 +451,8 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
         arguments below move one place earlier.
     p_attr : list/tuple of array-like, or array-like
         Length-A list of ``K_total x N`` per-attribute value matrices (a
-        1-D entry is a ``1 x N`` row), or a bare array (see above).
+        1-D entry is a ``1 x N`` row) or of attributes given per event
+        (see :func:`pack_pre_maet`), or a bare array (see above).
     w_attr : None, scalar, or length-A list
         Weights; passed through unchanged (a per-attribute list gains a
         copy of the source's entry for each sign attribute).
@@ -570,10 +574,13 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
             if w_list is not None:
                 w_out.append(w_list[a])
             continue
-        if not np.isfinite(x).all():
+        # NaN marks a slot holding no value (the padding of events with
+        # fewer values than others); it is carried through unchanged.
+        absent = np.isnan(x)
+        if np.isinf(x).any():
             raise ValueError(
-                f"{_attr_label(a, specs_in[a])}: values must be finite; "
-                f"non-finite at {_offending(~np.isfinite(x))}.")
+                f"{_attr_label(a, specs_in[a])}: values must be finite or "
+                f"NaN (no value); infinite at {_offending(np.isinf(x))}.")
         src = np.abs(x) if sign_v[a] else x
         _check_domain(x, src, tr, a, specs_in[a], sign_v[a])
         try:
@@ -587,7 +594,9 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
             raise ValueError(
                 f"{_attr_label(a, specs_in[a])}: {tr.label} returned shape "
                 f"{y.shape}; expected {x.shape}.")
-        _check_finite_output(y, src, tr, a, specs_in[a])
+        _check_finite_output(np.where(absent, 0.0, y), src, tr, a,
+                             specs_in[a])
+        y = np.where(absent, np.nan, y)
         p_out.append(y)
         specs_out.append(_transformed_spec(specs_in[a], tr, sign_v[a]))
         if w_list is not None:

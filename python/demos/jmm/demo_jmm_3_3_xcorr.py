@@ -108,8 +108,9 @@ R = np.asarray(sweep_sim_maet(
 # reach from the anchor (one cell and two pulses either side) holds fewer
 # than one full cell of Piano 2's events.
 HALF = CELL_DUR + 2 * IOI
-t2 = mpt.unpack_pre_maet(context)[0][1].ravel()
-ctx_counts = np.array([((t2 >= a - HALF) & (t2 <= a + HALF)).sum()
+ctx_onsets = mpt.unpack_pre_maet(context)[0][1].ravel()
+ctx_counts = np.array([((ctx_onsets >= a - HALF)
+                        & (ctx_onsets <= a + HALF)).sum()
                        for a in anchors])
 R[ctx_counts < pe.NC, :] = np.nan
 

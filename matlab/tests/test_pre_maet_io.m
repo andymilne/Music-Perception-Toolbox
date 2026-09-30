@@ -213,6 +213,26 @@ results{end,2}   = ~isempty(strfind(wide, 'n = 20')) && ...
                    isempty(strfind(wide, '...')); %#ok<STREMP>
 
 
+% An ordered attribute's slot is its level, so an empty slot before the
+% last value is written as a blank and read back into the same slot; an
+% unordered attribute is written compacted.
+io_p = {{[60 64 67], [62 NaN 67], [NaN 65 NaN], 64, []}, 0:4};
+io_s1 = struct('name', 'pitch', 'r', 1, 'rel', false, 'exch', false, ...
+               'sigma', 0.5, 'isPer', false, 'period', 0);
+io_s2 = struct('name', 'onset', 'r', 1, 'rel', false, 'exch', true, ...
+               'sigma', 0.25, 'isPer', false, 'period', 0);
+io_pm = packPreMaet(io_p, [], {io_s1, io_s2});
+io_out = writePreMaet([], io_pm);
+io_back = readPreMaet(io_out);
+results{end+1,1} = 'preMaetIo: ordered slots keep their positions'; %#ok<SAGROW>
+results{end,2} = ~isempty(strfind(io_out, '"(62, _, 67)","(_, 65)",64,()')) ...
+    && isequaln(io_back.pAttr{1}, io_pm.pAttr{1}) ...
+    && strcmp(writePreMaet([], io_back), io_out); %#ok<STREMP>
+io_s1.exch = true;
+io_out = writePreMaet([], packPreMaet(io_p, [], {io_s1, io_s2}));
+results{end+1,1} = 'preMaetIo: unordered attributes are written compacted'; %#ok<SAGROW>
+results{end,2} = ~isempty(strfind(io_out, '"{62, 67}",65,64,{}')); %#ok<STREMP>
+
 if standalone
     nPass = 0; nFail = 0;
     for i = 1:size(results, 1)

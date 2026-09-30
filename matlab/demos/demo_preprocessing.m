@@ -61,9 +61,26 @@
 % Spectral enrichment (addSpectra), the sixth preprocessing operation of
 % the article, is demonstrated in jmm/demo_jmm_2_3_spectral.m.
 %
+%   Where the operations are taken further
+%       sweptSimilarity,     translation and event weighting swept along
+%       sweptEntropy:        a piece, a similarity or an entropy at each
+%                            sweep value (demo_sweptSimilarity;
+%                            jmm/demo_jmm_1_1_entropy).
+%       sweepSimMaet:        a translation sweep on built densities, in
+%                            one pass.
+%       nTupleEntropy:       the D o B pipeline of Section 6, packaged
+%                            (demo_rhythmTensors, demo_sigmaSpace).
+%       demo_tempoInvariance, demo_repetitionHandling:
+%                            D, B, and F composed for tempo and
+%                            interval-scale invariance.
+%       demo_scoreWorkflow, demo_scoreCategoricals:
+%                            a pre-MAET built from a score, with
+%                            selectPreMaet and separateAttributes.
+%       demo_preMaetIo:      showing, writing, and reading a pre-MAET.
+%
 % See also SHOWPREMAET, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
 % WEIGHTEVENTS, SELECTPREMAET, BINDATTRIBUTES, SEPARATEATTRIBUTES,
-% TRANSFORMATTRIBUTES.
+% TRANSFORMATTRIBUTES, SWEPTSIMILARITY, SWEPTENTROPY, SWEEPSIMMAET.
 %
 % The Python mirror is demo_preprocessing.py.
 
@@ -118,7 +135,11 @@ fprintf('=== 2. differenceEvents (D) ===\n');
 % weights on the differenced attribute, and the surviving metre weights
 % on the undifferenced one. The differenced attribute's sigma grows by
 % sqrt(2), since a difference of two uncertain values is less certain
-% than either; differenceEvents says so as it runs.
+% than either; differenceEvents says so as it runs. Differencing is how
+% interval (transposition-invariant) and inter-onset (time-shift-
+% invariant) content is obtained: demo_overview, section 2c, uses it to
+% find a motif at any transposition, and demo_tempoInvariance and
+% demo_repetitionHandling build on it.
 diffOrders = [1 0];
 pmD = differenceEvents(pm, diffOrders);
 
@@ -139,7 +160,11 @@ fprintf('=== 3. bindEvents (B) ===\n');
 % the source r/isRel/isExch). A' = A = 2. Trailing-drop alignment gives
 % N' = N - max(L) + 1 = 6. B gathers each super-event's constituent
 % weights alongside its values rather than combining them, so both of a
-% 2-gram's metre weights survive, in order, inside the cell.
+% 2-gram's metre weights survive, in order, inside the cell. Binding is
+% how n-grams and nested multisets are compared: nTupleEntropy is
+% differencing then binding (Section 6), and
+% jmm/demo_jmm_1_3_cadence_nesting finds cadences with nested bound
+% events.
 bindOrders = [2 2];
 pmB = bindEvents(pm, bindOrders);
 specB = pmB.specs;
@@ -218,6 +243,12 @@ fprintf('=== 4. translateAttributes (T) ===\n');
 % attribute's values (here K = 1 each). isRel is read from the specs
 % (both attributes absolute), so neither translation is a no-op. T moves
 % values only: the weights below are the metre weights unchanged.
+%
+% One call makes one translation. To compare a query with a context at
+% each of many translations -- a sliding comparison, the canonical use of
+% translation -- use sweptSimilarity (pre-MAETs; demo_sweptSimilarity) or
+% sweepSimMaet (densities), which compute every offset in one pass rather
+% than building a copy per offset.
 muPitch = 5;
 mu = {muPitch, 0};
 pmT = translateAttributes(pm, mu);
@@ -240,6 +271,11 @@ fprintf('=== 5. weightEvents (W) ===\n');
 % kept (dropInputAttr = false). The window multiplies the metre weights
 % it finds rather than replacing them, so the time row below carries
 % metre times envelope, and the pitch row is untouched.
+%
+% One call weights the events at one position. Sweeping a window along
+% a piece, with an entropy or a similarity at each position, is
+% sweptEntropy, or sweptSimilarity with 'align' 'window'
+% (demo_sweptSimilarity, sections 5 to 8; jmm/demo_jmm_1_1_entropy).
 pmW = weightEvents(pm, 2, 2, 6, 0, 'sd', 2, 'dropInputAttr', false);
 
 fprintf(['  inputAttr = 2 (time); targetAttr = 2; centre = 6; sd = 2; ' ...
@@ -260,7 +296,8 @@ fprintf('=== 5b. selectPreMaet (S) ===\n');
 % Here the cadence's three chords (events 5 to 7) on the pitch attribute
 % alone; the kept items come back in the order given, and each keeps its
 % tuple size and flags, so a selection cannot change what an attribute
-% means.
+% means. demo_scoreWorkflow and demo_scoreCategoricals use it on
+% pre-MAETs read from a score.
 pmS = selectPreMaet(pm, 'attributes', 1, 'events', 5:7);
 
 fprintf('  attributes = 1 (pitch); events = 5:7 (the cadence)\n');
@@ -305,7 +342,9 @@ fprintf('=== 6. D o B == B o D (event differencing and event binding commute) ==
 % window commutes with it, on the ordered, K = 1 domain where a
 % difference is defined. The two operations propagate weights by
 % different rules --- D takes the rolling product, B gathers --- and the
-% composition agrees on the weights as well.
+% composition agrees on the weights as well. This pipeline is the n-tuple
+% entropy of Milne and Dean (2016), which nTupleEntropy packages
+% (demo_rhythmTensors, demo_sigmaSpace).
 %   D then B: difference each attribute (order 1), then bind 2-grams.
 pmDB = bindEvents(differenceEvents(pm, [1 1]), [2 2]);
 %   B then D: bind 2-grams, then difference each nested attribute
@@ -360,19 +399,17 @@ widthW = 2;
 gammaW = 0.3;
 pmPath1 = weightEvents(translateAttributes(pm, {muPitch, 0}), ...
     1, 1, cPitch, gammaW, 'sd', widthW, 'dropInputAttr', false);
-wPath1 = pmPath1.wAttr;
 
 % Path 2: W centred at c - mu = 64 BEFORE T (T leaves weights untouched).
 pmPath2 = weightEvents(pm, 1, 1, cPitch - muPitch, gammaW, ...
     'sd', widthW, 'dropInputAttr', false);
-wPath2 = pmPath2.wAttr;
 
 fprintf('  T then W (centre c = %g):\n', cPitch);
-fprintf('    wPath1{1} = [%s]\n', num2str(wPath1{1}, '%.4f '));
+fprintf('    pmPath1.wAttr{1} = [%s]\n', num2str(pmPath1.wAttr{1}, '%.4f '));
 fprintf('  W (centre c - mu = %g) before T:\n', cPitch - muPitch);
-fprintf('    wPath2{1} = [%s]\n', num2str(wPath2{1}, '%.4f '));
+fprintf('    pmPath2.wAttr{1} = [%s]\n', num2str(pmPath2.wAttr{1}, '%.4f '));
 fprintf('  difference max = %g  (zero --- centre-shift rule holds)\n', ...
-    max(abs(wPath1{1} - wPath2{1})));
+    max(abs(pmPath1.wAttr{1} - pmPath2.wAttr{1})));
 
 %% ===================================================================
 %  8b. transformAttributes: the measurement scale, and its order with D
@@ -386,6 +423,11 @@ fprintf('\n=== 8b. transformAttributes (F): scale choice and order with D ===\n'
 fHz     = [392.00 369.99 329.63];                 % G4, F#4, E4 in Hz
 pCents  = transformAttributes(fHz, [], {'hz', 'cents'});
 fprintf('  Hz -> cents: [%.1f %.1f %.1f]\n', pCents);
+
+% A log scale turns uniform scaling -- a tempo change, or an
+% augmentation of a melody's intervals -- into a translation, which the
+% relative flag or a translation sweep can then absorb:
+% demo_repetitionHandling and demo_tempoInvariance build on this.
 
 % Order with differencing carries meaning. (i) F then D on inter-onset
 % intervals in log2 gives log ratios: a doubling is +1, a halving -1.
@@ -536,6 +578,8 @@ assert(abs(sim_diffed_dens - sim_diffed) < 1e-12, ...
 %   entry 2:  sim(orig, T), which matches 9c.
 %   entry 3:  sim(orig, W), the same values under the cadence window of
 %             Section 5, so only the weights differ.
+% demo_batchProcessing takes the list forms further, on a table of
+% trials.
 sim_list = simMaet({dens_orig, dens_T, dens_W}, dens_orig, ...
                    'verbose', false);
 fprintf('  simMaet({dens_orig, dens_T, dens_W}, dens_orig)\n');

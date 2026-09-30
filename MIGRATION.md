@@ -9,100 +9,17 @@ This guide documents migration paths between major versions of the Music Percept
 
 ## v2.0 → v3.0
 
-*Versions 2.1 and 2.2 were internal milestones that were never released; their changes are consolidated here.*
-
 v3.0.0 is a major release relative to the last public line (2.0.x). At the v2.0 calling conventions it is largely additive — `buildMaet`, `evalMaet`, `simMaet`, `entropyMaet`, and the circular, harmony, and structural families accept every v2.0 call unchanged — but a handful of defaults and one keyword have changed, so some v2.0 code needs attention. The breaking items, each detailed below, are:
 
 - the `normalize` kwarg is removed from `entropyMaet`, `spectralEntropy`, and `nTupleEntropy` in favour of a four-method `method` API, and `entropyMaet`'s default `method='shannon'` now returns raw $H$ rather than $H / \log_b N$;
 - `entropyMaet` requires an explicit `n_points_per_dim` for the discrete methods;
 - `spectralEntropy`'s default method is `'differential'`, a different quantity from the v2.0 normalised Shannon entropy;
 - `nTupleEntropy` at `sigma > 0` reads `sigma` as positional uncertainty (`sigmaSpace = 'position'`) by default;
-- kernel truncation defaults to `truncation_sigmas = 6`, so default-configured output is a ~6-significant-figure approximation of the v2.0 untruncated value;
+- a periodic attribute's kernel sums every periodic image (`wrap='full-image'`), where v2.0 wrapped each difference to one image, and the discrete entropies integrate each grid cell's mass rather than sampling its centre;
+- kernel truncation defaults to `truncation_sigmas = 6`, so default-configured output is a ~6-significant-figure approximation of the v2.0 untruncated value (`Inf` restores it to within $10^{-12}$);
 - `evalMaet` in periodic-relative mode uses the corrected pairwise-wrap quadratic form.
 
 Everything else — multi-attribute expectation tensors, the pre-MAET preprocessing primitives, unified dispatch and batching, the Möbius method and its dispatcher, the kernel-evaluation controls, Rényi-2 and differential entropy, anisotropic kernels, and translation sweeps — is new surface that v2.0 code does not touch.
-
-### MIDI sustain, pitch bend, and the loudness controllers are resolved at read
-
-`readScore` / `read_score` now reads three MIDI controller streams and
-resolves each into a note's own columns. Two consequences are worth
-knowing before upgrading:
-
-- **`pitch` is no longer an integer** for a file that bends. Bend is how
-  microtonal music is carried in MIDI -- in the one-channel-per-note idiom
-  and under MPE alike -- so a reader that returned note numbers returned
-  the wrong notes. The number as recorded is kept in `noteNumber`, and it
-  is what the note-off matching and re-strike rules use, so note identity
-  is unchanged.
-- **A file that bends without declaring a range warns**
-  (`readScore:bendRange`). The range is 2 semitones unless RPN 0 sets it,
-  or an MPE Configuration Message opens a zone, whose member channels take
-  the 48-semitone MPE default. Reading a file tuned for one at the other is
-  wrong by a factor of 24, so the warning is worth attending to rather
-  than suppressing.
-
-Everything else is additive. `soundingDurationBeats` /
-`soundingDurationSeconds` sit beside the recorded `duration*`, with sustain
-(CC64) and sostenuto (CC66) resolved and a re-strike on the same channel
-damping the tail, so either duration can feed an analysis -- the choice the
-manuscript already makes between notated and sustained fermata chords.
-`weight` folds channel volume (CC7) and expression (CC11) into the
-velocity, under each controller's squared amplitude curve; `velocity` keeps
-the value as recorded.
-
-`preMaetFromAttrTable` / `pre_maet_from_attr_table` gains `'soundingDuration'`,
-`'weight'`, and `'noteNumber'` as attributes and `'weight'` as a `'weights'`
-choice. All four raise where the source does not carry the column.
-
-No other controller is read. A column holding a controller's value at a
-note's onset would look as though it carried the information and would not:
-a ramp inside a held note is invisible in it.
-
-### `readScore` / `read_score` return a table (breaking)
-
-The score readers previously returned a bespoke container: a MATLAB struct
-of N x 1 numeric columns, a Python dict of arrays, with two fields
-(`partNames`, `source`) that were not per note bolted on. They now return
-an ordinary **MATLAB `table`** and an ordinary **pandas `DataFrame`**.
-
-What changes at the call site:
-
-| before | now |
-| --- | --- |
-| `t.partNames` | `categories(t.part)` / `t["part"].cat.categories` |
-| `t.source` | `t.Properties.Description` / `t.attrs["source"]` |
-| `t.part` (1-based integer) | categorical; `double(t.part)` / `t["part"].cat.codes + 1` for the old numbering |
-| `t.channel` (MIDI channel *or* MusicXML voice) | `t.channel` on a MIDI file, `t.voice` on a MusicXML score |
-| `t.fermata` (0 or 1, always 0 for MIDI) | logical, and present only on a MusicXML score |
-| `isfield(t, 'fermata')` | `any(strcmp(t.Properties.VariableNames, 'fermata'))` |
-| `numel(t.pitch)` | `height(t)` / `len(t)` |
-| `t.pitch(mask)` | unchanged in MATLAB; `t["pitch"].to_numpy()[mask]` in Python |
-
-Three of these are corrections rather than repackaging:
-
-- **`channel` no longer carries two different quantities.** It held a MIDI
-  channel from one reader and a MusicXML voice from the other, so any code
-  reading it read a different thing depending on the file. Each now has its
-  own column, and a column appears only where its source carries the
-  information.
-- **`fermata` is absent from a MIDI table** rather than present and always
-  zero. Asking for it as an attribute of a pre-MAET built from a MIDI file
-  now raises `preMaetFromAttrTable:noFermata` instead of silently contributing
-  a column of zeros.
-- **The part names have somewhere to live.** They are the categories of the
-  `part` column, so a part is selected by name -- `t(t.part == "Soprano",
-  :)`, `df[df.part == "Soprano"]` -- and `partNames` is gone.
-
-`preMaetFromAttrTable` / `pre_maet_from_attr_table` is unchanged in its options and
-its output, except that `'parts'` now accepts part names as well as 1-based
-positions, and that passing anything other than a path or a table raises.
-Anyone who only ever passed a path to it is unaffected.
-
-Python gains a **hard dependency on pandas** (>= 2.0).
-
-Selection needs no toolbox function: a table is filtered with the host
-language's own indexing, which is better documented than anything the
-toolbox would supply.
 
 ### `entropyMaet` / `entropy_maet` four-method API and `n_points_per_dim` default (breaking)
 
@@ -208,49 +125,9 @@ H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
 
 The new default reflects the toolbox-wide convention that `sigma` describes uncertainty on the input quantity, which for `nTupleEntropy` is positions. The two semantics coincide at `sigma = 0`, so calls without an explicit `sigma` argument are unaffected, and `sigma = 0` continues to give the published integer-step histogram of Milne 2015bc / Milne & Dean 2016. Note that at $n = 1$ the position-mode value is reported on the relative-quotient grid, so `'position'` at $\sigma$ is not simply `'interval'` at $\sigma\sqrt{2}$.
 
-### Routing and measure changes (September 2026)
+### Periodic kernels sum every periodic image (`wrap`)
 
-The routing-parity work that closed v3 changes a handful of numbers and rejects a handful of calls. Each item says what changed and what to do.
-
-- **Shannon and normalized entropy on periodic attributes now honour `wrap`.** Under the default `wrap='full-image'` the cell masses sum the erf over every periodic image the truncation admits, so `method='shannon'` and `method='normalized'` values on a periodic attribute differ from earlier builds once σ/period exceeds about 0.06 (below that the two readings agree to within the accuracy floor). To recover the old numbers, declare `wrap='single-image'` on the attribute when building the density.
-
-- **Rényi-2 entropy of a relative $r = 1$ attribute is 0.** A relative monad is a zero-dimensional point mass and contributes no entropy; the value is now 0 by convention where it was previously undefined. Code that special-cased this configuration can drop the special case.
-
-- **`method='factored'` removed** (Python). The name is rejected with the usual bad-method error. Use `'auto'` (or one of the documented names): the route was an undocumented Python-only entry point that bypassed the selector, the measure rule, and the post-hoc guard, and it computed the same value the documented routes compute.
-
-- **`cancellation_threshold` (Python) / `'cancellationThreshold'` (MATLAB) removed** from `sim_maet` / `simMaet`. The keyword had been inert; passing it now raises `TypeError` (Python) or the argument-count usage error `simMaet:wrongArgCount` (MATLAB). Delete it from the call — nothing replaces it, `'auto'` is the whole of the routing, and accuracy is governed by `truncation_sigmas`.
-
-- **Mixed `wrap` across the two operands is now an error.** Declaring `'full-image'` on an attribute of one density and `'single-image'` on the same attribute of the other raises `ValueError` (Python) / `mpt:wrapMismatch` (MATLAB); previously the first operand's declaration was taken silently. Build both densities with the same declaration.
-
-- **MATLAB list and batched forms now honour `method`, `truncationSigmas`, and `kernelPrecision`.** A call in list or batched form that passed these keywords and relied on their being ignored will now route as the keywords say — a forced `'mobius'` or `'centres'` is applied to every entry, and a per-call `truncationSigmas` governs every entry. Remove the keyword, or pass `'auto'`, to keep the earlier behaviour.
-
-### The pre-MAET operators return one pre-MAET (breaking)
-
-`differenceEvents`, `bindEvents`, `translateAttributes`, `transformAttributes`, `weightEvents`, `readPreMaet` and `eventsFromScore` returned the three parts of a pre-MAET as separate outputs. They now return the whole pre-MAET as one object — a MATLAB struct with the fields `pAttr`, `wAttr` and `specs`, a Python dict with the keys `p_attr`, `w_attr` and `specs` — since the parts always travel together and always describe the same pre-MAET. `translateAttributes` returns `[pm, sweep]`, the sweep struct unchanged.
-
-Call sites that want the parts wrap the call in `unpackPreMaet` / `unpack_pre_maet`:
-
-```matlab
-[pD, wD, sD] = differenceEvents(pAttr, w, [1 0]);                    % before
-[pD, wD, sD] = unpackPreMaet(differenceEvents(pAttr, w, [1 0]));     % now
-```
-
-```python
-pD, wD, sD = mpt.difference_events(p_attr, w, [1, 0])                        # before
-pD, wD, sD = mpt.unpack_pre_maet(mpt.difference_events(p_attr, w, [1, 0]))   # now
-```
-
-Call sites that pass the result straight on are shorter than before, since the pre-MAET goes in whole and the specs no longer have to be threaded by hand:
-
-```matlab
-pm  = preMaet(pAttr, w);
-pm2 = differenceEvents(bindEvents(pm, [2 2]), [1 1]);
-dens = buildMaet(pm2, 'sigma', [0.5 0.25], 'isPer', [true false], 'period', [12 0]);
-```
-
-`windowedSimilarity` and `windowedEntropy` gain the pre-MAET form too, taking two pre-MAETs and one respectively in place of their operands and their five positional geometry vectors; their positional form is unchanged.
-
-The loose triple still works as input everywhere it did: `differenceEvents(pAttr, wAttr, [1 0], 'specs', specs)` is the same call as `differenceEvents(pm, [1 0])`. The weights argument is now named `wAttr` in the signatures that name `pAttr`, which matters only for a Python call that passed it by keyword as `w=`. The bare-array form of `transformAttributes` is unchanged: an array in, the transformed array out. See User Guide §7.4.5.
+Under the default `wrap='full-image'`, a periodic attribute's kernel sums the contributions of every periodic image within the truncation width — in point evaluation, inner products, and the cell masses of the Shannon and normalized entropies — where v2.0 wrapped each difference to a single image. The two agree to within the accuracy floor while σ/period is small (for the entropies, below about 0.06) and differ above it. To recover the v2.0 numbers, declare `wrap='single-image'` on the attribute when building the density. Two operands that declare different `wrap` on the same attribute are refused (`ValueError` / `mpt:wrapMismatch`); build both with the same declaration.
 
 ### `convertPitch` / `convert_pitch` replaced by `transformAttributes` / `transform_attributes`
 
@@ -266,11 +143,11 @@ p = mpt.convert_pitch(f, 'hz', 'cents')                     # v2.0
 p = mpt.transform_attributes(f, None, ('hz', 'cents'))      # v3.0
 ```
 
-The seven scales and their formulas are unchanged, so converted values are bit-identical. The same function applies logarithmic and other transforms to a pre-MAET's attributes, adds the `'octave'` pitch scale, and refuses out-of-domain values (a zero under `'log'`, a negative under `'power'`) with a message giving the remedies; see User Guide §7.3.3.
+The seven scales and their formulas are unchanged, so converted values are bit-identical. The same function applies logarithmic and other transforms to a pre-MAET's attributes, adds the `'octave'` pitch scale, and refuses out-of-domain values (a zero under `'log'`, a negative under `'power'`) with a message giving the remedies; see User Guide §7.3.
 
 ### Default kernel truncation (numerical change)
 
-The factory default of `truncation_sigmas` / `truncationSigmas` is `6`, not `Inf`. Every centres-path consumer (`evalMaet`, `simMaet` on Bulger's method, `entropyMaet`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) therefore returns a ~6-significant-figure approximation of the untruncated v2.0 value by default; the worst-case absolute error at the default is about $2 \times 10^{-8}$ and falls at low-density query points. A one-time warning (`mpt:truncationDefault` / `mpt.TruncationDefaultWarning`) says so on first use. To recover exact v2.0 numerics, set `truncation_sigmas` / `truncationSigmas` to `math.inf` / `Inf`, per call or globally:
+The factory default of `truncation_sigmas` / `truncationSigmas` is `6`, not `Inf`. Every centres-path consumer (`evalMaet`, `simMaet` on Bulger's method, `entropyMaet`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) therefore returns a ~6-significant-figure approximation of the untruncated v2.0 value by default; the worst-case absolute error at the default is about $2 \times 10^{-8}$ and falls at low-density query points. A one-time warning (`mpt:truncationDefault` / `mpt.TruncationDefaultWarning`) says so on first use. To recover the v2.0 numerics to within $10^{-12}$, set `truncation_sigmas` / `truncationSigmas` to `math.inf` / `Inf`, which resolves to the accuracy floor (about 7.43σ, where the kernel falls below $10^{-12}$), per call or globally:
 
 ```matlab
 mptDefaults('truncationSigmas', Inf);
@@ -290,19 +167,15 @@ mpt.set_default(truncation_sigmas=math.inf)
 
 - **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `simMaet`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.0 code requires no changes; the new default produces chunk sizes that differ from v2.0's fixed budget, so values differ from v2.0 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
 
-- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildMaet`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a scale given as either `sd` (the window's standard deviation) or `width` (the full support of the rectangle at `shape = 1`; exactly one of the two must be supplied), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `dropInputAttr` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `dropInputAttr=true`) $\to$ `buildMaet` $\to$ `entropyMaet` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §7.3 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
-
-- **`differenceEvents` / `difference_events` and its `circular` flag.** `differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)` takes four positional arguments plus a `circular` Name-Value (MATLAB) / keyword-only (Python) flag, paralleling the flag on `bindEvents`. Differences are emitted as raw signed subtractions regardless of group periodicity; the kernel applies the mod-period wrap downstream. Default `circular = false` drops the leading events at each order. Set `circular = true` for cyclic event sequences (looped rhythms, ostinati) where the boundary difference is a genuine inter-event interval; the function then wraps at the sequence boundary and returns $N$ events at every order.
+- **Pre-MAET preprocessing.** Events are carried, before any density is built, as a pre-MAET (`packPreMaet` / `pack_pre_maet`), and a set of primitives acts on it: `differenceEvents` (inter-event differences, with a `circular` flag), `bindEvents` (consecutive events bound into super-events), `translateAttributes` (an offset added to an attribute), `transformAttributes` (elementwise transforms and scale conversions, replacing `convertPitch`), and `weightEvents` (event weighting by a window on one attribute). `sweptSimilarity` / `sweptEntropy` compute a similarity or entropy profile across a list of sweep values, translating a query, aligning a window, or both, and `readScore` / `preMaetFromAttrTable` read MIDI and MusicXML. None of this touches v2.0 code; see User Guide §6 and §7.
 
 ### What's new under the hood
 
-- **Lazy density-struct.** `buildMaet` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. Consumers that read these fields directly should call `ensureExpTensExpensive(dens)` first; this is wired through the toolbox internally, so user-level code that goes through `simMaet` / `evalMaet` / `entropyMaet` is unaffected. If you have v2.0-era code that pokes at `dens.U_perm` directly, add an `ensureExpTensExpensive(dens)` call before the read.
+- **Lazy density-struct.** `buildMaet` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. User-level code that goes through `simMaet` / `evalMaet` / `entropyMaet` is unaffected. v2.0-era MATLAB code that reads `dens.U_perm` or the other deferred fields directly should build with `'lazy', false`; in Python the fields are properties that materialise on first access.
 
-- **`tensorHarmonicity` rewrite.** The function now bypasses `buildMaet` entirely and routes through the Möbius relative-mode evaluator (`mobius.evalOrbitRel`) with per-template caching. Output is unchanged at the floating-point level. The previous "consider K_template > 3" warning is removed since the Möbius method handles arbitrary K-template without the centres-array memory footprint.
+- **`tensorHarmonicity` rewrite.** The function now bypasses `buildMaet` entirely and routes through the Möbius relative-mode evaluator (`mobius.evalOrbitRel`) with per-template caching. Output is unchanged at the floating-point level.
 
 - **`tensorHarmonicity` batched mode rewritten to dedup-and-batch.** The previous per-row loop has been replaced with a two-pass implementation that groups rows by `(nP, dup)`, deduplicates canonical chord intervals within each group, and issues a single batched call to the Möbius relative-mode evaluator per group. Same FP path as scalar mode (batched values now match scalar values to machine precision by construction rather than only by result cache). Verbose mode prints a one-line groups summary only for batches with ≥ 100 valid rows, matching the `min_print_sec=10` "silent for fast" semantics used by the other batched functions.
-
-- **`mobius.evalOrbitRel` u-grid vectorisation.** The sequential `for j = 1:N_u` loop in the Möbius relative-mode evaluator has been replaced by a single chunked, batched call to `mobius.evalOrbitAbs`. `mobius.evalOrbitAbs` now accepts query arrays of shape `(r, ...)` with arbitrary trailing dimensions; previously it required `(r, n_q)` exactly. Existing `(r, n_q)` callers see no change. The vectorisation eliminates the per-u-point MATLAB/Python function-call boundary; the effect is largest for small-`n_q` calls (where dispatch dominated). Output is bit-identical to the previous sequential implementation.
 
 ### Numerical equivalence
 
@@ -310,11 +183,13 @@ mpt.set_default(truncation_sigmas=math.inf)
 
 - **`evalMaet` periodic-relative numerical change.** The centres-path quadratic form $Q$ in `evalMaet` for the `isRel = true, isPer = true` case is corrected to the pairwise-wrap form of Eq 6, matching `simMaet` (the same fix that was applied to `simMaet` in v2.0.1). At typical perceptual $\sigma/P \le 0.03$ the corrected and prior forms agree as $O((\sigma/P)^{\infty})$, so most existing rel+per callers will see numerical output indistinguishable from v2.0 at default settings; above the threshold the difference becomes measurable. Non-periodic eval, absolute eval, and all `simMaet` / `entropyMaet` modes are unchanged. See `CHANGELOG.md` under *Fixed* for the technical detail.
 
-- A previously-rejected configuration was relaxed: `buildMaet` with `r=1, isRel=true` now emits a warning (id `buildMaet:isRelDegenerate`) instead of raising. The configuration is well-defined under v3's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
+- **Cell-mass integration in discrete entropy.** `method='shannon'` and `method='normalized'` integrate an absolute-mode density over each grid cell (per-axis erf differences) where v2.0 point-sampled it at the cell centres. The two converge as the grid is refined but differ at coarse-to-moderate resolution (about $10^{-2}$ at 2.6 samples per σ, $10^{-5}$ at 12).
+
+- A configuration v2.0 rejected is accepted: `buildMaet` with `r=1, isRel=true` now emits a warning (id `buildMaet:isRelDegenerate`) instead of raising. The configuration is well-defined under v3's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
 
 ### Demo migrations
 
-- Five demos (`demo_triadConsonance` / `demo_triad_consonance`, `demo_bindEvents` / `demo_bind_events`, plus the Python `demo_bind_events` helper functions) were migrated from the `buildMaet` + downstream pattern to direct raw-array calls on `evalMaet`, `entropyMaet`, and `simMaet`. This reflects the v3 principle of treating `buildMaet` as a less user-facing entity.
+- `demo_triadConsonance` / `demo_triad_consonance` calls `evalMaet`, `entropyMaet`, and `simMaet` on raw arrays rather than building densities first, reflecting v3's treatment of `buildMaet` as a less user-facing step.
 
 ### `sameness` and `coherence` gain optional `sigma`
 
@@ -384,7 +259,7 @@ Because $y(x)$ is linear in $F(0)$ and $F(0)$ is permutation-invariant under pos
 [y, centMag, centPhase] = projCentroid(p, w, period, x, sigma);
 ```
 
-`centMag` returns $\alpha_1 \cdot |F(0)| = |E[\widetilde{F}(0)]|$, the magnitude of the *complex mean centroid* — consistent with the projection. The distinct scalar $E[|\widetilde{F}(0)|]$ — the *mean centroid magnitude under jitter*, picking up positive Rayleigh-style bias when the perturbation cloud straddles the origin — is what `balanceCircular(p, w, period, sigma)` returns (read as `1 - b`). The two answer different balance-related questions; see User Guide §6.5 "Two scalars, two balance-related questions" for the operational distinction. Notation: $\widetilde{F}(0)$ is the random variable $F(0)$ becomes when each $p_k$ is replaced by $\widetilde{p}_k = (p_k + \eta_k) \bmod P$ with $\eta_k \sim \mathcal{N}(0, \sigma^2)$.
+`centMag` returns $\alpha_1 \cdot |F(0)| = |E[\widetilde{F}(0)]|$, the magnitude of the *complex mean centroid* — consistent with the projection. The distinct scalar $E[|\widetilde{F}(0)|]$ — the *mean centroid magnitude under jitter*, picking up positive Rayleigh-style bias when the perturbation cloud straddles the origin — is what `balanceCircular(p, w, period, sigma)` returns (read as `1 - b`). The two answer different balance-related questions; see the `projCentroid` entry, User Guide §12.7 for the operational distinction. Notation: $\widetilde{F}(0)$ is the random variable $F(0)$ becomes when each $p_k$ is replaced by $\widetilde{p}_k = (p_k + \eta_k) \bmod P$ with $\eta_k \sim \mathcal{N}(0, \sigma^2)$.
 
 `centPhase` is preserved in expectation (the argument of $E[\widetilde{F}(0)]$ equals the argument of $F(0)$).
 
@@ -432,15 +307,15 @@ In Python list × list mode, an additional `mode='cartesian'` returns the full `
 
 ### The core entry points are renamed on the MAET (breaking)
 
-The five entry points are named for the object they act on, the multi-attribute expectation tensor:
+The entry points are named for the object they act on, the multi-attribute expectation tensor:
 
 | v2.0 | v3 |
 |:---|:---|
 | `buildExpTens` / `build_exp_tens` | `buildMaet` / `build_maet` |
 | `evalExpTens` / `eval_exp_tens` | `evalMaet` / `eval_maet` |
 | `cosSimExpTens` / `cos_sim_exp_tens` | `simMaet` / `sim_maet` |
-| `sweepCosSimExpTens` / `sweep_cos_sim_exp_tens` | `sweepSimMaet` / `sweep_sim_maet` |
 | `entropyExpTens` / `entropy_exp_tens` | `entropyMaet` / `entropy_maet` |
+| `ExpTensDensity` (Python) | `MaetDensity` |
 
 Signatures, arguments, and returned values are unchanged, so the migration is the name alone:
 
@@ -462,9 +337,9 @@ s = mpt.sim_maet(dens_x, dens_y)
 
 There are no deprecation shims: the old names are gone, and a call to one raises an unrecognized-name error. One thing beyond the names moves with them — the error and warning identifiers, so a `try` / `catch` matching `cosSimExpTens:badMethod` needs `simMaet:badMethod`, and likewise for the other four. The density struct's `MaetDensity` tag is unchanged, as are the already-deprecated `batchCosSimExpTens` and the `_raw` entry points.
 
-### The v2.0 shims are removed (breaking)
+### `batchCosSimExpTens`, `cos_sim_exp_tens_raw`, and `eval_exp_tens_raw` are removed (breaking)
 
-These names were deprecated during the 2.1 and 2.2 milestones, which never shipped, and are gone in v3. Each call they served is a mode of the unified entry point:
+These v2.0 names are gone in v3. Each call they served is a mode of the unified entry point:
 
 | Removed (v2.0) | v3 replacement | Migration |
 |:---|:---|:---|

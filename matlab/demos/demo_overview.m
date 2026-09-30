@@ -15,8 +15,8 @@
 %  diatonic melody set in the clave rhythm.
 %
 %  Uses: transformAttributes, addSpectra, simMaet, entropyMaet,
-%        buildMaet, plotMaet, flatSpecs, packPreMaet, showPreMaet,
-%        windowedSimilarity, differenceEvents, templateHarmonicity,
+%        massMaet, buildMaet, plotMaet, flatSpecs, packPreMaet, showPreMaet,
+%        sweptSimilarity, sweptMass, differenceEvents, templateHarmonicity,
 %        tensorHarmonicity, spectralEntropy, roughness, balanceCircular,
 %        evennessCircular, dftCircular, coherence, sameness,
 %        nTupleEntropy, meanOffset, edges, markovS, circApm, mptDefaults
@@ -36,13 +36,14 @@ diat      = [0, 2, 4, 5, 7, 9, 11];                  % 12-EDO steps
 diatCents = [0, 200, 400, 500, 700, 900, 1100];
 clave     = [0, 3, 6, 10, 12];                       % 16-step cycle
 
-%% === 1. Expectation tensors of a single multiset (User Guide §3.1, §3.3, §6.1, §6.2) ===
+%% === 1. Expectation tensors of a single multiset (User Guide §3.1, §8, §13.1) ===
 
 % An expectation tensor replaces each element of a multiset with a
 % Gaussian of width sigma and sums them, over r-tuples of elements. 1a
-% builds one from a chord. Two things are computed from one: the
-% similarity of two of them (1b) and the entropy of one (1c). Four
-% parameters decide what it represents (1d).
+% builds one from a chord. Three things are computed from one: the
+% similarity of two of them (1b), the entropy of one (1c), and the mass
+% it holds in a region (1d). Four parameters decide what it represents
+% (1e).
 
 % --- 1a. A chord as a density ---
 
@@ -126,9 +127,33 @@ end
 % lowest; the chromatic scale holds every interval equally often, so its
 % entropy is highest.
 
-% --- 1d. The parameters that define a tensor ---
+% --- 1d. Mass: how much of a density lies in a region ---
 
-% The same diatonic scale drawn four ways. The order r sets how many
+% The mass of a density within a region, as a proportion of its whole
+% mass ('normalize', 'total'), is in effect the weighted proportion of
+% tuples whose values fall in the region. On a relative tensor at r = 2
+% the tuples are pairs of notes and their values intervals, so here it
+% is the share of each scale's pairs of notes that lie a fifth or a
+% fourth apart. Because the density is relative, periodic, and
+% exchangeable, every pair of notes a fifth or fourth apart contributes
+% the same two coincident kernels, at 700 and 500 cents, whatever its
+% transposition, octave, or order; the two regions together therefore
+% count each such pair once.
+fprintf('\n=== 1d. Share of pairs a fifth or fourth apart ===\n');
+for k = 1:numel(scales)
+    dens = buildMaet(scales{k}, [], 10, 2, true, true, 1200, ...
+                     'verbose', false);
+    m = massMaet(dens, 'region', {1, [650 750]}, 'normalize', 'total') ...
+      + massMaet(dens, 'region', {1, [450 550]}, 'normalize', 'total');
+    fprintf('  %-10s: %.3f\n', scaleNames{k}, m);
+end
+% Six of the diatonic scale's 21 pairs are a fifth apart (0.286), twelve
+% of the chromatic scale's 66 (0.182), and none of the whole-tone
+% scale's.
+
+% --- 1e. The parameters that define a tensor ---
+
+% The same diatonic scale drawn four ways. The tuple size r sets how many
 % elements each point of the density describes, and relative mode
 % (isRel) reads a tuple's intervals rather than its pitches, which makes
 % the density transposition-invariant and removes one dimension:
@@ -141,7 +166,7 @@ end
 %                     the tritone
 %   r = 3, relative   trichords, each drawn as the two intervals above
 %                     one of its notes
-fprintf('\n=== 1d. Tensor parameters (figure) ===\n');
+fprintf('\n=== 1e. Tensor parameters (figure) ===\n');
 configs = [1 0; 2 0; 2 1; 3 1];               % [r, isRel] per panel
 figure('Name', 'The diatonic scale as four expectation tensors', ...
        'Position', [100 100 900 800]);
@@ -179,7 +204,7 @@ fprintf('  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.\n');
 %   demo_dispatchAndKernelControls
 %                             speed controls, and Renyi-2 entropy
 
-%% === 2. Multi-attribute expectation tensors (User Guide §3.2, §7.2-7.4) ===
+%% === 2. Multi-attribute expectation tensors (User Guide §3.3, §6-§8, §13.2) ===
 
 % A MAET takes a sequence of events, each carrying several attributes
 % -- here pitch and onset -- and builds one density over all of them
@@ -222,17 +247,20 @@ query = packPreMaet({pitch(1:3), onsets(1:3)}, [], specs);
 
 % --- 2b. Where does the motif occur? ---
 
-% windowedSimilarity translates the query along the onset attribute by each
-% offset, windows the melody around it, and compares the two in pitch
-% and onset jointly. The query and the melody are both written from
-% onset 0, so an offset is the onset at which the query starts in the
-% melody: 0 is the query where it was taken from.
+% sweptSimilarity translates the query along the onset attribute and
+% compares it with the whole melody, in pitch and onset jointly, at each
+% offset: attribute translation, the canonical way to find a query.
+% Naming the attribute alone ('sweep', 2) asks for the default offsets,
+% every placement at which query and melody overlap, stepped at no more
+% than half the width of the profile's peaks and at a whole fraction of
+% the grid of steps the notes lie on, so that every exact match is on
+% the grid. The second output, muAbs, holds those offsets, one cell per
+% attribute (here muAbs{2}): the query and the melody are both written
+% from onset 0, so an offset is the onset at which the query starts in
+% the melody, 0 being the query where it was taken from.
 fprintf('\n=== 2b. Motif search, absolute pitch ===\n');
-offsets = -4:0.5:24;
-window  = {'gaussian', 16};     % one clave cycle, equivalent width
-sAbs = windowedSimilarity(melody, query, [], 'offsets', offsets, ...
-                          'windowAttr', 2, 'contextWindow', window);
-reportPeaks(offsets, sAbs, 0.5);
+[sAbs, muAbs] = sweptSimilarity(melody, query, 'sweep', 2);
+reportPeaks(muAbs{2}, sAbs, 0.75);
 % One peak, at offset 0 -- the query's own position. The
 % transposed statement in cycle 2 is not found: in absolute mode G A B
 % is not C D E.
@@ -244,21 +272,21 @@ reportPeaks(offsets, sAbs, 0.5);
 % same values as the original. Onset is passed through (order 0),
 % keeping each interval at the onset of its second note. Differencing
 % drops the first event but leaves every surviving onset where it was,
-% so an offset still says where the original query starts, and the two
-% profiles share one horizontal axis.
+% so mu still says where the original query starts, and the two profiles
+% share one horizontal axis.
 % The pitch sigma grows by sqrt(2), since a difference of two uncertain
 % values is less certain than either; differenceEvents announces this.
 fprintf('\n=== 2c. Motif search, pitch intervals ===\n');
 melodyD = differenceEvents(melody, [1 0]);
 queryD  = differenceEvents(query, [1 0]);
 showPreMaet(melodyD, 'maxEvents', []);
-sDiff = windowedSimilarity(melodyD, queryD, [], 'offsets', offsets, ...
-                           'windowAttr', 2, 'contextWindow', window);
-reportPeaks(offsets, sDiff, 0.5);
-% Two peaks of equal height, at offsets 0 and 16 -- one per clave
-% cycle: the rising pair of whole
-% tones is found in both. Which preprocessing and which mode are chosen
-% is what decides what counts as "the same".
+[sDiff, muDiff] = sweptSimilarity(melodyD, queryD, 'sweep', 2);
+reportPeaks(muDiff{2}, sDiff, 0.75);
+% Two full matches, at offsets 0 and 16 -- one per clave cycle: the
+% rising pair of whole tones is found in both. The profile also has
+% partial matches, near 0.5, at offsets 3, 13, and 19, where one of the
+% query's two intervals lines up with the melody's. Which preprocessing
+% and which mode are chosen is what decides what counts as "the same".
 
 % Top: the melody as a piano roll, the query's notes filled. Bottom: the
 % two profiles against the onset of the query's first note, on the same
@@ -285,8 +313,8 @@ title(ax1, 'Two clave cycles, the second a fifth higher');
 legend(ax1, 'Location', 'northwest');
 ax2 = subplot(2, 1, 2);
 hold(ax2, 'on');
-plot(ax2, offsets, sAbs, 'LineWidth', 2, 'DisplayName', 'absolute pitch');
-plot(ax2, offsets, sDiff, 'LineWidth', 2, ...
+plot(ax2, muAbs{2}, sAbs, 'LineWidth', 2, 'DisplayName', 'absolute pitch');
+plot(ax2, muDiff{2}, sDiff, 'LineWidth', 2, ...
      'DisplayName', 'pitch intervals (differenced)');
 xline(ax2, 16, '--', 'Color', [0.6 0.6 0.6], 'HandleVisibility', 'off');
 hold(ax2, 'off');
@@ -297,6 +325,59 @@ legend(ax2, 'Location', 'northeast');
 linkaxes([ax1 ax2], 'x');
 xlim(ax2, [-5 29]);
 
+% --- 2d. Mass in a moving window: each triad's share of the notes ---
+
+% The second cycle is the first a fifth higher, so the melody's pitches
+% move from the tones of the C major triad (C, E, G) to those of the G
+% major triad (G, B, D). sweptMass shows where. Time is the onset
+% attribute, measured in steps of the 16-step clave cycle. At each of a
+% list of times s, a Gaussian window centred on s, with a standard
+% deviation of 4 steps, weights each note according to its distance in
+% time from s, so the notes near s count most. The onset attribute is
+% then dropped, leaving a density over pitch class alone, and its mass
+% is taken inside a region: the range of values to be counted, here the
+% pitch classes within 50 cents of one triad tone (pc - 50 to pc + 50
+% cents), each note counting by the part of its pitch kernel that falls
+% in that range. With 'normalize', 'total', the mass is divided by the
+% density's whole mass, so the result is the share of the weighted notes
+% near s that lie in the range. A region takes a single range per
+% attribute, so a triad's share is the sum of three calls, one per tone.
+% The times s are left to the defaults, from the first onset to the last
+% in steps of half the window's sd (2 steps), and come back as the
+% second output, for the plot.
+fprintf('\n=== 2d. Share of each triad''s tones, in a window over onset ===\n');
+win = struct('shape', 'gaussian', 'sd', 4);
+triads = {'C major', [0 400 700]; 'G major', [700 1100 200]};
+share = [];
+for t = 1:size(triads, 1)
+    mt = 0;
+    for pc = triads{t, 2}
+        [m, sv] = sweptMass(melody, 'sweep', 2, ...
+            'window', {2, win}, 'drop', 2, ...
+            'region', {1, [pc - 50, pc + 50]}, 'normalize', 'total');
+        mt = mt + m;
+    end
+    share(t, :) = mt; %#ok<AGROW>
+end
+s = sv{2};                                   % the sweep values, 0 to 28
+for x = [4 12 20 28]
+    fprintf('  onset %2d: C major %.2f, G major %.2f\n', x, ...
+            share(1, s == x), share(2, s == x));
+end
+% The C major triad holds most of the weighted notes through the first
+% cycle and the G major triad through the second, the two crossing just
+% after step 16, where the transposition begins. They overlap on G, the
+% tone they share, so the two shares do not sum to 1.
+
+figure('Name', 'Triad shares', 'Position', [100 100 900 300]);
+plot(s, share, 'LineWidth', 2);
+xline(16, '--', 'Color', [0.6 0.6 0.6]);
+xlabel('window centre s (steps)');
+ylabel('share of the weighted notes');
+title('Each triad''s share of the weighted notes');
+legend(triads(:, 1), 'Location', 'east');
+ylim([0 1]);
+
 % See also:
 %   demo_preMaetIo            showing, exporting, and importing a
 %                             pre-MAET
@@ -305,7 +386,9 @@ xlim(ax2, [-5 29]);
 %   demo_scoreWorkflow        a pre-MAET read from MusicXML or MIDI
 %                             (then demo_scoreGrid,
 %                             demo_scoreCategoricals)
-%   demo_translateSweep       a query swept in pitch and time at once
+%   demo_sweptSimilarity   sweptSimilarity in depth: translation,
+%                             windows, align, and relative or dropped
+%                             attributes
 %   demo_tempoInvariance      motif search tolerant of tempo change
 %   demo_repetitionHandling   interval-scale invariance, and what to do
 %                             with repeated notes
@@ -321,7 +404,7 @@ xlim(ax2, [-5 29]);
 %                             expert analysis carried as a nested
 %                             attribute (4.1); see jmm/README.md
 
-%% === 3. Consonance and harmonicity (User Guide §6.3) ===
+%% === 3. Consonance and harmonicity (User Guide §9.1) ===
 
 fprintf('\n=== 3. Harmonicity and entropy (JI major triad) ===\n');
 ji_triad = [0, 386.31, 701.96];
@@ -364,7 +447,7 @@ fprintf('  C major triad (8 harmonics): roughness = %.4f\n', r);
 %   demo_audioAnalysis        the same measures from recorded sounds
 %   demo_batchProcessing      the same measures for a table of trials
 
-%% === 4. Balance and evenness (User Guide §6.4) ===
+%% === 4. Balance and evenness (User Guide §9.2) ===
 
 fprintf('\n=== 4. Balance and evenness ===\n');
 
@@ -422,7 +505,7 @@ sgtitle('Balance: the mean of the elements on the circle (red)');
 %                             uncertainty (sigma > 0), analytically and
 %                             by Monte Carlo
 
-%% === 5. Scale and rhythm structure (User Guide §6.5) ===
+%% === 5. Scale and rhythm structure (User Guide §9.2) ===
 
 fprintf('\n=== 5. Scale structure (diatonic) ===\n');
 [c, nc] = coherence(diat, 12);

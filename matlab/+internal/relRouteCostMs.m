@@ -12,7 +12,7 @@ function ms = relRouteCostMs(route, r_a, term)
 %   dispatch._rel_route_cost_ms.
 %
 %   Cost model for the method comparison: one power law per route and
-%   tuple order,
+%   tuple size,
 %
 %       t_ms = exp(a_r) * term ^ b_r
 %
@@ -44,7 +44,7 @@ function ms = relRouteCostMs(route, r_a, term)
         case 'bulger'
             % Intercepts at r = 2 and r = 3 re-anchored on the 2052-cell
             % calibration of 6 September 2026 (tools/calibrateRelIpCost.m,
-            % seeds 1-3): a per-order multiplicative correction to the
+            % seeds 1-3): a per-tuple-size multiplicative correction to the
             % Bulger prediction, chosen to minimise routing regret, lowers
             % the held-out regret over random halves from 30 s to 2.3 s
             % (factors 0.459 at r = 2 and 0.522 at r = 3; r = 4 unchanged).

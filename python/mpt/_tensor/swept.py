@@ -1,44 +1,36 @@
-"""Pre-MAET windowed comparison and entropy: ``windowed_similarity`` and
-``windowed_entropy``.
+"""Pre-MAET swept comparison, entropy, and mass: ``swept_similarity``,
+``swept_entropy``, and ``swept_mass``.
 
-Both restrict a *pre-MAET* context to a local region by event weighting
-(§3 of the article): a *window*, a non-negative profile centred at a value
-``c``, multiplies each event's weights on one attribute (the target
-attribute) by its value at the event's value on the *window attribute*,
-the attribute the window is defined over. The window is placed at a series
-of *centres*, values of the window attribute, and a profile is read out,
-one value per centre. ``windowed_similarity`` compares a query with the
-windowed context at each centre; ``windowed_entropy`` has no query and
-reads the entropy of the windowed density, from which a window attribute
-may first be marginalized by removing it from the pre-MAET.
+``swept_similarity`` compares a query with a context at each of a list of
+*sweep values* on one or more attributes. By default each sweep value
+translates the query (attribute translation, article Sec. 3) and it is
+compared with the whole context; a window (event weighting, article Sec. 3)
+may be added. One rule places everything: at each sweep value a translated
+query has its reference value ``query_ref`` there, and a window has its
+reference value (displacement 0) there; per attribute, ``align`` says which
+of the two are placed. ``swept_entropy`` and ``swept_mass`` have no query: at each sweep value
+they align a window on the context and take the entropy of the windowed
+density, or its mass in a region.
 
-Each function takes one window attribute (``window_attr``, with
-``centres`` or ``start`` / ``stop`` / ``step`` and ``drop_window_attr``,
-which says whether the window attribute is compared or marginalized) or
-several (``sweep={a: centres, ...}`` with a parallel ``drop={a: bool,
-...}``, ``a`` an attribute index), the output then having one dimension
-per window attribute.
-
-``locate`` reduces each event's element multiset on a window attribute to
-the one value the window reads (the mean by default; also ``'start'`` /
-``'end'`` / ``'mid'`` or a callable). By default the window is a rectangle
-as wide as the query's extent on the window attribute; ``context_window``
-overrides its shape and width. The window factors multiply onto one
-``target_attr`` and prune the context to the windowed region before the
-build, so a single bundled time (or pitch) attribute can be windowed and
-compared at once, with no separate locating copy.
+The window factors prune the context to the windowed region before the
+build. Where the windowed context is fixed across the query's translations,
+those translations are computed together by :func:`sweep_sim_maet`.
 """
 
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 
 from .preprocessing import (
     weight_events, translate_attributes,
-    _evaluate_shape, _multiply_weights, _normalise_weights_to_list,
+    _multiply_weights, _normalise_weights_to_list,
+    _resolve_profile, _resolve_edges, _locate_row, _weight_factor,
+    _SHAPE_ALIASES, _EDGES,
 )
 from .build import build_maet
-from .premaet import is_pre_maet, unpack_pre_maet
+from .premaet import _parts_per_event, is_pre_maet, unpack_pre_maet
 from .cosine import (sim_maet)
 from .sweep import sweep_sim_maet
 from .._defaults import _with_dispatch_scope
@@ -46,35 +38,10 @@ from .density import _weight_is_live
 
 _SQRT12 = 2.0 * np.sqrt(3.0)
 
-_SHAPE_ALIASES = {
-    "rect": 1.0, "rectangular": 1.0, "box": 1.0,
-    "gaussian": 0.0, "gauss": 0.0, "normal": 0.0,
-}
-
-
-def _resolve_shape(shape):
-    if isinstance(shape, str):
-        try:
-            return _SHAPE_ALIASES[shape.lower()]
-        except KeyError:
-            raise ValueError(
-                f"unknown window shape {shape!r}; pass a float in [0, 1] "
-                f"(0 Gaussian, 1 rectangular) or one of "
-                f"{sorted(_SHAPE_ALIASES)}"
-            )
-    s = float(shape)
-    if not (0.0 <= s <= 1.0):
-        raise ValueError(
-            f"window shape must be in [0, 1] (0 Gaussian, 1 rectangular); "
-            f"got {s}"
-        )
-    return s
-
-
 def _abs_idx(idx, n_attr):
     a = idx if idx >= 0 else n_attr + idx
     if not (0 <= a < n_attr):
-        raise ValueError(f"window_attr {idx} out of range for {n_attr} attributes")
+        raise ValueError(f"attribute index {idx} out of range for {n_attr} attributes")
     return a
 
 
@@ -84,25 +51,6 @@ def _axis_values(p_attr, axis):
     M = np.asarray(p_attr[axis], dtype=float)
     v = M.ravel()
     return v[np.isfinite(v)]
-
-
-def _resolve_centres(p_attr, axis, centres, start, stop, step, default_step):
-    if centres is not None:
-        if start is not None or stop is not None or step is not None:
-            raise ValueError(
-                "pass either `centres` or `start`/`stop`/`step`, not both"
-            )
-        return np.asarray(centres, dtype=float).ravel()
-    vals = _axis_values(p_attr, axis)
-    if vals.size == 0:
-        raise ValueError("cannot derive the centres: the window attribute has no finite values")
-    lo = float(vals.min()) if start is None else float(start)
-    hi = float(vals.max()) if stop is None else float(stop)
-    st = float(default_step) if step is None else float(step)
-    if not (st > 0):
-        raise ValueError("step must be positive")
-    n = int(np.floor((hi - lo) / st + 1e-9)) + 1
-    return lo + st * np.arange(max(n, 1))
 
 
 def _prune_dead_events(p_attr, w, specs):
@@ -158,73 +106,46 @@ def _prune_dead_events(p_attr, w, specs):
     return p_out, w_out, specs            # specs are per-value -> unchanged
 
 
-def _locate_row(M, locate):
-    """Reduce a ``(K, N)`` attribute to the ``(1, N)`` value its window
-    centres on: the multiset centroid by default, else ``'start'`` / ``'end'``
-    / ``'mid'`` / a callable. Raw values for a relative attribute (the
-    window selects in absolute position; the comparison is
-    translation-invariant)."""
-    M = np.asarray(M, dtype=float)
-    if callable(locate):
-        return np.asarray(locate(M), dtype=float).reshape(1, -1)
-    if locate == "centroid":
-        return np.nanmean(M, axis=0, keepdims=True)
-    if locate == "start":
-        return M[0:1, :]
-    if locate == "end":
-        return M[-1:, :]
-    if locate == "mid":
-        return 0.5 * (M[0:1, :] + M[-1:, :])
-    raise ValueError(
-        f"locate must be 'centroid', 'start', 'end', 'mid', or a callable; "
-        f"got {locate!r}")
-
-
 def _resolve_locate(locate, axis):
     return locate.get(axis, "centroid") if isinstance(locate, dict) else locate
 
 
-def _window_factor(loc_row, centre, gamma, sd):
-    """Per-event window factor over a reduced locating row, matching the
-    ``weight_events`` profile and truncation exactly. The global-default
-    truncation width is resolved through the contract helper, so
-    ``mpt.set_default(truncation_sigmas=math.inf)`` truncates at the
-    finite accuracy-floor width (never "disabled")."""
-    from .._defaults import get_default, resolve_truncation_sigmas
-    delta = loc_row - centre
-    factor = _evaluate_shape(delta, sd, gamma)
-    trunc = resolve_truncation_sigmas(get_default("truncation_sigmas"))
-    factor = factor.copy()
-    factor[np.abs(delta) > trunc * sd] = 0.0
-    return factor
+class _Window(tuple):
+    """A window on one attribute: ``(profile, closed, is_per, period)``,
+    the resolved weighting profile of :mod:`preprocessing` and the
+    geometry its displacement is measured in."""
+
+    __slots__ = ()
+
+    def __new__(cls, profile, closed, is_per=False, period=0.0):
+        return tuple.__new__(cls, (profile, bool(closed), bool(is_per),
+                                   float(period)))
+
+    profile = property(lambda self: self[0])
+    closed = property(lambda self: self[1])
+    is_per = property(lambda self: self[2])
+    period = property(lambda self: self[3])
+
+    @property
+    def default_step(self):
+        """The default step of a window-only sweep: half the window's
+        standard deviation. The profile changes on the scale of the window,
+        as each event's weight follows it, so this leaves every feature
+        within a quarter-sd of a grid point (as half the peaks' sd does for a
+        translation sweep). NaN for a profile function, which has no scale
+        of its own."""
+        return self.profile.sd / 2.0
+
+    def with_geometry(self, is_per, period):
+        return _Window(self.profile, self.closed, is_per, period)
 
 
-def _query_extent(p_query, axis):
-    v = np.asarray(p_query[axis], dtype=float).ravel()
-    v = v[np.isfinite(v)]
-    return float(v.max() - v.min()) if v.size else 0.0
-
-
-def _resolve_window(spec, query_extent, axis):
-    """``(gamma, sd)`` for one window attribute; the default is a rectangle
-    as wide as the query's extent on that attribute."""
-    if spec is None:
-        if query_extent <= 0:
-            raise ValueError(
-                f"attribute {axis}: the query has zero extent there, so the default "
-                f"window width is undefined; give 'width' or 'sd' in "
-                f"context_window[{axis}].")
-        return 1.0, query_extent / _SQRT12
-    gamma = _resolve_shape(spec.get("shape", "rect"))
-    has_sd, has_w = "sd" in spec, "width" in spec
-    if has_sd == has_w:
-        raise ValueError(
-            f"attribute {axis}: give exactly one of 'width' or 'sd' in "
-            f"context_window[{axis}].")
-    sd = float(spec["sd"]) if has_sd else float(spec["width"]) / _SQRT12
-    if not (sd > 0):
-        raise ValueError(f"attribute {axis}: window width/sd must be > 0.")
-    return gamma, sd
+def _window_factor(loc_row, at, win):
+    """Per-event factor of window ``win`` aligned at ``at``, over a reduced
+    locating row: the event weighting of :func:`weight_events`, through
+    the same implementation."""
+    return _weight_factor(loc_row, at, win.profile, is_per=win.is_per,
+                          period=win.period, closed=win.closed)
 
 
 def _axis_is_rel(specs, is_rel, a):
@@ -239,12 +160,11 @@ def _axis_is_rel(specs, is_rel, a):
     return bool(is_rel[a]) if a < len(is_rel) else False
 
 
-def _apply_windows(p, w, specs, centres, win, locate, target):
+def _apply_windows(p, w, specs, at, win, locate, target):
     w_out = _normalise_weights_to_list(w, len(p))
-    for a, centre in centres.items():
+    for a, s in at.items():
         loc = _locate_row(p[a], _resolve_locate(locate, a))
-        gamma, sd = win[a]
-        factor = _window_factor(loc, centre, gamma, sd)
+        factor = _window_factor(loc, s, win[a])
         w_out[target] = _multiply_weights(w_out[target], factor, target)
     return _prune_dead_events(p, w_out, specs)
 
@@ -274,145 +194,11 @@ def _check_is_exch_vs_specs(is_exch, specs):
             "or the other.")
 
 
-def _prep_sweep(p_context, p_query, sweep, drop, context_window, target_attr,
-                require_window=False):
-    n = len(p_context)
-    keys = list(sweep.keys())
-    if not keys:
-        raise ValueError("`sweep` must name at least one attribute to slide.")
-    if set(drop.keys()) != set(keys):
-        raise ValueError("`drop` must have exactly one entry per `sweep` key.")
-    drop_axes = {a for a in keys if drop[a]}
-    kept = [i for i in range(n) if i not in drop_axes]
-    if not kept:
-        raise ValueError(
-            "every attribute is dropped; nothing is left to compare or to take "
-            "the entropy of.")
-    if target_attr is None:
-        target = kept[0]
-    else:
-        target = target_attr if target_attr >= 0 else n + target_attr
-        if target in drop_axes:
-            raise ValueError(
-                f"target_attr={target} is a marginalized attribute; its weights are "
-                f"removed before the build, so the window factors would be "
-                f"lost. Choose a compared attribute.")
-    cw = context_window if isinstance(context_window, dict) else {}
-    if require_window and any(cw.get(a) is None for a in keys):
-        raise ValueError(
-            "windowed_entropy has no query to size the window; give an explicit "
-            "context_window entry (width or sd) for every window attribute.")
-    win = {a: _resolve_window(cw.get(a), _query_extent(p_query, a), a)
-           for a in keys}
-    grids = [np.asarray(sweep[a], dtype=float).ravel() for a in keys]
-    return keys, drop_axes, target, win, grids
-
-
-def _single_window(context_window, p_query, axis):
-    """(gamma, sd) for one window attribute from the ``(shape, width)``
-    tuple; the width defaults to the query's extent on that attribute."""
-    shape_raw, width = context_window
-    if width is None:
-        width = _query_extent(p_query, axis)
-    if not (width > 0):
-        raise ValueError(
-            f"window width on attribute {axis} is zero or undefined; pass "
-            f"context_window=(shape, width) with width > 0.")
-    gamma = _resolve_shape("rect" if shape_raw is None else shape_raw)
-    return gamma, width / _SQRT12
-
-
 def _query_position(p_query, attr, locate):
-    """The query's position on attribute ``attr``: the mean, over its
-    events, of each event's element multiset reduced by ``locate``."""
+    """The default queryRef on attribute ``attr``: the mean, over the
+    query's events, of their located values."""
     return float(np.nanmean(_locate_row(p_query[attr],
                                         _resolve_locate(locate, attr))))
-
-
-def _offsets_single(p_query, specs, is_rel, offsets, centres, start, stop,
-                    step, window_attr, drop_window_attr, locate, n):
-    """Translate ``offsets`` for one window attribute into the placement
-    (centres and query positions) the comparison uses.
-
-    Returns ``(centres, query_pos, drop_window_attr)``. With ``centres``
-    absent the window travels with the query (its centre is the offset
-    plus the query's position) and ``query_pos`` is None; with ``centres``
-    given the window stays at each centre while the query is translated by
-    each offset, the correlogram, and ``query_pos`` is the ``(A, T)``
-    array of the query's positions (offset plus its position)."""
-    if any(v is not None for v in (start, stop, step)):
-        raise ValueError(
-            "`start`/`stop`/`step` lay out window centres; with `offsets`, "
-            "give the window centres as `centres` (or omit them to let the "
-            "window travel with the query).")
-    if drop_window_attr is None:
-        drop_window_attr = False
-    if drop_window_attr:
-        raise ValueError(
-            "`offsets` translate the query along the window attribute, so "
-            "that attribute must be compared (drop_window_attr=False).")
-    axis = _abs_idx(window_attr, n)
-    if _axis_is_rel(specs, [False] * n if is_rel is None else is_rel, axis):
-        raise ValueError(
-            f"attribute {axis} is relative: translating it leaves every "
-            f"within-tuple difference unchanged, so there is nothing to "
-            f"sweep. Give window positions as `centres` instead.")
-    off = np.asarray(offsets, dtype=float)
-    q_pos = _query_position(p_query, axis, locate)
-    if centres is None:
-        if off.ndim != 1:
-            raise ValueError("without `centres`, `offsets` must be 1-D.")
-        return off + q_pos, None, drop_window_attr
-    c = np.asarray(centres, dtype=float).ravel()
-    if off.ndim == 1:
-        qc = np.broadcast_to(off[None, :] + q_pos, (c.size, off.size)).copy()
-    elif off.ndim == 2 and off.shape[0] == c.size:
-        qc = off + q_pos
-    else:
-        raise ValueError(
-            f"with {c.size} centres, `offsets` must be 1-D (shared by every "
-            f"centre) or 2-D with {c.size} rows; got shape {off.shape}.")
-    return c, qc, drop_window_attr
-
-
-def _offsets_multi(p_query, specs, is_rel, offsets, sweep, drop, locate,
-                   context_window):
-    """Merge an ``offsets`` map ``{a: offsets}`` into ``sweep``/``drop``.
-
-    Each named attribute is translated by its offsets and compared. It
-    carries a window only if ``context_window`` names it (the window then
-    travels with the query); otherwise it is translated with no window.
-    Returns ``(sweep, drop, translate_only)``, the merged maps ordered by
-    attribute index, and the set of attributes translated with no window."""
-    n = len(p_query)
-    sweep = dict(sweep or {})
-    drop = dict(drop or {})
-    cw = context_window if isinstance(context_window, dict) else {}
-    translate_only = set()
-    for a_in, vals in offsets.items():
-        a = _abs_idx(a_in, n)
-        if a in sweep:
-            raise ValueError(
-                f"attribute {a} is named in both `offsets` and `sweep`; an "
-                f"attribute is either translated (offsets) or only windowed "
-                f"(sweep).")
-        if drop.get(a, False):
-            raise ValueError(
-                f"attribute {a} is translated, so it is compared: it cannot "
-                f"be dropped.")
-        if _axis_is_rel(specs, [False] * n if is_rel is None else is_rel, a):
-            raise ValueError(
-                f"attribute {a} is relative: translating it leaves every "
-                f"within-tuple difference unchanged, so there is nothing to "
-                f"sweep.")
-        sweep[a] = (np.asarray(vals, dtype=float).ravel()
-                    + _query_position(p_query, a, locate))
-        drop[a] = False
-        if cw.get(a) is None:
-            translate_only.add(a)
-    order = sorted(sweep)
-    return ({a: sweep[a] for a in order}, {a: drop[a] for a in order},
-            frozenset(translate_only))
 
 
 def _sweep_row(pc, wc, sc, pq, wq, sq, sg, rr, rl, pr, pd, exch_args,
@@ -445,554 +231,1537 @@ def _sweep_row(pc, wc, sc, pq, wq, sq, sg, rr, rl, pr, pd, exch_args,
     return out
 
 
+# ---------------------------------------------------------------------------
+#  The sweep plan
+# ---------------------------------------------------------------------------
+
+_ALIGN = ("window", "query", "both", "independent")
+
+
+def _attr_map(m, n, name):
+    """A per-attribute map with its keys resolved to attribute indices."""
+    if m is None:
+        return {}
+    if not isinstance(m, dict):
+        raise TypeError(
+            f"`{name}` must be a dict keyed by attribute index, "
+            f"{{a: ...}}; got {type(m).__name__}.")
+    out = {}
+    for k, v in m.items():
+        if isinstance(k, (bool, np.bool_)) or not isinstance(
+                k, (int, np.integer)):
+            raise TypeError(
+                f"`{name}`: keys are attribute indices (int); got {k!r}.")
+        a = _abs_idx(int(k), n)
+        if a in out:
+            raise ValueError(f"`{name}` names attribute {a} twice.")
+        out[a] = v
+    return out
+
+
+def _bare_generator(v, name, sweep):
+    """A bare number for ``start``, ``stop``, or ``step``, as ``{a: v}``.
+
+    It applies to the attribute ``sweep`` names, and only where it names
+    exactly one; a map passes through unchanged.
+    """
+    if v is None or isinstance(v, dict):
+        return v
+    if isinstance(v, (bool, np.bool_)) or not np.isscalar(v) or not \
+            isinstance(v, (int, float, np.integer, np.floating)):
+        return v
+    if len(sweep) != 1:
+        raise ValueError(
+            f"a bare `{name}` applies to the one swept attribute, but "
+            f"`sweep` names {len(sweep)}; give {name}={{a: value}}.")
+    return {next(iter(sweep)): v}
+
+
+def _attr_list(v, n, name):
+    """``drop``: an attribute index or a list of them."""
+    if v is None:
+        return set()
+    if isinstance(v, (int, np.integer)) and not isinstance(v, bool):
+        v = [v]
+    out = set()
+    for k in v:
+        if isinstance(k, (bool, np.bool_)) or not isinstance(
+                k, (int, np.integer)):
+            raise TypeError(
+                f"`{name}` lists attribute indices (int); got {k!r}.")
+        out.add(_abs_idx(int(k), n))
+    return out
+
+
+
+
+def _parse_window(spec, a, name, default_width=None):
+    """A :class:`_Window` from its specification: ``(shape, width)``,
+    ``(shape, width, edges)``, a profile function, or a dict with
+    ``'shape'`` and ``'width'``, ``'sd'``, or ``'decay_rate'``, and
+    ``'edges'``.
+
+    The profiles are those of :func:`weight_events`: the
+    rectangle-Gaussian family (``'rect'``, ``'gaussian'``, or a number in
+    [0, 1]), scaled by ``'width'`` or ``'sd'``; the exponentials aligned
+    at the window's reference value (``'exponential'``, and
+    ``'exponentialBefore'`` and ``'exponentialAfter'``, which extend to
+    one side of it only), scaled by ``'sd'`` or ``'decay_rate'``; and a callable of the displacement. The
+    serial-position profiles, anchored at the first and last events
+    rather than at the sweep value, are refused. The width may be left
+    out (``None``, or the whole spec ``None``) only where
+    ``default_width``, a callable, supplies one; a rectangle whose width
+    is defaulted is closed unless ``edges`` says otherwise, and one whose
+    width is given is half-open unless ``edges`` says otherwise."""
+    edges = None
+    sd = width = rate = None
+    if spec is None:
+        spec = ("rect", None)
+    if callable(spec):
+        shape = spec
+    elif isinstance(spec, dict):
+        shape = spec.get("shape", "rect")
+        edges = spec.get("edges")
+        given = [k for k in ("sd", "width", "decay_rate") if k in spec]
+        if len(given) > 1:
+            raise ValueError(
+                f"`{name}` for attribute {a}: give one of 'width', 'sd', "
+                f"or 'decay_rate', not {' and '.join(given)}.")
+        sd, width, rate = (spec.get("sd"), spec.get("width"),
+                           spec.get("decay_rate"))
+    elif isinstance(spec, (tuple, list)) and len(spec) in (2, 3):
+        shape, width = spec[0], spec[1]
+        if len(spec) == 3:
+            edges = spec[2]
+    else:
+        raise ValueError(
+            f"`{name}` for attribute {a}: give (shape, width), (shape, "
+            f"width, edges), a profile function, or {{'shape': ..., "
+            f"'width' | 'sd' | 'decay_rate': ..., 'edges': ...}}; got "
+            f"{spec!r}.")
+    if shape is None:
+        shape = "rect"
+    named = isinstance(shape, str) and shape.lower() not in _SHAPE_ALIASES
+    defaulted = False
+    if not named and not callable(shape) and sd is None and width is None:
+        if default_width is None:
+            raise ValueError(
+                f"`{name}` for attribute {a}: a width is required, "
+                f"(shape, width).")
+        width = default_width()
+        defaulted = True
+    if named and width is not None and not isinstance(spec, dict):
+        raise ValueError(
+            f"`{name}` for attribute {a}: profile {shape!r} has no width; "
+            f"give {{'shape': {shape!r}, 'sd': ...}} or "
+            f"{{'shape': {shape!r}, 'decay_rate': ...}}.")
+    try:
+        profile = _resolve_profile(shape, sd=sd, width=width,
+                                   decay_rate=rate)
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"`{name}` for attribute {a}: {err}") from None
+    if profile.kind == "anchored":
+        raise ValueError(
+            f"`{name}` for attribute {a}: profile {shape!r} is anchored at "
+            f"the first and last events' values, not at the sweep value, "
+            f"so it cannot be aligned; weight the events with "
+            f"weight_events before the call instead.")
+    if edges is None and profile.kind == "family" and profile.shape == 1.0:
+        edges = "closed" if defaulted else "halfOpen"
+    try:
+        closed = _resolve_edges(edges, profile)
+    except ValueError as err:
+        raise ValueError(f"`{name}` for attribute {a}: {err}") from None
+    return _Window(profile, closed)
+
+
+def _is_rect(win):
+    """Whether a window is a pure rectangle, whose profile is piecewise
+    constant in the sweep value."""
+    prof = win.profile
+    return (getattr(prof, "kind", None) == "family"
+            and float(getattr(prof, "shape", np.nan)) == 1.0
+            and np.isfinite(prof.sd))
+
+
+def _rect_pieces(p_context, a, locate, win, lo, hi, is_per=False,
+                 period=0.0):
+    """Default sweep values for a rectangular window placed alone.
+
+    As the window moves, the windowed context changes only where an event
+    enters or leaves it: at each event's located value plus or minus half
+    the window's width (and their images a period apart, on a periodic
+    attribute). Between these breakpoints the profile is constant, so each
+    piece is sampled just inside both its ends, and a line through the
+    values draws the steps exactly, every value being the profile's value
+    at its sweep value. The range ``[lo, hi]`` is sampled at its ends.
+    """
+    hw = float(win.profile.sd) * np.sqrt(3.0)
+    loc = np.asarray(_locate_row(p_context[a], _resolve_locate(locate, a)),
+                     dtype=float).ravel()
+    loc = loc[np.isfinite(loc)]
+    b = np.concatenate([loc - hw, loc + hw])
+    if is_per and period and period > 0:
+        k_lo = int(np.floor((lo - b.max()) / period)) - 1
+        k_hi = int(np.ceil((hi - b.min()) / period)) + 1
+        b = np.concatenate([b + k * period for k in range(k_lo, k_hi + 1)])
+    tol = 1e-9 * max(1.0, abs(lo), abs(hi), hw)
+    b = np.unique(b[(b > lo + tol) & (b < hi - tol)])
+    if b.size:
+        b = b[np.concatenate([[True], np.diff(b) > tol])]
+    edges = np.concatenate([[lo], b, [hi]])
+    gaps = np.diff(edges)
+    eps = min(1e-6 * hw, 0.25 * float(gaps[gaps > 0].min())) \
+        if np.any(gaps > 0) else 0.0
+    vals = [lo]
+    for x in b:
+        vals.extend([x - eps, x + eps])
+    if hi > lo:
+        vals.append(hi)
+    return np.asarray(vals, dtype=float)
+
+
+def _window_default(p_context, a, start, stop, step, default_step, win,
+                    locate, is_per, period):
+    """Generated sweep values where only a window is placed: a pure
+    rectangle's pieces (see :func:`_rect_pieces`) where no step is given,
+    and otherwise the uniform grid of :func:`_generate`."""
+    if (step.get(a) is None and win is not None and _is_rect(win)):
+        v = _axis_values(p_context, a)
+        if v.size == 0:
+            raise ValueError(
+                f"attribute {a}: the context has no finite values there to "
+                f"take a default `start` / `stop` from.")
+        lo = float(v.min()) if start.get(a) is None else float(start[a])
+        hi = float(v.max()) if stop.get(a) is None else float(stop[a])
+        if hi < lo:
+            raise ValueError(f"attribute {a}: `stop` is below `start`.")
+        per = bool(is_per[a]) if is_per is not None else False
+        pd_ = float(period[a]) if (period is not None
+                                   and period[a] is not None) else 0.0
+        return _rect_pieces(p_context, a, locate, win, lo, hi, per, pd_)
+    return _generate(p_context, a, start.get(a), stop.get(a), step.get(a),
+                     default_step)
+
+
+def _values(v, a, name):
+    arr = np.asarray(v, dtype=float).ravel()
+    if arr.size == 0:
+        raise ValueError(f"`{name}` for attribute {a} is empty.")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(
+            f"`{name}` for attribute {a} holds a non-finite value.")
+    return arr
+
+
+def _generate(p_context, a, start, stop, step, default_step,
+              default_range=None, open_stop=False):
+    """Sweep values from ``start`` to ``stop`` in steps of ``step``.
+
+    ``start`` and ``stop`` default to ``default_range`` where given, and
+    otherwise to the lowest and highest of the context's values on
+    attribute ``a``; ``step`` defaults to ``default_step``. With
+    ``open_stop`` (a periodic range) the stop value itself is left out."""
+    if step is None and default_step is None:
+        raise ValueError(
+            f"attribute {a}: give `step`; there is no kernel width or window "
+            f"sd on this attribute to take a default step from.")
+    if default_range is None and (start is None or stop is None):
+        vals = _axis_values(p_context, a)
+        if vals.size == 0:
+            raise ValueError(
+                f"attribute {a}: the context has no finite values there to "
+                f"take a default `start` / `stop` from.")
+        default_range = (float(vals.min()), float(vals.max()))
+    lo = float(default_range[0]) if start is None else float(start)
+    hi = float(default_range[1]) if stop is None else float(stop)
+    st = float(default_step) if step is None else float(step)
+    if not (np.isfinite(st) and st > 0):
+        raise ValueError(f"attribute {a}: `step` must be finite and > 0.")
+    if hi < lo:
+        raise ValueError(f"attribute {a}: `stop` is below `start`.")
+    count = int(np.floor((hi - lo) / st + 1e-9)) + 1
+    vals = lo + st * np.arange(count)
+    if open_stop and stop is None:
+        vals = vals[vals < hi - 1e-9 * max(1.0, abs(hi))]
+    return vals
+
+
+def _kernel_width(sigma, a):
+    """One kernel standard deviation for attribute ``a``: the scalar sigma,
+    the square root of the largest diagonal entry of a kernel covariance,
+    or the smallest finite entry of a per-level vector; ``None`` where
+    there is none."""
+    if sigma is None:
+        return None
+    try:
+        sg = sigma[a]
+    except (IndexError, KeyError, TypeError):
+        return None
+    if sg is None:
+        return None
+    arr = np.asarray(sg, dtype=float)
+    if arr.ndim == 2 and arr.shape[0] == arr.shape[1] and arr.size > 1:
+        d = np.diag(arr)
+        d = d[np.isfinite(d) & (d > 0)]
+        return float(np.sqrt(d.max())) if d.size else None
+    v = arr.ravel()
+    v = v[np.isfinite(v) & (v > 0)]
+    return float(v.min()) if v.size else None
+
+
+def _tuple_dim(r, specs, a):
+    """The number of coordinates of attribute ``a``'s tuple: the product of
+    a nested attribute's per-level tuple sizes, or its tuple size ``r``;
+    1 where neither is given."""
+    if specs is not None and a < len(specs) and specs[a] is not None:
+        rs = specs[a].get("r") if isinstance(specs[a], dict) else None
+        if rs is not None:
+            return int(np.prod(np.atleast_1d(np.asarray(rs, dtype=float))))
+    if r is None:
+        return 1
+    try:
+        ra = r[a]
+    except (IndexError, KeyError, TypeError):
+        return 1
+    if ra is None:
+        return 1
+    return int(np.prod(np.atleast_1d(np.asarray(ra, dtype=float))))
+
+
+def _peak_width(sigma, r, specs, a):
+    """The standard deviation of the peaks of a translation profile on
+    attribute ``a``. Translating the query moves all D coordinates of the
+    attribute's tuple alike, so each pair of tuples contributes a Gaussian
+    in the offset of variance 2 / (1' Sigma^-1 1) (Milne 2026, Eq. 10 and
+    Online Supplement Sec. 4): sigma * sqrt(2 / D) for an isotropic kernel
+    of width sigma, narrower the larger the tuple. ``None`` where there is
+    no kernel width."""
+    try:
+        sg = None if sigma is None else sigma[a]
+    except (IndexError, KeyError, TypeError):
+        sg = None
+    if sg is not None:
+        arr = np.asarray(sg, dtype=float)
+        if arr.ndim == 2 and arr.shape[0] == arr.shape[1] and arr.size > 1:
+            try:
+                q = float(np.ones(arr.shape[0])
+                          @ np.linalg.solve(arr, np.ones(arr.shape[0])))
+            except np.linalg.LinAlgError:
+                q = np.nan
+            if np.isfinite(q) and q > 0:
+                return float(np.sqrt(2.0 / q))
+    kw = _kernel_width(sigma, a)
+    if kw is None:
+        return None
+    return kw * float(np.sqrt(2.0 / max(_tuple_dim(r, specs, a), 1)))
+
+
+def _lattice_step(p_context, p_query, a, half, period=0.0):
+    """The default translation step on attribute ``a``: at most ``half``
+    (half the standard deviation of the profile's peaks), and a whole
+    fraction of the lattice the exact matches lie on, where they lie on
+    one.
+
+    Every exact match is at an offset that is a difference between a
+    context value and a query value. Where the context's values are whole
+    multiples of a spacing ``g`` apart, and so are the query's (and ``g``
+    divides the period, on a periodic attribute), every such offset is the
+    lowest one, min(context) - max(query), plus a whole multiple of ``g``.
+    A step of ``g / k``, with ``k`` the smallest whole number that brings
+    it to ``half`` or below, then puts every one of them on a grid through
+    that lowest offset: onsets on a grid of 1 with a kernel width of 0.307
+    step at 1/7, not at 0.1535. Where ``g`` is below ``half``, it is the
+    step itself, provided it is at least ``half / 4``; otherwise (values on
+    no lattice, or on one too fine to step at) the step is ``half``, which
+    keeps every peak within a quarter of its standard deviation of a grid
+    point.
+    """
+    diffs = []
+    for p_attr in (p_context, p_query):
+        v = _axis_values(p_attr, a)
+        if v.size:
+            diffs.append(v - v.min())
+    if period and period > 0:
+        diffs.append(np.array([float(period)]))
+    if not diffs:
+        return half
+    tol = 1e-6 * half
+    d = np.unique(np.concatenate(diffs))
+    d = d[d > tol]
+    if d.size == 0:
+        return half
+    floor = half / 4.0
+    g = float(d[0])
+    for x in d[1:]:
+        big, small = max(g, float(x)), min(g, float(x))
+        while small > tol:
+            r = np.fmod(big, small)
+            if small - r <= tol:
+                r = 0.0
+            big, small = small, r
+        g = big
+        if g < floor:
+            return half
+    # The tolerant Euclid can drift; accept g only if every difference is a
+    # whole multiple of it.
+    if np.max(np.abs(d / g - np.round(d / g))) * g > 1e-4 * half:
+        return half
+    return float(g / np.ceil(g / half - 1e-9))
+
+
+def _translation_range(p_context, p_query, a, ref, periodic, period):
+    """The sweep values at which the query, placed by its reference
+    ``ref``, overlaps the context on attribute ``a``: one period from 0
+    (plus ``ref``) on a periodic attribute; otherwise from the value that
+    puts the query's highest value on the context's lowest to the value
+    that puts its lowest on the context's highest."""
+    if periodic and period and period > 0:
+        return (ref, ref + float(period)), True
+    c = _axis_values(p_context, a)
+    q = _axis_values(p_query, a)
+    if c.size == 0 or q.size == 0:
+        raise ValueError(
+            f"attribute {a}: the context or the query has no finite values "
+            f"there to take a default sweep range from; give `sweep` values "
+            f"or `start` / `stop`.")
+    return (float(c.min() - q.max()) + ref, float(c.max() - q.min()) + ref), \
+        False
+
+
+def _is_rel(specs, is_rel, a, n):
+    return _axis_is_rel(specs, [False] * n if is_rel is None else is_rel, a)
+
+
+def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
+                align, window, drop, query_ref, locate, func, sigma=None,
+                is_per=None, period=None, r=None):
+    """Validate the placement arguments and return the sweep plan.
+
+    One rule places everything: at each sweep value ``s``, a window has its
+    reference (displacement 0) at ``s``, and a translated query has its
+    reference ``query_ref`` at ``s``.
+
+    Returns ``(dims, drop, ctx_win, q_ref)``: ``dims`` is the list of
+    output dimensions in order, each ``(kind, a, values, pair)`` with
+    ``kind`` ``'ctx'`` (a window is aligned at each value; for ``'both'``
+    the query's reference is placed there too) or ``'query'`` (only the
+    query is translated), and ``pair`` the index of the window's dimension
+    where an ``'independent'`` query list holds one row per window value;
+    ``ctx_win`` maps each attribute where a window is aligned to ``(gamma,
+    sd, closed)`` and to whether the query is translated with it; ``q_ref``
+    maps each attribute the query is translated on to ``query_ref``.
+    """
+    n = len(p_context)
+    has_query = p_query is not None
+    # A bare attribute index, or a list of them, asks for default sweep
+    # values on each.
+    if isinstance(sweep, (int, np.integer)) and not isinstance(sweep, bool):
+        sweep = {int(sweep): None}
+    elif isinstance(sweep, (list, tuple)) and sweep and all(
+            isinstance(k, (int, np.integer)) and not isinstance(k, bool)
+            for k in sweep):
+        sweep = {int(k): None for k in sweep}
+    sweep = _attr_map(sweep, n, "sweep")
+    # A bare number for start, stop, or step applies to the one swept
+    # attribute: sweep=a, step=0.5.
+    start = _attr_map(_bare_generator(start, "start", sweep), n, "start")
+    stop = _attr_map(_bare_generator(stop, "stop", sweep), n, "stop")
+    step = _attr_map(_bare_generator(step, "step", sweep), n, "step")
+    window = _attr_map(window, n, "window")
+    drop = _attr_list(drop, n, "drop")
+    swept = set(sweep) | set(start) | set(stop) | set(step)
+    if has_query:
+        align = _attr_map(align, n, "align")
+        query_ref = _attr_map(query_ref, n, "query_ref")
+        # Attribute translation over the whole context is the default role.
+        for a in swept - set(align):
+            align[a] = "query"
+    else:
+        # swept_entropy: every swept attribute's values align the window.
+        align = {a: "window" for a in swept | set(window)}
+        query_ref = {}
+
+    for a, m in align.items():
+        if m not in _ALIGN:
+            raise ValueError(
+                f"`align` for attribute {a} must be one of {_ALIGN}; "
+                f"got {m!r}.")
+    for a in sorted(set(align) - swept):
+        raise ValueError(
+            f"attribute {a} has an `align` entry but no sweep values; give "
+            f"them with sweep={{{a}: values}} (or `start` / `stop` / "
+            f"`step`).")
+    if not align:
+        raise ValueError(
+            f"{func}: name at least one attribute to sweep, with `sweep` (or "
+            f"`start` / `stop` / `step`).")
+
+    # The query's reference, wherever the query is translated: the point of
+    # the query placed at each sweep value. By default 0 where there is no
+    # window ('query': sweep values are then the offsets added to the query
+    # as written), and the query's middle where there is one ('both',
+    # 'independent': window and query sweep values then both refer to
+    # middles, so under 'both' the window is aligned at the query's middle).
+    q_ref = {}
+    for a, m in align.items():
+        if m == "window":
+            continue
+        if a in query_ref:
+            q_ref[a] = float(query_ref[a])
+        elif m in ("both", "independent"):
+            q_ref[a] = _query_position(p_query, a, locate)
+        else:
+            q_ref[a] = 0.0
+
+    dims, ctx_win = [], {}
+    for a in sorted(align):
+        m = align[a]
+        gen = any(a in d for d in (start, stop, step))
+        rel = _is_rel(specs, is_rel, a, n)
+        # --- the window ---
+        if m == "query":
+            if a in window:
+                raise ValueError(
+                    f"attribute {a} has a window, but its `align` is 'query' "
+                    f"(the default: translation over the whole context), "
+                    f"which has none. Say where the window goes: "
+                    f"align={{{a}: 'both'}} (window and query at each sweep "
+                    f"value), 'window' (the window only), or 'independent'.")
+            win = None
+        elif m == "window":
+            if a not in window:
+                raise ValueError(
+                    (f"attribute {a}: align='window' aligns a window, so "
+                     f"give its " if has_query else
+                     f"attribute {a} is swept, so give its window's ")
+                    + f"shape and width: window={{{a}: (shape, width)}}.")
+            win = _parse_window(window[a], a, "window")
+        elif m == "independent":
+            if a not in window:
+                raise ValueError(
+                    f"attribute {a}: align='independent' aligns a window "
+                    f"apart from the query, so give its shape and width: "
+                    f"window={{{a}: (shape, width)}}.")
+            win = _parse_window(window[a], a, "window")
+        else:
+            # 'both': window and query reference share each sweep value. The
+            # window defaults to the smallest closed rectangle that, so
+            # placed, holds the query.
+            win = _parse_window(
+                window.get(a), a, "window",
+                lambda a=a: _holding_width(p_query, a, locate, q_ref[a]))
+            _warn_if_query_cut(p_query, a, locate, q_ref[a], win)
+        if win is not None and is_per is not None and bool(is_per[a]):
+            # On a periodic attribute the window's displacement wraps, as
+            # weight_events wraps it.
+            win = win.with_geometry(True, float(period[a]))
+        # --- what may be translated, given the geometry ---
+        if m != "window":
+            if rel:
+                raise ValueError(
+                    f"attribute {a} is relative: translating the query "
+                    f"changes none of its within-tuple differences, so "
+                    f"align={m!r} does nothing there. Use "
+                    f"align='window'.")
+            if a in drop:
+                raise ValueError(
+                    f"attribute {a}: align={m!r} translates the query along "
+                    f"it, so it is compared and cannot be dropped.")
+        # --- the sweep values ---
+        default_step = (None if win is None
+                        or not np.isfinite(win.default_step)
+                        else win.default_step)
+        default_range, open_stop = None, False
+        if m in ("query", "both"):
+            # Where the sweep values translate the query, every placement at
+            # which it overlaps the context, stepped at no more than half the
+            # standard deviation of the profile's peaks, sigma * sqrt(2 / D)
+            # for a tuple of D coordinates (window or no window), on the
+            # values' lattice where they lie on one, so that every exact
+            # match is on the grid.
+            per = bool(is_per[a]) if is_per is not None else False
+            pd_ = float(period[a]) if (period is not None
+                                       and period[a] is not None) else 0.0
+            kw_ = _peak_width(sigma, r, specs, a)
+            if kw_ is not None:
+                default_step = _lattice_step(p_context, p_query, a,
+                                             kw_ / 2.0, pd_ if per else 0.0)
+            elif m == "query":
+                default_step = None
+            if a not in sweep or sweep[a] is None:
+                default_range, open_stop = _translation_range(
+                    p_context, p_query, a, q_ref[a], per, pd_)
+                if open_stop and default_step is not None \
+                        and step.get(a) is None:
+                    # One period, on the grid through the lowest offset, so
+                    # the lattice step lands on every exact match.
+                    o = float(_axis_values(p_context, a).min()
+                              - _axis_values(p_query, a).max())
+                    sh = float(np.mod(o, default_step))
+                    if default_step - sh < 1e-9 * default_step:
+                        sh = 0.0
+                    default_range = (default_range[0] + sh,
+                                     default_range[1] + sh)
+        if m == "independent":
+            pair = sweep.get(a)
+            if pair is None:
+                raise ValueError(
+                    f"attribute {a}: align='independent' needs the query's "
+                    f"sweep values given explicitly, sweep={{{a}: "
+                    f"(window_values, query_values)}} (the window's may be "
+                    f"None, generated by `start` / `stop` / `step`).")
+            if not (isinstance(pair, (tuple, list)) and len(pair) == 2):
+                raise ValueError(
+                    f"attribute {a}: align='independent' takes two lists, "
+                    f"sweep={{{a}: (window_values, query_values)}} (the "
+                    f"window's may be None when `start` / `stop` / `step` "
+                    f"generate it).")
+            w_vals, q_vals = pair
+            if q_vals is None:
+                raise ValueError(
+                    f"attribute {a}: the query's sweep values must be given "
+                    f"explicitly in sweep={{{a}: (window_values, "
+                    f"query_values)}}.")
+            if w_vals is None:
+                w_vals = _window_default(p_context, a, start, stop, step,
+                                         default_step, win, locate, is_per,
+                                         period)
+            elif gen:
+                raise ValueError(
+                    f"attribute {a}: give the window's sweep values either "
+                    f"in `sweep` or by `start` / `stop` / `step`, not both.")
+            w_vals = _values(w_vals, a, "sweep")
+            q_arr = np.asarray(q_vals, dtype=float)
+            if q_arr.ndim == 2:
+                # One row of query values per window value: the query's
+                # placements may depend on where the window is.
+                if q_arr.shape[0] != w_vals.size or q_arr.shape[1] == 0:
+                    raise ValueError(
+                        f"attribute {a}: a 2-D list of query values needs one "
+                        f"row per window value ({w_vals.size}); got shape "
+                        f"{q_arr.shape}.")
+                if not np.all(np.isfinite(q_arr)):
+                    raise ValueError(
+                        f"`sweep` for attribute {a} holds a non-finite "
+                        f"value.")
+            else:
+                q_arr = _values(q_arr, a, "sweep")
+            dims.append(("ctx", a, w_vals, None))
+            dims.append(("query", a, q_arr, len(dims) - 1))
+        else:
+            listed = a in sweep and sweep[a] is not None
+            if listed and gen:
+                raise ValueError(
+                    f"attribute {a}: give its sweep values either in `sweep` "
+                    f"or by `start` / `stop` / `step`, not both.")
+            if listed:
+                vals = _values(sweep[a], a, "sweep")
+            elif m == "window":
+                vals = _window_default(p_context, a, start, stop, step,
+                                       default_step, win, locate, is_per,
+                                       period)
+            else:
+                vals = _generate(p_context, a, start.get(a), stop.get(a),
+                                 step.get(a), default_step, default_range,
+                                 open_stop)
+            dims.append(("query" if m == "query" else "ctx", a, vals, None))
+        if win is not None:
+            ctx_win[a] = (win, m == "both")
+
+    bad = sorted(d for d in drop if align.get(d) != "window")
+    if bad:
+        raise ValueError(
+            f"`drop` names attribute {bad[0]}, which is not a window "
+            f"attribute swept alone (align='window'). Dropping "
+            f"marginalizes "
+            f"a window attribute after the window has weighted the events; "
+            f"to leave an attribute out of the comparison altogether, leave "
+            f"it out of the pre-MAETs.")
+    if len(drop) >= n:
+        raise ValueError(
+            "every attribute is dropped; nothing is left to compare or "
+            "measure.")
+
+    for a in query_ref:
+        if a not in q_ref:
+            raise ValueError(
+                f"`query_ref` for attribute {a}: the query is not translated "
+                f"along attribute {a} (align='window'), so it has no "
+                f"reference there to place.")
+    return dims, drop, ctx_win, q_ref
+
+
+def _query_located(p_query, a, locate):
+    loc = _locate_row(p_query[a], _resolve_locate(locate, a)).ravel()
+    return loc[np.isfinite(loc)]
+
+
+def _holding_width(p_query, a, locate, ref):
+    """The width of the smallest window that, aligned at the point where
+    the query's reference ``ref`` lands, holds every one of the query's
+    located values on attribute ``a``."""
+    loc = _query_located(p_query, a, locate)
+    w = 2.0 * float(np.max(np.abs(loc - ref))) if loc.size else 0.0
+    if not w > 0:
+        raise ValueError(
+            f"attribute {a}: the query's events all lie at one value there, "
+            f"so there is no width to take a default window from; give one, "
+            f"window={{{a}: (shape, width)}}.")
+    return w
+
+
+def _warn_if_query_cut(p_query, a, locate, ref, win):
+    """Warn where the window, aligned at the sweep value where the query's
+    reference ``ref`` lands, leaves out some of the query's own events: the
+    query can then never be matched in full."""
+    loc = _query_located(p_query, a, locate)
+    if not loc.size:
+        return
+    out = int(np.sum(_window_factor(loc, ref, win) == 0.0))
+    if out:
+        warnings.warn(
+            f"attribute {a}: the window, aligned where the query's reference "
+            f"lands, leaves out {out} of the query's {loc.size} events, so "
+            f"the query can never be matched in full. Widen the window"
+            + (", move query_ref towards the query's middle, or close the "
+               "rectangle (edges 'closed')"
+               if (win.profile.kind == "family" and win.profile.shape == 1.0
+                   and not win.closed) else
+               " or move query_ref towards the query's middle")
+            + ".", UserWarning, stacklevel=5)
+
+
+def _target(target_attr, drop, n):
+    keep = [i for i in range(n) if i not in drop]
+    target = keep[0] if target_attr is None else _abs_idx(target_attr, n)
+    if target in drop:
+        raise ValueError(
+            f"target_attr={target} is a dropped attribute: its weights are "
+            f"removed before the build, so the window factors would be "
+            f"lost. Choose a compared attribute.")
+    return target, keep
+
+
+def _translate(p, w, specs, shifts, n):
+    """The query with attribute ``a`` translated by ``shifts[a]``."""
+    if not shifts:
+        return p, w, specs
+    offs = [None] * n
+    for a, mu in shifts.items():
+        offs[a] = np.array([[float(mu)]], dtype=float)
+    return unpack_pre_maet(translate_attributes(p, w, offs, specs=specs))
+
+
+def _run_similarity(p_context, w_context, p_query, w_query, sigma, r, is_rel,
+                    is_per, period, is_exch, specs, query_specs, plan, locate,
+                    target_attr, normalize):
+    dims, drop, ctx_win, q_ref = plan
+    n = len(p_context)
+    p_context, p_query = list(p_context), list(p_query)
+    target, keep = _target(target_attr, drop, n)
+    nested = specs is not None
+    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
+                          _sub(is_per, keep), _sub(period, keep))
+    sy = None if is_exch is None else _sub(is_exch, keep)
+    exch_args = () if sy is None else (sy,)
+    win = {a: spec for a, (spec, _) in ctx_win.items()}
+    shape = tuple(d[2].shape[-1] for d in dims)
+    out = np.empty(shape, dtype=float)
+    c_pos = [i for i, d in enumerate(dims) if d[0] == "ctx"]
+    q_pos = [i for i, d in enumerate(dims) if d[0] == "query"]
+    q_shape = tuple(shape[i] for i in q_pos)
+    q_idx = list(np.ndindex(*q_shape))
+
+    def compare(pc, wc, sc, pq, wq, sq):
+        if nested:
+            dc = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
+                            verbose=False)
+            dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd, specs=sq,
+                            verbose=False)
+            return float(sim_maet(dc, dq, normalize=normalize, verbose=False))
+        return float(sim_maet(pc, wc, pq, wq, sg, rr, rl, pr, pd, *exch_args,
+                              normalize=normalize, verbose=False))
+
+    for ci in np.ndindex(*tuple(shape[i] for i in c_pos)):
+        at = {dims[i][1]: float(dims[i][2][j]) for i, j in zip(c_pos, ci)}
+        # Every window is aligned at its sweep value. For 'both', the query
+        # is translated so that its reference lands at the same value.
+        both = {a: s - q_ref[a] for a, s in at.items() if ctx_win[a][1]}
+        pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs,
+                                          at, win, locate, target)
+        pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop)
+        pq_b, wq_b, sq_b = _translate(p_query, w_query, query_specs, both, n)
+        full = [0] * len(dims)
+        for i, j in zip(c_pos, ci):
+            full[i] = j
+        if not q_pos:
+            pq, wq, sq, _ = _drop_axes(pq_b, wq_b, sq_b, drop)
+            out[tuple(full)] = compare(pc, wc, sc, pq, wq, sq)
+            continue
+        # The windowed context is fixed across the query's own translations, so
+        # they are computed together where sweep_sim_maet applies.
+        def q_value(k, j):
+            vals, pair = dims[k][2], dims[k][3]
+            return vals[full[pair], j] if vals.ndim == 2 else vals[j]
+
+        offs = np.zeros((len(keep), len(q_idx)), dtype=float)
+        for m, qi in enumerate(q_idx):
+            for k, j in zip(q_pos, qi):
+                a = dims[k][1]
+                offs[keep.index(a), m] = q_value(k, j) - q_ref[a]
+        pq0, wq0, sq0, _ = _drop_axes(pq_b, wq_b, sq_b, drop)
+        row = _sweep_row(pc, wc, sc, pq0, wq0, sq0, sg, rr, rl, pr, pd,
+                         exch_args, nested, offs, normalize)
+        for m, qi in enumerate(q_idx):
+            for k, j in zip(q_pos, qi):
+                full[k] = j
+            if row is not None:
+                out[tuple(full)] = row[m]
+                continue
+            shifts = {dims[k][1]: q_value(k, j) - q_ref[dims[k][1]]
+                      for k, j in zip(q_pos, qi)}
+            pq_t, wq_t, sq_t = _translate(pq_b, wq_b, sq_b, shifts, n)
+            pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop)
+            out[tuple(full)] = compare(pc, wc, sc, pq, wq, sq)
+    return out
+
+
+def _run_local(p_context, w_context, sigma, r, is_rel, is_per, period,
+               is_exch, specs, plan, locate, target_attr, measure):
+    """At each sweep value, window the context, build the windowed
+    density, and apply ``measure`` to it (``swept_entropy``,
+    ``swept_mass``)."""
+    dims, drop, ctx_win, _ = plan
+    n = len(p_context)
+    p_context = list(p_context)
+    target, keep = _target(target_attr, drop, n)
+    nested = specs is not None
+    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
+                          _sub(is_per, keep), _sub(period, keep))
+    sy = None if is_exch is None else _sub(is_exch, keep)
+    exch_args = () if sy is None else (sy,)
+    win = {a: spec for a, (spec, _) in ctx_win.items()}
+    out = np.empty(tuple(d[2].size for d in dims), dtype=float)
+    for idx in np.ndindex(*out.shape):
+        at = {dims[i][1]: float(dims[i][2][j]) for i, j in enumerate(idx)}
+        pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs, at,
+                                          win, locate, target)
+        pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop)
+        if nested:
+            dens = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd,
+                              specs=sc, verbose=False)
+        else:
+            dens = build_maet(pc, wc, sg, rr, rl, pr, pd, *exch_args,
+                              verbose=False)
+        out[idx] = float(measure(dens))
+    return out
+
+
+def _run_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
+                 is_exch, specs, plan, locate, target_attr, method, base,
+                 grid=None):
+    from ..entropy import entropy_maet
+    grid = {k: v for k, v in (grid or {}).items() if v is not None}
+    return _run_local(
+        p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
+        specs, plan, locate, target_attr,
+        lambda dens: entropy_maet(dens, method=method, base=base,
+                                  verbose=False, **grid))
+
+
+def _run_mass(p_context, w_context, sigma, r, is_rel, is_per, period,
+              is_exch, specs, plan, locate, target_attr, region, normalize):
+    from .mass import mass_maet
+    n = len(p_context)
+    drop = plan[1]
+    keep = [i for i in range(n) if i not in drop]
+    reg = {}
+    for a, spec in _attr_map(region, n, "region").items():
+        if a in drop:
+            raise ValueError(
+                f"`region` names attribute {a}, which is dropped: it is "
+                f"marginalized before the mass is taken. Keep it, or "
+                f"leave it out of the region.")
+        reg[keep.index(a)] = spec
+    return _run_local(
+        p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
+        specs, plan, locate, target_attr,
+        lambda dens: mass_maet(dens, reg or None, normalize=normalize))
+
+
 @_with_dispatch_scope
-def windowed_similarity(p_context, w_context=None, p_query=None,
-                        w_query=None, sigma=None, r=None,
-                        is_rel=None, is_per=None, period=None,
-                        centres=None, *, is_exch=None, rel=None,
-                        exch=None,
-                        start=None, stop=None, step=None,
-                        offsets=None,
-                        context_window=("rect", None),
-                        query_window=None, window_attr=-1, drop_window_attr=None,
-                        sweep=None, drop=None, locate="centroid",
-                        target_attr=None, normalize="oneSidedDenom", specs=None,
-                        verbose=False):
-    r"""Slide a query across a context and measure their similarity at each
-    position (a pre-MAET cross-correlation).
+def swept_similarity(p_context, w_context=None, p_query=None,
+                     w_query=None, sigma=None, r=None,
+                     is_rel=None, is_per=None, period=None, *,
+                     sweep=None, start=None, stop=None, step=None,
+                     align=None, window=None, drop=None,
+                     query_ref=None, locate="centroid",
+                     target_attr=None, normalize="oneSidedDenom",
+                     is_exch=None, rel=None, exch=None, specs=None,
+                     return_offsets=False, return_sweep_values=False,
+                     verbose=False):
+    r"""Compare a query with a context at each of a list of sweep values
+    (a pre-MAET cross-correlation).
 
-    Input forms, in the order to reach for them: two whole pre-MAETs, the
-    canonical entry; then the raw positional form, with the operands'
-    parts and the five geometry vectors written out.
+    ``S = swept_similarity(pm_context, pm_query, sweep={a: values})``
+    or ``sweep=a`` for default sweep values.
 
-    **Pre-MAET input**:
+    **Overview.** The query is compared with the context at each of a list
+    of values on an attribute ``a``, the *sweep values*, giving a profile
+    ``S`` whose peaks show where the query best matches the context. At
+    each sweep value the query is translated there (attribute translation,
+    as by :func:`translate_attributes`), a window on the context is aligned
+    there (event weighting, as by :func:`weight_events`), or both. By
+    default only the query is translated, and it is compared with the whole
+    context: the cross-correlation of the query against the context. A
+    window restricts each comparison to a local region of the context; on
+    its own, it compares the query, as written, with each region in turn.
 
-    - ``windowed_similarity(pm_context, pm_query, centres, ...)``. The
-      shared geometry is read from their specs, and any of the six
-      per-attribute parameters --- ``sigma``, ``is_per``, ``period``,
-      ``r``, ``rel``, ``exch`` --- may be given alongside to override it,
-      as at :func:`build_maet`. An override may name every attribute
-      or be selective, a length-A list whose ``None`` entries keep what
-      the spec carries: ``sigma=[None, s, None]`` sweeps the second
-      attribute's width and leaves the rest to the pre-MAET. The two
-      pre-MAETs describe one comparison, so they must agree on ``r``,
-      ``rel``, ``exch`` and the nesting; ``sigma``, ``is_per`` and
-      ``period`` may differ and are taken from the context.
+    The similarities are computed in one of two ways. Where the context is
+    the same across the query's translations (always under ``'query'``, and
+    across the query list of ``'independent'`` at each window position),
+    :func:`sweep_sim_maet` computes them all in one pass. Where the window
+    changes with each sweep value (``'both'``, ``'window'``),
+    :func:`sim_maet` computes them one sweep value at a time. Both give the
+    same values, to numerical precision: :func:`sweep_sim_maet` returns what
+    :func:`sim_maet` would at each translation, but much faster.
 
-    **Raw positional input**:
+    **Two attributes.** The *swept attribute* ``a`` is the one the sweep
+    values lie on: the query is translated along it, and a window is a
+    function of displacement along it. The *target attribute*
+    (``target_attr``, by default the first attribute not dropped) is the one
+    whose per-event weights a window multiplies. They are usually different:
+    a window over time weights the pitch events.
 
-    - ``windowed_similarity(p_context, w_context, p_query, w_query,
-      sigma, r, is_rel, is_per, period, centres, ...)``.
+    **The rule.** At each sweep value :math:`s` on the swept attribute:
 
-    **Terms** (§3 of the article, event weighting and attribute
-    translation). The context is restricted to a local region by a
-    *window*, a non-negative profile :math:`h` centred at a value
-    :math:`c`: each event's weights on one attribute (``target_attr``,
-    below) are multiplied by :math:`h(p_S(n) - c)`. The *window attribute*
-    is the attribute :math:`S` the window is defined over, and each
-    *centre* is a value of it at which the window is placed. An *offset*
-    translates every element of one of the query's attributes by that
-    amount.
+    - the query, where it is translated, has its reference value
+      ``query_ref`` at :math:`s`: it is translated by
+      :math:`\mu = s - \mathrm{queryRef}`;
+    - a window, where there is one, has its reference value,
+      :math:`\delta = 0` (the midpoint of its symmetric shape), at :math:`s`.
 
-    One window attribute (the common case): name it with ``window_attr``
-    (default: the last attribute) and give the centres as ``centres``, or
-    as ``start`` / ``stop`` / ``step``. ``drop_window_attr`` says whether
-    the window attribute is compared (``False``) or, once the window has
-    weighted the events, marginalized by removing it from both pre-MAETs
-    (``True``). ``locate`` reduces each event's element multiset on the
-    window attribute to the one value the window reads: ``'centroid'``
-    (the mean; default), ``'start'`` (the first element), ``'end'`` (the
-    last), ``'mid'`` (the midpoint of the first and last), or a callable.
-    The query's *position* on an attribute is the mean, over its events,
-    of their located values. Unless ``offsets`` are given, at each centre
-    the query is translated along the window attribute so that its
-    position is the centre (ordinary cross-correlation), or left as it is
-    where the window attribute is marginalized or relative. The window
-    defaults to a rectangle as wide as the query's extent on the window
-    attribute (the range of its values there); ``context_window=(shape,
-    width)`` overrides it.
+    Nothing else places anything. For each swept attribute, ``align`` says
+    which of the two are placed:
 
-    Several window attributes: give ``sweep={a: centres, ...}``, where
-    ``a`` is an attribute index, and a parallel ``drop={a: bool, ...}``.
-    The output has one dimension per attribute named, in the order named,
-    and holds every combination of their centres. ``context_window`` is
-    then a ``dict`` ``{a: {'shape': ..., 'width' or 'sd': ...}, ...}``, and
-    ``locate`` may be one too (``{a: rule, ...}``, an attribute it does
-    not name taking ``'centroid'``; MATLAB: the ``{a, rule; ...}`` cell).
+    - ``'query'``: the query only (the default): attribute translation over
+      the whole context. ``query_ref`` defaults to 0, so the sweep values
+      are the offsets added to the query as written (transpositions in
+      cents, time shifts).
+    - ``'both'``: the query and a window, at the same :math:`s`: a local
+      comparison. ``query_ref`` defaults to the query's middle (the mean of
+      its events' values on the swept attribute), so the window is centred
+      on the query.
+    - ``'window'``: a window only; the query is left as written.
+    - ``'independent'``: a window at each value of one list and the query
+      at each value of another, in every combination (a correlogram).
+      ``query_ref`` defaults to the query's middle.
 
-    ``offsets`` translate the query, and the output is indexed by the
-    offsets, each measured from the query's values as given. Aligned
-    before any preprocessing, so that the query's first time value equals
-    the context's, an offset is the time from the start of the context to
-    the start of the query; differencing and binding leave the surviving
-    values unchanged, so the reading carries through them. With one window
-    attribute, a 1-D ``offsets`` and no ``centres`` lets the window travel
-    with the query: at each offset the query is translated along the
-    window attribute and the window is centred on its translated position
-    (the offset plus its position). With ``centres`` as well, the window
-    stays at each centre while the query is translated by each offset,
-    giving a *correlogram*: ``offsets`` is 1-D, shared by every centre, or
-    ``(C, T)``, with ``C`` the number of centres and ``T`` the number of
-    offsets, and the output is ``(C, T)``. The window attribute must then
-    be compared and absolute. With several window attributes, ``offsets``
-    is a map ``{a: offsets, ...}`` naming the attributes to translate:
-    each is compared, and is windowed, the window travelling with the
-    query, only if ``context_window`` names it; no attribute may be named
-    in both ``offsets`` and ``sweep``. Where the window does not move with
-    the query --- the correlogram, or a translated attribute with no
-    window --- the offsets at each window position are computed in one
-    pass by :func:`sweep_sim_maet` (a nested attribute on its contraction
-    route), falling back to one comparison per offset where no such route
-    applies.
+    A window :math:`h(\delta)` aligned at :math:`s` weights each context
+    event :math:`n` on the target attribute:
 
-    ``target_attr`` is the attribute whose per-event weights the window
-    multiplies (default: the first compared attribute; it may be the
-    window attribute). ``specs`` carries nested geometry from
-    :func:`bind_events`. ``is_exch`` is the per-attribute exchangeability
-    vector of the raw positional form (``None`` keeps the unordered
-    default); required, in particular, for ordered attributes carrying a
-    matrix-valued kernel covariance. It is mutually exclusive with
-    ``specs``, whose nesting carries its own per-level exch.
+    .. math:: w'(n) = w(n)\, h\bigl(p_a(n) - s\bigr),
+
+    where :math:`p_a(n)` is event :math:`n`'s value on the swept attribute
+    :math:`a` (where the event holds several values, ``locate`` reduces
+    them to one), so events far from :math:`s` are attenuated.
+
+    The window acts on the pre-MAET, before any density is built:
+    :math:`p_a(n)` is the value the pre-MAET holds for event :math:`n` (its
+    onset time, say), and only the weights change. Whether the swept
+    attribute is then built in absolute or relative mode, or dropped,
+    matters only afterwards, when the density is built from the weighted
+    events. A relative time attribute of bound events, for example, is
+    still windowed by onset time (each event's onsets reduced to one by
+    ``locate``), and then compared through its onsets measured from the
+    first within each event.
+
+    With ``return_offsets=True`` the translation applied to the query at
+    each sweep value, :math:`\mu = s - \mathrm{queryRef}`, is returned too:
+    its shift from where it was written, whatever ``query_ref`` is. Plot
+    against it to read a windowed sweep as offsets. With query and context
+    written from a common origin (the query at the time it was taken from,
+    say), :math:`\mu` keeps its meaning through preprocessing that keeps
+    the values, such as differencing, so profiles with and without it share
+    one axis.
+
+    The query itself is not windowed here. To weight the query's own events
+    by a window, apply :func:`weight_events` to the query before the call.
+
+    **Choosing a role.**
+
+    - ``'query'``: the canonical sweep: where in the context, or at which
+      transposition, the query best matches the context as a whole. Only
+      the kernel width ``sigma`` limits which context events count; all
+      sweep values are computed in one pass.
+    - ``'both'``: a local ``'query'``: the window fixes the region of the
+      context that counts around the query. Under ``normalize='cosine'``
+      unmatched material inside the window lowers the score and material
+      outside it is ignored; as the window widens, ``'both'`` becomes
+      ``'query'``.
+    - ``'window'``: the query is not translated: the window steps through
+      the context and the query, as written, is compared with each region
+      in turn. What this measures depends on the treatment of the swept
+      attribute (below).
+    - ``'independent'``: each window position gives a whole profile: for a
+      best placement that changes across the context, such as a lag
+      between two parts that drifts over time.
+
+    **Treatment of the swept attribute.** Whether the swept attribute is
+    absolute or relative (its specs), and whether it is dropped (``drop``),
+    decides what it contributes to each comparison, whatever the role:
+
+    - *Absolute*: compared by position, so translating the query along it
+      changes where the query matches, and all four roles apply. Under
+      ``'window'`` the query is compared in place: the profile shows where
+      in the context its match with the query as written comes from (two
+      parts of a piece on a shared time axis, say, whose similarity the
+      window resolves in time; under the default normalization, windows
+      that tile the context give contributions that sum to the whole-piece
+      similarity). To find where the query occurs, translate it
+      (``'query'`` or ``'both'``).
+    - *Relative*: compared only up to a common translation of each tuple,
+      that is, through its values relative to the lowest (a chord's
+      intervals above its bass, or a bound event's onsets measured from its
+      first), so the query's internal spacing must match but its position
+      does not matter. Translation leaves these relative values unchanged,
+      so only ``'window'`` applies (it gives what ``'both'`` would). The
+      events are still windowed by the values the pre-MAET holds (above).
+    - *Dropped*: marginalized after the window has weighted the events
+      (``drop``), so not compared at all: the query is compared with what
+      the region contains, not where in it (a local key, say). Translation
+      has nothing to act on, so only ``'window'`` applies.
+
+    Event differencing (:func:`difference_events`) is not a further
+    treatment but a change of values: the attribute then holds first
+    differences between successive events (inter-onset intervals, pitch
+    steps), and is absolute or relative like any other. As the swept
+    attribute, its windows therefore select by interval size, and
+    translation adds the same amount to every interval (on logarithmically
+    rescaled inter-onset intervals, a tempo change). Usually the attribute
+    differenced (pitch, say) is not the one swept (time), which differencing
+    passes through unchanged at order 0, keeping each event's onset.
+
+    **When a window on the context is needed.** Translation already
+    localizes on a compared absolute attribute: the kernel lets the query
+    match only material near where it is translated. A window on the
+    context is indispensable where translation cannot localize: on a
+    dropped or relative swept attribute, alone or alongside translation on
+    another attribute (each bar windowed on time, time dropped, and the
+    query translated in pitch: the bar and the transposition of each
+    statement at once). On a translated attribute (``'both'``,
+    ``'independent'``) it does nearly what weighting the query would
+    (:func:`weight_events`, aligned at the matching point of the query,
+    then translated), the two differing only in whether a near miss is
+    weighted where the context's event lies or where the query's does; what
+    it adds there is the ``'cosine'`` denominator, the norm of what the
+    window keeps. To ask which part of the query matches, weight the query.
+
+    **Reading the output.** ``S`` has one dimension per sweep list, in
+    attribute order; ``'independent'`` contributes two, the window's first.
+    A sweep value is where the query's reference lands (under ``'window'``,
+    where the window is aligned). The offsets are a dict ``{a: mu}``, one
+    array per attribute the query is translated along, the same shape as
+    its (query) sweep list. With ``return_sweep_values=True`` the sweep
+    values themselves are returned too, as a dict ``{a: values}``, the axes
+    of ``S``: under ``'query'`` they equal the offsets (``query_ref`` is
+    0), but under ``'both'`` they are where the query's middle and the
+    window lie, and under ``'window'`` there are no offsets at all.
+
+    **Input forms**, in the order to reach for them:
+
+    - ``swept_similarity(pm_context, pm_query, ...)``, with two whole
+      pre-MAETs (the canonical entry). The geometry is taken from their
+      specs. Any of the six per-attribute parameters (``sigma``,
+      ``is_per``, ``period``, ``r``, ``rel``, ``exch``) may be given
+      alongside to override it, as at :func:`build_maet`, either in full or
+      selectively as a length-A list whose ``None`` entries keep the spec's
+      value. The two pre-MAETs describe one comparison, so they must agree
+      on ``r``, ``rel``, ``exch``, and the nesting; ``sigma``, ``is_per``,
+      and ``period`` may differ, and the context's are used.
+    - ``swept_similarity(p_context, w_context, p_query, w_query, sigma,
+      r, is_rel, is_per, period, ...)``, the raw positional form, with each
+      operand's per-attribute values and weights and the shared geometry
+      written out as for :func:`sim_maet`.
+
+    Parameters
+    ----------
+    p_context, w_context, p_query, w_query
+        Raw form: each operand's per-attribute value matrices and weights,
+        as at :func:`sim_maet`. Pre-MAET form: the context and query
+        pre-MAETs are the first two arguments.
+    sigma, r, is_rel, is_per, period
+        Raw form: the shared per-attribute geometry, as at
+        :func:`build_maet`. Pre-MAET form: optional overrides of the specs,
+        with ``rel`` and ``exch`` naming the other two.
+    sweep : dict, int, or list of int
+        ``{a: values}``: the sweep values of attribute ``a``. A bare
+        attribute index ``a``, or a list of them, asks for default sweep
+        values on each (see ``start``, ``stop``, ``step``). For
+        ``'independent'``, ``{a: (window_values, query_values)}``: the
+        window's list may be ``None`` when ``start`` / ``stop`` / ``step``
+        generate it, and the query's may be 2-D, one row per window value,
+        when the query's placements depend on where the window is (a lag
+        measured from each window value, say).
+    start, stop, step : dict or float, optional
+        ``{a: value}``: generate attribute ``a``'s sweep values from
+        ``start`` to ``stop`` in steps of ``step``, in place of listing
+        them; each overrides one default. A bare number applies to the
+        swept attribute where ``sweep`` names one (``sweep=1,
+        step=0.5``). The defaults depend on the role. Where the sweep
+        values translate the query (``'query'``, ``'both'``), ``start``
+        and ``stop`` cover every placement at which the query overlaps
+        the context (from its highest value on the context's lowest to
+        its lowest on the context's highest), or one period on a
+        periodic attribute. ``step`` is then at most ``h``, half the
+        standard deviation of the profile's peaks: translating the query
+        moves all D coordinates of the attribute's tuple alike, so the
+        peaks have standard deviation ``sigma * sqrt(2 / D)``, narrower
+        the larger the tuple (D = r, or the product of a nested
+        attribute's per-level r; for a kernel covariance Sigma,
+        ``sqrt(2 / (1' Sigma^-1 1))``), window or no window. The step is
+        also chosen so that every exact match lies on the grid. Where
+        the context's values are whole multiples of a spacing ``g``
+        apart, and so are the query's (and ``g`` divides the period, on
+        a periodic attribute), every exact match is at the lowest
+        offset plus a whole multiple of ``g``, so the step is ``g /
+        k``, with ``k`` the smallest whole number that brings it to
+        ``h`` or below: onsets on whole beats with ``h = 0.15`` step at
+        1/7, not at 0.15, which would miss the whole-beat offsets. Where
+        ``g`` is below ``h`` it is the step itself, if at least
+        ``h / 4``. Otherwise (values on no such lattice, or on one too
+        fine) the step is ``h``, which leaves every peak within a
+        quarter of its standard deviation of a grid point, at about 97%
+        of its height or more. Where they place a
+        window only (``'window'``, and the window's list of
+        ``'independent'``), ``start`` and ``stop`` are the lowest and
+        highest of the context's values on the attribute, and ``step``
+        is half the window's standard deviation, since the profile
+        changes on the scale of the window (a profile function has no
+        width, so give ``step``). For largely separate windows, as when
+        the profile's values are to be used as data, give ``step`` as half
+        the window's width (``sqrt(3)`` sd), so that neighbouring windows
+        overlap by half. A pure rectangle (``'rect'``, or shape 1) makes
+        the profile piecewise constant: the windowed context changes only
+        where an event enters or leaves it, at each event's value plus or
+        minus half the width. Without a given ``step``, its default sweep
+        values are these pieces, each sampled just inside both its ends,
+        so that every value is the profile's value at its sweep value and
+        a line plot draws the steps exactly. The query's list of
+        ``'independent'`` is always given explicitly.
+    align : dict, optional
+        ``{a: 'query' | 'both' | 'window' | 'independent'}``: what is placed
+        at attribute ``a``'s sweep values (*The rule*). Default ``'query'``
+        for every swept attribute.
+    window : dict
+        ``{a: (shape, width)}``, ``{a: (shape, width, edges)}``,
+        ``{a: {'shape': ..., 'width' | 'sd' | 'decay_rate': ...,
+        'edges': ...}}``, or ``{a: f}``: the window :math:`h` on attribute
+        ``a``, any profile of :func:`weight_events`, which evaluates it.
+        ``shape`` is ``'rect'``, ``'gaussian'``, or a number in [0, 1]
+        blending the two (0 Gaussian, 1 rectangle); ``width`` is the full
+        width of the rectangle, and a Gaussian of the same width has
+        standard deviation width / (2 sqrt 3), which ``sd`` may give
+        instead. ``'exponential'`` decays on both sides of the window's
+        reference value, and ``'exponentialBefore'`` /
+        ``'exponentialAfter'`` on one side only (zero on the other), scaled
+        by ``sd`` or ``decay_rate``; a callable ``f`` takes the
+        displacement :math:`p_a(n) - s` and returns the factors. The
+        serial-position profiles of :func:`weight_events`, anchored at the
+        first and last events rather than at the sweep value, are refused.
+        On a periodic attribute the displacement wraps. ``edges``, for
+        rectangles: ``'halfOpen'`` (the default for a given width: the lower
+        edge included, the upper not, so that windows a width apart share
+        no event, for tiling a context) or ``'closed'`` (both edges, for
+        holding a query). Required for ``'window'`` and ``'independent'``,
+        where the width is the scale of the local region and nothing in the
+        data can supply it; not allowed for ``'query'``. For ``'both'`` it
+        may be left out, or given with width ``None``: the window is then
+        the smallest one that, placed by *the rule*, holds the query, with a
+        closed rectangle unless another shape or ``edges`` is given, so an
+        exact match scores 1. A window given for ``'both'`` that leaves out
+        some of the query's own events draws a warning, since the query can
+        then never be matched in full.
+    drop : int or list of int, optional
+        Attributes marginalized after the window has weighted the events.
+        Only attributes whose ``align`` is ``'window'``.
+    query_ref : dict, optional
+        ``{a: value}``: the query's reference value on attribute ``a``, the
+        point of the query placed at each sweep value; only where the query
+        is translated. Default 0 for ``'query'`` and the query's middle for
+        ``'both'`` and ``'independent'``. Under ``'query'`` it only
+        relabels the output (a sweep value :math:`s` under reference
+        :math:`r` is the same comparison as :math:`s - r + r'` under
+        :math:`r'`); under ``'both'`` it also decides which point of the
+        query lies at the window's centre. Useful values:
+
+        - 0: sweep values are the offsets :math:`\mu` added to the query as
+          written.
+        - The query's middle: sweep values are where the middle lands, and
+          under ``'both'`` the window is aligned at the query's middle.
+        - A particular point of the query, such as its first onset or its
+          root: sweep values are where that point lands, the time at which
+          a match starts or the key of a transposition (under ``'both'``,
+          the window's centre then sits at that point).
+    locate : str, callable, or dict, default ``'centroid'``
+        Which single value :math:`p_a(n)` stands for an event that holds
+        several values on the swept attribute (the onsets of a bound
+        super-event, say), both where the window is evaluated and in the
+        query's middle: ``'centroid'`` (their mean), ``'start'`` (the first),
+        ``'end'`` (the last), ``'mid'`` (the midpoint of the first and last), a
+        callable taking the ``(K, N)`` value matrix and returning ``N`` values,
+        or a dict ``{a: rule}``, an attribute it does not name taking
+        ``'centroid'``. It has no effect where each event holds one value.
+    target_attr : int, optional
+        The attribute whose weights the windows multiply (default: the
+        first attribute not dropped).
+    normalize : {'oneSidedDenom', 'cosine', 'none'}, default 'oneSidedDenom'
+        As at :func:`sim_maet`, with the windowed context as the first
+        operand and the query as the second. ``'oneSidedDenom'`` divides by
+        the query's self inner product, so a windowed context identical to
+        the query scores 1. ``'cosine'`` gives the shape-only cosine
+        similarity, bounded in [-1, 1]; ``'none'`` the bare inner product.
+    is_exch : array_like of bool, optional
+        Per-attribute exchangeability for the raw form (``None`` keeps the
+        unordered default). Needed, in particular, for ordered attributes
+        carrying a matrix-valued kernel covariance. Not allowed together
+        with ``specs``, whose nesting gives exchangeability level by level.
+    specs : list, optional
+        Nested geometry from :func:`bind_events` (raw form).
+    return_offsets : bool, default False
+        Also return the offsets :math:`\mu = s - \mathrm{queryRef}`, as a
+        dict ``{a: mu}``.
+    return_sweep_values : bool, default False
+        Also return the sweep values, as a dict ``{a: values}``, one array
+        per swept attribute: the values listed, or those generated from
+        the defaults and ``start`` / ``stop`` / ``step``. Under
+        ``'independent'`` the entry is the pair ``(window_values,
+        query_values)``. Plot the profile against them.
+    verbose : bool, default False
+        Accepted for consistency with the other entry points; the inner
+        comparisons pass ``verbose=False``. The dispatcher's one-line
+        announcement of the route it chose follows the toolbox-wide
+        ``show_hints`` setting instead.
+
+    Returns
+    -------
+    S : np.ndarray
+        One dimension per sweep list, in attribute order.
+    offsets : dict
+        Only with ``return_offsets=True``: ``{a: mu}``, the translation
+        applied to the query along each attribute it is translated on.
+    sweep_values : dict
+        Only with ``return_sweep_values=True``: ``{a: values}``, the sweep
+        values of each swept attribute. With both flags the order is
+        ``(S, offsets, sweep_values)``.
+
+    Examples
+    --------
+    Where does E-G occur in the melody C D E G C E G (one note per time
+    unit)? Translating the query in time, with sweep values that are
+    offsets from the query as written (it starts at time 0, so an offset is
+    the time at which it starts):
+
+    >>> import numpy as np, mpt
+    >>> prev = mpt.set_default(show_hints=False)   # no route announcements
+    >>> cents = lambda m: mpt.transform_attributes(
+    ...     np.array(m), None, ('midi', 'cents'))[None, :]
+    >>> ctx = [cents([60, 62, 64, 67, 60, 64, 67]), np.arange(7.)[None, :]]
+    >>> qry = [cents([64, 67]), np.array([[0., 1.]])]
+    >>> geom = ([10., 0.2], [1, 1], [False, False], [True, False],
+    ...         [1200., 0.])
+    >>> s = np.arange(6.)
+    >>> S = mpt.swept_similarity(ctx, None, qry, None, *geom,
+    ...                             sweep={1: s})
+    >>> s[S > 0.99].tolist()
+    [2.0, 5.0]
+
+    The same search, local: query and window aligned together
+    (``'both'``; the window by default the smallest closed rectangle that
+    holds the query), stepped across the melody and read against the
+    offsets:
+
+    >>> S, mu = mpt.swept_similarity(
+    ...     ctx, None, qry, None, *geom, step={1: 0.5}, align={1: 'both'},
+    ...     return_offsets=True)
+    >>> mu[1][S > 0.99].tolist()
+    [2.0, 5.0]
+    >>> _ = mpt.set_default(**prev)
     """
     query_specs = specs
     if is_pre_maet(p_context):
+        if p_query is not None:
+            raise TypeError(
+                "swept_similarity(pm_context, pm_query, ...): the pre-MAET "
+                "form takes no third positional argument; give the sweep "
+                "values as sweep={a: values}.")
         (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
-         side_specs, centres) = _windowed_pre_maet_args(
-            [p_context, w_context], p_query if p_query is not None
-            else centres,
+         side_specs) = _swept_pre_maet_args(
+            [p_context, w_context],
             {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
              "rel": rel if rel is not None else is_rel, "exch": exch},
-            "windowed_similarity")
+            "swept_similarity")
         p_context, p_query = p_attrs
         w_context, w_query = w_attrs
         specs, query_specs = side_specs
-    translate_only = frozenset()
-    query_pos = None
-    if offsets is not None:
-        if isinstance(offsets, dict):
-            if query_window is not None:
-                raise ValueError(
-                    "`query_window` applies with one window attribute; with "
-                    "several, the query is placed at each combination of "
-                    "centres.")
-            sweep, drop, translate_only = _offsets_multi(
-                p_query, specs, is_rel, offsets, sweep, drop, locate,
-                context_window)
-        else:
-            if sweep is not None:
-                raise ValueError(
-                    "with several window attributes (`sweep`), give "
-                    "`offsets` as a map {a: offsets}.")
-            centres, query_pos, drop_window_attr = _offsets_single(
-                p_query, specs, is_rel, offsets, centres, start, stop, step,
-                window_attr, drop_window_attr, locate, len(p_context))
-    if sweep is not None:
-        if drop is None:
-            raise ValueError("`sweep` requires a parallel `drop`.")
-        if query_window is not None:
-            raise ValueError(
-                "`query_window` applies with one window attribute; with "
-                "several (`sweep`), the query is placed at each combination "
-                "of centres.")
-        return _ws_multi(
-            p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-            period, is_exch, sweep, drop,
-            context_window if isinstance(context_window, dict)
-            else None, locate, normalize, target_attr, specs, query_specs,
-            translate_only)
-    if drop_window_attr is None:
-        raise ValueError(
-            "`drop_window_attr` is required (True places only, False compares).")
-    return _ws_single(
-        p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per, period,
-        is_exch, centres, start, stop, step, query_pos, context_window,
-        query_window, window_attr, drop_window_attr, locate, target_attr,
-        normalize, specs, query_specs)
-
-
-def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-              period, is_exch, sweep, drop, context_window, locate, normalize,
-              target_attr, specs, query_specs=None,
-              translate_only=frozenset()):
-    if query_specs is None:
-        query_specs = specs
-    p_context, p_query = list(p_context), list(p_query)
+    elif p_query is None:
+        raise TypeError(
+            "swept_similarity: give a query, as a second pre-MAET or as "
+            "p_query in the raw positional form.")
+    else:
+        p_context, w_context = _parts_per_event(p_context, w_context)
+        p_query, w_query = _parts_per_event(p_query, w_query)
     _check_is_exch_vs_specs(is_exch, specs)
-    keys, drop_axes, target, win, grids = _prep_sweep(
-        p_context, p_query, sweep, drop, context_window, target_attr)
-    nested = specs is not None
-    out = np.empty(tuple(g.size for g in grids), dtype=float)
-    # Translated attributes with no window leave the windowed context
-    # unchanged across their offsets, so at each position of the other
-    # (windowed-only) attributes the context is fixed and the offsets can
-    # be swept in one pass. That holds when every other swept attribute is
-    # windowed but not translated (dropped, or relative).
-    t_axes = [a for a in keys if a in translate_only]
-    w_axes = [a for a in keys if a not in translate_only]
-    routable = bool(t_axes) and all(
-        a in drop_axes or _axis_is_rel(specs, is_rel, a) for a in w_axes)
-    done = np.zeros(out.shape, dtype=bool)
-    if routable:
-        t_pos = [keys.index(a) for a in t_axes]
-        w_pos = [keys.index(a) for a in w_axes]
-        q_pos = {a: _query_position(p_query, a, locate) for a in t_axes}
-        pq0, wq0, sq0, keep = _drop_axes(p_query, w_query, query_specs,
-                                         drop_axes)
-        sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep),
-                              _sub(is_rel, keep), _sub(is_per, keep),
-                              _sub(period, keep))
-        sy = None if is_exch is None else _sub(is_exch, keep)
-        exch_args = () if sy is None else (sy,)
-        t_shape = tuple(grids[j].size for j in t_pos)
-        t_idx = list(np.ndindex(*t_shape))
-        offs = np.zeros((len(keep), len(t_idx)), dtype=float)
-        for m, ti in enumerate(t_idx):
-            for k, a in enumerate(t_axes):
-                offs[keep.index(a), m] = (grids[t_pos[k]][ti[k]] - q_pos[a])
-        for wi in np.ndindex(*tuple(grids[j].size for j in w_pos)):
-            centres = {w_axes[k]: float(grids[w_pos[k]][wi[k]])
-                       for k in range(len(w_axes))}
-            pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs,
-                                              centres, win, locate, target)
-            pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
-            row = _sweep_row(pc, wc, sc, pq0, wq0, sq0, sg, rr, rl, pr, pd,
-                             exch_args, nested, offs, normalize)
-            if row is None:
-                continue
-            for m, ti in enumerate(t_idx):
-                full = [0] * len(keys)
-                for k, j in enumerate(w_pos):
-                    full[j] = wi[k]
-                for k, j in enumerate(t_pos):
-                    full[j] = ti[k]
-                out[tuple(full)] = row[m]
-                done[tuple(full)] = True
-    for idx in np.ndindex(*out.shape):
-        if done[idx]:
-            continue
-        centres = {keys[j]: float(grids[j][idx[j]]) for j in range(len(keys))}
-        offs = [None] * len(p_query)
-        for a in keys:
-            if a in drop_axes or _axis_is_rel(specs, is_rel, a):
-                continue
-            q_loc = float(np.nanmean(_locate_row(
-                p_query[a], _resolve_locate(locate, a))))
-            offs[a] = np.array([[centres[a] - q_loc]], dtype=float)
-        if any(o is not None for o in offs):
-            pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(
-                p_query, w_query, offs, specs=query_specs))
-        else:
-            pq_t, wq_t, sq_t = p_query, w_query, query_specs
-        w_centres = {a: c for a, c in centres.items()
-                     if a not in translate_only}
-        pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs,
-                                          w_centres, win, locate, target)
-        pc, wc, sc, keep = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
-        pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
-        sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
-                              _sub(is_per, keep), _sub(period, keep))
-        sy = None if is_exch is None else _sub(is_exch, keep)
-        if nested:
-            dc = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
-                                verbose=False)
-            dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd, specs=sq,
-                                verbose=False)
-            out[idx] = float(sim_maet(
-                dc, dq, normalize=normalize,
-                verbose=False))
-        else:
-            exch_args = () if sy is None else (sy,)
-            out[idx] = float(sim_maet(
-                pc, wc, pq, wq, sg, rr, rl, pr, pd, *exch_args,
-                normalize=normalize, verbose=False))
+    plan = _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop,
+                       step, align, window, drop, query_ref,
+                       locate, "swept_similarity", sigma, is_per, period, r)
+    out = _run_similarity(p_context, w_context, p_query, w_query, sigma, r,
+                          is_rel, is_per, period, is_exch, specs,
+                          query_specs, plan, locate, target_attr, normalize)
+    extra = []
+    if return_offsets:
+        extra.append(_offsets(plan))
+    if return_sweep_values:
+        extra.append(_sweep_values(plan))
+    return (out, *extra) if extra else out
+
+
+def _sweep_values(plan):
+    """The sweep values of each swept attribute, as a dict ``{a: values}``;
+    under ``'independent'`` the pair ``(window_values, query_values)``."""
+    dims = plan[0]
+    out = {}
+    for _, a, vals, pair in dims:
+        v = np.asarray(vals, dtype=float)
+        out[a] = (out[a], v) if pair is not None else v
     return out
 
 
-def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-               period, is_exch, centres, start, stop, step, query_pos,
-               context_window, query_window, window_attr, drop_window_attr,
-               locate, target_attr, normalize, specs, query_specs=None):
-    """``query_pos`` is None (the query placed with the window at each
-    centre) or the ``(A, T)`` query positions of the correlogram, from
-    :func:`_offsets_single`."""
-    if query_specs is None:
-        query_specs = specs
-    p_context, p_query = list(p_context), list(p_query)
-    _check_is_exch_vs_specs(is_exch, specs)
-    n = len(p_context)
-    axis = _abs_idx(window_attr, n)
-    nested = specs is not None
-    gamma, sd = _single_window(context_window, p_query, axis)
-    win = {axis: (gamma, sd)}
-    if query_window is None:
-        q_win = None
-    else:
-        q_win = {axis: _single_window(query_window, p_query, axis)}
-    drop_axes = {axis} if drop_window_attr else set()
-    keep = [i for i in range(n) if i not in drop_axes]
-    if not keep:
-        raise ValueError("dropping the only attribute leaves nothing to compare.")
-    target = (keep[0] if target_attr is None else _abs_idx(target_attr, n))
-    if target in drop_axes:
-        raise ValueError(
-            f"target_attr={target} is the marginalized window attribute; its weights are removed "
-            f"before the build. Choose a compared attribute.")
-    ctx_centres = _resolve_centres(p_context, axis, centres, start, stop, step,
-                                   default_step=gamma and sd * _SQRT12 or sd)
-    A = ctx_centres.size
-    if query_pos is None:
-        q_rows, out_shape = ctx_centres.reshape(A, 1), (A,)
-    else:
-        q_rows = np.asarray(query_pos, dtype=float)
-        out_shape = q_rows.shape
-    rel_axis = _axis_is_rel(specs, is_rel, axis)
-    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
-                          _sub(is_per, keep), _sub(period, keep))
-    sy = None if is_exch is None else _sub(is_exch, keep)
-    exch_args = () if sy is None else (sy,)
-    out = np.empty((A, q_rows.shape[1]), dtype=float)
-    # The query window attaches to the query, not to the sweep: it is centred
-    # on the query's own position on the window attribute and applied before the
-    # per-offset translation, so a template's finite extent is a property of
-    # the template and does not change as it slides. Resolved once, outside
-    # both loops, because neither the query nor its window varies with the
-    # sweep position.
-    if q_win is not None:
-        q_centre = float(np.nanmean(_locate_row(
-            p_query[axis], _resolve_locate(locate, axis))))
-        q_target = target
-        p_query, w_query, specs_q = _apply_windows(
-            p_query, w_query, query_specs, {axis: q_centre}, q_win, locate,
-            q_target)
-        if nested:
-            query_specs = specs_q
-    for a in range(A):
-        pc_w, wc_w, sc_w = _apply_windows(
-            p_context, w_context, specs, {axis: float(ctx_centres[a])}, win,
-            locate, target)
-        pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
-        # Correlogram (offsets with centres): the window stays at this
-        # centre while the query is translated, so the windowed context is
-        # fixed across the offsets and they can be swept in one pass.
-        # (_offsets_single has refused a dropped or relative window
-        # attribute.)
-        if query_pos is not None:
-            q_loc = float(np.nanmean(_locate_row(
-                p_query[axis], _resolve_locate(locate, axis))))
-            pq0, wq0, sq0, _ = _drop_axes(p_query, w_query, query_specs,
-                                          drop_axes)
-            offs_row = np.zeros((len(keep), q_rows.shape[1]), dtype=float)
-            offs_row[keep.index(axis)] = q_rows[a] - q_loc
-            row = _sweep_row(pc, wc, sc, pq0, wq0, sq0, sg, rr, rl, pr, pd,
-                             exch_args, nested, offs_row, normalize)
-            if row is not None:
-                out[a, :] = row
-                continue
-        dc = (build_maet(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
-                             verbose=False) if nested else None)
-        for t in range(q_rows.shape[1]):
-            if drop_window_attr or rel_axis:
-                pq_t, wq_t, sq_t = p_query, w_query, query_specs
-            else:
-                q_loc = float(np.nanmean(_locate_row(
-                    p_query[axis], _resolve_locate(locate, axis))))
-                offs = [None] * n
-                offs[axis] = np.array([[float(q_rows[a, t]) - q_loc]], dtype=float)
-                pq_t, wq_t, sq_t = unpack_pre_maet(translate_attributes(
-                    p_query, w_query, offs, specs=query_specs))
-            pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
-            if nested:
-                dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd,
-                                    specs=sq, verbose=False)
-                out[a, t] = float(sim_maet(
-                    dc, dq, normalize=normalize,
-                    verbose=False))
-            else:
-                out[a, t] = float(sim_maet(
-                    pc, wc, pq, wq, sg, rr, rl, pr, pd, *exch_args,
-                    normalize=normalize, verbose=False))
-    return out.reshape(out_shape)
+def _offsets(plan):
+    """The translation applied to the query at each of its sweep values,
+    mu = s - query_ref, per translated attribute."""
+    dims, _, ctx_win, q_ref = plan
+    offs = {}
+    for kind, a, vals, _ in dims:
+        if a in q_ref and (kind == "query" or ctx_win.get(a, (None, False))[1]):
+            offs[a] = np.asarray(vals, dtype=float) - q_ref[a]
+    return offs
 
 
 @_with_dispatch_scope
-def windowed_entropy(p_context, w_context=None, sigma=None, r=None,
-                     is_rel=None, is_per=None, period=None,
-                     centres=None, *, is_exch=None, rel=None,
-                     exch=None,
-                     start=None, stop=None, step=None,
-                     context_window=("rect", None), window_attr=-1,
-                     drop_window_attr=None, sweep=None, drop=None,
-                     locate="centroid", method="differential", base=2.0,
-                     marginalize=None, target_attr=None, specs=None,
-                     marginalise=None,
-                     verbose=False):
-    r"""Slide a window across a context and read its entropy at each position.
+def swept_entropy(p_context, w_context=None, sigma=None, r=None,
+                  is_rel=None, is_per=None, period=None, *,
+                  sweep=None, start=None, stop=None, step=None,
+                  window=None, drop=None, locate="centroid",
+                  target_attr=None, method="differential", base=2.0,
+                  n_points_per_dim=None, x_min=float("nan"),
+                  x_max=float("nan"), grid_limit=None,
+                  is_exch=None, rel=None, exch=None, specs=None,
+                  return_sweep_values=False, verbose=False):
+    r"""Align a window on a context at each of a list of sweep values and
+    take the entropy of the windowed density at each.
 
-    Input forms, in the order to reach for them: a whole pre-MAET, the
-    canonical entry; then the raw positional form, with ``p_context``,
-    ``w_context`` and the five geometry vectors written out.
+    **Overview.** At each of a list of values :math:`s` on an attribute,
+    the sweep values, a window :math:`h(\delta)` on the context is aligned
+    with its reference value, :math:`\delta = 0`, at :math:`s`. It weights
+    each event :math:`n` on the target attribute (event weighting, as by
+    :func:`weight_events`):
 
-    **Pre-MAET input**:
+    .. math:: w'(n) = w(n)\, h\bigl(p_a(n) - s\bigr),
 
-    - ``windowed_entropy(pm, centres, ...)``. The geometry is read from
-      its specs, and any of the six per-attribute parameters ---
-      ``sigma``, ``is_per``, ``period``, ``r``, ``rel``, ``exch`` --- may
-      be given alongside to override it, as at :func:`build_maet`.
-      An override may name every attribute or be selective, a length-A
-      list whose ``None`` entries keep what the spec carries:
-      ``sigma=[None, s, None]`` sweeps the second attribute's width and
-      leaves the rest to the pre-MAET.
+    where :math:`p_a(n)` is event :math:`n`'s value on the swept attribute
+    :math:`a`. The
+    windowed density is then built and its entropy taken, tracing how the
+    entropy changes across the context. Windows, ``locate``, and generated
+    sweep values are as at :func:`swept_similarity`; there is no query,
+    so the sweep values always align the window.
 
-    **Raw positional input**:
+    **Input forms**: ``swept_entropy(pm, ...)`` with a whole pre-MAET,
+    whose specs give the geometry (any of ``sigma``, ``is_per``,
+    ``period``, ``r``, ``rel``, ``exch`` may be given alongside to override
+    it); or the raw positional form ``swept_entropy(p_context,
+    w_context, sigma, r, is_rel, is_per, period, ...)``.
 
-    - ``windowed_entropy(p_context, w_context, sigma, r, is_rel,
-      is_per, period, centres, ...)``.
+    Parameters
+    ----------
+    sweep : dict, int, or list of int
+        ``{a: values}``: the sweep values of attribute ``a``; a bare
+        attribute index, or a list of them, asks for the defaults below.
+    start, stop, step : dict or float, optional
+        ``{a: value}``: generate attribute ``a``'s sweep values in place of
+        listing them; a bare number applies to the swept attribute where
+        ``sweep`` names one. ``start`` and ``stop`` default to the lowest and
+        highest of the context's values on the attribute; ``step`` defaults
+        to half the window's standard deviation, and a pure rectangle
+        without a given ``step`` takes its pieces (as at
+        :func:`swept_similarity`).
+    window : dict
+        ``{a: (shape, width)}``, ``{a: (shape, width, edges)}``,
+        ``{a: {'shape': ..., 'width' | 'sd' | 'decay_rate': ...,
+        'edges': ...}}``, or ``{a: f}``: the window on each swept
+        attribute, any profile aligned at the sweep value, as at
+        :func:`swept_similarity`; ``edges`` is ``'halfOpen'`` (the
+        default) or ``'closed'`` (rectangles only). Required for every
+        swept attribute: its scale is that of the local region, which
+        nothing in the data can supply.
+    drop : int or list of int, optional
+        Swept attributes marginalized after the window has weighted the
+        events. An attribute kept stays in the density whose entropy is
+        taken.
+    locate : str, callable, or dict, default ``'centroid'``
+        As at :func:`swept_similarity`.
+    target_attr : int, optional
+        The attribute whose weights the window multiplies (default: the
+        first attribute not dropped).
+    method, base
+        As at :func:`entropy_maet`.
+    n_points_per_dim, x_min, x_max, grid_limit
+        The grid of the discrete methods (``'shannon'``, ``'normalized'``),
+        passed to :func:`entropy_maet` at every sweep value, so every
+        window's entropy is taken on the same grid; ``n_points_per_dim`` is
+        required for those methods, and ``x_min`` / ``x_max`` for a
+        non-periodic attribute that is kept. The continuous methods ignore
+        them.
+    is_exch, specs, verbose
+        As at :func:`swept_similarity`.
+    return_sweep_values : bool, default False
+        Also return the sweep values, as a dict ``{a: values}``, one array
+        per swept attribute: the values listed, or those generated from
+        the defaults and ``start`` / ``stop`` / ``step``. Plot the profile
+        against them.
 
-    **Terms** (§3 of the article, event weighting). A *window*, a
-    non-negative profile :math:`h` centred at a value :math:`c`, multiplies
-    each event's weights on one attribute (``target_attr``) by
-    :math:`h(p_S(n) - c)`. The *window attribute* is the attribute
-    :math:`S` the window is defined over, and each *centre* is a value of
-    it at which the window is placed.
-
-    Takes the window attribute, centres, window and ``locate`` as
-    :func:`windowed_similarity` does: one window attribute (``window_attr``
-    with ``centres`` and ``drop_window_attr``) or several (``sweep`` with
-    ``drop``). There is no query, so at each centre (or combination of
-    centres) the windowed density is built, with any window attribute
-    whose ``drop`` is true first marginalized by removing it from the
-    pre-MAET, and its entropy taken. With no query to size a default
-    window from, ``context_window`` must give a width (or sd) for every
-    window attribute. ``marginalize`` (also accepted as ``marginalise``)
-    is reserved for integrating a
-    compared attribute out of the density and is not yet implemented.
+    Returns
+    -------
+    np.ndarray
+        One dimension per swept attribute, in attribute order.
+    sweep_values : dict
+        Only with ``return_sweep_values=True``: ``{a: values}``.
     """
     if is_pre_maet(p_context):
+        if w_context is not None:
+            raise TypeError(
+                "swept_entropy(pm, ...): the pre-MAET form takes no second "
+                "positional argument; give the sweep values as "
+                "sweep={a: values}.")
         (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
-         side_specs, centres) = _windowed_pre_maet_args(
-            [p_context], w_context if w_context is not None else centres,
+         side_specs) = _swept_pre_maet_args(
+            [p_context],
             {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
              "rel": rel if rel is not None else is_rel, "exch": exch},
-            "windowed_entropy")
+            "swept_entropy")
         p_context, = p_attrs
         w_context, = w_attrs
         specs, = side_specs
-    if marginalise is not None:
-        if marginalize is not None:
-            raise ValueError(
-                "give `marginalize` or its alternative spelling "
-                "`marginalise`, not both.")
-        marginalize = marginalise
-    if marginalize is not None:
-        raise NotImplementedError(
-            "marginalize (integrating a compared attribute out of the density) is "
-            "not yet implemented.")
-    if sweep is not None:
-        if drop is None:
-            raise ValueError("`sweep` requires a parallel `drop`.")
-        return _we_multi(
-            p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
-            sweep, drop,
-            context_window if isinstance(context_window, dict) else None, locate,
-            method, base, target_attr, specs)
-    if drop_window_attr is None:
-        raise ValueError(
-            "`drop_window_attr` is required (True marginalizes the window attribute, False "
-            "retains it).")
-    return _we_single(
-        p_context, w_context, sigma, r, is_rel, is_per, period, is_exch, centres,
-        start, stop, step, context_window, window_attr, drop_window_attr, locate,
-        method, base, target_attr, specs)
-
-
-def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
-              sweep, drop, context_window, locate, method, base, target_attr,
-              specs):
-    p_context = list(p_context)
+    if not is_pre_maet(p_context):
+        p_context, w_context = _parts_per_event(p_context, w_context)
     _check_is_exch_vs_specs(is_exch, specs)
-    keys, drop_axes, target, win, grids = _prep_sweep(
-        p_context, p_context, sweep, drop, context_window, target_attr,
-        require_window=True)
-    nested = specs is not None
-    from ..entropy import entropy_maet
-    out = np.empty(tuple(g.size for g in grids), dtype=float)
-    for idx in np.ndindex(*out.shape):
-        centres = {keys[j]: float(grids[j][idx[j]]) for j in range(len(keys))}
-        pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs, centres,
-                                          win, locate, target)
-        pc, wc, sc, keep = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
-        sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
-                              _sub(is_per, keep), _sub(period, keep))
-        sy = None if is_exch is None else _sub(is_exch, keep)
-        if nested:
-            dens = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd,
-                                  specs=sc, verbose=False)
-        else:
-            exch_args = () if sy is None else (sy,)
-            dens = build_maet(pc, wc, sg, rr, rl, pr, pd, *exch_args,
-                                  verbose=False)
-        out[idx] = float(entropy_maet(dens, method=method, base=base,
-                                          verbose=False))
-    return out
+    plan = _build_plan(p_context, None, specs, is_rel, sweep, start, stop,
+                       step, None, window, drop, None, locate,
+                       "swept_entropy", sigma, is_per, period)
+    H = _run_entropy(p_context, w_context, sigma, r, is_rel, is_per,
+                     period, is_exch, specs, plan, locate, target_attr,
+                     method, base,
+                     grid={"n_points_per_dim": n_points_per_dim,
+                           "x_min": x_min, "x_max": x_max,
+                           "grid_limit": grid_limit})
+    return (H, _sweep_values(plan)) if return_sweep_values else H
 
 
-def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
-               centres, start, stop, step, context_window, window_attr,
-               drop_window_attr, locate, method, base, target_attr, specs):
-    p_context = list(p_context)
+def swept_mass(p_context, w_context=None, sigma=None, r=None,
+               is_rel=None, is_per=None, period=None, *,
+               sweep=None, start=None, stop=None, step=None,
+               window=None, drop=None, locate="centroid",
+               target_attr=None, region=None, normalize="none",
+               is_exch=None, rel=None, exch=None, specs=None,
+               return_sweep_values=False, verbose=False):
+    r"""Align a window on a context at each of a list of sweep values and
+    take the mass of the windowed density in a region at each.
+
+    **Overview.** At each sweep value :math:`s`, a window on the context
+    is aligned at :math:`s` and weights each event on the target
+    attribute, :math:`w'(n) = w(n)\, h(p_a(n) - s)`, as at
+    :func:`swept_entropy`. The windowed density is then built and its
+    mass in ``region`` taken by :func:`mass_maet`: how much of the local
+    material lies in the region, or, with ``normalize='total'``, what
+    share of it does. The window weights events before the density is
+    built; the region is read from the density, so a tuple just outside
+    it still contributes the part of its kernel that crosses the edge,
+    and a region can select tuples (the intervals of a relative
+    attribute, say) where a window can only weight events.
+
+    **Input forms**: ``swept_mass(pm, ...)`` with a whole pre-MAET, or
+    the raw positional form ``swept_mass(p_context, w_context, sigma, r,
+    is_rel, is_per, period, ...)``, as at :func:`swept_entropy`.
+
+    Parameters
+    ----------
+    sweep, start, stop, step, window, drop, locate, target_attr
+        As at :func:`swept_entropy`. A dropped attribute is marginalized
+        before the mass is taken, so it cannot be restricted.
+    region : dict, optional
+        ``{a: spec}``, keyed by the context's attribute indices, as at
+        :func:`mass_maet`. Without it, the mass of the whole windowed
+        density: the window's weighted tuple count.
+    normalize : {'none', 'total'}, default 'none'
+        As at :func:`mass_maet`: the mass, or its share of the windowed
+        density's mass.
+    is_exch, specs, verbose
+        As at :func:`swept_similarity`.
+    return_sweep_values : bool, default False
+        Also return the sweep values, as a dict ``{a: values}``, one array
+        per swept attribute: the values listed, or those generated from
+        the defaults and ``start`` / ``stop`` / ``step``. Plot the profile
+        against them.
+
+    Returns
+    -------
+    np.ndarray
+        One dimension per swept attribute, in attribute order.
+    sweep_values : dict
+        Only with ``return_sweep_values=True``: ``{a: values}``.
+
+    See Also
+    --------
+    mass_maet, swept_entropy, weight_events
+    """
+    if is_pre_maet(p_context):
+        if w_context is not None:
+            raise TypeError(
+                "swept_mass(pm, ...): the pre-MAET form takes no second "
+                "positional argument; give the sweep values as "
+                "sweep={a: values}.")
+        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
+         side_specs) = _swept_pre_maet_args(
+            [p_context],
+            {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
+             "rel": rel if rel is not None else is_rel, "exch": exch},
+            "swept_mass")
+        p_context, = p_attrs
+        w_context, = w_attrs
+        specs, = side_specs
+    if not is_pre_maet(p_context):
+        p_context, w_context = _parts_per_event(p_context, w_context)
     _check_is_exch_vs_specs(is_exch, specs)
-    n = len(p_context)
-    axis = _abs_idx(window_attr, n)
-    nested = specs is not None
-    shape_raw, width = context_window
-    if width is None:
-        raise ValueError(
-            "windowed_entropy has no query to size the window; pass an explicit "
-            "context_window=(shape, width).")
-    if not (width > 0):
-        raise ValueError("context_window width must be > 0.")
-    gamma = _resolve_shape("rect" if shape_raw is None else shape_raw)
-    win = {axis: (gamma, width / _SQRT12)}
-    drop_axes = {axis} if drop_window_attr else set()
-    keep = [i for i in range(n) if i not in drop_axes]
-    if not keep:
-        raise ValueError("dropping the only attribute leaves no density.")
-    target = (keep[0] if target_attr is None else _abs_idx(target_attr, n))
-    if target in drop_axes:
-        raise ValueError(f"target_attr={target} is the marginalized window attribute.")
-    ctx_centres = _resolve_centres(p_context, axis, centres, start, stop, step,
-                                   default_step=width)
-    from ..entropy import entropy_maet
-    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
-                          _sub(is_per, keep), _sub(period, keep))
-    sy = None if is_exch is None else _sub(is_exch, keep)
-    exch_args = () if sy is None else (sy,)
-    out = np.empty(ctx_centres.size, dtype=float)
-    for i, c in enumerate(ctx_centres):
-        pc_w, wc_w, sc_w = _apply_windows(
-            p_context, w_context, specs, {axis: float(c)}, win, locate, target)
-        pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
-        if nested:
-            dens = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd,
-                                  specs=sc, verbose=False)
-        else:
-            dens = build_maet(pc, wc, sg, rr, rl, pr, pd, *exch_args,
-                                  verbose=False)
-        out[i] = float(entropy_maet(dens, method=method, base=base,
-                                        verbose=False))
-    return out
+    plan = _build_plan(p_context, None, specs, is_rel, sweep, start, stop,
+                       step, None, window, drop, None, locate,
+                       "swept_mass", sigma, is_per, period)
+    M = _run_mass(p_context, w_context, sigma, r, is_rel, is_per,
+                  period, is_exch, specs, plan, locate, target_attr,
+                  region, normalize)
+    return (M, _sweep_values(plan)) if return_sweep_values else M
 
 
-def _windowed_pre_maet_args(pms, centres, kw, func):
-    """Resolve a pre-MAET call of the windowed functions.
+def _swept_pre_maet_args(pms, kw, func):
+    """Resolve a pre-MAET call of the swept functions.
 
-    ``windowed_similarity`` and ``windowed_entropy`` take their geometry
+    ``swept_similarity`` and ``swept_entropy`` take their geometry
     positionally, as vectors shared by both operands. Given whole
     pre-MAETs instead, this reads the shared geometry out of their specs,
     applies any of the six per-attribute overrides passed as keywords,
     and returns the parts the workers already speak.
 
-    The two pre-MAETs of ``windowed_similarity`` describe one comparison,
+    The two pre-MAETs of ``swept_similarity`` describe one comparison,
     so they must agree on the structural geometry: same attribute count,
     and the same ``r``, ``rel``, ``exch``, and nesting on every attribute.
     The context supplies the specs; a disagreement is an error rather
@@ -1002,8 +1771,6 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
     ----------
     pms : list of Mapping
         The pre-MAET operands, context first.
-    centres : object
-        The argument sitting in the ``centres`` slot of the call.
     kw : dict
         The six overrides, keyed ``sigma``, ``is_per``, ``period``,
         ``r``, ``rel``, ``exch``; ``None`` where not given.
@@ -1014,8 +1781,7 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
     -------
     tuple
         ``(p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
-        specs, centres)``, with ``specs`` ``None`` unless the geometry is
-        nested.
+        specs)``, with ``specs`` ``None`` unless the geometry is nested.
     """
     from .build import (_normalise_specs, _override_specs,
                         _resolve_kernel_param)
@@ -1056,7 +1822,7 @@ def _windowed_pre_maet_args(pms, centres, kw, func):
     return ([pm["p_attr"] for pm in pms], [pm.get("w_attr") for pm in pms],
             sigma, r_vec, is_rel_vec, is_per, period,
             None if nested else is_exch_vec,
-            [sp if nested else None for sp in side_specs], centres)
+            [sp if nested else None for sp in side_specs])
 
 
 def _check_specs_agree(specs_a, specs_b, A, func):

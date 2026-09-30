@@ -1148,19 +1148,24 @@ class TestMAET:
                 is_per=False, period=0.0,
             )
 
-    def test_weight_k_input_greater_than_one_errors(self):
-        """An input attribute with K > 1 is rejected (the factor must be a
-        single value per event)."""
+    def test_weight_k_input_greater_than_one_uses_locate(self):
+        """An input attribute with K > 1 is reduced to one value per event
+        by ``locate`` (the centroid by default), and the factor is the
+        profile evaluated there."""
         p = [np.array([[60.0, 62.0],
                        [64.0, 65.0]])]   # K = 2
-        with pytest.raises(ValueError, match="K = 1"):
-            mpt.weight_events(
-                p, None,
-                input_attr=0, target_attr=0,
-                centre=62.0, sd=2.0, shape=0.0,
-                is_per=False, period=0.0,
-                drop_input_attr=False,
-            )
+        kw = dict(input_attr=0, target_attr=0, centre=62.0, sd=2.0,
+                  shape=0.0, is_per=False, period=0.0,
+                  drop_input_attr=False)
+        for locate, loc in (("centroid", [62.0, 63.5]),
+                            ("start", [60.0, 62.0]),
+                            ("end", [64.0, 65.0]),
+                            (lambda M: M.max(axis=0), [64.0, 65.0])):
+            w = mpt.unpack_pre_maet(
+                mpt.weight_events(p, None, locate=locate, **kw))[1][0]
+            want = np.exp(-(np.array(loc) - 62.0) ** 2 / 8.0)
+            np.testing.assert_allclose(np.ravel(w)[:2] if np.size(w) == 2
+                                       else np.asarray(w)[0], want)
 
     def test_weight_zero_width_errors(self):
         """width = 0 is rejected (degenerate)."""

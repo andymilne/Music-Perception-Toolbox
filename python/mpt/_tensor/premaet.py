@@ -43,15 +43,26 @@ def pack_pre_maet(p_attr, w_attr=None, specs=None):
 
     Parameters
     ----------
-    p_attr : sequence of array-like, or Mapping
-        A length-A sequence of per-attribute value matrices, each of shape
-        ``(K_a, N)``. An existing pre-MAET is also accepted, in which
-        case its parts supply any of ``w_attr`` and ``specs`` not given
-        here, and the result is a fresh one.
+    p_attr : sequence, or Mapping
+        A length-A sequence of attributes, each given per event or as a
+        matrix. Per event, an attribute is a list with one entry per
+        event, holding that event's values: a scalar, a sequence, or
+        ``None``/``[]`` for no value. ``[[60, 64, 67], 62, 64, 65]`` is a
+        three-note chord followed by three single notes. As a matrix, it
+        is a NumPy array of shape ``(K_a, N)``, one column per event,
+        padded with ``NaN`` where an event has fewer than ``K_a`` values;
+        the per-event form is converted to this matrix. A flat list of
+        scalars is one value per event. An existing pre-MAET is also
+        accepted, in which case its parts supply any of ``w_attr`` and
+        ``specs`` not given here, and the result is a fresh one.
     w_attr : None, scalar, or sequence, optional
         Per-attribute weights: ``None`` for unweighted, a scalar applied to
-        every attribute, or a length-A sequence whose entries are scalars,
-        ``(N,)`` vectors, or ``(K_a, N)`` matrices.
+        every attribute, or a length-A sequence with one entry per
+        attribute. An entry is a scalar; a per-event list, whose entries
+        are a scalar (weighting all the event's values) or a sequence
+        with one weight per value; a flat list with one weight per value
+        slot (length ``K_a``, when that differs from ``N``); or an array of
+        shape ``(N,)`` or ``(K_a, N)``.
     specs : None or sequence of dict, optional
         A length-A sequence of per-attribute specifications.
 
@@ -68,7 +79,16 @@ def pack_pre_maet(p_attr, w_attr=None, specs=None):
 
     ``pack_pre_maet`` and :func:`unpack_pre_maet` are inverses:
     ``unpack_pre_maet(pack_pre_maet(p, w, specs))`` returns the three
-    parts it was given.
+    parts it was given, with any per-event attribute or weights in their
+    matrix form.
+
+    Examples
+    --------
+    >>> pm = pack_pre_maet([[[60, 64, 67], 62, 64, 65], [0, 1, 1.5, 2]])
+    >>> pm["p_attr"][0]
+    array([[60., 62., 64., 65.],
+           [64., nan, nan, nan],
+           [67., nan, nan, nan]])
 
     See Also
     --------
@@ -92,17 +112,9 @@ def pack_pre_maet(p_attr, w_attr=None, specs=None):
     p_list = _normalise_p_attr(p_attr)
     A = len(p_list)
     w_list = _normalise_w_attr(w_attr, A)
+    p_list, w_list = _parts_per_event(p_list, w_list)
     specs_list = _normalise_specs(specs, A)
     return {"p_attr": p_list, "w_attr": w_list, "specs": specs_list}
-
-
-def make_pre_maet(p_attr, w_attr=None, specs=None):
-    """Assemble a pre-MAET without the cross-part checks.
-
-    For the sweep form, where p_attr holds one length-A entry per sweep
-    index and so does not share its length with w_attr and specs.
-    """
-    return {"p_attr": p_attr, "w_attr": w_attr, "specs": specs}
 
 
 def unpack_pre_maet(pm):
@@ -161,6 +173,7 @@ def shift_lead(p_attr, w_attr, following, specs, *, func):
         ``(p_attr, w_attr, following, specs)``, all resolved.
     """
     if not is_pre_maet(p_attr):
+        p_attr, w_attr = _parts_per_event(p_attr, w_attr)
         return p_attr, w_attr, list(following), specs
     pm = p_attr
     following = list(following)
@@ -255,3 +268,118 @@ def _normalise_specs(specs, A):
             f"{len(specs_list)}."
         )
     return specs_list
+
+
+# -------------------------------------------------------------------
+#  The per-event form of an attribute
+# -------------------------------------------------------------------
+#
+# An attribute's values may be given as a K x N matrix (a NumPy array,
+# one row per value slot and one column per event, NaN-padded where an
+# event holds fewer values than the widest) or in the per-event form: a
+# list or tuple with one entry per event, each a scalar, a 1-D sequence
+# of that event's values, or empty / None for an event with no value.
+# The per-event form is the MATLAB cell {[60 64 67], 62, 64, 65}; a
+# NumPy array is the MATLAB numeric matrix. Values are padded with NaN
+# and weights with 0.
+
+
+def _per_event_values(x, attr=None):
+    """A per-event list or tuple as a ``(K, N)`` NaN-padded array."""
+    where = "" if attr is None else f"attribute {attr}: "
+    cols = []
+    for n, e in enumerate(x):
+        if e is None:
+            v = np.empty(0)
+        else:
+            v = np.asarray(e, dtype=np.float64)
+            if v.ndim > 1:
+                raise ValueError(
+                    f"{where}event {n} must be a scalar, a 1-D sequence of "
+                    f"values, or empty; got an array of shape {v.shape}. "
+                    f"A K x N matrix is given as a NumPy array, not as a "
+                    f"list of lists.")
+            v = np.atleast_1d(v)
+        cols.append(v)
+    K = max([v.size for v in cols] + [1])
+    M = np.full((K, len(cols)), np.nan)
+    for n, v in enumerate(cols):
+        M[:v.size, n] = v
+    return M
+
+
+def _attr_values(x, attr=None):
+    """An attribute's values as given, with the per-event form converted
+    to its NaN-padded matrix; any other input passes through."""
+    if isinstance(x, (list, tuple)):
+        return _per_event_values(x, attr)
+    return x
+
+
+def _per_event_weights(w, values, attr=None):
+    """Per-event weights as a ``(K, N)`` array aligned with ``values``.
+
+    Each entry is a scalar, which weights every value of its event, or a
+    sequence with one weight per value of the event; the slots holding
+    no value take weight 0.
+    """
+    where = "" if attr is None else f"attribute {attr}: "
+    V = np.asarray(values, dtype=np.float64)
+    if V.ndim == 1:
+        V = V.reshape(1, -1)
+    K, N = V.shape
+    if len(w) != N:
+        raise ValueError(
+            f"{where}per-event weights must have one entry per event "
+            f"(N = {N}); got {len(w)}.")
+    W = np.zeros((K, N))
+    for n, e in enumerate(w):
+        rows = np.nonzero(~np.isnan(V[:, n]))[0]
+        v = np.atleast_1d(np.asarray(0.0 if e is None else e,
+                                     dtype=np.float64))
+        if v.ndim != 1:
+            raise ValueError(
+                f"{where}the weights of event {n} must be a scalar or a 1-D "
+                f"sequence; got an array of shape {v.shape}.")
+        if v.size == 1:
+            W[rows, n] = v[0]
+        elif v.size == rows.size:
+            W[rows, n] = v
+        else:
+            raise ValueError(
+                f"{where}event {n} holds {rows.size} value(s) but "
+                f"{v.size} weights; give one weight per value, or one for "
+                f"the event.")
+    return W
+
+
+def _attr_weights(w, values, attr=None):
+    """An attribute's weights as given, with the per-event form converted.
+
+    A list or tuple with one entry per event is the per-event form. A flat
+    list of scalars whose length is the number of value slots rather than
+    of events keeps its per-value reading. Anything else passes through.
+    """
+    if not isinstance(w, (list, tuple)):
+        return w
+    V = np.asarray(values, dtype=np.float64)
+    if V.ndim == 1:
+        V = V.reshape(1, -1)
+    K, N = V.shape
+    if (len(w) == K and len(w) != N
+            and all(np.ndim(e) == 0 and e is not None for e in w)):
+        return np.asarray(w, dtype=np.float64).reshape(K, 1)
+    return _per_event_weights(w, V, attr)
+
+
+def _parts_per_event(p_attr, w_attr):
+    """Convert the per-event form in a list of attributes and its
+    per-attribute weights; other inputs pass through."""
+    if not isinstance(p_attr, (list, tuple)):
+        return p_attr, w_attr
+    p_list = [_attr_values(x, a) for a, x in enumerate(p_attr)]
+    if isinstance(w_attr, (list, tuple)) and len(w_attr) == len(p_list):
+        w_attr = [_attr_weights(w, p_list[a], a)
+                  if isinstance(p_list[a], np.ndarray) else w
+                  for a, w in enumerate(w_attr)]
+    return p_list, w_attr

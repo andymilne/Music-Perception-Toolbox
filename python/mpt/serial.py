@@ -308,7 +308,7 @@ def kernel_cov(r, sd_value=0.0, sd_interval=0.0, sd_shift=0.0, *,
         The kernel covariance, ready to be passed as the ``sigma``
         argument of :func:`~mpt.build_maet`, :func:`~mpt.eval_maet`,
         :func:`~mpt.sim_maet`, :func:`~mpt.entropy_maet`, or
-        :func:`~mpt.windowed_similarity` for an ordered
+        :func:`~mpt.swept_similarity` for an ordered
         (``is_exch=False``), absolute (``is_rel=False``), non-periodic
         (``is_per=False``) attribute with ``r == K``.
 

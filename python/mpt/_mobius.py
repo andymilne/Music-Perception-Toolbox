@@ -49,7 +49,7 @@ consumer wrappers, never directly by user code):
     total_mass_rel              total-mass scalar in relative mode
   Orbit-table access:
     get_orbit_table             load (or build and cache) the orbit
-                                table for tensor order r
+                                table for tuple size r
     orbit_count                 |Omega_r|, the table's length, without
                                 loading or building the table
 
@@ -319,7 +319,7 @@ class OrbitEntry:
 
 
 def _build_orbit_table(r: int) -> list[OrbitEntry]:
-    """Build the orbit table for tensor order r by direct enumeration.
+    """Build the orbit table for tuple size r by direct enumeration.
 
     Algorithm:
     1. Enumerate integer partitions of r for m_A and m_B.
@@ -506,7 +506,7 @@ _R_HARD_CAP = 12
 
 
 def get_orbit_table(r: int) -> list[OrbitEntry]:
-    """Return the orbit table for tensor order r.
+    """Return the orbit table for tuple size r.
 
     Lookup order: in-memory cache → pre-built shipped tables → user disk
     cache → build from scratch (and cache to disk).
@@ -514,7 +514,7 @@ def get_orbit_table(r: int) -> list[OrbitEntry]:
     Parameters
     ----------
     r : int
-        Tensor order. Must be ≥ 2.
+        Tuple size. Must be ≥ 2.
 
     Returns
     -------
@@ -584,7 +584,7 @@ _ORBIT_COUNTS = (
 
 
 def orbit_count(r: int) -> int:
-    """Return ``|Omega_r|``, the length of the orbit table at order r.
+    """Return ``|Omega_r|``, the length of the orbit table at tuple size r.
 
     Cost models need only this count, so it is read from a closed table
     rather than from the orbit table itself: pricing a route at an
@@ -594,7 +594,7 @@ def orbit_count(r: int) -> int:
     Parameters
     ----------
     r : int
-        Tensor order, ``2 <= r <= 12``.
+        Tuple size, ``2 <= r <= 12``.
     """
     r = int(r)
     if r < 2:
@@ -658,7 +658,7 @@ def _orbit_count_burnside(n: int) -> int:
 
 
 # Bell numbers B_r for r = 0..12; B_r is the number of set partitions
-# of an r-element set, and the orbit table at order r has roughly
+# of an r-element set, and the orbit table at tuple size r has roughly
 # B_r²/symmetry orbits. Tabulated up to the hard cap.
 _BELL_NUMBERS = (
     1, 1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, 678570, 4213597,
@@ -836,7 +836,7 @@ def inner_product_orbit(
     w_A, w_B : ndarray
         Source weights for A and B.
     r : int
-        Tensor order.
+        Tuple size.
     prefactor : float
         Tuple-independent prefactor (e.g. ``(sigma * sqrt(pi))**r`` for the
         single-multiset case). Multiplied through at the end. Defaults to 1
@@ -1021,7 +1021,7 @@ def inner_product_orbit_pw_batched(
     w_B_g : ndarray, shape (N, n_B)
         Per-batch B-side weight vectors.
     r : int
-        Tensor order.
+        Tuple size.
     prefactor : float
         Tuple-independent prefactor multiplied through at the end.
     return_cancellation_ratio : bool, default False
@@ -1482,7 +1482,7 @@ def eval_orbit_abs(
     sigma : float
         Gaussian width.
     r : int
-        Tensor order. Must be ≥ 1.
+        Tuple size. Must be ≥ 1.
     x : (r, ...) ndarray
         Query points; the first dimension must equal ``r``, the
         remaining dimensions are query indices.
@@ -2053,7 +2053,7 @@ def eval_orbit_rel(
       all: every partition's translation integral is evaluated in
       closed form from the Fourier coefficients of the wrapped Gaussian
       mixture, by :func:`_eval_orbit_rel_fourier`. Engaged above
-      per-order query-count and value-count thresholds; in periodic
+      per-tuple-size query-count and value-count thresholds; in periodic
       mode also only when the truncation window and every query's
       position span fit inside half the circle. There is no grid-size
       decline: the block spectra are 1-D series and the multi-block

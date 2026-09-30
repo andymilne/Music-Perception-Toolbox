@@ -7,6 +7,12 @@ function [s, densXOut, densYOut] = sweepSimMaet(densX, densY, offsets, nvArgs)
 %   whole sweep costs one pass over the tuple pairs plus M evaluations
 %   of a mixture in the offset, rather than M inner products.
 %
+%   sweepSimMaet and sweptSimilarity are the routes for a swept
+%   translation similarity: sweepSimMaet takes built densities and an
+%   A x M offset matrix (any path of offsets, densities reusable across
+%   sweeps); sweptSimilarity takes pre-MAETs and sweep values, and adds
+%   windows and dropped attributes.
+%
 %   The identity. Starting from the multi-attribute inner product
 %
 %       <T_X, T_Y> = sum_{j,k} w_j w_k prod_a
@@ -134,7 +140,7 @@ function [s, densXOut, densYOut] = sweepSimMaet(densX, densY, offsets, nvArgs)
 %   with translateAttributes and compare offset by offset in those
 %   cases.
 %
-%   See also SIMMAET, TRANSLATEATTRIBUTES, BUILDMAET.
+%   See also SWEPTSIMILARITY, SIMMAET, BUILDMAET.
 
 arguments
     densX struct
@@ -421,7 +427,7 @@ function chosen = localChooseRoute(densX, densY, off, A, mixtureOk, orbitOk)
 %   The two scale differently on the same problem. The mixture pays one
 %   pass over the tuple pairs --- nJ * nK, which grows as
 %   [C(K, r) r!]^2 --- and must also STORE the survivors, so it is the
-%   memory-bound route at high tuple order. The orbit route pays per
+%   memory-bound route at large tuple size. The orbit route pays per
 %   offset instead, but its unit of work is an orbit contraction over
 %   the Kx * Ky value kernel, with no tuple enumeration anywhere.
 %
@@ -494,7 +500,7 @@ function chosen = localChooseRoute(densX, densY, off, A, mixtureOk, orbitOk)
     orbitTotal = M * double(densX.N) * double(densY.N) * orbitWork;
 
     % Memory decides before speed does: the mixture must hold its
-    % surviving components, and at high tuple order that array is what
+    % surviving components, and at large tuple size that array is what
     % fails first, whatever the timings say.
     nSwept = 0;
     for a = 1:A

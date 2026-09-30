@@ -83,8 +83,8 @@ function Sigma = kernelCov(r, nvArgs)
 %   Output:
 %     Sigma        — r x r symmetric positive-definite covariance, ready
 %                    to be passed as the sigma argument of buildMaet,
-%                    evalMaet, simMaet, entropyMaet, windowedSimilarity,
-%                    or windowedEntropy for an ordered (isExch = false),
+%                    evalMaet, simMaet, entropyMaet, sweptSimilarity,
+%                    or sweptEntropy for an ordered (isExch = false),
 %                    absolute (isRel = false), non-periodic
 %                    (isPer = false) attribute with r == K.
 %
@@ -99,7 +99,7 @@ function Sigma = kernelCov(r, nvArgs)
 %   and the timing of discrete motor responses. Perception & Psychophysics,
 %   14(1), 5-12.
 %
-%   See also buildMaet, simMaet, entropyMaet, windowedSimilarity,
+%   See also buildMaet, simMaet, entropyMaet, sweptSimilarity,
 %   differenceEvents, nTupleEntropy.
 
     arguments

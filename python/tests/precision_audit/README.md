@@ -29,22 +29,6 @@ shows ~5e-7 truncation error. Demonstrates that 8σ recovers FP precision
 sps=5 vs sps=10 trapezoidal density doesn't matter once the window is wide
 enough — the issue is truncation tail, not under-sampling.
 
-### `03_window_fix_verify_sa.py`
-Same window-widening study at the SA path (`_cos_sim_exp_tens_sa`),
-sweeping (r, K, window_sigma) at K ∈ {r, r+2}. Confirms the truncation issue
-is shared between SA and MA paths. Also documents the K=r cancellation
-regime separately (those rows stay bad regardless of window width — that is
-Issue 2, not Issue 1).
-
-### `04_rel_per_sigma_scaling.py`
-SA rel_per discrepancy as σ/P decreases from ~0.04 to ~0.001.
-Demonstrates that orbit and pairwise differ at σ/P ≳ 0.03 and converge to
-floating point at smaller σ/P, confirming the regime boundary in
-`v22_specification.md` line 17. Note: this is **not** a bug — the two
-formulas are different mathematical objects (per-pair-wrap closed form vs
-integration over circle translates) that coincide at small σ/P. See
-`V22_DEV_LOG.md` for the full discussion.
-
 ### `05_orbit_self_consistency_high_sp.py`
 Probes whether orbit's trapezoidal quadrature is itself converged at the
 default sps=10 across σ/P ∈ {0.04, 0.08, 0.17, 0.33, 0.67, 1.0}, by

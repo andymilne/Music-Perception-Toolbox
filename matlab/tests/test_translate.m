@@ -63,32 +63,19 @@ results{end+1,1} = 'translate: does not mutate input';
 results{end,2}   = isequal(pIn{1}, orig);
 
 
-% --- Sweep ----------------------------------------------------------
+% --- One call, one translation ---------------------------------------
 
-% (1 x M) row -> M copies, each a global shift broadcast across positions.
-[pSweep, ~, ~] = unpackPreMaet(translateAttributes({[0 4]}, [], {[0 5 12]}));
-results{end+1,1} = 'translate: sweep per-sweep scalar (row)';
-results{end,2}   = iscell(pSweep) && numel(pSweep) == 3 ...
-                   && isequal(pSweep{1}{1}, [0 4]) ...
-                   && isequal(pSweep{2}{1}, [5 9]) ...
-                   && isequal(pSweep{3}{1}, [12 16]);
-
-% (K_total x M) matrix: positions down, sweep index across.
-offs = [0 10; 0 20];                         % position 0 then position 1, over M=2
-[pSweep, ~, ~] = unpackPreMaet(translateAttributes({[0 4; 7 11]}, [], {offs}));
-results{end+1,1} = 'translate: sweep per-position x sweep (matrix)';
-results{end,2}   = numel(pSweep) == 2 ...
-                   && isequal(pSweep{1}{1}, [0 4; 7 11]) ...
-                   && isequal(pSweep{2}{1}, [10 14; 27 31]);
-
-% Scalar/row entry broadcasts across the call's M (set by another attr).
-[pSweep, ~, ~] = unpackPreMaet(translateAttributes({[0 4], [1 2]}, [], {[0 10 20], 100}));
-okBroad = numel(pSweep) == 3;
-for m = 1:3
-    okBroad = okBroad && isequal(pSweep{m}{2}, [101 102]);
+% A row of offsets (formerly a sweep) is refused, pointing to the sweep
+% functions.
+try
+    translateAttributes({[0 4]}, [], {[0 5 12]});
+    okRow = false;
+catch err
+    okRow = strcmp(err.identifier, 'translateAttributes:offsetShape') ...
+        && contains(err.message, 'sweptSimilarity');
 end
-results{end+1,1} = 'translate: scalar broadcasts across sweep M';
-results{end,2}   = okBroad;
+results{end+1,1} = 'translate: a row of offsets is refused';
+results{end,2}   = okRow;
 
 
 % --- is_rel from specs: relative no-op ------------------------------
@@ -156,26 +143,27 @@ results{end,2}   = throwsError(@() translateAttributes({[0 4; 7 11]}, [], {[1; 2
 results{end+1,1} = 'translate: Inf rejected';
 results{end,2}   = throwsError(@() translateAttributes({[0 4]}, [], {Inf}));
 
-results{end+1,1} = 'translate: sweep M mismatch errors';
-results{end,2}   = throwsError(@() translateAttributes({[0 4], [1 2]}, [], ...
-                       {[0 1 2], [0 1]}));
+results{end+1,1} = 'translate: a K_total x M block errors';
+results{end,2}   = throwsError(@() translateAttributes({[0 4; 7 11]}, [], ...
+                       {[0 10; 0 20]}));
 
 
-% --- Integration: sweep -> build -> cosine self-match ---------------
+% --- Integration: translations -> build -> cosine self-match --------
 
 chord = [0; 4; 7];                             % K=3 chord, N=1
-tr_grid  = [-200 -100 0 100 200];                 % row, M=5
-[sweep, ~, specs] = unpackPreMaet(translateAttributes({chord}, [], {tr_grid}));
-ref = buildMaet({chord}, [], 'specs', specs, 'sigma', 30, ...
+tr_grid  = [-200 -100 0 100 200];
+specsC = flatSpecs({chord});
+ref = buildMaet({chord}, [], 'specs', specsC, 'sigma', 30, ...
                    'isPer', false, 'period', 0, 'verbose', false);
-sims = zeros(1, numel(sweep));
-for m = 1:numel(sweep)
-    d = buildMaet(sweep{m}, [], 'specs', specs, 'sigma', 30, ...
-                     'isPer', false, 'period', 0, 'verbose', false);
+sims = zeros(1, numel(tr_grid));
+for m = 1:numel(tr_grid)
+    [pT, ~, ~] = unpackPreMaet(translateAttributes({chord}, [], {tr_grid(m)}));
+    d = buildMaet(pT, [], 'specs', specsC, 'sigma', 30, ...
+                  'isPer', false, 'period', 0, 'verbose', false);
     sims(m) = simMaet(ref, d, 'verbose', false);
 end
 [~, peakIdx] = max(sims);
-results{end+1,1} = 'translate: sweep feeds cosine self-match peak';
+results{end+1,1} = 'translate: translations feed cosine self-match peak';
 results{end,2}   = peakIdx == 3 && abs(sims(3) - 1) < 1e-9;   % offset 0 at index 3
 
 

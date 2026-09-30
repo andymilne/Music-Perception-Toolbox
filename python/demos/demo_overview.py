@@ -16,9 +16,9 @@ Two running examples recur throughout: the diatonic scale
 diatonic melody set in the clave rhythm.
 
 Uses: transform_attributes, add_spectra, sim_maet, entropy_maet,
-      build_maet, plot_maet, flat_specs, pack_pre_maet, show_pre_maet,
-      windowed_similarity, difference_events, template_harmonicity,
-      tensor_harmonicity, spectral_entropy, roughness, balance, evenness,
+      mass_maet, build_maet, plot_maet, flat_specs, pack_pre_maet,
+      show_pre_maet, swept_similarity, swept_mass, difference_events,
+      template_harmonicity, tensor_harmonicity, spectral_entropy, roughness, balance, evenness,
       dft_circular, coherence, sameness, n_tuple_entropy, mean_offset,
       edges, markov_s, circ_apm, set_default.
 
@@ -43,14 +43,15 @@ diat_cents = np.array([0, 200, 400, 500, 700, 900, 1100], dtype=float)
 clave = [0, 3, 6, 10, 12]                        # 16-step cycle
 
 # ===================================================================
-#  1. Expectation tensors of a single multiset  (User Guide §3.1, §3.3, §6.1, §6.2)
+#  1. Expectation tensors of a single multiset  (User Guide §3.1, §8, §13.1)
 # ===================================================================
 
 # An expectation tensor replaces each element of a multiset with a
 # Gaussian of width sigma and sums them, over r-tuples of elements. 1a
-# builds one from a chord. Two things are computed from one: the
-# similarity of two of them (1b) and the entropy of one (1c). Four
-# parameters decide what it represents (1d).
+# builds one from a chord. Three things are computed from one: the
+# similarity of two of them (1b), the entropy of one (1c), and the mass
+# it holds in a region (1d). Four parameters decide what it represents
+# (1e).
 
 # --- 1a. A chord as a density ---
 
@@ -137,9 +138,32 @@ for name, sc in scales.items():
 # lowest; the chromatic scale holds every interval equally often, so its
 # entropy is highest.
 
-# --- 1d. The parameters that define a tensor ---
+# --- 1d. Mass: how much of a density lies in a region ---
 
-# The same diatonic scale drawn four ways. The order r sets how many
+# The mass of a density within a region, as a proportion of its whole
+# mass (normalize='total'), is in effect the weighted proportion of
+# tuples whose values fall in the region. On a relative tensor at r = 2
+# the tuples are pairs of notes and their values intervals, so here it
+# is the share of each scale's pairs of notes that lie a fifth or a
+# fourth apart. Because the density is relative, periodic, and
+# exchangeable, every pair of notes a fifth or fourth apart contributes
+# the same two coincident kernels, at 700 and 500 cents, whatever its
+# transposition, octave, or order; the two regions together therefore
+# count each such pair once.
+print("\n=== 1d. Share of pairs a fifth or fourth apart ===")
+for name, sc in scales.items():
+    dens = mpt.build_maet(np.asarray(sc, dtype=float), None,
+                          10, 2, True, True, 1200, verbose=False)
+    m = (mpt.mass_maet(dens, {0: (650, 750)}, normalize='total')
+         + mpt.mass_maet(dens, {0: (450, 550)}, normalize='total'))
+    print(f"  {name:10s}: {m:.3f}")
+# Six of the diatonic scale's 21 pairs are a fifth apart (0.286), twelve
+# of the chromatic scale's 66 (0.182), and none of the whole-tone
+# scale's.
+
+# --- 1e. The parameters that define a tensor ---
+
+# The same diatonic scale drawn four ways. The tuple size r sets how many
 # elements each point of the density describes, and relative mode
 # (is_rel) reads a tuple's intervals rather than its pitches, which
 # makes the density transposition-invariant and removes one dimension:
@@ -152,7 +176,7 @@ for name, sc in scales.items():
 #                     the tritone
 #   r = 3, relative   trichords, each drawn as the two intervals above
 #                     one of its notes
-print("\n=== 1d. Tensor parameters (figure) ===")
+print("\n=== 1e. Tensor parameters (figure) ===")
 configs = [(1, False), (2, False), (2, True), (3, True)]
 fig, axes = plt.subplots(2, 2, figsize=(9, 8))
 for ax, (r, is_rel) in zip(axes.flat, configs):
@@ -184,7 +208,7 @@ print("  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.")
 #                            speed controls, and Renyi-2 entropy
 
 # ===================================================================
-#  2. Multi-attribute expectation tensors  (User Guide §3.2, §7.2-7.4)
+#  2. Multi-attribute expectation tensors  (User Guide §3.3, §6-§8, §13.2)
 # ===================================================================
 
 # A MAET takes a sequence of events, each carrying several attributes
@@ -228,26 +252,30 @@ query = mpt.pack_pre_maet([pitch[None, :3], onsets[None, :3]], None, specs)
 
 # --- 2b. Where does the motif occur? ---
 
-# windowed_similarity translates the query along the onset attribute by each
-# offset, windows the melody around it, and compares the two in pitch
-# and onset jointly. The query and the melody are both written from
-# onset 0, so an offset is the onset at which the query starts in the
-# melody: 0 is the query where it was taken from.
+# swept_similarity translates the query along the onset attribute and
+# compares it with the whole melody, in pitch and onset jointly, at each
+# offset: attribute translation, the canonical way to find a query.
+# Naming the attribute alone (sweep=1) asks for the default offsets,
+# every placement at which query and melody overlap, stepped at no more
+# than half the width of the profile's peaks and at a whole fraction of
+# the grid of steps the notes lie on, so that every exact match is on
+# the grid. return_offsets=True also returns those offsets, mu_abs,
+# keyed by attribute (here mu_abs[1]): the query and the melody are both
+# written from onset 0, so an offset is the onset at which the query
+# starts in the melody, 0 being the query where it was taken from.
 print("\n=== 2b. Motif search, absolute pitch ===")
-offsets = np.arange(-4, 24.01, 0.5)
-window = ('gaussian', 16)       # one clave cycle, equivalent width
-S_abs = mpt.windowed_similarity(melody, query, offsets=offsets,
-                                window_attr=1, context_window=window)
+S_abs, mu_abs = mpt.swept_similarity(melody, query, sweep=1,
+                                     return_offsets=True)
 
 
-def report_peaks(S, thresh=0.5):
+def report_peaks(S, mu, thresh=0.75):
     """Print the local maxima of a similarity profile above thresh."""
     for i in range(1, len(S) - 1):
         if S[i] > thresh and S[i] >= S[i - 1] and S[i] > S[i + 1]:
-            print(f"  peak at offset {offsets[i]:4.1f} steps: {S[i]:.3f}")
+            print(f"  peak at offset {mu[i]:4.1f} steps: {S[i]:.3f}")
 
 
-report_peaks(S_abs)
+report_peaks(S_abs, mu_abs[1])
 # One peak, at offset 0 -- the query's own position. The
 # transposed statement in cycle 2 is not found: in absolute mode G A B
 # is not C D E.
@@ -259,21 +287,22 @@ report_peaks(S_abs)
 # same values as the original. Onset is passed through (order 0),
 # keeping each interval at the onset of its second note. Differencing
 # drops the first event but leaves every surviving onset where it was,
-# so an offset still says where the original query starts, and the two
-# profiles share one horizontal axis.
+# so mu still says where the original query starts, and the two profiles
+# share one horizontal axis.
 # The pitch sigma grows by sqrt(2), since a difference of two uncertain
 # values is less certain than either; difference_events announces this.
 print("\n=== 2c. Motif search, pitch intervals ===")
 melody_d = mpt.difference_events(melody, [1, 0])
 query_d = mpt.difference_events(query, [1, 0])
 mpt.show_pre_maet(melody_d, max_events=None)
-S_diff = mpt.windowed_similarity(melody_d, query_d, offsets=offsets,
-                                 window_attr=1, context_window=window)
-report_peaks(S_diff)
-# Two peaks of equal height, at offsets 0 and 16 -- one per clave
-# cycle: the rising pair of whole
-# tones is found in both. Which preprocessing and which mode are chosen
-# is what decides what counts as "the same".
+S_diff, mu_diff = mpt.swept_similarity(melody_d, query_d, sweep=1,
+                                       return_offsets=True)
+report_peaks(S_diff, mu_diff[1])
+# Two full matches, at offsets 0 and 16 -- one per clave cycle: the
+# rising pair of whole tones is found in both. The profile also has
+# partial matches, near 0.5, at offsets 3, 13, and 19, where one of the
+# query's two intervals lines up with the melody's. Which preprocessing
+# and which mode are chosen is what decides what counts as "the same".
 
 # Top: the melody as a piano roll, the query's notes filled. Bottom: the
 # two profiles against the onset of the query's first note, on the same
@@ -293,13 +322,65 @@ ax1.set_ylabel('MIDI pitch')
 ax1.set_ylim(58, 77)
 ax1.set_title('Two clave cycles, the second a fifth higher')
 ax1.legend(loc='upper left')
-ax2.plot(offsets, S_abs, linewidth=2, label='absolute pitch')
-ax2.plot(offsets, S_diff, linewidth=2, label='pitch intervals (differenced)')
+ax2.plot(mu_abs[1], S_abs, linewidth=2, label='absolute pitch')
+ax2.plot(mu_diff[1], S_diff, linewidth=2, label='pitch intervals (differenced)')
 ax2.axvline(16, color='0.6', linestyle='--', linewidth=1)
 ax2.set_xlabel("onset of the query's first note (steps)")
 ax2.set_ylabel('similarity to C D E')
 ax2.set_title('Where does the opening motif recur?')
 ax2.legend(loc='upper right')
+fig.tight_layout()
+
+# --- 2d. Mass in a moving window: each triad's share of the notes ---
+
+# The second cycle is the first a fifth higher, so the melody's pitches
+# move from the tones of the C major triad (C, E, G) to those of the G
+# major triad (G, B, D). swept_mass shows where. Time is the onset
+# attribute, measured in steps of the 16-step clave cycle. At each of a
+# list of times s, a Gaussian window centred on s, with a standard
+# deviation of 4 steps, weights each note according to its distance in
+# time from s, so the notes near s count most. The onset attribute is
+# then dropped, leaving a density over pitch class alone, and its mass
+# is taken inside a region: the range of values to be counted, here the
+# pitch classes within 50 cents of one triad tone (pc - 50 to pc + 50
+# cents), each note counting by the part of its pitch kernel that falls
+# in that range. With normalize='total', the mass is divided by the
+# density's whole mass, so the result is the share of the weighted notes
+# near s that lie in the range. A region takes a single range per
+# attribute, so a triad's share is the sum of three calls, one per tone.
+# The times s are left to the defaults, from the first onset to the last
+# in steps of half the window's sd (2 steps), and come back with
+# return_sweep_values=True, for the plot.
+print("\n=== 2d. Share of each triad's tones, in a window over onset ===")
+win = {'shape': 'gaussian', 'sd': 4.0}
+triads = {'C major': [0, 400, 700], 'G major': [700, 1100, 200]}
+share = {}
+for name, pcs in triads.items():
+    share[name] = 0.0
+    for pc in pcs:
+        m, sv = mpt.swept_mass(melody, sweep=1, window={1: win},
+                               drop=[1], region={0: (pc - 50, pc + 50)},
+                               normalize='total', return_sweep_values=True)
+        share[name] = share[name] + m
+s = sv[1]                                    # the sweep values, 0 to 28
+for x in (4, 12, 20, 28):
+    k = int(np.flatnonzero(s == x)[0])
+    print(f"  onset {x:2d}: C major {share['C major'][k]:.2f}, "
+          f"G major {share['G major'][k]:.2f}")
+# The C major triad holds most of the weighted notes through the first
+# cycle and the G major triad through the second, the two crossing just
+# after step 16, where the transposition begins. They overlap on G, the
+# tone they share, so the two shares do not sum to 1.
+
+fig, ax = plt.subplots(figsize=(9, 3))
+for name, v in share.items():
+    ax.plot(s, v, linewidth=2, label=name)
+ax.axvline(16, color='0.6', linestyle='--', linewidth=1)
+ax.set_xlabel('window centre s (steps)')
+ax.set_ylabel('share of the weighted notes')
+ax.set_title("Each triad's share of the weighted notes")
+ax.set_ylim(0, 1)
+ax.legend(loc='center right')
 fig.tight_layout()
 
 # See also:
@@ -310,7 +391,9 @@ fig.tight_layout()
 #   demo_score_workflow       a pre-MAET read from MusicXML or MIDI
 #                             (then demo_score_grid,
 #                             demo_score_categoricals)
-#   demo_translate_sweep      a query swept in pitch and time at once
+#   demo_swept_similarity  swept_similarity in depth: translation,
+#                             windows, align, and relative or dropped
+#                             attributes
 #   demo_tempo_invariance     motif search tolerant of tempo change
 #   demo_repetition_handling  interval-scale invariance, and what to do
 #                             with repeated notes
@@ -327,7 +410,7 @@ fig.tight_layout()
 #                             attribute (4.1); see jmm/README.md
 
 # ===================================================================
-#  3. Consonance and harmonicity  (User Guide §6.3)
+#  3. Consonance and harmonicity  (User Guide §9.1)
 # ===================================================================
 
 print("\n=== 3. Harmonicity and entropy (JI major triad) ===")
@@ -369,7 +452,7 @@ print(f"  C major triad (8 harmonics): roughness = {r:.4f}")
 #   demo_batch_processing    the same measures for a table of trials
 
 # ===================================================================
-#  4. Balance and evenness  (User Guide §6.4)
+#  4. Balance and evenness  (User Guide §9.2)
 # ===================================================================
 
 print("\n=== 4. Balance and evenness ===")
@@ -425,7 +508,7 @@ fig.tight_layout(rect=(0, 0, 1, 0.92))
 #                               and by Monte Carlo
 
 # ===================================================================
-#  5. Scale and rhythm structure  (User Guide §6.5)
+#  5. Scale and rhythm structure  (User Guide §9.2)
 # ===================================================================
 
 print("\n=== 5. Scale structure (diatonic) ===")

@@ -454,9 +454,14 @@ class MaetDensity:
 def _coerce_attr_matrix(M) -> np.ndarray:
     """Coerce an attribute input to a 2-D K_a x N float64 matrix.
 
-    A 1-D input is taken as K_a = 1 (a 1 x N row). 2-D inputs pass
-    through. Higher dimensions are rejected.
+    A list or tuple is the per-event form, one entry per event (a scalar,
+    a 1-D sequence of that event's values, or empty), and is NaN-padded
+    to K_a x N. An array that is 1-D is taken as K_a = 1 (a 1 x N row);
+    2-D arrays pass through. Higher dimensions are rejected.
     """
+    if isinstance(M, (list, tuple)):
+        from .premaet import _per_event_values
+        return _per_event_values(M)
     M = np.asarray(M, dtype=np.float64)
     if M.ndim == 1:
         return M.reshape(1, -1)
@@ -467,7 +472,8 @@ def _coerce_attr_matrix(M) -> np.ndarray:
     return M
 
 
-def _normalise_weights_ma(w, A: int, K_a: np.ndarray, N: int) -> list:
+def _normalise_weights_ma(w, A: int, K_a: np.ndarray, N: int,
+                          values=None) -> list:
     """Normalise the top-level MA weight input to a length-*A* list of
     K_a x N matrices.
 
@@ -500,6 +506,9 @@ def _normalise_weights_ma(w, A: int, K_a: np.ndarray, N: int) -> list:
                 f"Weight list must have length {A} (n attributes), "
                 f"got {len(w)}."
             )
+        if values is not None:
+            from .premaet import _attr_weights
+            w = [_attr_weights(w[a], values[a], a) for a in range(A)]
         return [
             _broadcast_attr_weight(w[a], int(K_a[a]), N, a)
             for a in range(A)

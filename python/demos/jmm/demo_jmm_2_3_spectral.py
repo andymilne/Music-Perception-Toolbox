@@ -40,8 +40,8 @@ rather than dropping it. The motif's single early statement, long before
 the closing run, states its pitches in an unrelated rhythm, so under A1
 it scores a full match — a false positive of a pitch-only comparison.
 Comparing the rhythm as well sends it to nearly zero while leaving the
-closing run alone; this is the same call with
-``drop_window_attr=False``.
+closing run alone; this is the same call with the onset attribute kept
+in the comparison rather than dropped.
 
 Pre-MAET structure::
 
@@ -58,7 +58,7 @@ Pre-MAET structure::
 Data: ``jmm_data.acknowledgement`` (the solo, from your own MIDI
 transcription at ``data/AwakeningSolo.mid``). Toolbox:
 ``pre_maet_from_attr_table``, ``add_spectra``, ``bind_events``,
-``windowed_similarity``. Runtime: a few minutes (about four on two
+``swept_similarity``. Runtime: a few minutes (about four on two
 cores), three of them the two spectral panels; the spectral pitch-offset
 sweep alone is some 80,000 windowed comparisons of twelve-partial
 super-events.
@@ -80,7 +80,7 @@ import mpt
 # sweeps are the heaviest calls in these demos.
 _prev_defaults = mpt.set_default(show_hints=False, truncation_sigmas=4.0)
 from mpt import (pre_maet_from_attr_table, add_spectra, bind_events,
-                 windowed_similarity, show_pre_maet, unpack_pre_maet)
+                 swept_similarity, show_pre_maet, unpack_pre_maet)
 
 import jmm_data
 
@@ -97,7 +97,7 @@ WIN          = 0.6      # full support of the rectangular time window (QN)
 Q_ROOT       = 56       # query root (MIDI); offset 0 reads as this root
 ALS_IV       = np.array([0, 3, 0, 5])          # the motif, from its root
 MOTIF_ONSETS = np.array([0.0, 0.5, 1.5, 2.0])  # its rhythm: (0.5, 1.0, 0.5) QN
-CENTRE_STEP  = 0.5      # QN between window centres; below the window's support,
+SWEEP_STEP   = 0.5      # QN between sweep values; below the window's support,
                         # so every position of the passage is covered
 OFFSETS      = np.arange(-14.0, 14.0 + 1e-9, 0.5)   # semitones, for B1 and B2
 BEATS_PER_BAR = 4.0     # 4/4 throughout
@@ -106,12 +106,12 @@ C_FUND = '#1f4eb8'
 C_SPEC = '#c25008'
 
 
-# --- the passage, the query, and the window centres ------------------------
+# --- the passage, the query, and the sweep values --------------------------
 notes = jmm_data.acknowledgement()
 onset = notes['onset_beats'].to_numpy(dtype=float)
-centres = np.arange(onset.min(), onset.max() + 1e-9, CENTRE_STEP)
+sweep_values = np.arange(onset.min(), onset.max() + 1e-9, SWEEP_STEP)
 print(f'{len(notes)} notes; span {onset.max():.1f} QN; '
-      f'{centres.size} window centres')
+      f'{sweep_values.size} sweep values')
 
 # The query is a four-note score carrying the motif's own rhythm, and goes
 # through the same steps as the passage below. Where onset time is dropped
@@ -164,43 +164,47 @@ show_pre_maet(qry_rel_fund, max_events=1)
 show_pre_maet(qry_rel_spec, max_events=1, decimals=2)
 
 # --- A1 and A2: transposition-invariant similarity against time -----------
-# The window attribute is time, attribute 1: a rectangular window of full support
-# WIN slides over the passage. Onset time is dropped from the comparison
-# (drop_window_attr=True), so it only places the window, on the group's
-# first onset (locate='start'), which lands each peak on the statement's
-# onset. Pitch is then the sole compared attribute.
+# The window attribute is time, attribute 1: a rectangular window of full
+# support WIN is aligned at each sweep value (align='window'). Onset
+# time is dropped from the comparison (drop=[1]), so it only places the
+# window, evaluated at the group's first onset (locate='start'), which
+# lands each peak on the statement's onset. Pitch is then the sole
+# compared attribute.
 print('computing A1 (fundamental, relative) ...')
-A1 = np.asarray(windowed_similarity(
-    ctx_rel_fund, qry_rel_fund, centres,
-    context_window=('rect', WIN), window_attr=1, drop_window_attr=True,
+A1 = np.asarray(swept_similarity(
+    ctx_rel_fund, qry_rel_fund, sweep={1: sweep_values},
+    align={1: 'window'}, window={1: ('rect', WIN)}, drop=[1],
     locate='start', normalize='oneSidedDenom')).ravel()
 print('computing A2 (spectral, relative) ...')
-A2 = np.asarray(windowed_similarity(
-    ctx_rel_spec, qry_rel_spec, centres,
-    context_window=('rect', WIN), window_attr=1, drop_window_attr=True,
+A2 = np.asarray(swept_similarity(
+    ctx_rel_spec, qry_rel_spec, sweep={1: sweep_values},
+    align={1: 'window'}, window={1: ('rect', WIN)}, drop=[1],
     locate='start', normalize='oneSidedDenom')).ravel()
 
 # --- B1 and B2: pitch offset by time --------------------------------------
-# One call moves the query over both attributes at once: pitch
-# (attribute 0) is translated by the transposition offsets and compared,
-# with no window; time (attribute 1) is the window attribute, the window
-# placed at each centre and time then marginalized, exactly as in A1 and
-# A2. An offset is measured from the query as written, so offset 0 is the
-# untransposed query (root 56). Pitch has no window, so at each centre
-# the offsets are computed in one pass (for the nested spectral attribute
-# of B2, level by level).
+# One call sweeps both attributes at once: pitch (attribute 0) translates
+# the query only (align='query'), with no window, and is compared; time
+# (attribute 1) sweeps the window only, aligned at each sweep value and
+# then marginalized, exactly as in A1 and A2. With no window on pitch,
+# each pitch sweep value is the transposition added to the query as
+# written (query_ref defaults to 0 there), so 0 is the untransposed query
+# (root 56). Pitch has no window, so at each time
+# sweep value the transpositions are computed in one pass (for the nested
+# spectral attribute of B2, level by level).
 print('computing B1 (fundamental, absolute) ...')
-B1 = np.asarray(windowed_similarity(
+B1 = np.asarray(swept_similarity(
     ctx_abs_fund, qry_abs_fund,
-    offsets={0: OFFSETS}, sweep={1: centres}, drop={1: True},
-    context_window={1: {'shape': 'rect', 'width': WIN}},
-    locate={1: 'start'}, normalize='oneSidedDenom'))
+    sweep={0: OFFSETS, 1: sweep_values},
+    align={0: 'query', 1: 'window'}, drop=[1],
+    window={1: ('rect', WIN)}, locate={1: 'start'},
+    normalize='oneSidedDenom'))
 print('computing B2 (spectral, absolute) ...')
-B2 = np.asarray(windowed_similarity(
+B2 = np.asarray(swept_similarity(
     ctx_abs_spec, qry_abs_spec,
-    offsets={0: OFFSETS}, sweep={1: centres}, drop={1: True},
-    context_window={1: {'shape': 'rect', 'width': WIN}},
-    locate={1: 'start'}, normalize='oneSidedDenom'))
+    sweep={0: OFFSETS, 1: sweep_values},
+    align={0: 'query', 1: 'window'}, drop=[1],
+    window={1: ('rect', WIN)}, locate={1: 'start'},
+    normalize='oneSidedDenom'))
 
 for tag, panel in [('A1', A1), ('A2', A2), ('B1', B1), ('B2', B2)]:
     print(f'{tag}: max {panel.max():.3f}; cells above 0.99: '
@@ -209,15 +213,17 @@ print(f'A1 vs A2 correlation: {np.corrcoef(A1, A2)[0, 1]:.4f}; '
       f'max|A2 - A1| = {np.max(np.abs(A2 - A1)):.3f}')
 
 # --- the rhythm-aware reading ---------------------------------------------
-# A1's call again, with the onset attribute compared rather than dropped
-# (drop_window_attr=False): a match must then reproduce the motif's rhythm,
-# which the query carries, as well as its pitch pattern.
-Aj = np.asarray(windowed_similarity(
-    ctx_rel_fund, qry_rel_fund, centres,
-    context_window=('rect', WIN), window_attr=1, drop_window_attr=False,
+# A1's call again, with the onset attribute kept in the comparison rather
+# than dropped. Onset is relative, so it is compared through its
+# within-tuple differences, the query's inter-onset intervals, and the
+# query needs no translating (align='window' still): a match must then
+# reproduce the motif's rhythm as well as its pitch pattern.
+Aj = np.asarray(swept_similarity(
+    ctx_rel_fund, qry_rel_fund, sweep={1: sweep_values},
+    align={1: 'window'}, window={1: ('rect', WIN)},
     locate='start', normalize='oneSidedDenom')).ravel()
-early = centres < 250.0
-at = float(centres[early][A1[early].argmax()])
+early = sweep_values < 250.0
+at = float(sweep_values[early][A1[early].argmax()])
 print(f'\nthe early statement, bar {int(at // BEATS_PER_BAR) + 1}: pitch-only '
       f'match {A1[early].max():.3f}, match with the rhythm compared '
       f'{Aj[early].max():.3f}')
@@ -232,7 +238,7 @@ if plt is None:
 
 plt.rcParams.update({'font.size': 12, 'font.family': 'DejaVu Sans'})
 # Bar numbers from 1: bar b spans the axis from b to b + 1.
-bars = centres / BEATS_PER_BAR + 1
+bars = sweep_values / BEATS_PER_BAR + 1
 fig = plt.figure(figsize=(13, 6.2))
 gs = GridSpec(2, 3, width_ratios=[1, 1, 0.035], height_ratios=[1, 1.45],
               hspace=0.16, wspace=0.07)

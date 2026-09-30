@@ -6,7 +6,7 @@ function pm = asCompared(pm)
 %   What the comparison actually receives, once the sweep has used the time to
 %   place the window.
 %
-%   See also SELECTPREMAET, WINDOWEDSIMILARITY.
+%   See also SELECTPREMAET, SWEPTSIMILARITY.
     [~, ~, specs] = unpackPreMaet(pm);
     names = cellfun(@(sp) sp.name, specs, 'UniformOutput', false);
     pm = selectPreMaet(pm, 'attributes', names(~strcmp(names, 'onset')));

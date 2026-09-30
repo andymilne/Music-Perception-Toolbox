@@ -6,8 +6,9 @@ function pm = weightEvents(varargin)
 %   PM = weightEvents(pAttr, wAttr, inputAttr, targetAttr, centre, shape, ...
 %       'width', L,  'dropInputAttr', tf)
 %   is a per-event preprocessing helper for multi-attribute tensor input.
-%   It reads the K=1 value at every event from inputAttr, evaluates the
-%   profile shape centred at centre, and writes the resulting (1, N)
+%   It reads one value per event from inputAttr (where an event holds
+%   several, the one 'locate' picks), evaluates the profile shape centred
+%   at centre, and writes the resulting (1, N)
 %   per-event factor into the weight entry of targetAttr, multiplied into
 %   any existing weight already there. targetAttr may differ from inputAttr
 %   (the typical case --- e.g., time-driven windowing of pitch events) or
@@ -56,9 +57,11 @@ function pm = weightEvents(varargin)
 %
 %   Limits:
 %       gamma = 0: pure Gaussian h(delta) = exp(-delta^2 / (2 s^2)).
-%       gamma = 1: pure rectangle h(delta) = 1[|delta| <= s*sqrt(3)],
-%                  i.e., total support 2*s*sqrt(3) (= 'width' when
-%                  the caller supplied 'width').
+%       gamma = 1: pure rectangle h(delta) = 1[-s*sqrt(3) <= delta <
+%                  s*sqrt(3)], i.e., total support 2*s*sqrt(3) (=
+%                  'width' when the caller supplied 'width'); half-open,
+%                  so rectangles a width apart share no event, unless
+%                  'edges' is 'closed'.
 %
 %   For a periodic input attribute (isPer = true), the difference delta = v
 %   - centre is wrapped to [-P/2, P/2] before applying h; the stored values
@@ -80,13 +83,17 @@ function pm = weightEvents(varargin)
 %     pm           Pre-MAET, in place of pAttr and wAttr. The
 %                  pre-MAET may be passed whole or in its parts; the two
 %                  forms are the same call.
-%     pAttr        1 x A cell of (K_a, N) per-attribute value matrices.
+%     pAttr        1 x A cell of (K_a, N) per-attribute value matrices, or
+%                  of attributes given per event (see packPreMaet).
 %                  K_a >= 1.
 %     wAttr        Existing weights. [], scalar, or 1 x A cell of
 %                  scalar/(1, N)/(K_a, N) entries. None / [] means no
 %                  existing weight (factor goes in directly).
-%     inputAttr    Scalar integer in [1, A]. The attribute whose K = 1
-%                  value supplies the window argument. Must have K = 1.
+%     inputAttr    Scalar integer in [1, A]. The attribute whose values
+%                  supply the window argument. Where an event holds
+%                  several values there (the onsets of a bound
+%                  super-event, say), 'locate' picks the one the profile
+%                  is evaluated at.
 %     targetAttr   Scalar integer in [1, A]. The attribute whose
 %                  weight entry receives the factor. May equal
 %                  inputAttr.
@@ -149,6 +156,17 @@ function pm = weightEvents(varargin)
 %                  [-period/2, period/2] before applying h.
 %     period       (1,1) double, default 0. Only used when isPer=true
 %                  (must then be > 0).
+%     locate       The single value that stands for an event holding
+%                  several values on inputAttr: 'centroid' (their mean,
+%                  the default), 'start' (the first), 'end' (the last),
+%                  'mid' (the midpoint of the first and last), or a
+%                  function handle taking the K x N value matrix and
+%                  returning N values. No effect where each event holds
+%                  one value.
+%     edges        For a rectangle (shape = 1): 'halfOpen' (the default)
+%                  keeps the lower edge and not the upper, so rectangles a
+%                  width apart share no event; 'closed' keeps both.
+%                  Refused for other profiles.
 %     dropInputAttr  (1,1) logical, REQUIRED (no default; the choice is
 %                  destructive enough to be explicit at every call).
 %
@@ -191,6 +209,8 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
         nvArgs.alpha (1,1) double {mustBeInRange(nvArgs.alpha, 0, 1)} = 0.5
         nvArgs.isPer (1,1) logical = false
         nvArgs.period (1,1) double = 0
+        nvArgs.locate = 'centroid'
+        nvArgs.edges = ''
         nvArgs.dropInputAttr (1,1) logical
     end
 
@@ -252,12 +272,6 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
         error('weightEvents:badInputAttr', ...
               'inputAttr must be in 1..%d; got %d.', A, inputAttr);
     end
-    if size(pAttr{inputAttr}, 1) ~= 1
-        error('weightEvents:inputAttrNotK1', ...
-              ['inputAttr %d has K = %d; weightEvents requires the ' ...
-               'input attribute to have K = 1 (single value per event).'], ...
-              inputAttr, size(pAttr{inputAttr}, 1));
-    end
 
     % --- Validate targetAttr ---
     if targetAttr > A
@@ -276,147 +290,11 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
     end
 
     % --- Validate the profile, its scale, centre, and period ---
-    % Three profile kinds. A numeric shape is the rectangle-Gaussian
-    % family and takes exactly one of 'sd' or 'width'. A named
-    % exponential takes 'sd' alone, having no finite support for a
-    % width to describe. A function handle carries its own scale, so
-    % neither is accepted.
-    isHandle = isa(shape, 'function_handle');
-    isNamed  = ischar(shape) || isstring(shape);
-    ANCHORED = {'exponentialFromStart', 'exponentialFromEnd', ...
-                'uShape', 'uAsym'};
-    NAMED = [{'exponential', 'exponentialBefore', 'exponentialAfter'}, ...
-             ANCHORED];
-    if isNamed && ~ismember(char(shape), NAMED)
-        error('weightEvents:badShapeName', ...
-              ['Unknown profile ''%s''. The named profiles are ' ...
-               '''exponential'', ''exponentialBefore'', ' ...
-               '''exponentialAfter'', ''exponentialFromStart'', ' ...
-               '''exponentialFromEnd'', ''uShape'', and ''uAsym''; a ' ...
-               'numeric shape in [0, 1] selects the rectangle-Gaussian ' ...
-               'family, and a function handle supplies any other ' ...
-               'profile.'], char(shape));
-    end
-    isAnchored = isNamed && ismember(char(shape), ANCHORED);
-    sdSpec    = ~isnan(nvArgs.sd);
-    widthSpec = ~isnan(nvArgs.width);
-    rateSpec  = ~isnan(nvArgs.decayRate);
-    opts = struct('tau', NaN, 'tauStart', NaN, 'tauEnd', NaN, ...
-                  'alpha', nvArgs.alpha);
-    if isHandle
-        if sdSpec || widthSpec || rateSpec
-            error('weightEvents:scaleWithProfile', ...
-                  ['A profile function carries its own scale, so ' ...
-                   '''sd'', ''width'', and ''decayRate'' are not ' ...
-                   'accepted with one.']);
-        end
-        sd = NaN;
-    elseif isNamed
-        if widthSpec
-            error('weightEvents:widthWithNamedProfile', ...
-                  ['''width'' describes the support of the rectangle ' ...
-                   'and does not apply to profile ''%s''. Give ''sd'' ' ...
-                   '(the profile standard deviation) or ''decayRate'' ' ...
-                   '(its reciprocal).'], char(shape));
-        end
-        if sdSpec && rateSpec
-            error('weightEvents:sdRateXor', ...
-                  ['''sd'' and ''decayRate'' are two spellings of one ' ...
-                   'scale; give one, not both.']);
-        end
-        % The decay constant tau, in the input attribute's own units.
-        % sd is its standard deviation and decayRate its reciprocal;
-        % neither given, the rate is 1.
-        if sdSpec
-            sd = nvArgs.sd;
-            if ~isfinite(sd) || sd <= 0
-                error('weightEvents:badSd', ...
-                      'sd must be finite and > 0; got %g.', sd);
-            end
-            tau = sd;
-        else
-            rate = 1;
-            if rateSpec
-                rate = nvArgs.decayRate;
-            end
-            if ~isfinite(rate) || rate <= 0
-                error('weightEvents:badDecayRate', ...
-                      'decayRate must be finite and > 0; got %g.', rate);
-            end
-            tau = 1 / rate;
-            sd = tau;
-        end
-        if strcmp(char(shape), 'exponential')
-            % Two-sided: the Laplace standard deviation is tau*sqrt(2),
-            % so an sd holds the variance across the family.
-            if sdSpec
-                tau = sd / sqrt(2);
-            end
-        end
-        opts.tau = tau;
-        opts.tauStart = tau;
-        opts.tauEnd = tau;
-        if strcmp(char(shape), 'uAsym')
-            if ~isempty(nvArgs.decayRateStart)
-                opts.tauStart = localTauFromRate(nvArgs.decayRateStart, ...
-                                                 'decayRateStart');
-            end
-            if ~isempty(nvArgs.decayRateEnd)
-                opts.tauEnd = localTauFromRate(nvArgs.decayRateEnd, ...
-                                               'decayRateEnd');
-            end
-        elseif ~isempty(nvArgs.decayRateStart) || ~isempty(nvArgs.decayRateEnd)
-            error('weightEvents:asymRatesWithSymmetricProfile', ...
-                  ['''decayRateStart'' and ''decayRateEnd'' apply to ' ...
-                   '''uAsym'' alone; profile ''%s'' has one rate.'], ...
-                  char(shape));
-        end
-    else
-        if ~isnumeric(shape) || ~isscalar(shape)
-            error('weightEvents:badShape', ...
-                  ['shape must be a scalar in [0, 1], a named profile, ' ...
-                   'or a function handle.']);
-        end
-        if rateSpec || ~isempty(nvArgs.decayRateStart) ...
-                || ~isempty(nvArgs.decayRateEnd)
-            error('weightEvents:rateWithNumericShape', ...
-                  ['''decayRate'' and its asymmetric companions apply ' ...
-                   'to the named exponential profiles; the ' ...
-                   'rectangle-Gaussian family is scaled by ''sd'' or ' ...
-                   '''width''.']);
-        end
-        % Exactly one of nvArgs.sd or nvArgs.width must be supplied
-        % (both default to NaN, so use isnan as the "absent" sentinel).
-        if sdSpec == widthSpec
-            error('weightEvents:sdWidthXor', ...
-                  ['weightEvents requires exactly one of ''sd'' or ' ...
-                   '''width'' (Name-Value). ''sd'' is the window standard ' ...
-                   'deviation; ''width'' is the full support of the ' ...
-                   'rectangle at shape=1, equivalent to sd * 2 * sqrt(3). ' ...
-                   'Got sd=%g, width=%g.'], nvArgs.sd, nvArgs.width);
-        end
-        if sdSpec
-            sd = nvArgs.sd;
-            if ~isfinite(sd) || sd <= 0
-                error('weightEvents:badSd', ...
-                      'sd must be finite and > 0; got %g.', sd);
-            end
-        else
-            if ~isfinite(nvArgs.width) || nvArgs.width <= 0
-                error('weightEvents:badWidth', ...
-                      'width must be finite and > 0; got %g.', nvArgs.width);
-            end
-            sd = nvArgs.width / (2 * sqrt(3));
-        end
-        if shape < 0 || shape > 1
-            error('weightEvents:badShape', ...
-                  ['shape (gamma) must lie in [0, 1]: gamma = 0 is pure ' ...
-                   'Gaussian, gamma = 1 is pure rectangle, intermediate ' ...
-                   'values are the fixed-variance convolution family. ' ...
-                   'Got %g.'], shape);
-        end
-    end
-    if isAnchored
+    prof = internal.resolveProfile(shape, nvArgs.sd, nvArgs.width, ...
+        nvArgs.decayRate, nvArgs.decayRateStart, nvArgs.decayRateEnd, ...
+        nvArgs.alpha, 'weightEvents');
+    closed = internal.resolveEdges(nvArgs.edges, prof, 'weightEvents');
+    if strcmp(prof.kind, 'anchored')
         if ~isnan(centre)
             error('weightEvents:centreWithAnchoredProfile', ...
                   ['Profile ''%s'' anchors itself at the first and ' ...
@@ -432,32 +310,12 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
               'period must be > 0 when isPer is true; got %g.', period);
     end
 
-    % --- Compute factor h(delta) from input attribute positions ---
-    valRow = pAttr{inputAttr};         % (1, N)
-    if isAnchored
-        delta = valRow;            % unused by the anchored profiles
-    else
-        delta = valRow - centre;
-    end
-    if isPer
-        delta = delta - period * floor(delta / period + 0.5);
-    end
-    factor = internal.evaluateWeightProfile(valRow, delta, sd, shape, opts);   % (1, N)
-
-    % Truncate: zero factor entries whose distance exceeds
-    % truncationSigmas * sd. Uniform convention with the kernel
-    % truncation in the IP / eval paths: at that distance a Gaussian
-    % window's value is exp(-truncationSigmas^2 / 2), the same
-    % threshold the kernel truncation uses. Reads the global default
-    % so changes via mptDefaults('truncationSigmas', ...) propagate
-    % without an extra kwarg. Per the truncation contract, Inf
-    % resolves to the finite accuracy-floor width (the 1e-12 floor),
-    % so truncation always applies --- never a "disabled" state.
-    truncSig = internal.accuracyFloor('resolve', ...
-        mptDefaults('truncationSigmas'));
-    if ~isHandle && ~isAnchored
-        factor(abs(delta) > truncSig * sd) = 0;
-    end
+    % --- Compute factor h(delta) from the input attribute's values ---
+    % Each event is represented by one value: its only value, or, where it
+    % holds several (a bound super-event's onsets), the one locate picks.
+    valRow = internal.locateRow(pAttr{inputAttr}, nvArgs.locate);   % (1, N)
+    factor = internal.weightFactor(valRow, centre, prof, isPer, period, ...
+        closed);
 
     % --- Normalise w to length-A cell; multiply factor into target entry ---
     wOut = internal.normaliseWeightsToCell(w, A);
@@ -474,13 +332,4 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
         pAttrOut = pAttr;
         specsOut = specsIn;
     end
-end
-
-function tau = localTauFromRate(rate, name)
-%LOCALTAUFROMRATE  Decay constant from a non-negative rate.
-    if ~isnumeric(rate) || ~isscalar(rate) || ~isfinite(rate) || rate <= 0
-        error('weightEvents:badDecayRate', ...
-              '%s must be a finite scalar > 0.', name);
-    end
-    tau = 1 / rate;
 end

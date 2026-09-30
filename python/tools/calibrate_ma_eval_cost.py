@@ -32,7 +32,7 @@ header row. That block alone is sufficient to fit the constants.
 
 FIVE SECTIONS
 -------------
-Section A sweeps shape -- mode, tuple order, value count, query count --
+Section A sweeps shape -- mode, tuple size, value count, query count --
 at one reference geometry.
 
 Section B sweeps the geometry, sigma and the value span, over a reduced
@@ -49,13 +49,13 @@ walks sigma over a wide range, which is what separates the node-count
 exponent from everything else that moves with sigma.
 
 Section D exercises the spectral strategy inside the Moebius relative
-evaluator, whose per-mode constants are per tuple order. The branch
+evaluator, whose per-mode constants are per tuple size. The branch
 engages only above its query and value-count thresholds and only where
 the mode grid fits under the memory guard -- which at r = 4 needs sigma
 at least P/78 periodically, or a short span with a wide kernel
 otherwise. Sections A and B satisfy that in one cell per periodicity at
 r = 4, so its constant would rest on two measurements; these geometries
-are chosen so every tuple order gets a proper sample.
+are chosen so every tuple size gets a proper sample.
 
 Section E walks the relative-periodic r = 3 family through the K = 34
 crossover at sigma/P = 0.0083, the cell the September 2026 audit found

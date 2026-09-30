@@ -13,7 +13,7 @@
 % the voice label is not an attribute, so the measure reads the combined
 % sounding texture rather than either line on its own. A broad Gaussian
 % localization window (s.d. 3 s) is swept over the piece; at each sweep
-% centre the windowed Renyi-2 entropy of the joint (pitch, time) density
+% value the windowed Renyi-2 entropy of the joint (pitch, time) density
 % is read off. Because the window is smooth and wide, there is no
 % rectangular-edge artefact, and away from the ends of the piece (shaded
 % in the figure) every window has ample mass.
@@ -47,12 +47,12 @@
 %     time        sigma_t (s)      no     no
 %
 %     r = (1, 1);  voices pooled (voice is not an attribute);
-%     window: Gaussian (shape 0) on the time attribute, s.d. 3 s, centred
-%     at the sweep offset, time retained ('dropWindowAttr', false);
+%     window: Gaussian (shape 0) on the time attribute, s.d. 3 s, aligned
+%     at each sweep value, time retained (not dropped);
 %     estimator: Renyi-2.
 %
 % Data: jmm.pianoPhase (the rendered Piano Phase voices). Toolbox:
-% preMaetFromAttrTable, windowedEntropy. Runtime: a few seconds.
+% preMaetFromAttrTable, sweptEntropy. Runtime: a few seconds.
 
 % The demo folder is located from the toolbox root, and adding it puts
 % the +jmm helper package in scope.
@@ -78,12 +78,11 @@ WIN_SD      = 3.0;           % localization-window s.d. (s)
 N_SWEEP     = 300;
 SIGMAS_T    = [0.015, 0.100];   % coincidence (precedence/fusion window), redundancy
 pe = jmm.pianoPhase();
-IOI = pe.baseIoi;
 
 % --- two-voice surface, voices pooled ----------------------------------------
 % Both pianos pooled, as an attribute table, converted to a pitch and a
 % time attribute with one event per note. The time width is the sweep's,
-% which windowedEntropy overrides per call.
+% which sweptEntropy overrides per call.
 piece = preMaetFromAttrTable(pe.pieceTable, 'attributes', { ...
     struct('column', 'pitch', 'sigma', SIGMA_PITCH), ...
     struct('column', 'onset', 'name', 'time', 'sigma', SIGMAS_T(1))}, ...
@@ -92,26 +91,24 @@ piecePAttr = unpackPreMaet(piece);
 onset = piecePAttr{2};
 tLo = min(onset); tHi = max(onset);
 edge = 2 * WIN_SD;                                  % unreliable near the ends
-centres = linspace(tLo, tHi, N_SWEEP);
-phaseAt = pe.lagAt(centres / (pe.nc * IOI));        % continuous lag
+sweepValues = linspace(tLo, tHi, N_SWEEP);
+phaseAt = pe.lagAt(sweepValues / (pe.nc * pe.baseIoi));        % continuous lag
 
-% Windowed joint (pitch, time) Renyi-2 entropy at each sweep centre. A
-% single windowedEntropy sweep: a Gaussian localization window (shape 0)
+% Windowed joint (pitch, time) Renyi-2 entropy at each sweep value. A
+% single sweptEntropy sweep: a Gaussian localization window (shape 0)
 % on the time attribute (attribute 2) modulates the event weights, with the
-% time attribute retained ('dropWindowAttr', false) so the joint (pitch, time)
+% time attribute retained (not dropped) so the joint (pitch, time)
 % density is built and its Renyi-2 entropy returned. The window standard
 % deviation WIN_SD maps to the variance-matched rectangular width
 % 2*sqrt(3)*sd. The window is truncated at truncationSigmas standard
-% deviations (the toolbox default, 6), so events far from the centre carry
+% deviations (the toolbox default, 6), so events far from the sweep value carry
 % zero weight and need no separate pruning.
 showPreMaet(piece, 'sigma', [SIGMA_PITCH, SIGMAS_T(1)], 'maxEvents', 4);
 
-sweep = @(sigmaT) windowedEntropy( ...
-    piece, centres, 'sigma', [SIGMA_PITCH, sigmaT], ...
-    'contextWindow', {0.0, WIN_SD * 2.0 * sqrt(3.0)}, ...
-    'method', 'renyi2', ...
-    'windowAttr', 2, 'dropWindowAttr', false, ...
-    'verbose', false);
+sweep = @(sigmaT) sweptEntropy( ...
+    piece, 'sweep', {2, sweepValues}, 'sigma', [SIGMA_PITCH, sigmaT], ...
+    'window', {2, {0.0, WIN_SD * 2.0 * sqrt(3.0)}}, ...
+    'method', 'renyi2', 'verbose', false);
 
 H = cell(1, numel(SIGMAS_T));
 for k = 1:numel(SIGMAS_T)
@@ -121,8 +118,7 @@ end
 % --- figure ------------------------------------------------------------------
 fig = figure('Position', [50 50 1300 520], 'Color', 'w');
 labels = {'\sigma_t = 15 ms', '\sigma_t = 100 ms'};
-shifts = pe.shiftCentres;
-interior = (centres > tLo + edge) & (centres < tHi - edge);
+interior = (sweepValues > tLo + edge) & (sweepValues < tHi - edge);
 
 for k = 1:numel(SIGMAS_T)
     y0 = 0.14 + (2 - k) * 0.41;
@@ -133,17 +129,17 @@ for k = 1:numel(SIGMAS_T)
          [0.6 0.6 0.6], 'FaceAlpha', 0.2, 'EdgeColor', 'none');
     fill(ax, [tHi - edge, tHi, tHi, tHi - edge], [yl(1) yl(1) yl(2) yl(2)], ...
          [0.6 0.6 0.6], 'FaceAlpha', 0.2, 'EdgeColor', 'none');
-    for s = shifts
+    for s = pe.shiftCentres
         plot(ax, [s s], yl, 'Color', [0.88 0.66 0.52], 'LineWidth', 0.6);
     end
-    plot(ax, centres, H{k}, 'Color', [0.122 0.306 0.722], 'LineWidth', 1.7);
+    plot(ax, sweepValues, H{k}, 'Color', [0.122 0.306 0.722], 'LineWidth', 1.7);
     ylim(ax, yl);
     xlim(ax, [tLo, tHi]);
     ylabel(ax, sprintf('%s\nRenyi-2 (bits)', labels{k}), 'FontSize', 15);
     grid(ax, 'on');
     set(ax, 'FontSize', 13, 'Box', 'off');
     if k == numel(SIGMAS_T)
-        xlabel(ax, 'window-centre offset (s); grey = phase k', 'FontSize', 15);
+        xlabel(ax, 'window time (s); grey = phase k', 'FontSize', 15);
     else
         set(ax, 'XTickLabel', {});
     end
@@ -151,7 +147,7 @@ for k = 1:numel(SIGMAS_T)
     ax2 = axes('Parent', fig, 'Position', get(ax, 'Position'), 'Color', 'none', ...
                'YAxisLocation', 'right', 'XTick', [], 'YColor', [0.6 0.6 0.6]);
     hold(ax2, 'on');
-    plot(ax2, centres, phaseAt, 'Color', [0.733 0.733 0.733], 'LineWidth', 0.9);
+    plot(ax2, sweepValues, phaseAt, 'Color', [0.733 0.733 0.733], 'LineWidth', 0.9);
     set(ax2, 'YTick', 0:3:12, 'YLim', [-1 13], 'XLim', [tLo, tHi], ...
              'FontSize', 13, 'Box', 'off');
 end

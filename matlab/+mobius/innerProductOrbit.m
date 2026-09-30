@@ -22,7 +22,7 @@ function [val, ratio] = innerProductOrbit(K, w_A, w_B, r, opts)
 %     K    (n_A, n_B) double — pairwise kernel.
 %     W_A  (n_A, 1)   double — A-side weights.
 %     W_B  (n_B, 1)   double — B-side weights.
-%     R    integer    — tensor order, 2 <= R <= 12.
+%     R    integer    — tuple size, 2 <= R <= 12.
 %
 %   Per-call cost: O(|Omega_r| * contraction_cost) with the contraction
 %   typically O(R * n^2) per orbit, dominated by the few highest-rank

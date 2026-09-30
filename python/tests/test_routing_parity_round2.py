@@ -181,35 +181,13 @@ def _raw_ma_r1(seed, n_list=4):
     return ref, lst
 
 
-def test_raw_ma_list_form_takes_r1_fast_path(monkeypatch):
+def test_raw_ma_list_form_is_refused():
+    """A list of raw p_attr blocks is not a form of sim_maet; the error
+    points to the pre-MAET list form and the sweep functions."""
     ref, lst = _raw_ma_r1(11)
-    calls = []
-    orig = _cos._r1_broadcast_fast
-
-    def spy(*args, **kwargs):
-        out = orig(*args, **kwargs)
-        calls.append(out is not None)
-        return out
-
-    monkeypatch.setattr(_cos, '_r1_broadcast_fast', spy)
-    args = (ref, None, lst, None, [0.5], [1], [False], [False], [0.0])
-    fast = sim_maet(*args, verbose=False)
-    assert calls == [True]
-    # Reversed operand order takes the same path.
-    calls.clear()
-    fast_rev = sim_maet(lst, None, ref, None, [0.5], [1], [False],
-                                [False], [0.0], verbose=False)
-    assert calls == [True]
-    # A forced 'mobius' names the per-pair route and never asks.
-    calls.clear()
-    forced = sim_maet(*args, method='mobius', verbose=False)
-    assert calls == []
-    monkeypatch.setattr(_cos, '_r1_broadcast_fast', lambda *a, **k: None)
-    slow = sim_maet(*args, verbose=False)
-    assert fast.shape == (4,)
-    assert np.allclose(fast, slow, rtol=0, atol=1e-12)
-    assert np.allclose(fast_rev, slow, rtol=0, atol=1e-12)
-    assert np.allclose(forced, slow, rtol=0, atol=1e-9)
+    with pytest.raises(TypeError, match="swept_similarity"):
+        sim_maet(ref, None, lst, None, [0.5], [1], [False], [False], [0.0],
+                 verbose=False)
 
 
 # -------------------------------------------------------------------- A-15

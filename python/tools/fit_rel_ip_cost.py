@@ -9,7 +9,7 @@ selector's predictors from their columns, and reports
 * the same for a plain log-log refit of all nine laws (which, on the
   6 September 2026 calibration, scores several times worse -- the
   shipped exponents stand), and
-* a per-order multiplicative correction to the Bulger prediction chosen
+* a per-tuple-size multiplicative correction to the Bulger prediction chosen
   to minimise regret, which is what the shipped intercepts at r = 3, 4
   (Python) and r = 2, 3 (MATLAB) now carry.
 

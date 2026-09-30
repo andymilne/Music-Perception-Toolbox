@@ -641,7 +641,7 @@ def _parse_musicxml(data):
     tempo_changes = []
     parts = root.findall("part")
     for part in parts:
-        for pos_q, tempo in _walk_part(part, collect_tempo=True)[1]:
+        for pos_q, tempo in _walk_part(part)[1]:
             tempo_changes.append((pos_q, tempo))
     tempo_changes.sort()
     if not tempo_changes or tempo_changes[0][0] > 0:
@@ -660,7 +660,7 @@ def _parse_musicxml(data):
     rows = []
     names = []
     for pi, part in enumerate(parts):
-        notes, _ = _walk_part(part, collect_tempo=False)
+        notes, _ = _walk_part(part)
         names.append(part_names.get(part.get("id"), "") or f"part {pi + 1}")
         for (onset_q, dur_q, pitch, vel, voice, staff, measure,
              marks) in notes:
@@ -684,7 +684,7 @@ def _xml_marks(notations):
         for a in _XML_ARTICULATIONS)
 
 
-def _walk_part(part, *, collect_tempo):
+def _walk_part(part):
     """Notes ``(onset_q, dur_q, midi, velocity, voice, measure)`` and
     tempo changes ``(pos_q, bpm)`` of one part, in quarter notes."""
     divisions = 1.0

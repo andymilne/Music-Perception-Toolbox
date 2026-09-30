@@ -8,8 +8,9 @@ written back out the same way.
 
 The cells use the notation of the article and of
 :func:`~mpt.show_pre_maet`: braces for an unordered multiset, parentheses
-for an ordered one, brackets within brackets for a nested attribute, and
-``60^(0.6)`` for a weighted value. The writer and the reader are
+for an ordered one, brackets within brackets for a nested attribute,
+``60^(0.6)`` for a weighted value, and ``_`` for an empty slot of an
+ordered attribute, so ``(_, 65)`` puts 65 in the second slot. The writer and the reader are
 therefore inverse, and a pre-MAET survives a round trip through a
 spreadsheet unchanged.
 
@@ -85,8 +86,11 @@ def _parse_cell(text):
 
 
 def _parse_leaf(text):
-    """``60`` or ``60^(0.6)`` -> ``(value, weight or None)``."""
+    """``60`` or ``60^(0.6)`` -> ``(value, weight or None)``; the blank
+    ``_`` of an ordered attribute's empty slot -> ``(nan, None)``."""
     text = text.strip()
+    if text == "_":
+        return float("nan"), None
     if "^" not in text:
         return float(text), None
     val, _, wt = text.partition("^")
@@ -279,7 +283,8 @@ def read_pre_maet(source, *, delimiter=","):
     -------
     dict
         The pre-MAET. Its ``p_attr`` holds the per-attribute
-        ``(K_a, N)`` value matrices, NaN-padded where events carry
+        ``(K_a, N)`` value matrices, a blank ``_`` in a cell being an
+        empty slot, and NaN-padded where events carry
         different numbers of elements; its ``w_attr`` the weight
         matrices, or ``None`` where no cell carried a weight; its
         ``specs`` the per-attribute specs carrying ``r``, ``rel``,

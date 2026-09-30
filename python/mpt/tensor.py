@@ -19,7 +19,6 @@ from ._tensor.cosine import sim_maet
 from ._tensor.sweep import sweep_sim_maet, sweep_eligibility
 from ._tensor.preprocessing import (
     TranslateAttributesNoOpWarning,
-    TranslatedSweep,
     bind_attributes,
     bind_events,
     difference_events,
@@ -31,9 +30,11 @@ from ._tensor.preprocessing import (
     weight_events,
 )
 from ._tensor.transform import transform_attributes
-from ._tensor.windowed import (
-    windowed_similarity,
-    windowed_entropy,
+from ._tensor.mass import mass_maet
+from ._tensor.swept import (
+    swept_similarity,
+    swept_entropy,
+    swept_mass,
 )
 
 # --- Developer-facing names re-exported for back-compat ---

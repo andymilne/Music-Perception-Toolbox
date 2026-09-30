@@ -26,8 +26,8 @@ function pm = bindEvents(varargin)
 %     pmB = bindEvents(pm, [4 4]);   % 4-note pitch patterns with their
 %                                    % four onsets, an ordered tuple
 %
-%   The second carries the rhythm (and lets 'locate' in windowedSimilarity
-%   or windowedEntropy choose among the onsets); the first carries only a
+%   The second carries the rhythm (and lets 'locate' in sweptSimilarity
+%   or sweptEntropy choose among the onsets); the first carries only a
 %   position. A scalar bindOrders applies to every attribute, so
 %   bindEvents(pm, 4) is the second form.
 %
@@ -56,7 +56,8 @@ function pm = bindEvents(varargin)
 %
 %   Inputs
 %       pm         - Pre-MAET, in place of pAttr and wAttr.
-%       pAttr      - 1 x A cell of K_a x N per-attribute value matrices.
+%       pAttr      - 1 x A cell of K_a x N per-attribute value matrices, or
+%                    of attributes given per event (see packPreMaet).
 %       wAttr      - Weights ([], scalar, or 1 x A cell). Same convention
 %                    as buildMaet; bound value weights are the windowed-
 %                    and-stacked input weights.

@@ -20,9 +20,9 @@ The non-public helpers :func:`_fnv1a_32`, :func:`_derive_canonical_seed`,
 and :func:`_resolve_base_seed` provide canonical-seed derivation for the
 batched Monte Carlo paths.
 
-See USER_GUIDE §6.4 ("Balance and evenness, Fourier-based measures")
+See USER_GUIDE §12.6 ("Balance and evenness")
 for the user-facing description of the scalar measures; the per-position
-:func:`proj_centroid` is described in USER_GUIDE §6.5 alongside the
+:func:`proj_centroid` is described in USER_GUIDE §12.7 alongside the
 non-Fourier per-position measures in :mod:`._circular.pulse`.
 """
 from __future__ import annotations

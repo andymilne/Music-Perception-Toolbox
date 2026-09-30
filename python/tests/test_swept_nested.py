@@ -1,10 +1,10 @@
-"""Tests for nested-triple support in ``windowed_similarity`` /
-``windowed_entropy``.
+"""Tests for nested-triple support in ``swept_similarity`` /
+``swept_entropy``.
 
 Each nested result is pinned to the explicit composition it stands in for
 (``weight_events`` / ``translate_attributes`` -> ``build_maet`` ->
 ``sim_maet`` / ``entropy_maet`` with ``specs=``), exactly as
-``test_windowed_premaet.py`` pins the flat path. To prove the nested
+``test_swept_premaet.py`` pins the flat path. To prove the nested
 geometry is read from ``specs`` and not from the positional ``r``/``is_rel``,
 the calls pass deliberately wrong flat ``r``/``is_rel`` and still match.
 """
@@ -14,7 +14,7 @@ import pytest
 from mpt import (
     unpack_pre_maet,
     add_spectra, bind_events,
-    windowed_similarity, windowed_entropy,
+    swept_similarity, swept_entropy,
     weight_events, translate_attributes, build_maet,
     sim_maet, entropy_maet,
 )
@@ -42,13 +42,13 @@ def _triple(spectral):
     return pb, wb, sb
 
 
-def _ref_locked(ctx, w_ctx, qry, w_qry, specs, centres, q_ext):
+def _ref_locked(ctx, w_ctx, qry, w_qry, specs, sweep_values, q_ext):
     """Inline hand-built locked-sweep reference (the composition the nested
-    windowed_similarity replaces)."""
+    swept_similarity replaces)."""
     sigma, is_per, period = [SIG_P, SIG_T], [False, False], [0.0, 0.0]
     mu_q = float(np.nanmean(np.asarray(qry[AXIS], dtype=float)))
-    out = np.empty(len(centres))
-    for i, c in enumerate(centres):
+    out = np.empty(len(sweep_values))
+    for i, c in enumerate(sweep_values):
         pc, wc, sc = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=q_ext, is_per=False, period=0.0,
                                    drop_input_attr=False, specs=specs))
@@ -72,18 +72,19 @@ def test_similarity_nested_locked_matches_handbuilt(spectral):
     qry = [ctx[0][:, qi:qi + 1], ctx[1][:, qi:qi + 1]]
     w_qry = [w_ctx[0][:, qi:qi + 1] if w_ctx[0] is not None else None, None]
     width = 0.4                                       # narrow: ~one super-event per centre
-    centres = ctx[1].ravel()[:ctx[0].shape[1]]        # one centre per super-event
-    ref = _ref_locked(ctx, w_ctx, qry, w_qry, specs, centres, width)
+    sweep_values = ctx[1].ravel()[:ctx[0].shape[1]]        # one centre per super-event
+    ref = _ref_locked(ctx, w_ctx, qry, w_qry, specs, sweep_values, width)
 
     # Deliberately WRONG flat r/is_rel: in nested mode they must be ignored.
-    got = windowed_similarity(
+    got = swept_similarity(
         ctx, w_ctx, qry, w_qry,
         [SIG_P, SIG_T], [1, 1], [False, False], [False, False], [0.0, 0.0],
-        centres, context_window=("rect", width),
-        normalize="oneSidedDenom", window_attr=AXIS, target_attr=TARGET,
-        specs=specs, drop_window_attr=False, verbose=False)
+        sweep={AXIS: sweep_values}, align={AXIS: "both"},
+        window={AXIS: ("rect", width)},
+        normalize="oneSidedDenom", target_attr=TARGET,
+        specs=specs, verbose=False)
 
-    assert got.shape == (len(centres),)
+    assert got.shape == (len(sweep_values),)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
     # sanity: the statement's own super-event is the cross-correlation peak
     assert np.argmax(got) == qi
@@ -97,32 +98,33 @@ def test_similarity_nested_is_transposition_invariant():
     qi = 8
     qry = [ctx[0][:, qi:qi + 1], ctx[1][:, qi:qi + 1]]
     width = 0.4
-    centres = ctx[1].ravel()[:ctx[0].shape[1]]
-    base = windowed_similarity(ctx, w_ctx, qry, None,
-                               [SIG_P, SIG_T], [1, 1], [False, False],
-                               [False, False], [0.0, 0.0], centres,
-                               context_window=("rect", width),
-                               window_attr=AXIS, target_attr=TARGET,
-                               specs=specs, drop_window_attr=False, verbose=False)
+    sweep_values = ctx[1].ravel()[:ctx[0].shape[1]]
+    base = swept_similarity(ctx, w_ctx, qry, None,
+                            [SIG_P, SIG_T], [1, 1], [False, False],
+                            [False, False], [0.0, 0.0],
+                            sweep={AXIS: sweep_values}, align={AXIS: "both"},
+                            window={AXIS: ("rect", width)},
+                            target_attr=TARGET, specs=specs, verbose=False)
     # transpose the query super-event up a tritone; rel=1 => identical profile
     qry_t = [qry[0] + 6.0, qry[1]]
-    shifted = windowed_similarity(ctx, w_ctx, qry_t, None,
-                                  [SIG_P, SIG_T], [1, 1], [False, False],
-                                  [False, False], [0.0, 0.0], centres,
-                                  context_window=("rect", width),
-                                  window_attr=AXIS, target_attr=TARGET,
-                                  specs=specs, drop_window_attr=False, verbose=False)
+    shifted = swept_similarity(ctx, w_ctx, qry_t, None,
+                               [SIG_P, SIG_T], [1, 1], [False, False],
+                               [False, False], [0.0, 0.0],
+                               sweep={AXIS: sweep_values}, align={AXIS: "both"},
+                               window={AXIS: ("rect", width)},
+                               target_attr=TARGET, specs=specs,
+                               verbose=False)
     assert np.allclose(base, shifted, rtol=1e-9, atol=1e-9)
 
 
 def test_entropy_nested_matches_handbuilt():
     ctx, w_ctx, specs = _triple(spectral=False)
     width = 2.0
-    centres = np.linspace(ctx[1].min(), ctx[1].max(), 7)
+    sweep_values = np.linspace(ctx[1].min(), ctx[1].max(), 7)
     sigma, is_per, period = [SIG_P, SIG_T], [False, False], [0.0, 0.0]
 
-    ref = np.empty(len(centres))
-    for i, c in enumerate(centres):
+    ref = np.empty(len(sweep_values))
+    for i, c in enumerate(sweep_values):
         pw, ww, sw = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=width, is_per=False, period=0.0,
                                    drop_input_attr=False, specs=specs))
@@ -130,11 +132,10 @@ def test_entropy_nested_matches_handbuilt():
                               period=period, specs=sw, verbose=False)
         ref[i] = entropy_maet(dens, method="renyi2", verbose=False)
 
-    got = windowed_entropy(ctx, w_ctx, [SIG_P, SIG_T], [1, 1], [False, False],
-                           [False, False], [0.0, 0.0], centres,
-                           context_window=(1.0, width), method="renyi2",
-                           window_attr=AXIS, target_attr=TARGET,
-                           specs=specs, drop_window_attr=False, verbose=False)
+    got = swept_entropy(ctx, w_ctx, [SIG_P, SIG_T], [1, 1], [False, False],
+                        [False, False], [0.0, 0.0], sweep={AXIS: sweep_values},
+                        window={AXIS: (1.0, width)}, method="renyi2",
+                        target_attr=TARGET, specs=specs, verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
 
 
@@ -146,20 +147,20 @@ def test_flat_path_unchanged_when_specs_none():
     onset = np.cumsum(rng.uniform(0.4, 0.6, size=N)).reshape(1, N)
     p_attr = [pitch, onset]
     query = [np.array([[60., 64., 67.]]), np.array([[0., 0.5, 1.0]])]
-    centres = np.linspace(onset.min(), onset.max(), 9)
-    kw = dict(window_attr=1, normalize="oneSidedDenom", verbose=False, drop_window_attr=False)
-    a = windowed_similarity(p_attr, None, query, None, [0.12, 0.05], [1, 1],
-                            [False, False], [False, False], [0.0, 0.0],
-                            centres, **kw)
-    b = windowed_similarity(p_attr, None, query, None, [0.12, 0.05], [1, 1],
-                            [False, False], [False, False], [0.0, 0.0],
-                            centres, specs=None, **kw)
+    sweep_values = np.linspace(onset.min(), onset.max(), 9)
+    kw = dict(sweep={1: sweep_values}, align={1: "both"}, window={1: ("rect", 1.5)},
+              normalize="oneSidedDenom", verbose=False)
+    a = swept_similarity(p_attr, None, query, None, [0.12, 0.05], [1, 1],
+                         [False, False], [False, False], [0.0, 0.0], **kw)
+    b = swept_similarity(p_attr, None, query, None, [0.12, 0.05], [1, 1],
+                         [False, False], [False, False], [0.0, 0.0],
+                         specs=None, **kw)
     assert np.array_equal(a, b)
 
 
 @pytest.mark.parametrize("spectral", [False, True])
 def test_similarity_empty_window_scores_zero(spectral):
-    """A time centre whose window catches no super-event scores exactly 0 --
+    """A sweep value whose window catches no super-event scores exactly 0 --
     not NaN, and not an error. The nested (spectral) path must agree with the
     flat path here: an empty windowed triple otherwise reaches the nested
     contraction's value-range scan, which has no identity over an empty
@@ -181,12 +182,13 @@ def test_similarity_empty_window_scores_zero(spectral):
     w_qry = [w_ctx[0][:, 0:1] if w_ctx[0] is not None else None, None]
     # Each super-event is timed at its span's last onset (end-aligned
     # binding), so the two statements sit at t = 3 and t = 43.
-    centres = np.array([3.0, 20.0, 43.0])               # 20.0 falls in the rest
-    got = np.asarray(windowed_similarity(
+    sweep_values = np.array([3.0, 20.0, 43.0])               # 20.0 falls in the rest
+    got = np.asarray(swept_similarity(
         ctx, w_ctx, qry, w_qry,
         [SIG_P, SIG_T], [1, 1], [True, False], [False, False], [0.0, 0.0],
-        centres, context_window=("rect", 0.6), window_attr=AXIS,
-        drop_window_attr=True, normalize="oneSidedDenom", specs=specs,
+        sweep={AXIS: sweep_values}, align={AXIS: "window"},
+        window={AXIS: ("rect", 0.6)}, drop=[AXIS],
+        normalize="oneSidedDenom", specs=specs,
         verbose=False)).ravel()
     assert np.all(np.isfinite(got))
     assert got[1] == 0.0                                # empty window -> exactly zero

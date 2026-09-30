@@ -57,7 +57,7 @@
 %  node-count exponent from everything else moving with sigma.
 %
 %  Section D exercises the spectral strategy inside the Mobius relative
-%  evaluator, whose per-mode constants are per tuple order. The branch
+%  evaluator, whose per-mode constants are per tuple size. The branch
 %  engages only above its thresholds and only where the mode grid fits
 %  under the memory guard, so it needs geometries picked for it.
 %
@@ -120,13 +120,13 @@ rValsC     = [3 4];
 KValsC     = [12 24];
 
 % Section D: the spectral (Fourier) strategy inside the Mobius relative
-% evaluator. Its per-mode constants are per tuple order, and the branch
+% evaluator. Its per-mode constants are per tuple size, and the branch
 % engages only above its query and value-count thresholds and only where
 % the mode grid fits under the memory guard --- which at r = 4 needs
 % sigma at least P/78 periodically, or a short span with a wide kernel
 % otherwise. Sections A and B satisfy that in one cell per periodicity
 % at r = 4, so the r = 4 constant rested on two measurements; these
-% geometries are chosen so every tuple order gets a proper sample.
+% geometries are chosen so every tuple size gets a proper sample.
 sigmaValsDPer = [20.0 40.0 80.0];
 geomValsDNP   = [40.0 600.0; 80.0 600.0; 60.0 1200.0; 120.0 1200.0];
 rValsD  = [2 3 4];

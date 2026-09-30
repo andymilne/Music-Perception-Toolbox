@@ -29,7 +29,7 @@
 % the 1.5 a beat carries — and the aligned span of L consecutive beats,
 % the resolution on the last, is bound into one nested super-event
 % (bindEvents) and compared with the query under the one-sided
-% similarity (windowedSimilarity(..., 'normalize', 'oneSidedDenom')), so a
+% similarity (sweptSimilarity(..., 'normalize', 'oneSidedDenom')), so a
 % peak of 1 is one isolated exact match. An optional inversion flag — a
 % second, simplex-coded attribute at +/-0.5 with sigma_flag = 0.1 — marks
 % whether a chosen chord is a root-position triad (the dyad skeleton's
@@ -54,7 +54,7 @@
 % functions at the foot of this file. Toolbox: gridAttrTable (twice, the
 % second regridding the first), preMaetFromAttrTable, bindEvents (with
 % per-attribute orders, so the window's time and flag stay flat),
-% windowedSimilarity, flatSpecs, selectPreMaet. Runtime: a few seconds
+% sweptSimilarity, flatSpecs, selectPreMaet. Runtime: a few seconds
 % (eight queries at three inner tuple sizes, each sweep one call).
 
 % The demo folder is located from the toolbox root, and adding it puts
@@ -270,26 +270,26 @@ function profiles = localPrototypeSweep(rInner, queries, mus, normalize)
     % whole chorale, carrying the time of the window's last beat (its
     % resolution) and the inversion flag flat alongside the nested pitch.
     % The sweep is then one call per query: a rectangle of one beat admits
-    % exactly one window at each centre. The flag is pitch-derived --- a
+    % exactly one window at each sweep value. The flag is pitch-derived --- a
     % predicate on the sonority at the antepenult beat, the window's
     % first, stored at its resolution beat --- and no harmonic labels are
     % consulted.
     ctxPlain = jmm.boundContext(3, rInner);
     ctxFlag = jmm.boundContext(3, rInner, 'antepenultSixFour');
-    [idxs, centres] = jmm.windowsInPiece(mus, 3);
+    [idxs, at] = jmm.windowsInPiece(mus, 3);
     profiles = cell(1, numel(queries));
     for q = 1:numel(queries)
         qd = jmm.prototypeQuery(queries(q).chords, queries(q).flagged, rInner);
         if queries(q).flagged, ctx = ctxFlag; else, ctx = ctxPlain; end
-        % A rectangle of full support one beat, centred on each window's
+        % A rectangle of full support one beat, aligned at each window's
         % resolution beat, admits exactly that window and no other --- its
         % neighbours sit exactly a beat away. The time attribute (attribute 2)
         % is dropped from the comparison, having done its work in placing
         % the window.
         prof = zeros(1, numel(mus));
-        raw = windowedSimilarity(ctx, qd, centres(:).', ...
-            'contextWindow', {1.0, 1.0}, 'windowAttr', 2, ...
-            'dropWindowAttr', true, 'normalize', normalize, 'verbose', false);
+        raw = sweptSimilarity(ctx, qd, 'sweep', {2, at(:).'}, ...
+            'align', {2, 'window'}, 'window', {2, {1.0, 1.0}}, ...
+            'drop', 2, 'normalize', normalize, 'verbose', false);
         prof(idxs) = raw(:).';
         profiles{q} = prof;
     end
@@ -314,11 +314,11 @@ function [x, so] = localDyadSweep(rInner, useFlag, mus, normalize)
     qd = jmm.dyadQuery(qFlag, rInner);
     if useFlag, flagName = 'rootPosition'; else, flagName = ''; end
     ctx = jmm.boundContext(2, rInner, flagName);
-    [idxs, centres] = jmm.windowsInPiece(mus, 2);
+    [idxs, at] = jmm.windowsInPiece(mus, 2);
     so = nan(1, numel(mus));
-    raw = windowedSimilarity(ctx, qd, centres(:).', ...
-        'contextWindow', {1.0, 1.0}, 'windowAttr', 2, ...
-        'dropWindowAttr', true, 'normalize', normalize, 'verbose', false);
+    raw = sweptSimilarity(ctx, qd, 'sweep', {2, at(:).'}, ...
+        'align', {2, 'window'}, 'window', {2, {1.0, 1.0}}, ...
+        'drop', 2, 'normalize', normalize, 'verbose', false);
     so(idxs) = raw(:).';
     x = jmm.b2bar(mus);
 end

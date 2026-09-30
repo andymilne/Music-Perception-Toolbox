@@ -30,7 +30,7 @@ function H = entropyMaet(varargin)
 %     'renyi2' --- analytical Rényi-2 (collision) entropy
 %       H_2 = -log_b(<T,T> / Z^2), computed in closed form via the
 %       orbit-Möbius inner product (<T,T>) and the closed-form total
-%       mass (Z). Grid-free; works at arbitrary tensor order r where
+%       mass (Z). Grid-free; works at arbitrary tuple size r where
 %       the Shannon-path Cartesian grid would exhaust memory.
 %       Currently restricted to single-density input. Errors at
 %       sigma=0.
@@ -45,6 +45,9 @@ function H = entropyMaet(varargin)
 %   'renyi2') do not accept it. The previous toolbox-wide default of
 %   1200 for nPointsPerDim has been dropped, since the right grid
 %   resolution is density- and sigma-dependent.
+%
+%   A zero-mass density (every weight zero, or a window with no event in
+%   its support) returns NaN under every method: its entropy is undefined.
 %
 %   Both methods accept the input forms below. Forms marked
 %   "Shannon-only" raise an informative error under method='renyi2'.
@@ -119,7 +122,8 @@ function H = entropyMaet(varargin)
 %              processed in lockstep; returns an nRows-by-1 column
 %              vector of per-row entropies).
 %     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
-%              (multi-attribute; per-attribute centre rows).
+%              (multi-attribute; per-attribute centre rows). An
+%              attribute may also be given per event (see packPreMaet).
 %   Lowercase p stands for "pitch or position"; uppercase P is the
 %   2-D batched lift; pAttr is the multi-attribute generalisation.
 %   The same convention is used in evalMaet and simMaet.
@@ -146,7 +150,8 @@ function H = entropyMaet(varargin)
 %                 form.
 %
 %   Inputs (MA raw path)
-%       pAttr     — 1 x A cell array of K_a x N matrices.
+%       pAttr     — 1 x A cell array of K_a x N matrices, or of attributes
+%                   given per event (see packPreMaet).
 %       wAttr     - Weights. []/scalar/1 x A cell; see buildMaet.
 %       sigmaVec  - 1 x A per-attribute Gaussian widths.
 %       rVec      - 1 x A per-attribute tuple sizes.
@@ -408,8 +413,9 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             H = localEntropyDensityList(firstArg, nvArgs);
             return;
         end
-        if isnumeric(firstArg{1})
-            % MA raw: cell of attribute matrices.
+        if isnumeric(firstArg{1}) || iscell(firstArg{1})
+            % MA raw: cell of attributes (matrices, or
+            % given per event: buildMaet converts them).
             if nPos ~= 7
                 error('entropyMaet:wrongArgCountMA', ...
                       ['Multi-attribute raw call expects 7 or 8 positional ' ...
@@ -434,7 +440,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         end
         error('entropyMaet:badCellContents', ...
               ['Cell first argument must contain either density structs ' ...
-               '(LIST mode) or numeric attribute matrices (MA raw mode); ' ...
+               '(LIST mode) or attributes (MA raw mode); ' ...
                'first cell entry is of class %s.'], class(firstArg{1}));
     end
 
@@ -613,6 +619,13 @@ function H = localEntropyMA(dens, nvArgs)
 %   at every grid point via evalMaet, normalises to a pmf, and
 %   returns Shannon entropy.
 
+    if double(internal.prunedMaet(dens).N) == 0
+        % A zero-mass density (every weight zero, or a window with no
+        % event in its support): the entropy is undefined, under every
+        % method.
+        H = NaN;
+        return;
+    end
     base_dens = dens;
     A         = base_dens.nAttrs;
     dimPer    = base_dens.dimPerAttr;
@@ -719,7 +732,7 @@ function H = localEntropyMA(dens, nvArgs)
     % --- Shannon entropy ---
     totalMass = sum(t(:));
     if totalMass == 0
-        H = 0;
+        H = NaN;                % zero-mass density: entropy undefined
         return;
     end
     q = t(:) / totalMass;
@@ -1676,6 +1689,13 @@ function H = localDifferentialAdaptive(dens, singleMultisetInput, base, ts, grid
     % positive scalar here and drives the span, the convergence
     % tolerance, and the downstream kernel truncation from a single
     % source. Inf never reaches this function.
+    if ~singleMultisetInput && double(internal.prunedMaet(dens).N) == 0
+        % A zero-mass density (every weight zero, or a window with no
+        % event in its support): the entropy is undefined, under every
+        % method.
+        H = NaN;
+        return;
+    end
     tol = max(exp(-0.5 * ts * ts), 1e-12);
     maxIter = 10;
 

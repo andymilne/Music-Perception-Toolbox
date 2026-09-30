@@ -20,7 +20,7 @@ function [vals, ratios, termMass] = innerProductOrbitPwBatched(K_g, w_A_g, w_B_g
 %     K_G    (N, n_A, n_B) double — stack of kernels per batch.
 %     W_A_G  (N, n_A)       double — per-batch A-side weights.
 %     W_B_G  (N, n_B)       double — per-batch B-side weights.
-%     R      integer        — tensor order, 2 <= R <= 12.
+%     R      integer        — tuple size, 2 <= R <= 12.
 %
 %   See also MOBIUS.INNERPRODUCTORBITGRID.
 

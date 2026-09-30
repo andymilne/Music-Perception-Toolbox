@@ -301,27 +301,34 @@ print("  Each entry was built and compared in turn -- four densities,")
 print("  four inner products. Nothing collapsed: the items differ in")
 print("  event count and content, so there is no repeated work to find.")
 
-# The sweep is the exception: one geometry, M offsets. sim_maet reads
-# the offsets translate_attributes attached to its list, and
-# sweep_sim_maet, given them directly, computes the same sweep. It
-# chooses its route by cost and coverage: here, the swept attribute
-# (pitch class) being periodic, the orbit route.
+# The sweep is the exception: one geometry, M offsets, computed in one
+# pass rather than one inner product per entry. A list of translated
+# copies (one translate_attributes call each) passed to sim_maet is
+# compared one by one; sweep_sim_maet, given the offsets, computes the
+# same values in one pass, and swept_similarity does so from the
+# pre-MAETs themselves. Under
+# its default method='auto' it selects 'orbit' here (the Möbius-method
+# inner product evaluated at the translated values), because the
+# translated attribute (pitch class) is periodic and 'mixture' (each
+# tuple pair's contribution written as a Gaussian in the offset) does
+# not apply to a periodic attribute.
 offsets = np.array([[0.0, 100.0, 200.0, 300.0]])
-pm_sweep = mpt.translate_attributes(reference, [offsets, None])
-tagged_sims = mpt.sim_maet(reference, pm_sweep, verbose=False)
+copies = [mpt.translate_attributes(reference, [mu, None])
+          for mu in offsets[0]]
+loop_sims = mpt.sim_maet(reference, copies, verbose=False)
 
 dens_ref = mpt.build_maet(reference, verbose=False)
 sweep_sims = mpt.sweep_sim_maet(
     dens_ref, dens_ref, np.vstack([offsets, np.zeros_like(offsets)]),
     verbose=False)
 
-print("\n  translate_attributes(reference, [[0, 100, 200, 300], None])")
-print("    sim_maet on the tagged list ->",
-      " ".join(f"{float(s):.4f}" for s in tagged_sims))
-print("    sweep_sim_maet, one pass    ->",
+print("\n  reference translated in pitch class by 0, 100, 200, 300")
+print("    as a list, one inner product per offset ->",
+      " ".join(f"{float(s):.4f}" for s in loop_sims))
+print("    as a sweep, sweep_sim_maet in one pass  ->",
       " ".join(f"{float(s):.4f}" for s in sweep_sims))
 print(f"  The two agree to "
-      f"{np.max(np.abs(np.asarray(tagged_sims, dtype=float) - sweep_sims)):.1e}. "
+      f"{np.max(np.abs(np.asarray(loop_sims, dtype=float) - sweep_sims)):.1e}. "
       "Here the entries DO share a geometry")
 print("  and differ by a known offset, so the sweep is a genuine")
 print("  collapse — the one place where a multi-attribute batch is")

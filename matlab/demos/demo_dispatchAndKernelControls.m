@@ -13,7 +13,7 @@
 %    3. Sweeps -- the similarity at many translations of a query is
 %       computed in one pass by sweepSimMaet (mixture, orbit, or
 %       contraction route), not one comparison per offset;
-%       windowedSimilarity takes the same routes automatically.
+%       sweptSimilarity takes the same routes automatically.
 %    4. Kernel truncation -- 'truncationSigmas' skips Gaussian
 %       contributions beyond k standard deviations from a centre.
 %    5. Single-precision kernel -- 'kernelPrecision','single' casts the
@@ -33,7 +33,7 @@
 
 %% User-adjustable parameters
 N_EVENTS = 20;          % source events per density
-R        = 3;           % tensor order
+R        = 3;           % tuple size
 SIGMA    = 30.0;        % Gaussian uncertainty (cents)
 N_REPEATS = 3;          % repetitions per timing measurement
 RNG_SEED  = 0;
@@ -128,8 +128,8 @@ explainDispatch(densNx, densNy);
 %  evaluates the Möbius inner product at the shifted values; the
 %  'contract' route (densities with a nested attribute) carries the
 %  offsets through the level-by-level contraction. 'auto' picks. The
-%  same routes serve windowedSimilarity wherever its window does not
-%  move with the query (see demo_translateSweep).
+%  same routes serve sweptSimilarity wherever the context is the
+%  same at every translation (see demo_sweptSimilarity).
 
 fprintf('\n=== 3. Sweeps (41 translations of the query) ===\n\n');
 

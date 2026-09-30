@@ -13,7 +13,7 @@ positions of the cycle):
 * :func:`markov_s` --- optimal S-step Markov predictor.
 
 The Fourier-based per-position measure :func:`proj_centroid` lives in
-:mod:`._circular.dft`; see USER_GUIDE §6.5 ("Scale and rhythm
+:mod:`._circular.dft`; see USER_GUIDE §12.7 ("Scale and rhythm
 structure") for the user-facing description of this module alongside
 :mod:`._circular.scale`.
 """

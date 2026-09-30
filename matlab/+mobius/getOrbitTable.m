@@ -1,8 +1,8 @@
 function table = getOrbitTable(r)
-%MOBIUS.GETORBITTABLE  Orbit table for tensor order r, with caching.
+%MOBIUS.GETORBITTABLE  Orbit table for tuple size r, with caching.
 %
-%   TABLE = MOBIUS.GETORBITTABLE(R) returns the orbit table for tensor
-%   order R, looking it up in three tiers:
+%   TABLE = MOBIUS.GETORBITTABLE(R) returns the orbit table for tuple
+%   size R, looking it up in three tiers:
 %
 %     1. In-memory cache (persistent across calls within the same
 %        MATLAB session; cleared by `clear functions`).
@@ -117,7 +117,7 @@ function maybeWarnBuildCost(r)
         return
     end
 
-    % Bell numbers B_r for r = 0..12. The orbit table at order r has
+    % Bell numbers B_r for r = 0..12. The orbit table at tuple size r has
     % roughly B_r^2 / symmetry orbits.
     BELL = [1, 1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, ...
             678570, 4213597];

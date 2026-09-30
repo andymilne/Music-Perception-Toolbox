@@ -15,7 +15,7 @@
 % onset attribute is passed through (order 0) to carry absolute time for
 % the windowing sweep (after alignment all three share the N-1 grid). A
 % broad Gaussian window is swept over the piece and the windowed Renyi-2
-% entropy of the (dp, dt) density is read at each centre.
+% entropy of the (dp, dt) density is read at each sweep value.
 %
 % The analysis is run at two values of the time-difference kernel width:
 %
@@ -49,7 +49,7 @@
 %
 % Data: jmm.pianoPhase (the rendered Piano Phase voices). Toolbox:
 % preMaetFromAttrTable, differenceEvents, selectPreMaet, buildMaet,
-% evalMaet, windowedEntropy. Runtime: a few seconds.
+% evalMaet, sweptEntropy. Runtime: a few seconds.
 
 % The demo folder is located from the toolbox root, and adding it puts
 % the +jmm helper package in scope.
@@ -118,23 +118,21 @@ Z = reshape(Z, size(DP));
 fprintf('static density evaluated\n');
 
 % --- (b) windowed (dp, dt) Renyi-2 entropy across the piece, two widths ---
-centres = linspace(min(tAbs), max(tAbs), N_SWEEP);
-phaseAt = pe.lagAt(centres / (pe.nc * IOI));     % continuous lag
+sweepValues = linspace(min(tAbs), max(tAbs), N_SWEEP);
+phaseAt = pe.lagAt(sweepValues / (pe.nc * IOI));     % continuous lag
 
-% Windowed (dp, dt) Renyi-2 entropy at each sweep centre. A single
-% windowedEntropy sweep: a Gaussian window (shape 0) on the absolute-onset
+% Windowed (dp, dt) Renyi-2 entropy at each sweep value. A single
+% sweptEntropy sweep: a Gaussian window (shape 0) on the absolute-onset
 % attribute (attribute 3) modulates the event weights, and that onset attribute is
-% dropped from the entropy density ('dropWindowAttr', true), leaving the
+% dropped from the entropy density ('drop', 3), leaving the
 % two-attribute (dp, dt) density whose Renyi-2 entropy is returned. The
 % window standard deviation WINDOW_SD maps to the variance-matched
 % rectangular width 2*sqrt(3)*sd. (The placeholder onset sigma is unused:
 % that attribute is dropped.)
-sweep = @(sig) windowedEntropy( ...
-    diffPm, centres, 'sigma', [SIGMA_DP, sig, 1.0], ...
-    'contextWindow', {0.0, WINDOW_SD * 2.0 * sqrt(3.0)}, ...
-    'method', 'renyi2', ...
-    'windowAttr', 3, 'dropWindowAttr', true, ...
-    'verbose', false);
+sweep = @(sig) sweptEntropy( ...
+    diffPm, 'sweep', {3, sweepValues}, 'sigma', [SIGMA_DP, sig, 1.0], ...
+    'window', {3, {0.0, WINDOW_SD * 2.0 * sqrt(3.0)}}, 'drop', 3, ...
+    'method', 'renyi2', 'verbose', false);
 
 H_jnd  = sweep(SIGMA_JND);
 H_fine = sweep(SIGMA_FINE);
@@ -168,11 +166,11 @@ pad = 0.12 * (hi - lo);
 for s = pe.shiftCentres
     plot(axH, [s s], [lo - pad, hi + pad], 'Color', [0.88 0.66 0.52], 'LineWidth', 0.7);
 end
-hJnd = plot(axH, centres, H_jnd,  'Color', C_JND,  'LineWidth', 1.9);
-hFine = plot(axH, centres, H_fine, 'Color', C_FINE, 'LineWidth', 1.6);
+hJnd = plot(axH, sweepValues, H_jnd,  'Color', C_JND,  'LineWidth', 1.9);
+hFine = plot(axH, sweepValues, H_fine, 'Color', C_FINE, 'LineWidth', 1.6);
 ylim(axH, [lo - pad, hi + pad]);
-xlim(axH, [centres(1), centres(end)]);
-xlabel(axH, 'window-centre offset (s); accelerandi marked orange, phase grey', 'FontSize', 15);
+xlim(axH, [sweepValues(1), sweepValues(end)]);
+xlabel(axH, 'window time (s); accelerandi marked orange, phase grey', 'FontSize', 15);
 ylabel(axH, 'Renyi-2 entropy (bits)', 'FontSize', 15);
 title(axH, 'Windowed (\Deltap, \Deltat) entropy at two kernel widths', 'FontSize', 16);
 legend([hJnd, hFine], {'\sigma_t = 6 ms (IOI JND): flat', ...
@@ -184,8 +182,8 @@ set(axH, 'FontSize', 13, 'Box', 'off');
 ax2 = axes('Parent', fig, 'Position', get(axH, 'Position'), 'Color', 'none', ...
            'YAxisLocation', 'right', 'XTick', [], 'YColor', [0.6 0.6 0.6]);
 hold(ax2, 'on');
-plot(ax2, centres, phaseAt, 'Color', [0.733 0.733 0.733], 'LineWidth', 1.0);
-set(ax2, 'YTick', 0:3:12, 'YLim', [-1 13], 'XLim', [centres(1), centres(end)], ...
+plot(ax2, sweepValues, phaseAt, 'Color', [0.733 0.733 0.733], 'LineWidth', 1.0);
+set(ax2, 'YTick', 0:3:12, 'YLim', [-1 13], 'XLim', [sweepValues(1), sweepValues(end)], ...
          'FontSize', 13, 'Box', 'off');
 ylabel(ax2, 'phase k (pulses)', 'Color', [0.6 0.6 0.6], 'FontSize', 15);
 

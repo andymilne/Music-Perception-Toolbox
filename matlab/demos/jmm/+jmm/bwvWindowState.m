@@ -38,7 +38,7 @@ function S = bwvWindowState()
 %   Every step is a toolbox call: readScore, gridAttrTable twice (the
 %   second regridding the first), and preMaetFromAttrTable here;
 %   flatSpecs, bindEvents, and selectPreMaet in the helpers built on this
-%   state; the demo then compares with windowedSimilarity.
+%   state; the demo then compares with sweptSimilarity.
 %
 %   Fields
 %     .sigmaPitch (0.15 semitones), .period (12), .sigmaFlag (0.1),

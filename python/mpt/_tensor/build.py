@@ -19,7 +19,7 @@ of any lazy field (a closure invoked at most once per
 for instance a cosine similarity routed to the Möbius method — never
 trigger the build.
 
-See USER_GUIDE §7.1 ("The density and its four modes") for the user-facing
+See USER_GUIDE §13.1 ("The density and its four modes") for the user-facing
 description and :doc:`/ARCHITECTURE` §2 for the layering.
 """
 from __future__ import annotations
@@ -365,7 +365,7 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
     w : None, scalar, or array-like
         Weights. ``None`` or a scalar for all ones or a uniform
         broadcast; a length-*N* vector of per-event weights. See the
-        toolbox's standard broadcast convention in User Guide §5.
+        toolbox's standard broadcast convention in User Guide §10.4.
     sigma : float
         Standard deviation of the Gaussian kernel.
     r : int
@@ -387,13 +387,21 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
 
     Parameters (multi-attribute path)
     ---------------------------------
-    p_attr : list or tuple of array-like
-        Length-*A* sequence of attribute value matrices, each of shape
-        K_a x N. A 1-D input is taken as a 1 x N row (K_a = 1).
+    p_attr : list or tuple
+        Length-*A* sequence of attributes, each given per event or as a
+        matrix. Per event, an attribute is a list with one entry per
+        event, holding its values (a scalar, a sequence, or ``None``/``[]``
+        for no value): ``[[60, 64, 67], 62, 64, 65]`` is a chord followed
+        by three single notes. As a matrix, it is a NumPy array of shape
+        K_a x N, one column per event, padded with ``NaN``; the per-event
+        form is converted to it. A flat list or 1-D array is a 1 x N row
+        (K_a = 1).
     w : None, scalar, or list/tuple of per-attribute inputs
         Top-level weight specification. A list/tuple has length *A*,
-        with each per-attribute input being ``None``, a scalar, a 1-D
-        array of length *N* (per-event) or *K_a* (per-value), a 2-D
+        with each per-attribute input being ``None``, a scalar, a
+        per-event list (one entry per event: a scalar for all its values,
+        or a sequence with one weight per value), a flat list or 1-D
+        array of length *N* (per-event) or *K_a* (per-value), or a 2-D
         array of shape (1, N), (K_a, 1), or (K_a, N). See Section 2.8
         of the MAET specification.
     sigma_vec : (A,) array-like of float
@@ -915,7 +923,7 @@ def _build_maet_ma(
                 f"preprocessing step."
             )
 
-    w_list = _normalise_weights_ma(w, A, K_a, N)
+    w_list = _normalise_weights_ma(w, A, K_a, N, values=p_attr)
 
     # --- Single-multiset collapse (MAET-base optimisation) ------------
     # A single flat attribute read at r = 1 is one pooled multiset: a

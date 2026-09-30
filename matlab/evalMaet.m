@@ -69,7 +69,8 @@ function vals = evalMaet(varargin)
 %              processed in lockstep; returns an nRows-by-nQ matrix
 %              with one row per multiset).
 %     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
-%              (multi-attribute; per-attribute centre rows).
+%              (multi-attribute; per-attribute centre rows). An
+%              attribute may also be given per event (see packPreMaet).
 %   Lowercase p stands for "pitch or position"; uppercase P is the
 %   2-D batched lift; pAttr is the multi-attribute generalisation.
 %   The same convention is used in entropyMaet and simMaet.
@@ -193,7 +194,7 @@ function vals = evalMaet(varargin)
 %                 at r >= 3 since it bypasses the (dim, n_j) centres
 %                 tensor whose memory and runtime scale as K!/(K-r)!).
 %                 No-op on the MA path (MA always uses centres). See
-%                 User Guide §5 ("Method selection").
+%                 User Guide §11.1 ("Method selection").
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                 wide mptDefaults('truncationSigmas') setting for this
 %                 call. Centres path only; skips Gaussian contributions
@@ -326,7 +327,7 @@ firstArg = varargin{1};
 %   1. Struct first operand: switch firstArg.tag.
 %   2. Cell first operand:
 %        - cell-of-struct  -> LIST (cell of density structs)
-%        - cell-of-numeric -> MA raw (cell of attribute matrices)
+%        - cell of numeric or cell -> MA raw (cell of attributes)
 %   3. Numeric first operand:
 %        - 2-D with both dims > 1 -> BATCHED-RAW (rows = multisets)
 %        - vector or scalar       -> single multiset raw
@@ -393,8 +394,9 @@ elseif iscell(firstArg) && ~isempty(firstArg)
             verbose, method, truncationSigmas, kernelPrecision);
         return;
     end
-    if isnumeric(firstArg{1})
-        % MA raw: cell of attribute matrices, length-8 positional form.
+    if isnumeric(firstArg{1}) || iscell(firstArg{1})
+        % MA raw: cell of attributes (matrices, or
+        % given per event: buildMaet converts them), length-8 positional form.
         if nArgs ~= 8
             error(USAGE_MSG);
         end
@@ -429,7 +431,7 @@ elseif iscell(firstArg) && ~isempty(firstArg)
     end
     error('evalMaet:badCellContents', ...
         ['Cell first argument must contain either density structs (LIST mode) ' ...
-         'or numeric attribute matrices (MA raw mode); first cell entry is of ' ...
+         'or attributes (MA raw mode); first cell entry is of ' ...
          'class %s.'], class(firstArg{1}));
 
 % --- 3. Numeric first operand: BATCHED-RAW or single multiset raw, by shape ---
@@ -823,6 +825,15 @@ function vals = localEvalSingleMultisetCentres(dens, X, nQ, verbose, ...
     end
     if isPer
         kw = [kw, {'isPer', true, 'period', J}];
+        % The density's declared wrap goes with it, as on the Möbius and
+        % factored routes: without it a 'single-image' abs-per density
+        % was evaluated full-image on this route. Relative-periodic
+        % ignores wrap (the pairwise wrap).
+        if ~isRel && isfield(dens, 'wrap') && ~isempty(dens.wrap)
+            wr = dens.wrap;
+            if iscell(wr); wr = wr{1}; end
+            kw = [kw, {'wrap', char(wr)}];
+        end
     end
     if ~isempty(truncationSigmas)
         kw = [kw, {'truncationSigmas', truncationSigmas}];

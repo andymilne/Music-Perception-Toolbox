@@ -1,10 +1,19 @@
 """From a score (MusicXML, MIDI) to a MAET analysis.
 
-The spine of the demo_score* family. It reads a score into an attribute
-table, looks at that table, samples it on a grid, encodes a categorical
-column, builds the density, and runs an analysis on it. Where a step has
-more to it than the one choice made here, a comment names the demo that
-goes further:
+This demo shows how to convert a score (a MIDI or MusicXML file) into an
+attribute table then into a pre-MAET to allow a final MAET analysis. An
+attribute table is an ordinary pandas DataFrame with one row per note
+(or, once sampled on a grid, per time slice) and one column per
+attribute: onset, duration, pitch, velocity, part, and so on. It sits
+between the score and the pre-MAET because it is the score as data,
+before any analytic choice: it can be inspected, filtered, and extended
+with ordinary table tools, and one table can feed many pre-MAETs, each
+choosing which columns become attributes and with what kernel
+parameters. The demo reads a score into an attribute table, looks at
+that table, samples it on a grid, encodes a categorical column, builds
+the density, and runs an analysis on it. Where a step has more to it
+than the one choice made here, a comment names the demo that goes into
+more depth:
 
   demo_score_grid.py          choosing the grid step and the weighting
   demo_score_categoricals.py  the three ways to encode a category
@@ -28,18 +37,15 @@ The functions that get a score to a pre-MAET:
     read_pre_maet             -> a pre-MAET read back from that, which
                                  stands in for every step above
 
-Rows of attribute tables are selected with pandas' own indexing rather
-than a toolbox function. What happens to a pre-MAET next --
-select_pre_maet and the other preprocessing operations, build_maet, and
-the measures -- is a separate family, and demo_preprocessing.py covers
-it.
+What happens to a pre-MAET next -- select_pre_maet and the other
+preprocessing operations, build_maet, and the measures -- is a separate
+family, and demo_preprocessing.py covers it.
 
 The conversion from attribute table to pre-MAET transposes, and
-regroups. An attribute table carries its attributes across the columns,
-as any data table does; a pre-MAET carries attributes down the rows and
-events across the columns, which is the layout of the article's pre-MAET
-table and of show_pre_maet's output, so a table's column becomes a
-pre-MAET's row and each attribute's values are a (K_a, N) array. This
+regroups. A pre-MAET carries attributes down the rows and events across
+the columns, which is the layout of the article's pre-MAET table and of
+show_pre_maet's output, so a table's column becomes a pre-MAET's row and
+each attribute's values are a (K_a, N) array. This
 horizontal/wide format is preferred because it corresponds to that used
 in musical scores and DAWs.
 
@@ -88,8 +94,6 @@ def main():
     print(table.head().to_string(), "\n")
 
     # --- 2. Look and select --------------------------------------------
-    # The return is a pandas DataFrame, inspected and filtered with
-    # pandas.
     print("parts:", list(table["part"].cat.categories))
     print("pitch range:", table["pitch"].min(), "to", table["pitch"].max())
     print("notes under a fermata:", int(table["fermata"].sum()))

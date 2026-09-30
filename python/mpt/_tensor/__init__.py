@@ -12,7 +12,9 @@ Module layout:
                     simplex_vertices.
   transform.py      transform_attributes (scale conversions and elementwise
                     transforms).
-  windowed.py       windowed_similarity, windowed_entropy (event weighting).
+  swept.py          swept_similarity, swept_entropy, swept_mass (event
+                    weighting).
+  mass.py           mass_maet (the mass of a density in a region).
   canonical.py      Canonical-form key helpers for batched dedup.
   dispatch.py       Path-selection cost model + shared helpers.
   eval.py           eval_maet (joint centres / factored / Möbius).
@@ -42,7 +44,6 @@ from .sweep import (
 
 from .preprocessing import (
     TranslateAttributesNoOpWarning,
-    TranslatedSweep,
     bind_attributes,
     bind_events,
     difference_events,
@@ -54,9 +55,12 @@ from .preprocessing import (
 from .premaet import is_pre_maet, pack_pre_maet, unpack_pre_maet
 from .transform import transform_attributes
 
-from .windowed import (
-    windowed_similarity,
-    windowed_entropy,
+from .mass import mass_maet
+
+from .swept import (
+    swept_similarity,
+    swept_entropy,
+    swept_mass,
 )
 
 from .canonical import (
@@ -93,6 +97,8 @@ __all__ = [
     "TranslateAttributesNoOpWarning",
     "weight_events",
     # Windowing (public)
-    "windowed_similarity",
-    "windowed_entropy",
+    "swept_similarity",
+    "swept_entropy",
+    "swept_mass",
+    "mass_maet",
 ]

@@ -22,8 +22,8 @@
 % the point's own time. Every chord is then spectrally enriched (addSpectra
 % on that attribute: twelve harmonics, partial h at p + 12 log2 h
 % semitones weighted h^-0.67), so the pitch attribute carries 48 partials
-% per event. windowedEntropy then sweeps a window along the time
-% attribute: at each centre the events are reweighted by the window
+% per event. sweptEntropy then sweeps a window along the time
+% attribute: at each sweep value the events are reweighted by the window
 % (event weighting, as weightEvents does, the window factor multiplied
 % into the pitch weights), the time attribute is dropped, and the
 % differential entropy of the remaining pitch density is returned
@@ -38,8 +38,8 @@
 %
 % Data: jmm.bwv347Notes (the bundled MusicXML read with readScore,
 % repeats expanded). Toolbox: gridAttrTable, preMaetFromAttrTable,
-% addSpectra, windowedEntropy. Runtime: under a minute (the differential
-% estimator refines its grid at every centre).
+% addSpectra, sweptEntropy. Runtime: under a minute (the differential
+% estimator refines its grid at every sweep value).
 % The figures stay on screen unless SAVE_FIGURES is set.
 
 % The demo folder is located from the toolbox root, and adding it puts
@@ -68,7 +68,7 @@ H_PARTIALS = 12;
 ROLLOFF = 0.67;            % partial h weighted h^-0.67 (Milne et al. 2015)
 SPECTRUM = {'harmonic', H_PARTIALS, 'powerlaw', ROLLOFF};
 
-% Window specifications, as weightEvents and windowedEntropy take them.
+% Window specifications, as weightEvents and sweptEntropy take them.
 % Each window is specified through one of two interchangeable parameters:
 % 'sd' (the window's standard deviation) or 'width' (the full support of
 % the rectangle at shape = 1). Across the shape family the standard
@@ -113,17 +113,15 @@ showPreMaet(pm, 'maxEvents', 4, 'maxElements', 4, 'decimals', 2);
 % ---------------------------------------------------------------------------
 % Compute differential entropy at each event time
 % ---------------------------------------------------------------------------
-sweepCentres = times;
-nSweep = numel(sweepCentres);
 
-fprintf('Computing windowed differential entropy at %d sweep centres over %d window(s)...\n', ...
-        nSweep, nWindows);
+fprintf('Computing windowed differential entropy at %d sweep values over %d window(s)...\n', ...
+        N, nWindows);
 
-H = zeros(nWindows, nSweep);
+H = zeros(nWindows, N);
 
-% Each window is a single windowedEntropy sweep over all centres. The
-% time attribute (attribute 2) is the window attribute: it supplies the
-% window and is dropped from the entropy density ('drop', {2, true}; for
+% Each window is a single sweptEntropy sweep over all sweep values.
+% The time attribute (attribute 2) is the window attribute: it supplies
+% the window and is dropped from the entropy density ('drop', 2; for
 % an r = 1 absolute attribute, dropping it equals marginalizing it out),
 % leaving the pitch density whose differential entropy is returned. The
 % window is given as the specification above, by its width or by its
@@ -133,10 +131,10 @@ t0 = tic;
 for wi = 1:nWindows
     window = WINDOWS(wi);
     fprintf('Window %d/%d: %s\n', wi, nWindows, window.label);
-    H(wi, :) = windowedEntropy( ...
-        pm, [], 'sweep', {2, sweepCentres}, 'drop', {2, true}, ...
-        'contextWindow', {2, struct('shape', window.shape, ...
-                                    window.kind, window.value)}, ...
+    H(wi, :) = sweptEntropy( ...
+        pm, 'sweep', {2, times}, 'drop', 2, ...
+        'window', {2, struct('shape', window.shape, ...
+                             window.kind, window.value)}, ...
         'method', 'differential', 'verbose', false);
     fprintf('  done (%.0fs elapsed)\n', toc(t0));
 end

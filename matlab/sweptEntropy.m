@@ -1,60 +1,92 @@
-function H = windowedEntropy(varargin)
-%WINDOWEDENTROPY  Slide a window across a context and read its entropy at
-%   each position.
+function [H, sv] = sweptEntropy(varargin)
+%SWEPTENTROPY  Align a window on a context at each of a list of sweep
+%   values and take the entropy of the windowed density at each.
 %
-%   Input forms, in the order to reach for them: a whole pre-MAET,
-%   the canonical entry; then the raw positional form, with pAttr,
-%   wAttr and the five geometry vectors written out.
+%   OVERVIEW. At each of a list of values s on an attribute, the sweep
+%   values, a window h(delta) on the context is aligned with its reference
+%   value, delta = 0, at s. It weights each event n on the target
+%   attribute (event weighting, as by weightEvents):
 %
-%   Pre-MAET form. In place of pAttr, w and the five geometry vectors,
-%   pass a whole pre-MAET:
+%       w'(n) = w(n) * h(p_a(n) - s),
 %
-%     H = windowedEntropy(pm, centres, ...)
+%   where p_a(n) is event n's value on the swept attribute a. The windowed
+%   density is then built and its entropy taken, tracing how the entropy
+%   changes across the context. Windows, 'locate', and generated sweep
+%   values are as at sweptSimilarity; there is no query, so the sweep
+%   values always align the window.
 %
-%   The geometry is read from its specs, and any of the six per-attribute
-%   parameters -- 'sigma', 'isPer', 'period', 'r', 'rel', 'exch' -- may be
-%   given alongside to override it, as at buildMaet. An override may
-%   name every attribute or be selective, a 1 x A cell whose empty
-%   entries keep what the spec carries: 'sigma', {[], s, []} sweeps the
-%   second attribute's width and leaves the rest to the pre-MAET.
+%   INPUT FORMS, in the order to reach for them:
 %
-%   Terms (article, Sec. 3, event weighting). A WINDOW, a non-negative
-%   profile h centred at a value c, multiplies each event's weights on one
-%   attribute ('targetAttr') by h(p_S(n) - c). The WINDOW ATTRIBUTE is the
-%   attribute S the window is defined over, and each CENTRE is a value of
-%   it at which the window is placed.
+%     H = sweptEntropy(pm, ...)
 %
-%   Takes the window attribute, centres, window and 'locate' as
-%   windowedSimilarity does: one window attribute ('windowAttr' with
-%   'centres' and 'dropWindowAttr') or several ('sweep' with 'drop').
-%   There is no query, so at each centre (or combination of centres) the
-%   windowed density is built, with any window attribute whose drop is
-%   true first marginalized by removing it from the pre-MAET, and its
-%   entropy taken. With no query to size a default window from,
-%   'contextWindow' must give a width (or sd) for every window attribute.
-%   'isExch' is the
-%   per-attribute exchangeability vector of the raw positional form ([] keeps the
-%   unordered default); required, in particular, for ordered attributes
-%   carrying a matrix-valued kernel covariance (see kernelCov); mutually
-%   exclusive with 'specs'. 'marginalize' (also accepted as 'marginalise')
-%   is reserved for integrating a
-%   compared attribute out of the density and is not yet implemented.
+%   with a whole pre-MAET, whose specs give the geometry. Any of the six
+%   per-attribute parameters ('sigma', 'isPer', 'period', 'r', 'rel',
+%   'exch') may be given alongside to override it, as at buildMaet, either
+%   in full or selectively as a 1 x A cell whose empty entries keep the
+%   spec's value.
 %
+%     H = sweptEntropy(pAttr, w, sigma, r, isRel, isPer, period, ...)
 %
-%   See also PACKPREMAET, WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDMAET,
+%   the raw positional form.
+%
+%   NAME-VALUE OPTIONS (per-attribute maps are N x 2 cells {a, value; ...})
+%     'sweep'        {a, values; ...}: the sweep values of attribute a; a
+%                    bare attribute index, or a vector of them, asks for the
+%                    defaults below.
+%     'start', 'stop', 'step'
+%                    {a, value; ...}: generate attribute a's sweep values
+%                    in place of listing them; a bare number applies to
+%                    the swept attribute where 'sweep' names one. start
+%                    and stop default to the lowest and highest of the
+%                    context's values on the attribute; step defaults to
+%                    half the window's sd, and a pure rectangle without a
+%                    given step takes its pieces (as at sweptSimilarity).
+%     'window'       {a, {shape, width}; ...}, {a, {shape, width, edges}; ...},
+%                    {a, struct('shape', .., 'width' | 'sd' | 'decayRate', ..,
+%                    'edges', ..); ...}, or {a, f; ...}: the window on each
+%                    swept attribute, any profile aligned at the sweep value,
+%                    as in sweptSimilarity; edges is 'halfOpen' (the
+%                    default) or 'closed' (rectangles only). Required for every
+%                    swept attribute: its scale is that of the local region,
+%                    which nothing in the data can supply.
+%     'drop'         Vector of swept attributes marginalized after the
+%                    window has weighted the events. An attribute kept
+%                    stays in the density whose entropy is taken.
+%     'locate'       As at sweptSimilarity (default 'centroid').
+%     'targetAttr'   The attribute whose weights the window multiplies
+%                    (default: the first attribute not dropped).
+%     'method', 'base'
+%                    As at entropyMaet (defaults 'differential', 2).
+%     'nPointsPerDim', 'xMin', 'xMax', 'gridLimit'
+%                    The grid of the discrete methods ('shannon',
+%                    'normalized'), passed to entropyMaet at every sweep
+%                    value, so every window's entropy is taken on the same
+%                    grid. nPointsPerDim is required for those methods, and
+%                    xMin / xMax for a non-periodic attribute that is kept.
+%                    The continuous methods ignore them.
+%     'specs', 'isExch', 'verbose'
+%                    As at sweptSimilarity.
+%
+%   The output has one dimension per swept attribute, in attribute order;
+%   a single swept attribute gives a 1 x n row. [H, sv] = ... also
+%   returns the sweep values, listed or generated, as a 1 x A cell: sv{a}
+%   holds attribute a's, empty where a is not swept. They are the axes of
+%   H, so plot(sv{a}, H) draws a single sweep.
+%
+%   See also PACKPREMAET, SWEPTSIMILARITY, WEIGHTEVENTS, BUILDMAET,
 %            ENTROPYMAET.
 
 % Top-level call guard: dispatch throttle + kernelChunkBytes pin, so the
-% per-centre inner calls announce once per sweep. See internal.callGuard.
+% per-value inner calls announce once per sweep. See internal.callGuard.
 guard = internal.callGuard(); %#ok<NASGU>
 
-varargin = internal.windowedPreMaetArgs(varargin, 'windowedEntropy', 1);
-H = localWindowedEntropy(varargin{:});
+varargin = internal.sweptPreMaetArgs(varargin, 'sweptEntropy', 1);
+[H, plan] = localSweptEntropy(varargin{:});
+if nargout > 1, sv = internal.sweepValues(plan, numel(varargin{1})); end
 end
 
 
-function H = localWindowedEntropy(pAttr, w, sigma, r, isRel, isPer, ...
-        period, centres, nv)
+function [H, plan] = localSweptEntropy(pAttr, w, sigma, r, isRel, isPer, period, nv)
 arguments
     pAttr (1,:) cell
     w
@@ -63,20 +95,19 @@ arguments
     isRel
     isPer
     period
-    centres = []
+    nv.sweep = []
     nv.start = []
     nv.stop = []
     nv.step = []
-    nv.contextWindow = {1.0, []}
-    nv.windowAttr = []
-    nv.dropWindowAttr = []
-    nv.sweep = []
+    nv.window = []
     nv.drop = []
     nv.locate = 'centroid'
     nv.method (1,:) char = 'differential'
     nv.base (1,1) double = 2.0
-    nv.marginalize = []
-    nv.marginalise = []
+    nv.nPointsPerDim = []
+    nv.xMin = NaN
+    nv.xMax = NaN
+    nv.gridLimit = 1e8
     nv.targetAttr = []
     nv.specs = []
     nv.isExch = []
@@ -84,146 +115,51 @@ arguments
 end
 
 if ~isempty(nv.isExch) && ~isempty(nv.specs)
-    error('windowedEntropy:isExchVsSpecs', ...
+    error('sweptEntropy:isExchVsSpecs', ...
         ['isExch applies to the flat per-attribute surface; nested ' ...
          'geometry carries its per-level exch inside specs. Pass one ' ...
          'or the other.']);
 end
+nv.align = []; nv.queryRef = [];
+plan = internal.sweptPlan(pAttr, [], nv.specs, isRel, nv, ...
+    'sweptEntropy', struct('sigma', {sigma}, 'isPer', {isPer}, ...
+    'period', {period}));
 
-if ~isempty(nv.marginalise)
-    if ~isempty(nv.marginalize)
-        error('windowedEntropy:marginalizeTwice', ...
-            'give marginalize or its alternative spelling marginalise, not both.');
-    end
-    nv.marginalize = nv.marginalise;
+A = numel(pAttr);
+dropAxes = plan.dropAxes;
+keep = setdiff(1:A, dropAxes);
+if isempty(nv.targetAttr), target = keep(1); else, target = nv.targetAttr; end
+if any(target == dropAxes)
+    error('sweptEntropy:targetDropped', ...
+        ['targetAttr %d is a dropped attribute: its weights are removed ' ...
+         'before the build, so the window factors would be lost. Choose a ' ...
+         'compared attribute.'], target);
 end
-if ~isempty(nv.marginalize)
-    error('windowedEntropy:marginalizeNotImplemented', ...
-        ['marginalize (integrating a compared attribute out of the density) is ' ...
-         'not yet implemented.']);
+nested = ~isempty(nv.specs);
+[sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
+exchC = internal.subExchArgs(nv.isExch, keep);
+dims = plan.dims;
+axes = [dims.a];
+sizes = arrayfun(@(d) numel(d.vals), dims);
+if numel(dims) == 1, H = zeros(1, sizes(1)); else, H = zeros(sizes); end
+locates = cell(1, numel(axes));
+for k = 1:numel(axes), locates{k} = internal.axisLocate(nv.locate, axes(k)); end
+for li = 1:prod(sizes)
+    subs = internal.lin2sub(sizes, li);
+    at = zeros(1, numel(axes));
+    for k = 1:numel(axes), at(k) = dims(k).vals(subs(k)); end
+    [pc, wc, sc] = internal.applyWindows(pAttr, w, nv.specs, axes, at, ...
+        plan.win(axes), locates, target);
+    [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, A);
+    if nested
+        dens = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+            'specs', sc, 'verbose', false);
+    else
+        dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);
+    end
+    H(li) = entropyMaet(dens, 'method', nv.method, 'base', nv.base, ...
+        'nPointsPerDim', nv.nPointsPerDim, 'xMin', nv.xMin, ...
+        'xMax', nv.xMax, 'gridLimit', nv.gridLimit, ...
+        'verbose', false);
 end
-if ~isempty(nv.sweep)
-    if isempty(nv.drop)
-        error('windowedEntropy:sweepNeedsDrop', 'sweep requires a parallel drop.');
-    end
-    H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, nv.isExch, ...
-        nv.sweep, nv.drop, nv.contextWindow, nv.locate, nv.method, nv.base, ...
-        nv.targetAttr, nv.specs);
-    return;
 end
-if isempty(nv.dropWindowAttr)
-    error('windowedEntropy:dropRequired', ...
-        'dropWindowAttr is required (true marginalizes the window attribute, false retains it).');
-end
-H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, nv.isExch, centres, ...
-    nv.start, nv.stop, nv.step, nv.contextWindow, nv.windowAttr, ...
-    nv.dropWindowAttr, nv.locate, nv.method, nv.base, nv.targetAttr, nv.specs);
-end
-
-
-% =========================================================================
-%  one window attribute
-% =========================================================================
-function H = local_we_single(pAttr, w, sigma, r, isRel, isPer, period, isExch, ...
-        centres, startV, stopV, stepV, contextWindow, windowAttr, ...
-        dropWindowAttr, locate, method, base, targetAttr, specs) %#ok<INUSL>
-    A = numel(pAttr);
-    if isempty(windowAttr), axisIdx = A; else, axisIdx = windowAttr; end
-    if axisIdx < 1 || axisIdx > A
-        error('windowedEntropy:badWindowAttr', ...
-            'windowAttr %d out of range for %d attributes.', axisIdx, A);
-    end
-    locate = internal.axisLocate(locate, axisIdx);
-    nested = ~isempty(specs);
-    [gamma, sd] = internal.singleWindow(contextWindow, NaN, axisIdx);
-    if dropWindowAttr, dropAxes = axisIdx; else, dropAxes = []; end
-    keep = setdiff(1:A, dropAxes);
-    if isempty(keep)
-        error('windowedEntropy:dropAll', 'dropping the only attribute leaves no density.');
-    end
-    if isempty(targetAttr), target = keep(1); else, target = targetAttr; end
-    if any(target == dropAxes)
-        error('windowedEntropy:targetDropped', 'targetAttr is the marginalized window attribute.');
-    end
-    ctxCentres = internal.resolveCentres(pAttr, axisIdx, centres, startV, stopV, stepV, sd * 2 * sqrt(3));
-    [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-    exchC = internal.subExchArgs(isExch, keep);
-    H = zeros(1, numel(ctxCentres));
-    for i = 1:numel(ctxCentres)
-        [pc, wc, sc] = internal.applyWindows(pAttr, w, specs, axisIdx, ...
-            ctxCentres(i), gamma, sd, {locate}, target);
-        [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, A);
-        if nested
-            dens = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
-        else
-            dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);
-        end
-        H(i) = entropyMaet(dens, 'method', method, 'base', base, 'verbose', false);
-    end
-end
-
-
-% =========================================================================
-%  several window attributes
-% =========================================================================
-function H = local_we_multi(pAttr, w, sigma, r, isRel, isPer, period, isExch, ...
-        sweepMap, dropMap, contextWindow, locate, method, base, targetAttr, specs)
-    n = numel(pAttr);
-    [axes, grids] = internal.parseMap(sweepMap);
-    if isempty(axes)
-        error('windowedEntropy:emptySweep', 'sweep must name at least one attribute.');
-    end
-    [dAxes, dVals] = internal.parseMap(dropMap);
-    if ~isequal(sort(axes), sort(dAxes))
-        error('windowedEntropy:dropKeys', 'drop must have one entry per sweep key.');
-    end
-    dropAxes = [];
-    for k = 1:numel(axes)
-        if dVals{dAxes == axes(k)}, dropAxes(end + 1) = axes(k); end %#ok<AGROW>
-    end
-    keep = setdiff(1:n, dropAxes);
-    if isempty(keep)
-        error('windowedEntropy:dropAll', 'every attribute is dropped; no density remains.');
-    end
-    if isempty(targetAttr), target = keep(1); else, target = targetAttr; end
-    if any(target == dropAxes)
-        error('windowedEntropy:targetDropped', 'targetAttr is a marginalized window attribute.');
-    end
-    nested = ~isempty(specs);
-    [cwAxes, cwVals] = internal.parseMap(contextWindow);
-    K = numel(axes);
-    gammas = zeros(1, K); sds = zeros(1, K); locates = cell(1, K);
-    for k = 1:K
-        ci = find(cwAxes == axes(k), 1);
-        if isempty(ci)
-            error('windowedEntropy:requiresWidth', ...
-                ['windowedEntropy has no query to size the window; give an ' ...
-                 'explicit contextWindow entry for every window attribute (attribute %d missing).'], axes(k));
-        end
-        [gammas(k), sds(k)] = internal.resolveWindowStruct(cwVals{ci}, NaN, axes(k));
-        locates{k} = internal.axisLocate(locate, axes(k));
-    end
-    [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-    exchC = internal.subExchArgs(isExch, keep);
-    sizes = cellfun(@numel, grids);
-    if K == 1, H = zeros(1, sizes(1)); else, H = zeros(sizes); end
-    nTot = prod(sizes);
-    for li = 1:nTot
-        subs = internal.lin2sub(sizes, li);
-        centresK = zeros(1, K);
-        for k = 1:K, centresK(k) = grids{k}(subs(k)); end
-        [pc, wc, sc] = internal.applyWindows(pAttr, w, specs, axes, centresK, gammas, sds, locates, target);
-        [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, n);
-        if nested
-            dens = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, 'specs', sc, 'verbose', false);
-        else
-            dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);
-        end
-        H(li) = entropyMaet(dens, 'method', method, 'base', base, 'verbose', false);
-    end
-end
-
-
-% =========================================================================
-%  seam helpers (shared structure with windowedSimilarity)
-% =========================================================================

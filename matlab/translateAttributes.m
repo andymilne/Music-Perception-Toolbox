@@ -1,4 +1,4 @@
-function [pm, sweep] = translateAttributes(varargin)
+function pm = translateAttributes(varargin)
 %TRANSLATEATTRIBUTES Translate attributes' positions by per-row offsets.
 %
 %   PM = translateAttributes(PM0, offsets, ...) and
@@ -24,28 +24,20 @@ function [pm, sweep] = translateAttributes(varargin)
 %   Offsets are a 1 x A cell, one entry per attribute, each entry one of:
 %       []                  - do not translate this attribute.
 %       scalar              - broadcast to all K_total values.
-%       column (K_total x 1)- per-value, single translation.
-%       row    (1 x M)      - per-sweep global shift: one scalar per sweep
-%                             index, broadcast across values (M copies).
-%       matrix (K_total x M)- per-value by sweep index: values down, sweep
-%                             index across.
-%   (Orientation disambiguates: a single per-value offset is a COLUMN; a
-%   sweep of global shifts is a ROW. This differs from the Python list
-%   form, which uses 1-D vs 2-D; the semantics and outputs are identical.)
+%       column (K_total x 1)- per-value offsets.
 %
 %   NaN entries skip the corresponding value (left untranslated); +/-Inf is
-%   rejected. All swept entries must agree on M (scalar, column, and single
-%   sweep-column entries broadcast across the call's M).
+%   rejected.
 %
-%   Sweep. When any entry implies M > 1 the call is a batched sweep: it
-%   returns M translated copies --- a 1 x M cell of 1 x A position-cells
-%   --- each a separate pre-MAET input, sharing one w and one specs. With M
-%   = 1 it returns a single 1 x A position-cell.
+%   One call makes one translation. A translation sweep --- a query
+%   compared with a context at each of many offsets --- is sweptSimilarity
+%   (pre-MAETs) or sweepSimMaet (densities), which compute every offset in
+%   one pass rather than building a copy per offset.
 %
 %   Relative attributes. is_rel is read per-attribute from specs (no
 %   separate argument). A uniform shift cancels in every within-tuple
 %   difference, so on an attribute whose OUTERMOST level is relative a
-%   uniform finite offset is a structural no-op: that column is left
+%   uniform finite offset is a structural no-op: that attribute is left
 %   unchanged and a single warning is emitted per call. A non-uniform
 %   (per-value) offset is NOT a no-op even on a relative attribute --- it
 %   shifts the within-tuple differences --- so it applies. is_per/period
@@ -54,7 +46,8 @@ function [pm, sweep] = translateAttributes(varargin)
 %
 %   Inputs
 %       pm      - Pre-MAET, in place of pAttr and wAttr.
-%       pAttr   - 1 x A cell of K_total x N per-attribute value matrices.
+%       pAttr   - 1 x A cell of K_total x N per-attribute value matrices,
+%                 or of attributes given per event (see packPreMaet).
 %       wAttr   - Weights ([], scalar, or 1 x A cell); passed through.
 %       offsets - 1 x A cell of per-attribute offsets (see above).
 %
@@ -63,46 +56,19 @@ function [pm, sweep] = translateAttributes(varargin)
 %                 per-attribute specs supplying is_rel (outermost level).
 %
 %   Outputs
-%       pm    - Pre-MAET. Its pAttr is, for a single translation
-%               (M = 1), a 1 x A cell of K_total x N matrices, and for a
-%               sweep (M > 1) a 1 x M cell of such cells; wAttr and specs
-%               are unchanged from input (or synthesised).
-%       sweep - Struct describing the sweep, for callers that go on to
-%               sweepSimMaet: .offsets is an A x M matrix of the
-%               per-attribute uniform translations, with NaN in any
-%               (attribute, sweep index) cell whose offset was not
-%               uniform across that attribute's positions, and .base is the
-%               1 x A cell of untranslated value matrices. Empty for a
-%               single translation (M = 1). The offsets are carried
-%               rather than recovered: recovering them from the
-%               translated values would mean comparing floating-point
-%               differences against a tolerance, and no tolerance both
-%               admits every honestly translated sweep and preserves the
-%               toolbox parity floor.
+%       pm    - Pre-MAET with the translated pAttr; wAttr and specs are
+%               unchanged from input (or synthesised).
 %
-%   Cross-language note. The Python translateAttributes attaches this
-%   information to its returned sweep list, so simMaet picks it up
-%   with no change at the call site. MATLAB cell arrays cannot carry
-%   attached data, so here it is a fourth output the caller passes on
-%   explicitly.
-%
-%   See also DIFFERENCEEVENTS, BINDEVENTS, FLATSPECS, BUILDMAET,
-%   SWEEPSIMMAET.
+%   See also SWEPTSIMILARITY, SWEEPSIMMAET, DIFFERENCEEVENTS,
+%   BINDEVENTS, FLATSPECS, BUILDMAET.
 
 [pAttr, wAttr, specsPm, rest] = internal.preMaetArgs(varargin);
-[pOut, w, specs, sweep] = localTranslateAttributes(pAttr, wAttr, specsPm, rest{:});
-if isempty(sweep)
-    pm = packPreMaet(pOut, w, specs);
-else
-    % Sweep form: pOut holds one length-A cell per sweep index, so the
-    % parts do not share a length and the cross-checks do not
-    % apply.
-    pm = struct('pAttr', {pOut}, 'wAttr', {w}, 'specs', {specs});
-end
+[pOut, w, specs] = localTranslateAttributes(pAttr, wAttr, specsPm, rest{:});
+pm = packPreMaet(pOut, w, specs);
 end
 
 
-function [pOut, w, specs, sweep] = localTranslateAttributes(pAttr, w, specsPm, offsets, nvArgs)
+function [pOut, w, specs] = localTranslateAttributes(pAttr, w, specsPm, offsets, nvArgs)
 arguments
     pAttr
     w
@@ -159,22 +125,18 @@ else
     end
 end
 
-% --- Normalise offsets to per-attribute K_a x M blocks (NaN = skip) ---
-[matrixMode, Msweep, blocks] = localNormaliseOffsets(offsets, K, A);
+% --- Normalise offsets to per-attribute K_a x 1 columns (NaN = skip) ---
+blocks = localNormaliseOffsets(offsets, K, A);
 
 % --- Relative no-op: a uniform finite shift on an outermost-relative ---
-% --- attribute is a structural no-op; skip that column, warn once. ---
+% --- attribute is a structural no-op; skip it and warn. ---
 warned = false;
 for a = 1:A
-    if ~localOutermostRelative(specs{a})
-        continue;
-    end
-    for m = 1:Msweep
-        cm = blocks{a}(:, m);
-        if all(isfinite(cm)) && ~isempty(cm) && all(cm == cm(1))
-            blocks{a}(:, m) = NaN;
-            warned = true;
-        end
+    cm = blocks{a};
+    if localOutermostRelative(specs{a}) && ~isempty(cm) ...
+            && all(isfinite(cm)) && all(cm == cm(1))
+        blocks{a}(:) = NaN;
+        warned = true;
     end
 end
 if warned
@@ -182,52 +144,23 @@ if warned
             ['A uniform finite offset was applied to an attribute whose ' ...
              'outermost level is relative; a uniform shift cancels in ' ...
              'every within-tuple difference, so it is a structural no-op ' ...
-             'and that column is left unchanged. (A non-uniform per-value ' ...
-             'offset would apply, as it shifts the relative structure.)']);
+             'and that attribute is left unchanged. (A non-uniform ' ...
+             'per-value offset would apply, as it shifts the relative ' ...
+             'structure.)']);
 end
 
 % --- Apply: value + per-value offset, broadcast across events; NaN values ---
 % --- are left untranslated. ---
-colsOut = cell(1, Msweep);
-for m = 1:Msweep
-    colList = cell(1, A);
-    for a = 1:A
-        M = pArr{a};
-        off = blocks{a}(:, m);
-        fin = isfinite(off);
-        if ~any(fin)
-            colList{a} = M;
-        else
-            add = off;
-            add(~fin) = 0;
-            colList{a} = M + add;        % implicit expansion across columns
-        end
+pOut = cell(1, A);
+for a = 1:A
+    off = blocks{a};
+    fin = isfinite(off);
+    if ~any(fin)
+        pOut{a} = pArr{a};
+    else
+        off(~fin) = 0;
+        pOut{a} = pArr{a} + off;          % implicit expansion across columns
     end
-    colsOut{m} = colList;
-end
-
-if matrixMode
-    pOut = colsOut;                       % 1 x M cell of 1 x A cells
-    % Carry the offsets with the sweep. A cell is uniform when every
-    % value of that attribute moved by the same finite amount (a NaN
-    % entry leaves its value in place, so it breaks uniformity unless
-    % the whole column is NaN, which is no translation at all).
-    uni = NaN(A, Msweep);
-    for a = 1:A
-        for m = 1:Msweep
-            cm = blocks{a}(:, m);
-            fin = isfinite(cm);
-            if ~any(fin)
-                uni(a, m) = 0;
-            elseif all(fin) && all(cm == cm(1))
-                uni(a, m) = cm(1);
-            end
-        end
-    end
-    sweep = struct('offsets', uni, 'base', {pArr});
-else
-    pOut = colsOut{1};                    % 1 x A cell
-    sweep = struct([]);
 end
 
 end
@@ -237,23 +170,20 @@ end
 %  Helpers
 % =========================================================================
 
-function [matrixMode, M, blocks] = localNormaliseOffsets(offsets, K, A)
+function blocks = localNormaliseOffsets(offsets, K, A)
 %LOCALNORMALISEOFFSETS  Coerce a 1 x A offsets cell to per-attribute
-%   K_a x M blocks (NaN marks skipped values). Orientation disambiguates:
-%   scalar -> all values; column -> per-value; row -> per-sweep; matrix ->
-%   per-value x sweep. Returns [matrixMode, M, blocks].
+%   K_a x 1 columns (NaN marks skipped values): [] skips the attribute, a
+%   scalar is broadcast to every value, a K_a x 1 column is per value.
     if ~iscell(offsets) || numel(offsets) ~= A
         error('translateAttributes:offsetsShape', ...
               ['offsets must be a length-A (%d) cell, one entry per ' ...
-               'attribute ([], scalar, column per-value, row sweep, or ' ...
-               'K_total x M block).'], A);
+               'attribute ([], a scalar, or a K_total x 1 column).'], A);
     end
-    raw = cell(1, A);
-    M = 1;
+    blocks = cell(1, A);
     for a = 1:A
         o = offsets{a};
         if isempty(o)
-            raw{a} = [];                  % skip this attribute
+            blocks{a} = NaN(K(a), 1);     % skip this attribute
             continue;
         end
         if ~isnumeric(o)
@@ -264,54 +194,20 @@ function [matrixMode, M, blocks] = localNormaliseOffsets(offsets, K, A)
         if any(isinf(o(:)))
             error('translateAttributes:offsetInf', ...
                   ['offsets{%d} contains +/-Inf; entries must be finite ' ...
-                   'or NaN (NaN skips a row).'], a);
+                   'or NaN (NaN skips a value).'], a);
         end
         if isscalar(o)
-            raw{a} = o;                   % broadcast to all values
-        elseif isrow(o)
-            raw{a} = o;                   % per-sweep global shift
-            M = max(M, size(o, 2));
-        elseif iscolumn(o)
-            if numel(o) ~= K(a) && numel(o) ~= 1
-                error('translateAttributes:offsetLength', ...
-                      ['offsets{%d} is a length-%d column; expected ' ...
-                       'K_total = %d (per-value).'], a, numel(o), K(a));
-            end
-            raw{a} = o;                   % per-value, single
+            blocks{a} = repmat(o, K(a), 1);
+        elseif iscolumn(o) && numel(o) == K(a)
+            blocks{a} = o;
         else
-            if size(o, 1) ~= K(a) && size(o, 1) ~= 1
-                error('translateAttributes:offsetRows', ...
-                      ['offsets{%d} has %d rows; expected 1 or K_total ' ...
-                       '= %d (values down).'], a, size(o, 1), K(a));
-            end
-            raw{a} = o;                   % per-value x sweep
-            M = max(M, size(o, 2));
+            error('translateAttributes:offsetShape', ...
+                  ['offsets{%d} must be [], a scalar, or a K_total x 1 ' ...
+                   'column (K_total = %d); got %s. One call makes one ' ...
+                   'translation: for a translation sweep use ' ...
+                   'sweptSimilarity or sweepSimMaet.'], ...
+                  a, K(a), mat2str(size(o)));
         end
-    end
-    matrixMode = M > 1;
-    blocks = cell(1, A);
-    for a = 1:A
-        r = raw{a};
-        if isempty(r)
-            blocks{a} = NaN(K(a), M);
-            continue;
-        end
-        if isscalar(r)
-            r = repmat(r, K(a), M);
-        else
-            if size(r, 1) == 1 && K(a) > 1
-                r = repmat(r, K(a), 1);   % broadcast across values
-            end
-            if size(r, 2) == 1 && M > 1
-                r = repmat(r, 1, M);      % broadcast across sweep
-            elseif size(r, 2) ~= 1 && size(r, 2) ~= M
-                error('translateAttributes:sweepM', ...
-                      ['offsets{%d} has %d sweep columns; expected 1 or ' ...
-                       'M = %d (all swept entries must agree on M).'], ...
-                      a, size(r, 2), M);
-            end
-        end
-        blocks{a} = r;
     end
 end
 

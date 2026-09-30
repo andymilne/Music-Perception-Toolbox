@@ -49,7 +49,7 @@
 %    (c) three overlaid profile curves at representative sigma_ph
 %        values.
 %
-%  Uses: windowedSimilarity (event weighting of a pre-MAET),
+%  Uses: sweptSimilarity (event weighting of a pre-MAET),
 %  transformAttributes.
 %
 %  The Python mirror is demo_helix_blend.py.
@@ -168,21 +168,24 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
 %   of windowed-similarity profiles (a cross-correlation of the query
 %   against the time-windowed context).
 %
-%   Windowing is event weighting: at each sweep position the window,
-%   centred on that position along the time attribute, multiplies the
-%   per-event weights of the context before its density is built, and
-%   the query is translated by the offset, the window travelling with it
-%   (centred on the translated query). The window has standard deviation
+%   Windowing is event weighting: at each sweep value a window on the
+%   context is aligned there and the query is translated so that its
+%   reference, by default under 'align' 'both' its middle, lands there too
+%   (so the window is centred on the query); the window multiplies the
+%   per-event weights of the context before its density is built. The
+%   profiles are wanted at given offsets from the query as written, so
+%   the sweep values are those offsets plus the query's middle. The window
+%   has standard deviation
 %   win_size_time * sigma_time and shape win_mix (0 Gaussian, 1
 %   rectangular; between them, a rectangle convolved with a Gaussian of
 %   the same total variance).
 
-    TIME = 3;                                    % the window attribute
+    TIME = 3;                                    % the swept attribute
 
     % The window family has fixed variance sd^2 for every shape; the
     % width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
     sd_time = win_size_time * sigma_time;
-    contextWindow = {win_mix, 2 * sqrt(3) * sd_time};
+    timeWindow = {win_mix, 2 * sqrt(3) * sd_time};
 
     % Only the pitch-height width varies across the sweep, so the two
     % pre-MAETs are built once and each call names that one parameter.
@@ -203,10 +206,12 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
     prevHints = mptDefaults('showHints', false);
     nS = numel(sigma_ph_values);
     prof = zeros(nS, numel(offsets));
+    qMid = mean(q_t);                        % the query's reference
     for i = 1:nS
-        prof(i, :) = windowedSimilarity(pmC, pmQ, [], 'offsets', offsets, ...
+        prof(i, :) = sweptSimilarity(pmC, pmQ, ...
+            'sweep', {TIME, offsets + qMid}, 'align', {TIME, 'both'}, ...
+            'window', {TIME, timeWindow}, ...
             'sigma', {[], sigma_ph_values(i), []}, ...
-            'windowAttr', TIME, 'contextWindow', contextWindow, ...
             'normalize', 'oneSidedDenom', 'verbose', false);
     end
     mptDefaults(prevHints);

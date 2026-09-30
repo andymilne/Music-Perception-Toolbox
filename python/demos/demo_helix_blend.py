@@ -47,7 +47,7 @@ Each part produces three stacked panels:
   (b) a similarity heatmap over (time offset, sigma_ph),
   (c) three overlaid profile curves at representative sigma_ph values.
 
-Uses: windowed_similarity (event weighting of a pre-MAET),
+Uses: swept_similarity (event weighting of a pre-MAET),
 transform_attributes.
 
 The MATLAB mirror is demo_helixBlend.m.
@@ -116,21 +116,24 @@ def sweep_profiles(q_cents, q_t, c_cents, c_t,
     profiles (a cross-correlation of the query against the time-windowed
     context).
 
-    Windowing is event weighting: at each sweep position the window,
-    centred on that position along the time attribute, multiplies the
-    per-event weights of the context before its density is built, and
-    the query is translated by the offset, the window travelling with it
-    (centred on the translated query). The window has standard deviation
+    Windowing is event weighting: at each sweep value a window on the
+    context is aligned there and the query is translated so that its
+    reference, by default under align='both' its middle, lands there too
+    (so the window is centred on the query); the window multiplies the
+    per-event weights of the context before its density is built. The
+    profiles are wanted at given offsets from the query as written, so the
+    sweep values are those offsets plus the query's middle. The window has
+    standard deviation
     win_size_time * sigma_time and shape win_mix (0 Gaussian, 1
     rectangular; between them, a rectangle convolved with a Gaussian of
     the same total variance).
     """
-    TIME = 2                                     # the window attribute
+    TIME = 2                                     # the swept attribute
 
     # The window family has fixed variance sd^2 for every shape; the
     # width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
     sd_time = win_size_time * sigma_time
-    context_window = (win_mix, 2.0 * np.sqrt(3.0) * sd_time)
+    time_window = (win_mix, 2.0 * np.sqrt(3.0) * sd_time)
 
     # Only the pitch-height width varies across the sweep, so the two
     # pre-MAETs are built once and each call names that one parameter.
@@ -149,11 +152,13 @@ def sweep_profiles(q_cents, q_t, c_cents, c_t,
     # are switched off for the loop and restored after it.
     prev_hints = mpt.set_default(show_hints=False)
     out = np.empty((len(sigma_ph_values), len(offsets)))
+    q_mid = float(np.mean(q_t))              # the query's reference
     for i, sig_ph in enumerate(sigma_ph_values):
-        out[i, :] = mpt.windowed_similarity(
-            pm_c, pm_q, offsets=offsets, sigma=[None, sig_ph, None],
-            window_attr=TIME, context_window=context_window,
-            normalize="oneSidedDenom", verbose=False)
+        out[i, :] = mpt.swept_similarity(
+            pm_c, pm_q, sweep={TIME: offsets + q_mid},
+            align={TIME: "both"}, window={TIME: time_window},
+            sigma=[None, sig_ph, None], normalize="oneSidedDenom",
+            verbose=False)
     mpt.set_default(**prev_hints)
     return out
 

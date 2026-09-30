@@ -46,7 +46,7 @@ specHarm = {'harmonic', 16, 'powerlaw', 1};
 kkMajor = [6.35 2.23 3.48 2.33 4.38 4.09 2.52 5.19 2.39 3.66 2.29 2.88];
 names = {'C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'};
 
-% Section 3: two inharmonic spectra (User Guide, Section 7.3.6).
+% Section 3: two inharmonic spectra (User Guide §7.6).
 % Stretched: partial n at ratio n^beta, so beta = 1.02 puts the second
 % partial at 1224 cents. Stiff string: ratio n*sqrt(1 + B n^2), with
 % B = 5e-4 inside the range quoted for piano strings (about 1e-5 to

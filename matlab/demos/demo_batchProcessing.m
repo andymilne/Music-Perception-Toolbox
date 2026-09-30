@@ -249,11 +249,9 @@ colormap(parula);
 %  sweepSimMaet computes the whole sweep in one pass rather than one
 %  inner product per offset -- a genuine collapse, and the one place
 %  where a multi-attribute batch is cheaper than the loop it replaces.
-%  The offsets are what make that possible, and a MATLAB cell cannot
-%  carry them alongside the entries, so a swept pre-MAET passed as a
-%  cell still loops: the collapse is spelled
-%  sweepSimMaet(densX, densY, sweep.offsets), with the offsets taken
-%  from translateAttributes' second output.
+%  The translated copies from translateAttributes, passed to simMaet,
+%  are compared one by one; the one pass is sweepSimMaet, given the
+%  offsets themselves.
 
 fprintf('\n=== Workflow 3: A cell of pre-MAETs (batching, other sense) ===\n\n');
 
@@ -286,22 +284,26 @@ fprintf('  four inner products. Nothing collapsed: the items differ in\n');
 fprintf('  event count and content, so there is no repeated work to find.\n');
 
 % The sweep is the exception: one geometry, M offsets, computed in one
-% pass rather than one inner product per entry. A swept pre-MAET passed
-% as a cell is still only the loop -- the one pass needs the offsets,
-% and a MATLAB cell cannot carry them, so translateAttributes returns
-% them as a second output and sweepSimMaet takes them. (Python attaches
-% them to the returned list, so there simMaet picks them up at the call
-% site itself.) sweepSimMaet chooses its route by cost and coverage:
-% here, the swept attribute (pitch class) being periodic, the orbit
-% route.
-[pmSweep, sweep] = translateAttributes(reference, {[0 100 200 300], []});
-loopSims = simMaet(reference, pmSweep, 'verbose', false);
+% pass rather than one inner product per entry. A cell of translated
+% copies (one translateAttributes call each) passed to simMaet is
+% compared one by one; sweepSimMaet, given the offsets, computes the
+% same values in one pass, and sweptSimilarity does so from the
+% pre-MAETs themselves. Under its default 'method', 'auto',
+% sweepSimMaet selects 'orbit' here (the Möbius-method inner product
+% evaluated at the translated values), because the translated attribute
+% (pitch class) is periodic and 'mixture' (each tuple pair's
+% contribution written as a Gaussian in the offset) does not apply to a
+% periodic attribute.
+offsets = [0 100 200 300];
+copies = arrayfun(@(mu) translateAttributes(reference, {mu, []}), ...
+                  offsets, 'UniformOutput', false);
+loopSims = simMaet(reference, copies, 'verbose', false);
 
 densRef   = buildMaet(reference, 'verbose', false);
-sweepSims = sweepSimMaet(densRef, densRef, sweep.offsets, ...
+sweepSims = sweepSimMaet(densRef, densRef, [offsets; zeros(size(offsets))], ...
                                'verbose', false);
 
-fprintf('\n  translateAttributes(reference, {[0 100 200 300], []})\n');
+fprintf('\n  reference translated in pitch class by 0, 100, 200, 300\n');
 fprintf('    as a cell, one inner product per offset ->');
 fprintf(' %.4f', cell2mat(loopSims));
 fprintf('\n    as a sweep, sweepSimMaet in one pass    ->');

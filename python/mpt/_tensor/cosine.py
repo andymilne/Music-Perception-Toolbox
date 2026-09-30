@@ -15,7 +15,7 @@ The cosine path reaches into :mod:`._tensor.dispatch` for path
 selection and into :mod:`._tensor.canonical` for the batched-mode
 dedup keys.
 
-See USER_GUIDE §5 ("Method selection") and :doc:`/ARCHITECTURE` §4
+See USER_GUIDE §11.1 ("Method selection") and :doc:`/ARCHITECTURE` §4
 ("Dispatcher pattern") for the conceptual description.
 """
 from __future__ import annotations
@@ -68,7 +68,7 @@ from .dispatch import (
 
 # -------------------------------------------------------------------
 #  Normalisation helpers for the ``normalize`` keyword of
-#  sim_maet (and, through it, windowed_similarity).
+#  sim_maet (and, through it, swept_similarity).
 # -------------------------------------------------------------------
 
 #: The canonical value set for the ``normalize`` keyword. ``'cosine'`` is
@@ -347,25 +347,10 @@ def sim_maet(*args,
       lists of per-attribute matrices and ``w_attr*`` the matching
       per-attribute weights. Returns scalar.
 
-    **Raw multi-attribute scalar-vs-list (sweep)**:
-
-    - ``sim_maet(p_attr_ref, w_attr_ref, p_attr_list, w_attr_shared,
-      sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec[,
-      is_exch_vec])`` where exactly one of the two ``p_attr`` arguments is a list of
-      ``p_attr`` blocks (a list of lists; e.g. the matrix-form output of
-      :func:`translate_attributes`) and the other is a single ``p_attr``.
-      Build is internalised: the scalar operand is built once, the
-      list operand once per entry. Weights for the list side are
-      shared across every entry — a single ``w_attr`` value, not a list
-      of weights. Returns an ``ndarray`` of length M. The output index
-      matches the order of entries in the list operand. When every
-      ``r_a = 1`` and ``method`` is ``'auto'`` or ``'bulger'`` the whole
-      list is evaluated in one batched kernel pass (the same fast path
-      the density scalar-vs-list form and MATLAB's
-      ``localR1BroadcastFast`` take). *Python only:* a list tagged by
-      :func:`translate_attributes` with ``method='auto'`` is first
-      reduced to one mixture in the offset through
-      :func:`sweep_sim_maet`; MATLAB has no tagged-sweep type.
+    A translation sweep --- one density compared with translated copies
+    of another --- is :func:`sweep_sim_maet` (densities) or
+    :func:`swept_similarity` (pre-MAETs), which compute every offset in
+    one pass.
 
     In every raw form the geometry may end with an optional trailing
     ``is_exch`` (single multiset, batched) or ``is_exch_vec``
@@ -564,13 +549,12 @@ def sim_maet(*args,
                 "'mode' kwarg only applies to density list inputs."
             )
 
-        # Distinguish single MA p_attr (list of ndarrays) from a list
-        # of MA p_attr blocks (list of lists). The detection only
-        # examines the first element: ndarray → single MA;
-        # list/tuple → list of MA. This matches the convention
-        # used elsewhere in the toolbox and is what the matrix-form
-        # output of translate_attributes produces.
-        a_is_list = isinstance(a[0], (list, tuple))
+        # Each attribute may be given in the per-event form (a list with
+        # one entry per event); convert it, and the matching weights, to
+        # the NaN-padded matrix form. A list of raw p_attr blocks (a
+        # list of lists of attributes) fails this conversion, because
+        # its attributes are not scalars or 1-D event entries, and is
+        # refused with a pointer to the supported forms.
         b = args[2] if len(args) >= 3 else None
         if b is not None and not _looks_like_multi_attr(b):
             raise TypeError(
@@ -580,17 +564,36 @@ def sim_maet(*args,
                 "form for both, or build each density explicitly with "
                 "build_maet."
             )
-        b_is_list = (
-            _looks_like_multi_attr(b)
-            and isinstance(b[0], (list, tuple))
-        )
+        from .premaet import _parts_per_event
 
-        if a_is_list and b_is_list:
-            raise TypeError(
-                "Raw multi-attribute list-vs-list is not supported; pass "
-                "explicit density structs via the density list mode "
-                "instead (build each entry with build_maet first)."
-            )
+        def _block_list(x):
+            return (isinstance(x[0], (list, tuple)) and len(x[0]) > 0
+                    and any(isinstance(y, (list, tuple))
+                            or (isinstance(y, np.ndarray) and y.ndim >= 2)
+                            for y in x[0]))
+
+        def _convert(p, w):
+            try:
+                return _parts_per_event(p, w)
+            except ValueError as err:
+                if _block_list(p):
+                    raise TypeError(
+                        "A list of raw p_attr blocks is not accepted. Pass "
+                        "pre-MAETs or densities as a list, sim_maet(ref, "
+                        "[pm1, ..., pmM]); for a translation sweep use "
+                        "swept_similarity or sweep_sim_maet, which compute "
+                        "every offset in one pass."
+                    ) from err
+                raise
+
+        p1_c, w1_c = _convert(args[0], args[1])
+        if b is not None:
+            p2_c, w2_c = _convert(args[2], args[3])
+        if b is not None:
+            args = (p1_c, w1_c, p2_c, w2_c) + tuple(args[4:])
+        else:
+            args = (p1_c, w1_c) + tuple(args[2:])
+        a = args[0]
 
         # Matrix-valued kernel covariance: whiten both operands once
         # (shared geometry, so a single Cholesky factor per attribute)
@@ -608,9 +611,8 @@ def sim_maet(*args,
             sigma_vec_in, r_vec_in = args[4], args[5]
             is_rel_in, is_per_in = args[6], args[7]
             is_exch_in = args[9] if len(args) == 10 else None
-            probe = p1_in[0] if a_is_list else p1_in
             _, sigma_res, _, chol_list = _resolve_aniso_ma(
-                probe, sigma_vec_in, r_vec_in, is_rel_in, is_per_in,
+                p1_in, sigma_vec_in, r_vec_in, is_rel_in, is_per_in,
                 is_exch_in, None,
             )
             kc_scale = kernel_cov_ip_scale(chol_list)
@@ -618,49 +620,20 @@ def sim_maet(*args,
             # per-attribute Cholesky factors; whiten every structure
             # with them (whiten_values rejects row-count mismatches,
             # which enforces r == K on the remaining operands).
-            if a_is_list:
-                p1_w = [whiten_p_attr(blk, chol_list) for blk in p1_in]
-            else:
-                p1_w = whiten_p_attr(p1_in, chol_list)
-            if b_is_list:
-                p2_w = [whiten_p_attr(blk, chol_list) for blk in p2_in]
-            else:
-                p2_w = whiten_p_attr(p2_in, chol_list)
+            p1_w = whiten_p_attr(p1_in, chol_list)
+            p2_w = whiten_p_attr(p2_in, chol_list)
             args = (p1_w, w1_in, p2_w, w2_in, sigma_res) + tuple(args[5:])
             a = args[0]
 
-        if not a_is_list and not b_is_list:
-            # Single MA scalar-vs-scalar — existing path.
-            if len(args) not in (9, 10):
-                raise TypeError(
-                    f"Raw multi-attribute input expects 9 or 10 positional "
-                    f"arguments (p_attr1, w1, p_attr2, w2, sigma_vec, "
-                    f"r_vec, is_rel_vec, is_per_vec, "
-                    f"period_vec[, is_exch_vec]); got {len(args)}."
-                )
-            return _apply_kernel_cov_scale(_cos_sim_raw_ma_scalar(
-                *args,
-                method=method,
-                normalize=normalize,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
-                verbose=verbose,
-            ), kc_scale, normalize)
-
-        # Scalar-vs-list broadcast. Build the scalar side once, then
-        # iterate over the list side. Weights on the list side are
-        # shared across every list entry.
         if len(args) not in (9, 10):
             raise TypeError(
-                f"Raw multi-attribute scalar-vs-list input expects 9 or 10 "
-                f"positional arguments (p_attr1, w1, p_attr2, w2, "
-                f"sigma_vec, r_vec, is_rel_vec, is_per_vec, "
+                f"Raw multi-attribute input expects 9 or 10 positional "
+                f"arguments (p_attr1, w1, p_attr2, w2, sigma_vec, "
+                f"r_vec, is_rel_vec, is_per_vec, "
                 f"period_vec[, is_exch_vec]); got {len(args)}."
             )
-        return _apply_kernel_cov_scale(_cos_sim_raw_ma_broadcast(
+        return _apply_kernel_cov_scale(_cos_sim_raw_ma_scalar(
             *args,
-            a_is_list=a_is_list,
-            b_is_list=b_is_list,
             method=method,
             normalize=normalize,
             truncation_sigmas=truncation_sigmas,
@@ -1403,217 +1376,6 @@ def _cos_sim_raw_ma_scalar(
     )
 
 
-def _cos_sim_raw_ma_broadcast(
-    p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_exch_vec=None,
-    *,
-    a_is_list: bool,
-    b_is_list: bool,
-    method: str = "auto",
-    normalize: str = "cosine",
-    truncation_sigmas: float | None = None,
-    kernel_precision: str | None = None,
-    verbose: bool = True,
-) -> np.ndarray:
-    """Raw multi-attribute scalar-vs-list broadcast.
-
-    Exactly one of the two operands is a list of per-attribute ``p_attr``
-    blocks (cell-of-cells). The scalar operand is built once and reused
-    against every list entry. Weights for the list operand are shared
-    across all entries (one ``w`` value, not a list of weights).
-
-    Route order on this form:
-
-    1. **Python only.** A list tagged by
-       :func:`~mpt.translate_attributes` (a
-       :class:`~mpt._tensor.preprocessing.TranslatedSweep`) is reduced to
-       one mixture in the offset through :func:`sweep_sim_maet`
-       when ``method='auto'`` and the sweep is eligible. The MATLAB
-       toolbox has no tagged-sweep type, so this reduction has no twin
-       there; an untagged list never reaches it.
-    2. The all-``r = 1`` broadcast fast path (:func:`_r1_broadcast_fast`),
-       when ``method in ('auto', 'bulger')`` and every density is a flat
-       ``MaetDensity`` of identical geometry with every ``r_a = 1``. This
-       is the twin of MATLAB's ``localR1BroadcastFast`` on the same form,
-       gated identically, so an untagged raw-MA list takes the same route
-       in both languages.
-    3. Otherwise the per-entry loop through :func:`_cos_sim_pair_core`
-       with the caller's ``method`` and widths.
-
-    Returns a 1-D ``ndarray`` of length M, the list length.
-    """
-    if a_is_list == b_is_list:
-        # Caller (sim_maet) is responsible for ensuring exactly
-        # one operand is a list; this is a sanity guard.
-        raise RuntimeError(
-            "_cos_sim_raw_ma_broadcast called without a clear "
-            "scalar-vs-list configuration."
-        )
-
-    # Identify the list side and build the scalar side once.
-    if b_is_list:
-        scalar_pAttr, scalar_w = p_attr1, w1
-        list_pAttr,  list_w   = p_attr2, w2
-        scalar_first = True   # densX is scalar, densY is per-entry
-    else:
-        scalar_pAttr, scalar_w = p_attr2, w2
-        list_pAttr,  list_w   = p_attr1, w1
-        scalar_first = False  # densX is per-entry, densY is scalar
-
-    dens_scalar = build_maet(
-        scalar_pAttr, scalar_w, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=verbose,
-    )
-
-    # A tagged sweep from translate_attributes carries the offsets that
-    # produced it, so the whole list can be evaluated as one mixture in
-    # the offset instead of one inner product per entry. The reduction
-    # declines on any shape it does not cover, and the per-entry loop
-    # below then runs unchanged.
-    fast = _try_sweep_reduction(
-        list_pAttr, list_w, dens_scalar,
-        sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_exch_vec,
-        scalar_first=scalar_first,
-        normalize=normalize,
-        method=method,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-        verbose=verbose,
-    )
-    if fast is not None:
-        return fast
-
-    M = len(list_pAttr)
-    dens_list = [
-        build_maet(
-            list_pAttr[m], list_w, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=False,
-        )
-        for m in range(M)
-    ]
-
-    # Batched all-r = 1 broadcast (twin of MATLAB's localR1BroadcastFast
-    # on this form): one shared operand against many queries of
-    # identical geometry evaluates every cross term in a single kernel
-    # pass, with per-segment truncation thresholds so each pair's
-    # threshold equals its per-pair value. Gated on the same methods as
-    # the density-list form; a forced 'mobius'/'centres'/'contract'
-    # names a route through the per-pair core and is honoured there.
-    # Returns None whenever any structural condition fails, and the
-    # per-entry loop below then runs unchanged.
-    if M > 0 and method in ("auto", "bulger"):
-        pairs = ([(dens_scalar, d) for d in dens_list] if scalar_first
-                 else [(d, dens_scalar) for d in dens_list])
-        fast = _r1_broadcast_fast(
-            pairs,
-            shared_is_x=scalar_first,
-            normalize=normalize,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-        )
-        if fast is not None:
-            return np.asarray(fast, dtype=np.float64).reshape(M)
-
-    out = np.empty(M, dtype=np.float64)
-    for m in range(M):
-        dens_m = dens_list[m]
-        if scalar_first:
-            out[m] = _cos_sim_pair_core(
-                dens_scalar, dens_m,
-                method=method,
-                normalize=normalize,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
-                verbose=False,
-            )
-        else:
-            out[m] = _cos_sim_pair_core(
-                dens_m, dens_scalar,
-                method=method,
-                normalize=normalize,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
-                verbose=False,
-            )
-    return out
-
-
-
-def _try_sweep_reduction(
-    list_pAttr, list_w, dens_scalar,
-    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_exch_vec,
-    *, scalar_first, normalize, method,
-    truncation_sigmas, kernel_precision, verbose,
-):
-    """Evaluate a tagged translation sweep as a mixture in the offset.
-
-    Returns the length-M result array, or ``None`` when the reduction
-    does not apply --- an untagged list, a non-uniform or unrecoverable
-    offset, a mode the reduction refuses, or an explicitly forced
-    ``method``. Returning ``None`` leaves the caller's per-entry loop to
-    run, so every input still reaches a correct answer by some route.
-    """
-    from .preprocessing import TranslatedSweep
-    from .sweep import sweep_sim_maet, sweep_eligibility
-
-    if not isinstance(list_pAttr, TranslatedSweep):
-        return None
-    # A forced method names a route through the per-pair core; honour it
-    # rather than substituting a different computation.
-    if method not in ("auto",):
-        return None
-    off = np.asarray(list_pAttr.sweep_offsets, dtype=np.float64)
-    if off.size == 0 or not np.all(np.isfinite(off)):
-        return None
-
-    dens_base = build_maet(
-        list_pAttr.sweep_base, list_w, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, is_exch_vec, verbose=False,
-    )
-    # The sweep translates the query; when the tagged list is the first
-    # operand the roles reverse, and translating X by mu is translating
-    # Y by -mu with the operands exchanged (the inner product is
-    # symmetric, and 'oneSidedDenom' divides by the second operand,
-    # which is the tagged one either way).
-    if normalize == "none":
-        return None
-    if scalar_first:
-        dens_x, dens_y, off_use = dens_scalar, dens_base, off
-    else:
-        if normalize != "cosine":
-            return None
-        dens_x, dens_y, off_use = dens_base, dens_scalar, -off
-
-    ok, _ = sweep_eligibility(dens_x, dens_y, off_use)
-    if not ok:
-        return None
-    return sweep_sim_maet(
-        dens_x, dens_y, off_use,
-        normalize=normalize,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-        verbose=verbose,
-    )
-
-
-
-# -------------------------------------------------------------------
-#  _sim_maet_ma  (multi-attribute inner product; orbit constants)
-# -------------------------------------------------------------------
-
-
-"""Maximum kernel entries per translation-grid slab in the rel-mode
-orbit inner product (~4 MB of doubles). The contraction makes several
-permute and power copies of each slab, so the live working set is a
-small multiple of this; the value keeps it memory-resident on typical
-hardware, where the contraction's per-op cost is flat in K. Slab count
-grows only the loop overhead, which is negligible against the per-slab
-contraction work."""
-
-
-
-
-
 def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     """The flat selector's inputs for a cosine between two pruned densities.
 
@@ -1772,7 +1534,7 @@ def _sim_maet_ma(
     (``_ip_core_ma``) — and the Möbius method. With the default
     ``method='auto'`` the flat selector
     (:func:`~mpt._tensor.dispatch._select_ma_inner_product_method`)
-    decides: structural rules first (tuple order, feasibility, the
+    decides: structural rules first (tuple size, feasibility, the
     working-set guard, the rel-per wrap rule above
     :func:`_orbit_sigma_over_p_threshold`), then the cost race. Where
     both methods are admissible they agree to within the truncation
@@ -3821,11 +3583,7 @@ def _build_pre_maet_args(args, *, verbose=True):
     needs, so it stands wherever a density does and is built here. That
     goes for a *list* of them too: a list of pre-MAETs stands wherever a
     list of densities does, so the list and scalar-vs-list forms take
-    them without the caller building each one first. A translation sweep
-    (:class:`~mpt._tensor.preprocessing.TranslatedSweep`) carried inside
-    a pre-MAET is one such list, sharing one geometry, and is expanded
-    the same way, its offsets carried through so the mixture reduction
-    still applies.
+    them without the caller building each one first.
 
     The loose triple has no such form, since the three parts are not
     distinguishable from the surrounding positional geometry.
@@ -3833,10 +3591,6 @@ def _build_pre_maet_args(args, *, verbose=True):
     ``verbose`` governs these builds too, so a quiet call stays quiet.
     """
     from .premaet import is_pre_maet
-    from .preprocessing import TranslatedSweep
-
-    def _is_sweep_pm(a):
-        return is_pre_maet(a) and isinstance(a.get("p_attr"), TranslatedSweep)
 
     def _listish(a):
         return isinstance(a, (list, tuple)) and any(is_pre_maet(x) for x in a)
@@ -3846,19 +3600,6 @@ def _build_pre_maet_args(args, *, verbose=True):
     from .build import build_maet
 
     def _one(a):
-        if _is_sweep_pm(a):
-            # One geometry, one density per sweep entry; the offsets ride
-            # along so sim_maet can still reduce the sweep to a
-            # mixture in the offset.
-            sweep = a["p_attr"]
-            built = [build_maet({"p_attr": list(block),
-                                     "w_attr": a.get("w_attr"),
-                                     "specs": a.get("specs")},
-                                    verbose=verbose)
-                     for block in sweep]
-            return TranslatedSweep(built,
-                                   sweep_offsets=sweep.sweep_offsets,
-                                   sweep_base=sweep.sweep_base)
         if is_pre_maet(a):
             return build_maet(a, verbose=verbose)
         if _listish(a):

@@ -307,105 +307,34 @@ def test_offsets_shape_is_validated():
 
 
 # -------------------------------------------------------------------
-#  Automatic routing from translate_attributes
+#  Translated copies, compared entry by entry
 # -------------------------------------------------------------------
 
 
-def _tagged(p_y, off):
+def _translated(p_y, off):
+    """One translate_attributes call per offset column."""
     A = len(p_y)
-    entries, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(
-        p_y, None, [off[a].reshape(1, -1) for a in range(A)]))
-    return entries
-
-
-def test_translate_attributes_tags_its_sweep():
-    p_y = [np.zeros((2, 3)), np.zeros((2, 3))]
-    off = _offsets(2, swept=(0, 1))
-    tagged = _tagged(p_y, off)
-    assert isinstance(tagged, list)
-    assert isinstance(tagged, mpt.TranslatedSweep)
-    assert len(tagged) == off.shape[1]
-    assert np.allclose(tagged.sweep_offsets, off)
-
-
-def test_single_translation_is_untagged():
-    """``M = 1`` returns a value-list, as before, with nothing attached."""
-    p_y = [np.zeros((2, 3))]
-    out, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(p_y, None, [2.0]))
-    assert not isinstance(out, mpt.TranslatedSweep)
-    assert isinstance(out, list) and isinstance(out[0], np.ndarray)
+    return [mpt.unpack_pre_maet(mpt.translate_attributes(
+                p_y, None, [off[a, m] for a in range(A)]))[0]
+            for m in range(off.shape[1])]
 
 
 @pytest.mark.parametrize("K,r", [(1, 1), (3, 3), (4, 2)])
-def test_tagged_sweep_routes_and_agrees(K, r):
-    """The tagged list and a plain list of the same entries agree."""
+def test_translated_copies_agree_with_the_sweep(K, r):
+    """Densities of the translated copies, compared one by one, equal the
+    per-offset reference and sweep_sim_maet's one-pass mixture."""
     p_x, p_y = _random_case(K, 6, 3, 2, seed=70 + K)
     off = _offsets(2, swept=(0, 1))
-    A = 2
-    args = ([0.9] * A, [r] * A, [0] * A, [0] * A, [None] * A, [1] * A)
-    tagged = _tagged(p_y, off)
-    kw = dict(truncation_sigmas=np.inf, verbose=False)
-    fast = sim_maet(p_x, None, tagged, None, *args, **kw)
-    slow = sim_maet(p_x, None, list(tagged), None, *args, **kw)
-    assert _rel_dev(fast, slow) <= PARITY
-
-
-def test_tagged_sweep_routes_with_operands_reversed():
-    p_x, p_y = _random_case(3, 6, 3, 2, seed=81)
-    off = _offsets(2, swept=(0, 1))
-    args = ([0.9] * 2, [3] * 2, [0] * 2, [0] * 2, [None] * 2, [1] * 2)
-    tagged = _tagged(p_y, off)
-    kw = dict(truncation_sigmas=np.inf, verbose=False)
-    fast = sim_maet(tagged, None, p_x, None, *args, **kw)
-    slow = sim_maet(list(tagged), None, p_x, None, *args, **kw)
-    assert _rel_dev(fast, slow) <= PARITY
-
-
-def test_untagged_list_still_computes():
-    """A hand-built sweep is not accelerated, and is still correct.
-
-    Recovering offsets from translated values would need a tolerance,
-    and no tolerance both admits every honestly translated sweep and
-    preserves the parity floor. Untagged lists therefore take the
-    per-offset path.
-    """
-    p_x, p_y = _random_case(3, 5, 2, 1, seed=91)
-    off = _offsets(1)
-    hand_built = [[p_y[0] + off[0, m]] for m in range(off.shape[1])]
-    args = ([0.9], [3], [0], [0], [None], [1])
-    kw = dict(truncation_sigmas=np.inf, verbose=False)
-    got = sim_maet(p_x, None, hand_built, None, *args, **kw)
+    args = ([0.9] * 2, [r] * 2, [0] * 2, [0] * 2, [None] * 2, [1] * 2)
+    dx, dy, _ = _densities(p_x, p_y, 0.9, r)
+    copies = [build_maet(p, None, *args, verbose=False)
+              for p in _translated(p_y, off)]
+    got = sim_maet(dx, copies, truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
     assert _rel_dev(got, ref) <= PARITY
-
-
-def test_forced_method_bypasses_the_reduction():
-    """An explicit ``method`` names a route; it is honoured, not replaced."""
-    p_x, p_y = _random_case(3, 5, 2, 1, seed=92)
-    off = _offsets(1)
-    args = ([0.9], [3], [0], [0], [None], [1])
-    tagged = _tagged(p_y, off)
-    kw = dict(truncation_sigmas=np.inf, verbose=False)
-    got = sim_maet(p_x, None, tagged, None, *args,
-                           method="mobius", **kw)
-    ref = _reference(p_x, p_y, off, args, method="mobius",
-                     truncation_sigmas=np.inf)
-    assert _rel_dev(got, ref) <= PARITY
-
-
-def test_relative_no_op_column_still_agrees():
-    """A uniform offset on a relative attribute is a no-op in both paths."""
-    p_x, p_y = _random_case(3, 6, 3, 2, seed=93)
-    off = _offsets(2, swept=(0, 1))
-    args = ([0.9] * 2, [3] * 2, [0, 1], [0] * 2, [None] * 2, [1] * 2)
-    with pytest.warns(mpt.TranslateAttributesNoOpWarning):
-        tagged, _, _ = mpt.unpack_pre_maet(mpt.translate_attributes(
-            p_y, None, [off[a].reshape(1, -1) for a in range(2)],
-            specs=[{"rel": False}, {"rel": True}]))
-    kw = dict(truncation_sigmas=np.inf, verbose=False)
-    fast = sim_maet(p_x, None, tagged, None, *args, **kw)
-    slow = sim_maet(p_x, None, list(tagged), None, *args, **kw)
-    assert _rel_dev(fast, slow) <= PARITY
+    mix = sweep_sim_maet(dx, dy, off, truncation_sigmas=np.inf,
+                         verbose=False)
+    assert _rel_dev(got, mix) <= 1e-9
 
 
 # -------------------------------------------------------------------

@@ -282,3 +282,25 @@ class TestCsvRoundTrip:
                "sigma": 1.0, "is_per": False, "period": 0.0}]
         out = mpt.write_pre_maet(None, p, None, sp, max_events=3)
         assert "n = 20" in out and "..." not in out
+
+    def test_ordered_slots_keep_their_positions(self):
+        """An ordered attribute's slot is its level, so an empty slot
+        before the last value is written as a blank and read back into
+        the same slot; an unordered attribute is written compacted."""
+        nan = np.nan
+        p = [[[60, 64, 67], [62, nan, 67], [nan, 65, nan], 64, []],
+             [0, 1, 2, 3, 4]]
+        sp = [{"name": "pitch", "r": 1, "rel": False, "exch": False,
+               "sigma": 0.5, "is_per": False, "period": 0.0},
+              {"name": "onset", "r": 1, "rel": False, "exch": True,
+               "sigma": 0.25, "is_per": False, "period": 0.0}]
+        pm = mpt.pack_pre_maet(p, None, sp)
+        out = mpt.write_pre_maet(None, pm)
+        assert '"(62, _, 67)","(_, 65)",64,()' in out
+        back = mpt.read_pre_maet(out)
+        np.testing.assert_array_equal(back["p_attr"][0], pm["p_attr"][0])
+        assert mpt.write_pre_maet(None, back) == out
+        sp[0]["exch"] = True
+        out = mpt.write_pre_maet(None, mpt.pack_pre_maet(p, None, sp))
+        assert '"{62, 67}",65,64,{}' in out
+

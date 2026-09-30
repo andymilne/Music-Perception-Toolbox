@@ -2,7 +2,7 @@
 %
 %  The cosine dispatch forces the single-image Bulger route when the
 %  Möbius method is unavailable (r above the shipped orbit order, or the
-%  feasibility bound). At high tuple order the Bulger tuple-pair kernel
+%  feasibility bound). At large tuple size the Bulger tuple-pair kernel
 %  can be infeasibly large; auto-dispatch must then raise
 %  mpt:dispatch:singleImageInfeasible rather than risk an out-of-memory
 %  crash. Explicit method='bulger' is the user's own choice and is

@@ -10,10 +10,10 @@ kernel rather than a Fourier transform):
 Both accept an optional positional-jitter ``sigma`` with a closed-form
 Gaussian kernel (Gaussian-CDF for ``coherence``, Gaussian-match for
 ``sameness``) and the ``sigmaSpace`` flag controlling whether the
-variance is per-event-position or per-interval (see USER_GUIDE §6.5).
+variance is per-event-position or per-interval (see USER_GUIDE §12.7).
 
 The Fourier-based scale-structure measures (:func:`balance`,
-:func:`evenness`) live in :mod:`._circular.dft`; see USER_GUIDE §6.5
+:func:`evenness`) live in :mod:`._circular.dft`; see USER_GUIDE §12.7
 ("Scale and rhythm structure") for the user-facing description of
 this module and the non-Fourier members of :mod:`._circular.pulse`.
 """

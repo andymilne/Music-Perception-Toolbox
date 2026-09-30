@@ -1145,15 +1145,3 @@ def recipe_work(recipe: _Node):
                 tot += w(c)
         return tot
     return int(w(recipe))
-
-
-def quad_nodes(is_rel, is_per, sigma, period, vmin, vmax, truncation_sigmas):
-    """Quadrature node count Q for the cost estimate (1 / ntau / ntau_line)."""
-    if not is_rel:
-        return 1
-    tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2), 1e-12)
-    if is_per:
-        return auto_ntau(period, sigma, tol)
-    spread = float(vmax - vmin)
-    pad = (6.0 + 0.5 * max(0.0, -math.log10(max(tol, 1e-16)))) * sigma
-    return int(max(64, math.ceil(2.0 * (spread + pad) / (sigma / 4.0))))

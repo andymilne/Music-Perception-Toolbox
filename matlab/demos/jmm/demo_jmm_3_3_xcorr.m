@@ -77,7 +77,6 @@ context = preMaetFromAttrTable(pe.voice2Table, 'attributes', { ...
     struct('column', 'onset', 'name', 'time', 'sigma', SIGMA_TIME)}, ...
     'time', 'seconds', 'chords', 'separate', 'weights', 'ones');
 ctxPAttr = unpackPreMaet(context);
-t2 = ctxPAttr{2};
 
 % --- anchors and lag grid -----------------------------------------------------
 nCells = pe.nRepsV1;
@@ -108,7 +107,8 @@ R = reshape(R, size(offsets));
 % reach from the anchor (one cell and two pulses either side) holds fewer
 % than one full cell of Piano 2's events.
 HALF = CELL_DUR + 2 * IOI;
-ctxCounts = arrayfun(@(a) sum((t2 >= a - HALF) & (t2 <= a + HALF)), anchors);
+ctxCounts = arrayfun(@(a) sum((ctxPAttr{2} >= a - HALF) ...
+                              & (ctxPAttr{2} <= a + HALF)), anchors);
 R(ctxCounts < pe.nc, :) = NaN;
 
 % --- true lag staircase for overlay ------------------------------------------

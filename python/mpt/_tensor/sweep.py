@@ -776,7 +776,7 @@ def _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok):
     The two scale differently in the same problem. The mixture pays one
     pass over the tuple pairs --- ``n_J * n_K``, which grows as
     ``[C(K, r) r!]^2`` --- and must also *store* the survivors, so it is
-    the memory-bound route at high tuple order. The orbit route pays
+    the memory-bound route at large tuple size. The orbit route pays
     per offset instead, but its unit of work is an orbit contraction
     over the ``K_x * K_y`` value kernel, with no tuple enumeration
     anywhere. The comparison below is between those two products.
@@ -817,8 +817,8 @@ def _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok):
 
     # Memory decides before speed does. The mixture must hold its
     # surviving components --- one centre per swept attribute, plus a
-    # weight and an amplitude, per tuple pair --- and at high tuple
-    # order that array is what fails first, whatever the timings say.
+    # weight and an amplitude, per tuple pair --- and at large tuple
+    # size that array is what fails first, whatever the timings say.
     from .._utils import kernel_chunk_bytes_resolved
 
     n_swept = sum(1 for a in range(A) if np.any(off[a] != 0.0))
@@ -1005,10 +1005,13 @@ def sweep_sim_maet(
 
     The offsets are supplied directly, so nothing is inferred: the
     result is the sweep the caller asked for, and agrees with the
-    per-offset path to the truncation floor. Building the translated
-    value matrices with :func:`~mpt.translate_attributes` and passing
-    them to :func:`~mpt.sim_maet` reaches the same computation,
-    since that output carries its offsets with it.
+    per-offset path to the truncation floor.
+
+    ``sweep_sim_maet`` and :func:`~mpt.swept_similarity` are the routes
+    for a swept translation similarity: this function takes built
+    densities and an ``(A, M)`` offset array (any path of offsets, with
+    densities reusable across sweeps); ``swept_similarity`` takes
+    pre-MAETs and sweep values, and adds windows and dropped attributes.
 
     Parameters
     ----------
@@ -1067,7 +1070,7 @@ def sweep_sim_maet(
 
     See Also
     --------
-    sim_maet, translate_attributes, windowed_similarity
+    swept_similarity, sim_maet, build_maet
     """
     from .._defaults import resolve_truncation_sigmas
     from .cosine import _finalise_normalisation

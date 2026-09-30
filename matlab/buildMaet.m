@@ -47,7 +47,7 @@ function dens = buildMaet(varargin)
 %     p         - Pitch or position values (vector of length N).
 %     w         - Weights (vector of length N, empty, or scalar — see
 %                 the toolbox's standard broadcast convention in
-%                 User Guide §5).
+%                 User Guide §10.4).
 %     sigma     - Standard deviation of the Gaussian kernel.
 %     r         - Tuple size (positive integer; r >= 2 if isRel = true).
 %     isRel     - If true, use transposition-invariant (relative)
@@ -64,17 +64,25 @@ function dens = buildMaet(varargin)
 %                 (a voicing, the coordinates of a categorical vertex).
 %
 %   Inputs (multi-attribute path):
-%     pAttr     - 1 x A cell array of K_a x N matrices (attribute positions).
-%                 Shapes are honoured literally: a [K x 1] column is
-%                 K atoms of one event, a [1 x N] row is one atom of N
-%                 events, and a [K x N] matrix is K atoms of N events.
-%                 No flattening is applied.
+%     pAttr     - 1 x A cell of attributes, each given per event or as a
+%                 matrix. Per event, an attribute is a 1 x N cell whose
+%                 n-th entry holds the values of event n (a scalar, a
+%                 vector, or [] for no value): {[60 64 67], 62, 64, 65}
+%                 is a chord followed by three single notes. As a matrix,
+%                 it is K_a x N, one column per event, padded with NaN;
+%                 the per-event form is converted to it. Matrix shapes
+%                 are honoured literally: a [K x 1] column is K atoms of
+%                 one event, a [1 x N] row is one atom of N events, and a
+%                 [K x N] matrix is K atoms of N events.
 %     wAttr     - Weights. One of:
 %                   []       -> all ones
 %                   scalar   -> uniform value, broadcast to all attributes
 %                   1 x A cell of per-attribute inputs
-%                 Each per-attribute input is [], scalar, 1 x N row,
-%                 K_a x 1 column, or K_a x N matrix; broadcasts to K_a x N.
+%                 Each per-attribute input is [], scalar, a per-event
+%                 1 x N cell (each entry a scalar for all the event's
+%                 values, or a vector with one weight per value), 1 x N
+%                 row, K_a x 1 column, or K_a x N matrix; broadcasts to
+%                 K_a x N.
 %     sigmaVec  - 1 x A vector of per-attribute Gaussian widths
 %     rVec      - 1 x A vector of per-attribute tuple sizes
 %     isRelVec  - 1 x A logical vector of per-attribute isRel flags
@@ -530,6 +538,11 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
               'pAttr must be a non-empty cell array of attribute matrices.');
     end
     A = numel(pAttr);
+
+    % An attribute given per event (a 1 x N cell of the events' values)
+    % becomes its NaN-padded K_a x N matrix, and per-event weights their
+    % matching K_a x N matrix.
+    [pAttr, wIn] = internal.perEventParts(pAttr, wIn);
 
     % Coerce each attribute input to its 2-D K_a x N shape. MATLAB
     % treats everything as at least 2-D, so a user-supplied column

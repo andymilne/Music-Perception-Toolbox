@@ -137,7 +137,7 @@ end
 %% ---- Section 3: how each route scales with the value count ----
 
 % The shipped count charges the translation-grid route a term in n^2 at
-% every tuple order. This section measures whether that is the right
+% every tuple size. This section measures whether that is the right
 % shape, and does so for each route separately.
 %
 % Three arms, over the same sweep:
@@ -154,7 +154,7 @@ end
 % sweep, and the resulting curve is a mixture of two routes rather than
 % the scaling of either. mptDefaults('relAttrRoute', ...) pins it.
 %
-% The value counts are set per arm as well as per order. Bulger's method
+% The value counts are set per arm as well as per tuple size. Bulger's method
 % and the centres route both grow as K^(2r) -- at r = 3 the centres route
 % already takes tens of seconds at K = 20 -- and their shape is settled
 % long before the top of the range. The grid route is the one the n^2
@@ -180,7 +180,7 @@ ARMBUDGETSEC = 3;
 
 prevRoute = mptDefaults('relAttrRoute');
 
-fprintf('\nSection 3 -- scaling by route and tuple order\n');
+fprintf('\nSection 3 -- scaling by route and tuple size\n');
 
 for ri = 1:numel(rOrders)
     ra = rOrders(ri);
@@ -319,7 +319,7 @@ for ci = 1:size(s6cells, 1)
             s6sop = sigma / period;
         else
             % The node density is tied to the accuracy floor and to the
-            % tuple order, so it is resolved per cell.
+            % tuple size, so it is resolved per cell.
             s6sps = internal.resolveSamplesPerSigma([], s6r, s6ts);
             s6span = (max(px) - min(px)) + (max(py) - min(py)) ...
                      + 2 * s6margin * sigma;

@@ -68,7 +68,7 @@ def gaussian_kernel_sum(
     is_rel : bool, default False
         Use the rel-mode quadratic form (requires ``r >= 2``).
     r : int, default 0
-        Tensor order, required for ``is_rel=True``.
+        Tuple size, required for ``is_rel=True``.
     is_per : bool, default False
         Periodic mode: wraps differences to ``[-period/2, period/2)``
         before applying ``Q``. Truncation applies here too: the 1-D
@@ -685,19 +685,6 @@ def _truncated_kernel_sum_1d_circular(C, wJ, X, sigma, period, k_sigma,
     kernel = np.exp(-(diffs * diffs) * inv2s2)
     kernel = np.where(mask, kernel, 0.0)
     return (kernel * w_slices).sum(axis=1).astype(C.dtype, copy=False)
-
-
-def _sub_to_ind(siz: np.ndarray, subs: np.ndarray) -> np.ndarray:
-    """Vectorised sub2ind for (nDim, n) subscript columns (0-indexed)."""
-    n_dim, n = subs.shape
-    if n_dim == 1:
-        return subs[0].astype(np.int64, copy=False)
-    lin = subs[0].astype(np.int64, copy=False).copy()
-    stride = 1
-    for d in range(1, n_dim):
-        stride *= int(siz[d - 1])
-        lin = lin + subs[d].astype(np.int64) * stride
-    return lin
 
 
 def _neighbour_offsets(dim: int) -> np.ndarray:

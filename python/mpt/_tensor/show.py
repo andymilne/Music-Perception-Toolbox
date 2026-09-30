@@ -69,11 +69,11 @@ def _unpack(p_attr, w, specs, sigma, is_rel, is_per, period, names):
         W = None
     else:
         if not isinstance(w, (list, tuple)):
-            w = [w]
-        W = [np.atleast_2d(np.asarray(M, dtype=float)) for M in w]
-        if len(W) != A:
+            w = [w] * A
+        if len(w) != A:
             raise ValueError(
-                f"w has {len(W)} attributes but p_attr has {A}.")
+                f"w has {len(w)} attributes but p_attr has {A}.")
+        W = [_weights_like(M, P[a], a) for a, M in enumerate(w)]
     if specs is None:
         sp = [{"r": 1, "rel": False, "exch": True} for _ in range(A)]
     else:
@@ -97,6 +97,25 @@ def _unpack(p_attr, w, specs, sigma, is_rel, is_per, period, names):
         for a, v in enumerate(_bcast(is_rel, A, "is_rel", bool)):
             sp[a]["rel"] = v
     return P, W, sp, params, _names(names, sp, A)
+
+
+def _weights_like(M, P_a, a):
+    """An attribute's weights broadcast to its value matrix: ``None`` is
+    unit weights, and a scalar, a per-event row, or a per-value column
+    is spread across the matrix, as at build time."""
+    K, N = P_a.shape
+    if M is None:
+        return np.ones((K, N))
+    W_a = np.asarray(M, dtype=float)
+    if W_a.ndim <= 1 and W_a.size == K and K != N:
+        W_a = W_a.reshape(K, 1)
+    W_a = np.atleast_2d(W_a)
+    try:
+        return np.broadcast_to(W_a, (K, N)).copy()
+    except ValueError:
+        raise ValueError(
+            f"attribute {a}: weights of shape {W_a.shape} do not match its "
+            f"{K} x {N} values.") from None
 
 
 def _bcast(v, A, what, cast):
@@ -196,6 +215,10 @@ def _param_num(x):
 #  Cell model: one attribute at one event, as a bracket tree
 # -------------------------------------------------------------------
 
+# An empty slot of an ordered attribute, shown between its values.
+_BLANK = "_"
+
+
 def _cell_tree(p_col, w_col, spec, max_elements):
     """Nested list of leaf strings-to-be, honouring the tag hierarchy.
 
@@ -209,9 +232,21 @@ def _cell_tree(p_col, w_col, spec, max_elements):
     tags = spec.get("tags")
 
     if tags is None:
-        leaves = [(float(p_col[k]),
-                   None if w_col is None else float(w_col[k]))
-                  for k in np.flatnonzero(finite)]
+        if exch_levels and not exch_levels[0]:
+            # Ordered: the slot is the level (a voice, a coordinate), so
+            # an empty slot before the last value is shown as a blank and
+            # the values keep their positions. Trailing empty slots are
+            # left off, since reading a cell fills slots from the first.
+            last = (int(np.flatnonzero(finite)[-1]) + 1
+                    if finite.any() else 0)
+            leaves = [(float(p_col[k]),
+                       None if w_col is None else float(w_col[k]))
+                      if finite[k] else _BLANK
+                      for k in range(last)]
+        else:
+            leaves = [(float(p_col[k]),
+                       None if w_col is None else float(w_col[k]))
+                      for k in np.flatnonzero(finite)]
         return _elide(leaves, max_elements), exch_levels
 
     T = np.asarray(tags)
@@ -289,6 +324,9 @@ def _render_leaves(leaves, decimals, show_w, latex, exch, top):
     for leaf in leaves:
         if leaf == "...":
             items.append("\\dots" if latex else _ELLIPSIS_C)
+            continue
+        if leaf is _BLANK:
+            items.append("\\_" if latex else _BLANK)
             continue
         v, wt = leaf
         s = _num(v, decimals)
@@ -448,8 +486,11 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
     are formed. A cell is brace-delimited where the attribute is
     unordered (``[exch] = 1``) and parenthesis-delimited where it is
     ordered; a nested attribute is bracketed level by level, the
-    outermost level outermost. A single element is written bare. Where
-    the weights are not uniform they are written as parenthesized
+    outermost level outermost. A single element is written bare. On an
+    ordered attribute the slot is the level (a voice, a coordinate), so
+    an empty slot (NaN) before the event's last value is written as a
+    blank, ``(62, _, 67)``; on an unordered one empty slots are omitted.
+    Where the weights are not uniform they are written as parenthesized
     superscripts on their values, ``60^(0.6)``.
 
     Two inputs are accepted, as elsewhere in the toolbox: a density
@@ -460,8 +501,9 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
     Parameters
     ----------
     p_attr : MaetDensity or list of array-like
-        A built density, or the length-A list of per-attribute
-        ``(K_a, N)`` value matrices. NaN entries are absent elements.
+        A built density, or the length-A list of attributes, each given
+        per event or as a ``(K_a, N)`` value matrix (see
+        :func:`pack_pre_maet`). NaN entries are absent elements.
     w : list of array-like, optional
         Per-attribute weight matrices, matching ``p_attr``. None is
         uniform.

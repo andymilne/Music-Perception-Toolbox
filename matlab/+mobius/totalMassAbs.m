@@ -20,7 +20,7 @@ function Z = totalMassAbs(p_unused, w, sigma, r) %#ok<INUSL>
 %     P      Ignored (kept for signature symmetry).
 %     W      Weights vector.
 %     SIGMA  Scalar bandwidth.
-%     R      Integer tensor order, R >= 1.
+%     R      Integer tuple size, R >= 1.
 %
 %   See also MOBIUS.TOTALMASSREL.
 

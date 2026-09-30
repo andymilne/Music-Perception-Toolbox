@@ -266,7 +266,7 @@ def test_predicted_walls_finite_and_positive(K, r, is_per):
 # It overrides the cost judgement only. Admissibility is not forceable:
 # above the sigma/period threshold the tuple-centres route evaluates a
 # kernel that is not positive definite, and with a value count below the
-# tuple order its tuple set is empty.
+# tuple size its tuple set is empty.
 
 
 @pytest.fixture(autouse=True)

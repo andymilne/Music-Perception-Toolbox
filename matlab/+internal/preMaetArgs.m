@@ -6,6 +6,8 @@ function [pAttr, wAttr, specs, rest] = preMaetArgs(args)
 %   remaining arguments. This front end returns the three parts of the
 %   pre-MAET and the arguments that follow it. Where the call passed the
 %   parts, specs is [] and the callee's own 'specs' name-value stands.
+%   Attributes given per event (see packPreMaet) are converted to their
+%   NaN-padded matrices.
 %
 %   Input
 %       args - 1 x n cell of the arguments as received.
@@ -25,6 +27,7 @@ if internal.isPreMaet(args{1})
     wAttr = pm.wAttr;
     specs = pm.specs;
     rest = args(2:end);
+    [pAttr, wAttr] = internal.perEventParts(pAttr, wAttr);
     return;
 end
 
@@ -37,4 +40,5 @@ pAttr = args{1};
 wAttr = args{2};
 specs = [];
 rest = args(3:end);
+[pAttr, wAttr] = internal.perEventParts(pAttr, wAttr);
 end

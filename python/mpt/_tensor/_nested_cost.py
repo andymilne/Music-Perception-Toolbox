@@ -11,7 +11,7 @@ module supplies the missing half, in the same shape as the flat model of
 
 * one fitted power law ``t_ms = exp(a) * term ** b`` per route and coarse
   structure key, keyed the way ``_REL_COST_LAW`` is keyed (there by tuple
-  order, here by the nested attribute's *total* tuple order);
+  size, here by the nested attribute's *total* tuple size);
 * a per-route setup floor applied with ``max`` (never added), as
   ``_ORBIT_REL_FLOOR_MS`` is, because a multiplicative law carries no fixed
   cost and extrapolates below what the route can do once the term is small;
@@ -86,7 +86,7 @@ import math
 import numpy as np
 
 #: Structure key for the fitted laws: the nested attribute's *total* tuple
-#: order, ``prod(r_levels)`` --- the number of leaf positions a tuple carries,
+#: size, ``prod(r_levels)`` --- the number of leaf positions a tuple carries,
 #: which is what ``dens.r[a]`` holds. The per-entry and per-node costs both
 #: grow with it (the relative quadratic form is ``O(R ** 2)`` per kernel
 #: entry, the centres array ``O(R)`` per tuple), so it is the one coarse index
@@ -307,7 +307,7 @@ def nested_attr_terms(dens_x, dens_y, a, *, skip_xx=False, skip_yy=False,
     node counts, as in the MATLAB ``internal.nestedCostTerms``.
     """
     from ._nested_contraction import (
-        build_recipe, quad_nodes, recipe_work, auto_ntau_default,
+        build_recipe, recipe_work, auto_ntau_default,
         auto_taus_line)
     from .._defaults import truncation_floor
 

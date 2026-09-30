@@ -196,6 +196,8 @@ class TestBoundary:
 
 
 class TestWindowed:
+    """swept_similarity and swept_entropy take whole pre-MAETs."""
+
     def test_a_nested_query_may_hold_fewer_values_than_the_context(self):
         """The two sides of one comparison share the nesting they are read
         under, not their inner cardinality: a context whose events hold
@@ -222,15 +224,15 @@ class TestWindowed:
                               specs=mpt.flat_specs(
                                   [q_vals, q_axis], r=1, rel=False, exch=True,
                                   sigma=0.5, is_per=False, period=0.0))
-        centres = mpt.unpack_pre_maet(ctx)[0][1][0]
-        out = np.asarray(mpt.windowed_similarity(
-            ctx, qry, centres=centres, context_window=(1.0, 1.0),
-            window_attr=1, drop_window_attr=True,
+        at = mpt.unpack_pre_maet(ctx)[0][1][0]
+        out = np.asarray(mpt.swept_similarity(
+            ctx, qry, sweep={1: at}, align={1: 'window'},
+            window={1: (1.0, 1.0)}, drop=[1],
             normalize='oneSidedDenom', verbose=False)).ravel()
-        assert out.shape == centres.shape and np.all(np.isfinite(out))
+        assert out.shape == at.shape and np.all(np.isfinite(out))
 
         # position by position, against the same comparison made directly
-        for k, _ in enumerate(centres):
+        for k, _ in enumerate(at):
             one = mpt.select_pre_maet(ctx, attributes=[0], events=[k])
             direct = mpt.sim_maet(
                 mpt.build_maet(one, verbose=False),
@@ -248,11 +250,9 @@ class TestWindowed:
                                  specs=mpt.flat_specs([vals], r=1, rel=False,
                                                       exch=True, sigma=0.5))
         with pytest.raises(ValueError, match="nests attribute|disagree on"):
-            mpt.windowed_similarity(nested, flat, centres=[0.0],
-                                    context_window=(1.0, 1.0), window_attr=0,
-                                    drop_window_attr=False, verbose=False)
-
-    """windowed_similarity and windowed_entropy take whole pre-MAETs."""
+            mpt.swept_similarity(nested, flat, sweep={0: [0.0]},
+                                 align={0: 'both'}, window={0: (1.0, 1.0)},
+                                 verbose=False)
 
     @staticmethod
     def _pair():
@@ -265,58 +265,60 @@ class TestWindowed:
                "sigma": 0.25, "is_per": False, "period": 0.0}]
         return pC, pQ, sp
 
-    KW = dict(window_attr=1, drop_window_attr=False, verbose=False)
+    KW = dict(align={1: "both"}, window={1: ("rect", 2.5)}, verbose=False)
 
     def test_similarity_matches_the_positional_form(self):
         pC, pQ, sp = self._pair()
         ctr = np.arange(0.0, 7.01, 0.5)
-        got = mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
-                                      mpt.pack_pre_maet(pQ, specs=sp), ctr,
-                                      **self.KW)
-        ref = mpt.windowed_similarity(
+        got = mpt.swept_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                   mpt.pack_pre_maet(pQ, specs=sp),
+                                   sweep={1: ctr}, **self.KW)
+        ref = mpt.swept_similarity(
             pC, None, pQ, None, [0.5, 0.25], [1, 1], [False, False],
-            [True, False], [12.0, 0.0], ctr, **self.KW)
+            [True, False], [12.0, 0.0], sweep={1: ctr}, **self.KW)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
 
     def test_entropy_matches_the_positional_form(self):
         pC, _, sp = self._pair()
         ctr = np.arange(0.0, 7.01, 0.5)
-        kw = dict(self.KW, context_window=("gauss", 2.0), method="renyi2")
-        got = mpt.windowed_entropy(mpt.pack_pre_maet(pC, specs=sp), ctr, **kw)
-        ref = mpt.windowed_entropy(
+        kw = dict(sweep={1: ctr}, window={1: ("gauss", 2.0)},
+                  method="renyi2", verbose=False)
+        got = mpt.swept_entropy(mpt.pack_pre_maet(pC, specs=sp), **kw)
+        ref = mpt.swept_entropy(
             pC, None, [0.5, 0.25], [1, 1], [False, False], [True, False],
-            [12.0, 0.0], ctr, **kw)
+            [12.0, 0.0], **kw)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
 
     def test_selective_override_sweeps_one_attribute(self):
         pC, pQ, sp = self._pair()
         ctr = np.arange(0.0, 7.01, 0.5)
-        base = mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
-                                       mpt.pack_pre_maet(pQ, specs=sp), ctr,
-                                       **self.KW)
-        got = mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
-                                      mpt.pack_pre_maet(pQ, specs=sp), ctr,
-                                      sigma=[2.0, None], **self.KW)
-        ref = mpt.windowed_similarity(
+        base = mpt.swept_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                    mpt.pack_pre_maet(pQ, specs=sp),
+                                    sweep={1: ctr}, **self.KW)
+        got = mpt.swept_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                   mpt.pack_pre_maet(pQ, specs=sp),
+                                   sweep={1: ctr}, sigma=[2.0, None],
+                                   **self.KW)
+        ref = mpt.swept_similarity(
             pC, None, pQ, None, [2.0, 0.25], [1, 1], [False, False],
-            [True, False], [12.0, 0.0], ctr, **self.KW)
+            [True, False], [12.0, 0.0], sweep={1: ctr}, **self.KW)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
         assert not np.allclose(got, base)      # the override took effect
 
     def test_specs_are_required(self):
         pC, pQ, _ = self._pair()
         with pytest.raises(ValueError, match="must carry its specs"):
-            mpt.windowed_similarity(mpt.pack_pre_maet(pC), mpt.pack_pre_maet(pQ),
-                                    np.array([0.0]), **self.KW)
+            mpt.swept_similarity(mpt.pack_pre_maet(pC), mpt.pack_pre_maet(pQ),
+                                 sweep={1: [0.0]}, **self.KW)
 
     def test_structural_geometry_must_agree(self):
         pC, pQ, sp = self._pair()
         sp2 = [dict(s) for s in sp]
         sp2[0]["rel"] = True
         with pytest.raises(ValueError, match="disagree on 'rel'"):
-            mpt.windowed_similarity(mpt.pack_pre_maet(pC, specs=sp),
-                                    mpt.pack_pre_maet(pQ, specs=sp2),
-                                    np.array([0.0]), **self.KW)
+            mpt.swept_similarity(mpt.pack_pre_maet(pC, specs=sp),
+                                 mpt.pack_pre_maet(pQ, specs=sp2),
+                                 sweep={1: [0.0]}, **self.KW)
 
 
 class TestLists:
@@ -360,21 +362,23 @@ class TestLists:
              mpt.build_maet(b, verbose=False)], **kw)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
 
-    def test_a_sweep_pre_maet_is_a_list(self):
-        """translate_attributes' sweep form carries one pre-MAET whose
-        p_attr is a length-M sweep; it stands as a list of densities on
-        the shared geometry, offsets and all."""
+    def test_translated_copies_stand_as_a_list(self):
+        """Translated copies, one translate_attributes call each, stand as
+        a list of pre-MAETs, built on the shared geometry."""
         a = self._pm([60, 64, 67])
-        pm_sw = mpt.translate_attributes(a, [np.array([[0.0, 3.0, 7.0]]),
-                                             None])
-        got = mpt.sim_maet(a, pm_sw, verbose=False)
-        built = [mpt.build_maet(
-            mpt.pack_pre_maet(blk, None, a["specs"]), verbose=False)
-            for blk in pm_sw["p_attr"]]
+        copies = [mpt.translate_attributes(a, [mu, None])
+                  for mu in (0.0, 3.0, 7.0)]
+        got = mpt.sim_maet(a, copies, verbose=False)
         ref = mpt.sim_maet(mpt.build_maet(a, verbose=False),
-                                   built, verbose=False)
+                           [mpt.build_maet(c, verbose=False) for c in copies],
+                           verbose=False)
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
         assert got[0] == pytest.approx(1.0)     # the zero offset
+
+    def test_translate_attributes_refuses_a_sweep(self):
+        a = self._pm([60, 64, 67])
+        with pytest.raises(ValueError, match="swept_similarity"):
+            mpt.translate_attributes(a, [np.array([[0.0, 3.0, 7.0]]), None])
 
 
 class TestGeometryOverrides:

@@ -1,7 +1,7 @@
 %% bench_ip_dispatch.m
 %  Times 'bulger', 'mobius', and 'auto' on single EDO-approximation
 %  pairs (JI harmonic reference vs n-EDO, rel-per, sigma = 6) across
-%  tensor orders r = 2..5. Reports, per (r, n) cell:
+%  tuple sizes r = 2..5. Reports, per (r, n) cell:
 %
 %    * c_pw, c_orb, ratio — per-op costs of the two paths and their
 %      unit-cost ratio. With the slabbed translation grid, c_orb should

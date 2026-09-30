@@ -61,7 +61,7 @@ from mpt._tensor.dispatch import _select_ma_inner_product_method
 
 # K = 100 at r = 2 is dropped: its Bulger arm runs for seconds and the
 # r = 2 curve is already determined by K = 64.
-# Three value counts per order rather than six: the event count is now a
+# Three value counts per tuple size rather than six: the event count is now a
 # swept axis too, and a full factorial over both would run for hours.
 # Geometric spacing separates a power law as well as a dense grid does.
 K_BY_ORDER = {2: [6, 16, 40], 3: [6, 12, 24], 4: [5, 8, 12]}
@@ -99,7 +99,7 @@ WEIGHT_PROFILES = ("flat", "decay", "bimodal")
 # enough to settle which method is faster, which is what the routing fit
 # is scored on. Dropping them would discard exactly the cells where the
 # decision is most consequential.
-# Event counts, capped by tuple order. Cost grows with the tuple order,
+# Event counts, capped by tuple size. Cost grows with the tuple size,
 # the value count and the event count together, and the budget can only
 # decline to *start* an arm --- neither language can interrupt one already
 # running --- so the worst cell has to be bounded by construction. Sixty-

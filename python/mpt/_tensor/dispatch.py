@@ -6,7 +6,7 @@ for a flat multi-attribute inner product
 (:func:`_select_ma_inner_product_method`) and between the joint-centres
 path and the factored Möbius evaluator for a multi-attribute point
 evaluation (:func:`_select_ma_eval`). Nothing is timed at call time:
-each selector applies its structural rules (user override, tuple order,
+each selector applies its structural rules (user override, tuple size,
 feasibility, the rel-per wrap/measure rule) and then compares two
 closed-form wall-time predictions built from the shape ``(r_a, K_a,
 N)``, the geometry, and the query count, with constants calibrated
@@ -21,7 +21,7 @@ The module also carries the small set of pure helpers
 ``_compute_Q``, ``_compute_Q_inner_blocks``) shared between
 :mod:`._tensor.cosine` and :mod:`._tensor.eval`.
 
-See USER_GUIDE §5 ("Method selection") for the user-facing description.
+See USER_GUIDE §11.1 ("Method selection") for the user-facing description.
 This module is imported by ``cosine`` and ``eval``, so it imports
 nothing from them at module load; the few lookups it needs from
 :mod:`._mobius_inner` and :mod:`.._defaults` are deferred to call time.
@@ -182,7 +182,7 @@ _ORBIT_ABS_PER_ATTR_MS = {
 
 
 #: Setup floor for the Möbius method on one **relative** attribute, in
-#: milliseconds, as ``(fixed, per_matrix)`` by tuple order; the floor for
+#: milliseconds, as ``(fixed, per_matrix)`` by tuple size; the floor for
 #: a call computing ``n_matrices`` of the three inner matrices is
 #: ``fixed + per_matrix * n_matrices``. Orders above 4 reuse the r = 4
 #: row.
@@ -236,7 +236,7 @@ _ORBIT_REL_FLOOR_MS = {2: (0.05, 0.067), 3: (0.09, 0.17), 4: (0.0, 2.65)}
 # the orchestrator takes; three matrices (cross plus both self-norms)
 # per attribute.
 #: Cost model for the method comparison: one power law per route and
-#: tuple order,
+#: tuple size,
 #:
 #:     t_ms = exp(a_r) * term ** b_r
 #:
@@ -280,7 +280,7 @@ _ORBIT_REL_FLOOR_MS = {2: (0.05, 0.067), 3: (0.09, 0.17), 4: (0.0, 2.65)}
 #: differently. Refit with tools/calibrate_rel_ip_cost.py.
 # The Bulger intercepts at r = 3 and r = 4 were re-anchored on the
 # 2052-cell calibration of 6 September 2026 (tools/calibrate_rel_ip_cost.py,
-# seeds 1-3): a per-order multiplicative correction to the Bulger
+# seeds 1-3): a per-tuple-size multiplicative correction to the Bulger
 # prediction, chosen to minimise routing regret, lowers the held-out
 # regret over random halves from 52 s to 30 s (factors 0.354 at r = 3 and
 # 2.48 at r = 4; the r = 2 profile is flat and its intercept is kept). A
@@ -408,7 +408,7 @@ def _predict_orbit_cost_ms(
     # from the cost estimation (memoised on the density, or not consumed by the
     # requested normalisation), mirroring
     # :func:`_predict_pairwise_kernel_size`. The relative-attribute
-    # terms drop the skipped self work exactly; the per-order absolute
+    # terms drop the skipped self work exactly; the per-tuple-size absolute
     # constants were fitted on the full three-matrix computation, so
     # they are scaled by the fraction of matrices still to be computed
     # --- an approximation, and one that understates the reduction (setup is not
@@ -515,7 +515,7 @@ def _select_ma_inner_product_method(
     - Bulger's method, all modes: ``_REL_COST_LAW['bulger']`` on the
       tuple-pair count of the three kernel matrices
       (:func:`_predict_pairwise_kernel_size`).
-    - Möbius method, absolute attributes: the per-order constants
+    - Möbius method, absolute attributes: the per-tuple-size constants
       ``_ORBIT_ABS_PER_ATTR_MS`` (mode-independent in benchmark, ±5 %).
     - Möbius method, relative attributes (per and nonper): each
       attribute at the cheaper of its two Möbius routes (tuple-centres
@@ -773,7 +773,7 @@ def _inner_r_vec(dens):
 def _quadratic_form_det(r, inner_r, is_rel) -> float:
     """Determinant of the relative-mode quadratic form ``M`` for one attribute.
 
-    A single flat attribute of tuple order ``r`` in relative mode carries
+    A single flat attribute of tuple size ``r`` in relative mode carries
     the metric ``M = I - e e^T / r`` (the all-ones removed once), whose
     determinant is ``1 / r``. A nested attribute whose active
     co-transposition unit has block size ``s_u`` (from
@@ -783,7 +783,7 @@ def _quadratic_form_det(r, inner_r, is_rel) -> float:
     determinant ``1``.
 
     Parameters mirror the three-way branch every normalisation site used
-    to inline: pass the attribute's tuple order ``r``, its block size
+    to inline: pass the attribute's tuple size ``r``, its block size
     ``inner_r`` (0 when flat), and its ``is_rel`` flag.
     """
     r = int(r)
@@ -940,7 +940,7 @@ _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 
 #: Measured departure of the wrapped-difference relative-periodic kernel
 #: from the transposition average that defines the measure, on the value
-#: scale. Worst over tuple orders 2 to 4, value counts 4 to 12, and six
+#: scale. Worst over tuple sizes 2 to 4, value counts 4 to 12, and six
 #: weight profiles --- flat, linear, two exponential rolloffs, bimodal,
 #: and a single dominant value at 1000:1 --- from
 #: tools/calibrate_sigma_over_p.py.
@@ -1111,7 +1111,7 @@ class SingleImageInfeasibleError(MemoryError):
     """Raised when the single-image (minimum-image) measure is the only
     available route but its materialisation would exhaust memory.
 
-    Arises at high tuple order in relative-periodic (and, for the inner
+    Arises at large tuple size in relative-periodic (and, for the inner
     product, any) mode when the Möbius method is *unavailable* --- refused
     by the feasibility bound (``r`` above the shipped/feasible orbit
     order) --- so no cheaper
@@ -1359,7 +1359,7 @@ _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 5.52e-05
 _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 1.296e-06
 
 #: Spectral (Fourier) strategy inside the Möbius relative evaluator,
-#: per tuple order. ``PER_MODE`` is the K-free per-query slope against
+#: per tuple size. ``PER_MODE`` is the K-free per-query slope against
 #: the mode count (window/sigma); ``PERIODIC_K`` is the additional
 #: periodic-only slope in K, which the fixed-period window does not
 #: absorb. Previously local literals inside the model; module constants
@@ -1415,7 +1415,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
     see :func:`mpt._tensor.build._enum_flat_attr`). The tuple-pair
     kernel is ``n_J_x * n_J_y`` float64 entries. When the Möbius method
     is *forced* off (r above the shipped orbit order) there is no
-    cheaper all-image substitute; at high tuple order the pair kernel
+    cheaper all-image substitute; at large tuple size the pair kernel
     can exhaust memory. Rather than let it crash the process, raise a
     clear error naming the shape. Explicit ``method='bulger'`` overrides
     are honoured earlier and do not reach here, so this guards only
@@ -1454,7 +1454,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
             f"({reason}, so the Möbius method is not available), but its "
             f"tuple-pair kernel would need ~{pair_bytes / 1024**3:.1f} GB "
             f"(n_J_x = {nj_x:.2e}, n_J_y = {nj_y:.2e}). Reduce the tuple "
-            f"order r or the collection sizes."
+            f"size r or the collection sizes."
         )
 
 
@@ -2252,7 +2252,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
                 f"eval_maet requires the single-image centres route "
                 f"({force_centres_reason}, so the Möbius method is not "
                 f"available), but its joint tuple set would need "
-                f"~{joint_ws / 1024**3:.1f} GB. Reduce the tuple order r "
+                f"~{joint_ws / 1024**3:.1f} GB. Reduce the tuple size r "
                 f"or the collection size K."
             )
         return "centres", force_centres_reason

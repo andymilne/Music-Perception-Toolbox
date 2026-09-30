@@ -13,7 +13,7 @@ function Z = totalMassRel(p, w, sigma, r)
 %     P      Ignored.
 %     W      Weights vector.
 %     SIGMA  Scalar bandwidth.
-%     R      Integer tensor order, R >= 1.
+%     R      Integer tuple size, R >= 1.
 %
 %   See also MOBIUS.TOTALMASSABS.
 

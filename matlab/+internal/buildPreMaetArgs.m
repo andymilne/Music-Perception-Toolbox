@@ -6,10 +6,6 @@ function args = buildPreMaetArgs(args)
 %   cell of densities does, so the list and scalar-vs-list forms take
 %   them without the caller building each one first.
 %
-%   The sweep form of translateAttributes returns a pre-MAET whose pAttr
-%   is a 1 x M cell of per-attribute cells sharing one geometry. That is
-%   one such list, and is expanded the same way.
-%
 %   The loose triple has no such form, since the three parts are not
 %   distinguishable from the surrounding positional geometry.
 %
@@ -19,11 +15,7 @@ function args = buildPreMaetArgs(args)
     for k = 1:numel(args)
         a = args{k};
         if internal.isPreMaet(a)
-            if localIsSweep(a)
-                args{k} = localBuildSweep(a, verbose);
-            else
-                args{k} = buildMaet(a, 'verbose', verbose);
-            end
+            args{k} = buildMaet(a, 'verbose', verbose);
         elseif iscell(a) && localAnyPreMaet(a)
             for j = 1:numel(a)
                 if internal.isPreMaet(a{j})
@@ -32,24 +24,6 @@ function args = buildPreMaetArgs(args)
             end
             args{k} = a;
         end
-    end
-end
-
-
-function tf = localIsSweep(pm)
-%LOCALISSWEEP  True when pAttr holds one length-A cell per sweep index.
-    p = pm.pAttr;
-    tf = iscell(p) && ~isempty(p) && all(cellfun(@iscell, p));
-end
-
-
-function dens = localBuildSweep(pm, verbose)
-%LOCALBUILDSWEEP  One density per sweep entry, on the shared geometry.
-    M = numel(pm.pAttr);
-    dens = cell(1, M);
-    for m = 1:M
-        dens{m} = buildMaet(packPreMaet(pm.pAttr{m}, pm.wAttr, pm.specs), ...
-                               'verbose', verbose);
     end
 end
 

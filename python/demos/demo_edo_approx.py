@@ -65,12 +65,11 @@ period = 1200     # one octave in cents
 
 edo_range = np.arange(n_min, n_max + 1)
 n_edos = len(edo_range)
-max_n = n_max     # maximum number of pitches in any EDO
 
 # Reference: a single 1-D vector — broadcast across all EDO rows of
 # p_mat_b by sim_maet.
-# EDO multisets: NaN-padded to max_n columns
-p_mat_b = np.full((n_edos, max_n), np.nan)
+# EDO multisets: NaN-padded to n_max columns (the most pitches in any EDO)
+p_mat_b = np.full((n_edos, n_max), np.nan)
 for i, n in enumerate(edo_range):
     edo = np.arange(n) * (1200 / n)
     p_mat_b[i, :n] = edo

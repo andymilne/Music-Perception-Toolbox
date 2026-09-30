@@ -1,7 +1,7 @@
 %% demo_tempoInvariance.m
 %  Anisotropic kernels for tempo tolerance and tempo invariance:
 %  searching for a rhythmic motif in an onset stream with
-%  kernelCov and windowedSimilarity.
+%  kernelCov and sweptSimilarity.
 %
 %  A matrix-valued kernel covariance (accepted wherever sigma is, on an
 %  ordered, absolute, non-periodic, non-nested attribute whose tuple is
@@ -53,7 +53,7 @@
 %  is scanned by its overlapping log-IOI trigrams, each an ordered
 %  K = 3 element multiset read at r = 3 (the matrix covariance requires
 %  r == K), with an onset time as a second attribute that only places
-%  the sliding window ('windowAttr', 'dropWindowAttr' = true); each
+%  the sliding window ('align', 'window', then 'drop'); each
 %  trigram is timed at the onset that completes its last interval,
 %  the stamp the difference/bind pipeline gives it (both operations
 %  end-align). The trigram
@@ -73,7 +73,7 @@
 %    2. Constructor  The three covariance terms, printed, and the
 %                    penalty each pure kernel puts on three canonical
 %                    perturbations of the motif.
-%    3. The search   windowedSimilarity sweeps over every trigram
+%    3. The search   sweptSimilarity sweeps over every trigram
 %                    under six kernels; the candidate table contrasts
 %                    value (timing) tolerance with tempo
 %                    tolerance, and both with exact tempo invariance.
@@ -155,10 +155,9 @@ pmDiff = transformAttributes( ...
     differenceEvents({onsets, onsets}, [], [1, 0]), {'log', []});
 [pBound, wBound, spBound] = unpackPreMaet(bindEvents(pmDiff, [3, 1]));
 pmBoundRel  = bindEvents(pmDiff, [3, 1], 'relOuter', true);
-spBoundRel  = pmBoundRel.specs;
 % Two quantities read off the bound attributes feed the search below:
 nTri = size(pBound{1}, 2);   % number of trigrams (windows to place)
-triTimes = pBound{2};        % window-placing times (the sweep centres);
+triTimes = pBound{2};        % window-placing times (the sweep values);
                              % trigram i is timed at onsets(i + 3),
                              % the onset completing it
 
@@ -307,7 +306,7 @@ kernelSigmas = {kernelCov(3, 'differenced', true, 'sdValue', 0.02), ...
                                   'sdShift', 100), ...
                 0.10 * sqrt(2)};
 kernelSpecs = {spBound{1}, spBound{1}, spBound{1}, spBound{1}, ...
-               spBound{1}, spBoundRel{1}};
+               spBound{1}, pmBoundRel.specs{1}};
 fprintf('  strict       : kernelCov(3, ''differenced'', true, ''sdValue'', 0.02)\n');
 fprintf('  timing       : kernelCov(3, ''differenced'', true, ''sdValue'', 0.10)\n');
 fprintf(['  tempo        : kernelCov(3, ''differenced'', true, ''sdValue'', 0.02, ' ...
@@ -323,17 +322,17 @@ fprintf('  the rel kernel''s sigma, so its enormous ridge should\n');
 fprintf('  reproduce the rel column almost exactly (Section 4 gives\n');
 fprintf('  the limit argument).\n');
 
-% One windowedSimilarity sweep per kernel. The rect window (full width
+% One sweptSimilarity sweep per kernel. The rect window (full width
 % 0.1 s, narrower than the smallest trigram spacing of 0.125 s)
-% restricts each comparison to the single trigram at its centre; the
-% time attribute only places the window and is dropped from the
-% comparison, so each profile value is the plain similarity of that
-% trigram to the query under the kernel. The search itself uses no
-% knowledge of where the cells sit: every event of the stream starts a
-% candidate trigram and receives a window, boundary-straddling
-% trigrams included. Window centres are anchored
-% to the trigram times rather than laid on a uniform grid, so
-% their spacing follows the stream's own inter-onset intervals --
+% restricts each comparison to the single trigram it is aligned at; the
+% time attribute only places the window ('align', 'window') and is
+% dropped from the comparison, so each profile value is the plain
+% similarity of that trigram to the query under the kernel. The search
+% itself uses no knowledge of where the cells sit: every event of the
+% stream starts a candidate trigram and receives a window,
+% boundary-straddling trigrams included. The sweep values are the
+% trigram times rather than a uniform grid, so their spacing follows
+% the stream's own inter-onset intervals --
 % denser where the music is faster, widest across the silences. A
 % uniform grid (available via 'start'/'stop'/'step') would add nothing
 % at this window width: a window containing one trigram returns that
@@ -355,11 +354,11 @@ fprintf('\n');
 
 profiles = zeros(numel(kernelNames), nTri);
 for k = 1:numel(kernelNames)
-    profiles(k, :) = windowedSimilarity(pContext, wContext, ...
+    profiles(k, :) = sweptSimilarity(pContext, wContext, ...
         pQuery, wQuery, {kernelSigmas{k}, 0.25}, [3, 1], ...
-        [false, false], [false, false], [0, 0], triTimes, ...
-        'specs', {kernelSpecs{k}, spBound{2}}, 'windowAttr', 2, ...
-        'dropWindowAttr', true, 'contextWindow', {'rect', 0.1}, ...
+        [false, false], [false, false], [0, 0], 'sweep', {2, triTimes}, ...
+        'specs', {kernelSpecs{k}, spBound{2}}, 'align', {2, 'window'}, ...
+        'drop', 2, 'window', {2, {'rect', 0.1}}, ...
         'normalize', 'oneSidedDenom', 'verbose', false);
 end
 

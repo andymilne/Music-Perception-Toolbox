@@ -11,7 +11,7 @@ Analysis 3.1: phase as local texture in Reich's *Piano Phase*.
 The two pianos are pooled into a single (pitch, time) event stream --- the
 voice label is *not* an attribute, so the measure reads the combined sounding
 texture rather than either line on its own. A broad Gaussian localization
-window (s.d. 3 s) is swept over the piece; at each sweep centre the windowed
+window (s.d. 3 s) is swept over the piece; at each sweep value the windowed
 Renyi-2 entropy of the joint (pitch, time) density is read off. Because the
 window is smooth and wide, there is no rectangular-edge artefact, and away
 from the ends of the piece (shaded in the figure) every window has ample
@@ -44,11 +44,11 @@ Pre-MAET structure (both panels)::
     time        sigma_t (s)      no     no
 
     r = (1, 1);  voices pooled (voice is not an attribute);
-    window: Gaussian (shape 0) on the time attribute, s.d. 3 s, centred at the
-    sweep offset, time retained (drop_window_attr=False); estimator: Renyi-2.
+    window: Gaussian (shape 0) on the time attribute, s.d. 3 s, aligned at
+    each sweep value, time retained (not dropped); estimator: Renyi-2.
 
 Data: ``piano_phase`` (the rendered Piano Phase voices). Toolbox:
-``pre_maet_from_attr_table``, ``windowed_entropy``. Runtime: a few
+``pre_maet_from_attr_table``, ``swept_entropy``. Runtime: a few
 seconds.
 """
 
@@ -65,7 +65,7 @@ if plt is not None:
 
 import mpt
 _prev_defaults = mpt.set_default(show_hints=False)
-from mpt import show_pre_maet, windowed_entropy
+from mpt import show_pre_maet, swept_entropy
 
 import piano_phase as pe
 
@@ -79,12 +79,11 @@ SIGMA_PITCH = 0.15          # semitone (= 15 cents)
 WIN_SD      = 3.0           # localization-window s.d. (s)
 N_SWEEP     = 300
 SIGMAS_T    = [0.015, 0.100]   # coincidence (precedence/fusion window), redundancy
-IOI         = pe.BASE_IOI
 
 # --- two-voice surface, voices pooled --------------------------------------
 # Both pianos pooled, as an attribute table, converted to a pitch and a
 # time attribute with one event per note. The time width is the sweep's,
-# which windowed_entropy overrides per call.
+# which swept_entropy overrides per call.
 piece = mpt.pre_maet_from_attr_table(
     pe.piece_table(),
     attributes=(dict(column='pitch', sigma=SIGMA_PITCH),
@@ -93,31 +92,29 @@ piece = mpt.pre_maet_from_attr_table(
 onset = mpt.unpack_pre_maet(piece)[0][1].ravel()
 t_lo, t_hi = onset.min(), onset.max()
 edge = 2 * WIN_SD                                   # unreliable near the ends
-centres = np.linspace(t_lo, t_hi, N_SWEEP)
-phase_at = pe.lag_at(centres / (pe.NC * IOI))      # continuous lag
+sweep_values = np.linspace(t_lo, t_hi, N_SWEEP)
+phase_at = pe.lag_at(sweep_values / (pe.NC * pe.BASE_IOI))      # continuous lag
 
 
 def sweep(sigma_t, show_input=False):
-    """Windowed joint (pitch, time) Renyi-2 entropy at each sweep centre.
+    """Windowed joint (pitch, time) Renyi-2 entropy at each sweep value.
 
-    A single windowed_entropy sweep: a Gaussian localization window
+    A single swept_entropy sweep: a Gaussian localization window
     (shape 0) on the time attribute (attribute index 1) modulates the event
-    weights, with the time attribute retained (drop_window_attr=False) so the joint
+    weights, with the time attribute retained (not dropped) so the joint
     (pitch, time) density is built and its Renyi-2 entropy returned. The
     window standard deviation WIN_SD maps to the variance-matched
     rectangular width 2*sqrt(3)*sd. The window is truncated at
     truncation_sigmas standard deviations (the toolbox default, 6), so
-    events far from the centre carry zero weight and need no separate
+    events far from the sweep value carry zero weight and need no separate
     pruning.
     """
     if show_input:
         show_pre_maet(piece, sigma=[SIGMA_PITCH, sigma_t], max_events=4)
-    return windowed_entropy(
-        piece, centres, sigma=[SIGMA_PITCH, sigma_t],
-        context_window=(0.0, WIN_SD * 2.0 * np.sqrt(3.0)),
-        method='renyi2',
-        window_attr=1, drop_window_attr=False,
-        verbose=False,
+    return swept_entropy(
+        piece, sweep={1: sweep_values}, sigma=[SIGMA_PITCH, sigma_t],
+        window={1: (0.0, WIN_SD * 2.0 * np.sqrt(3.0))},
+        method='renyi2', verbose=False,
     )
 
 
@@ -140,17 +137,17 @@ for ax, st in zip(axes, SIGMAS_T):
     ax.axvspan(t_hi - edge, t_hi, color='#999', alpha=0.2)
     for s in shifts:
         ax.axvline(s, color='#c25008', lw=0.6, alpha=0.5)
-    ax.plot(centres, H[st], color='#1f4eb8', lw=1.7)
+    ax.plot(sweep_values, H[st], color='#1f4eb8', lw=1.7)
     ax2 = ax.twinx()
-    ax2.plot(centres, phase_at, color='#bbb', lw=0.9)
+    ax2.plot(sweep_values, phase_at, color='#bbb', lw=0.9)
     ax2.set_yticks(range(0, 13, 3)); ax2.set_ylim(-1, 13)
     ax2.tick_params(colors='#999')
-    interior = (centres > t_lo + edge) & (centres < t_hi - edge)
+    interior = (sweep_values > t_lo + edge) & (sweep_values < t_hi - edge)
     ax.set_ylim(H[st][interior].min() - 0.1, H[st][interior].max() + 0.1)
     ax.set_ylabel(f'{lab}\nRenyi-2 (bits)')
     ax.grid(True, alpha=0.3); ax.spines['top'].set_visible(False)
 
-axes[-1].set_xlabel('window-centre offset (s); grey = phase $k$')
+axes[-1].set_xlabel('window time (s); grey = phase $k$')
 axes[0].set_xlim(t_lo, t_hi)
 fig.suptitle('Texture entropy (voices pooled, Gaussian 3 s window): '
              'coincidence vs redundancy', y=1.0)

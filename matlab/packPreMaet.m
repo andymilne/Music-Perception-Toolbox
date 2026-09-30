@@ -18,11 +18,21 @@ function pm = packPreMaet(pAttr, wAttr, specs)
 %   the three parts written out.
 %
 %   Inputs
-%       pAttr - 1 x A cell of per-attribute value matrices, each K_a x N,
-%               or an existing pre-MAET.
+%       pAttr - 1 x A cell of attributes, each given per event or as a
+%               matrix, or an existing pre-MAET. Per event, an attribute
+%               is a 1 x N cell whose n-th entry holds the values of event
+%               n: a scalar, a vector, or [] for no value, so
+%               {[60 64 67], 62, 64, 65} is a three-note chord followed by
+%               three single notes. As a matrix, it is K_a x N, one column
+%               per event, padded with NaN where an event has fewer than
+%               K_a values; the per-event form is converted to this
+%               matrix. A numeric row vector is one value per event.
 %       wAttr - [] for unweighted, a scalar applied to every attribute, or
-%               a 1 x A cell whose entries are scalars, 1 x N vectors, or
-%               K_a x N matrices. Optional, default [].
+%               a 1 x A cell with one entry per attribute: a scalar; a
+%               per-event 1 x N cell, whose entries are a scalar
+%               (weighting all the event's values) or a vector with one
+%               weight per value; a 1 x N vector; or a K_a x N matrix.
+%               Optional, default [].
 %       specs - [] or a 1 x A cell of per-attribute spec structs.
 %               Optional, default [].
 %
@@ -30,7 +40,12 @@ function pm = packPreMaet(pAttr, wAttr, specs)
 %       pm - struct with fields pAttr, wAttr, and specs.
 %
 %   packPreMaet and unpackPreMaet are inverses: unpackPreMaet(packPreMaet(
-%   pAttr, wAttr, specs)) returns the three parts it was given.
+%   pAttr, wAttr, specs)) returns the three parts it was given, with any
+%   per-event attribute or weights in their matrix form.
+%
+%   Example:
+%     pm = packPreMaet({{[60 64 67], 62, 64, 65}, [0 1 1.5 2]});
+%     pm.pAttr{1}      % [60 62 64 65; 64 NaN NaN NaN; 67 NaN NaN NaN]
 %
 %   See also UNPACKPREMAET, SHOWPREMAET, FLATSPECS, BUILDMAET.
 
@@ -67,6 +82,7 @@ if A < 1
 end
 
 wAttr = localCheckWeights(wAttr, A);
+[pAttr, wAttr] = internal.perEventParts(pAttr, wAttr);
 specs = localCheckSpecs(specs, A);
 
 pm = struct('pAttr', {pAttr}, 'wAttr', {wAttr}, 'specs', {specs});

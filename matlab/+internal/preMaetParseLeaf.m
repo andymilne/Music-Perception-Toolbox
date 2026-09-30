@@ -1,6 +1,10 @@
 function leaf = preMaetParseLeaf(text)
 %PREMAETPARSELEAF  '60' or '60^(0.6)' -> [value weight], weight NaN if absent.
 text = strtrim(text);
+if strcmp(text, '_')
+    leaf = [NaN, NaN];                 % an ordered attribute's empty slot
+    return;
+end
 k = strfind(text, '^');
 if isempty(k)
     leaf = [str2double(text), NaN];

@@ -34,7 +34,7 @@ Tests are flat (no subdirectories) and named by topic:
 - `test_eval_*.py` — `eval_maet` paths (centres / orbit / fast), dispatcher routing, unified raw-array signature
 - `test_cos_sim_*.py`, `test_batch_cos_sim_thinning.py` — `sim_maet` paths, polymorphic forms, canonical-form dedup
 - `test_dispatcher*.py` — path-selection cost model and dispatch messages
-- `test_windowed_*.py`, `test_window_*.py` — `windowed_similarity`, `windowed_entropy`, and `weight_events` (event weighting)
+- `test_swept_*.py`, `test_window_*.py` — `swept_similarity`, `swept_entropy`, and `weight_events` (event weighting)
 - `test_circular*.py`, `test_balance_sigma.py`, `test_evenness_sigma.py`, `test_*_sigma_space.py`, `test_dft_circular_simulate.py`, `test_proj_centroid_sigma.py` — DFT, scale-structure, and pulse-level circular measures
 - `test_ma_*.py`, `test_orbit_*.py`, `test_tier*.py`, `test_mobius*.py` — orbit-table / Möbius IP paths, including cross-validation against the toolbox
 - `test_entropy*.py`, `test_ntuple_entropy_sigma_space.py`, `test_renyi2_entropy.py` — Shannon and Rényi-2 entropy

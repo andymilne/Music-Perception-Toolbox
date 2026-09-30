@@ -54,7 +54,7 @@ function varargout = mptDefaults(varargin)
 %   Gaussian kernel sum, so truncationSigmas governs the accuracy of
 %   evalMaet, simMaet, entropyMaet, tensorHarmonicity,
 %   templateHarmonicity, spectralEntropy, virtualPitches,
-%   windowedSimilarity, and weightEvents, together with the orbit
+%   sweptSimilarity, and weightEvents, together with the orbit
 %   evaluators those functions call. It does not affect any non-kernel
 %   computation.
 %

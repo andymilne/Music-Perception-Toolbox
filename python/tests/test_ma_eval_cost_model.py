@@ -330,7 +330,7 @@ def test_ip_infeasible_bulger_honours_user_override():
 
 
 def test_ip_forced_bulger_feasible_does_not_raise():
-    """Where Bulger is forced but feasible (low tuple order or small
+    """Where Bulger is forced but feasible (small tuple size or small
     collection), no error is raised."""
     # r = 1 forces Bulger and is always feasible (monad inner product).
     assert _single_multiset_ip_select(K=100, r=1)[0] == "bulger"

@@ -433,6 +433,8 @@ def entropy_maet(
 
     Four methods are supported. The discrete methods take an explicit
     grid; the continuous methods do not.
+    A zero-mass density (every weight zero, or a window with no event in
+    its support) returns NaN under every method: its entropy is undefined.
 
     - ``method='differential'``: adaptive nested-grid evaluation of the
       differential entropy ĥ = H_disc + log_b(Δ-volume). The span
@@ -463,7 +465,7 @@ def entropy_maet(
       the Möbius inner product and the closed-form total mass. Returns
       ``H_2 = -log_b(<T,T> / Z²)``, the continuous Rényi-2 entropy of
       the normalised density ``q = T/Z``. Computed in closed form with
-      no grid; works at arbitrary tensor order ``r`` where the grid
+      no grid; works at arbitrary tuple size ``r`` where the grid
       path would exhaust memory. Currently restricted to single-density
       input. Errors at ``sigma=0`` (the continuous form diverges).
 
@@ -1020,6 +1022,11 @@ def _differential_adaptive(
     sigma-anchored tolerance, the floor is reached, or grid_limit hits.
     """
     import math
+    if dens.pruned().n == 0:
+        # A zero-mass density (every weight zero, or a window with no
+        # event in its support): the entropy is undefined, under every
+        # method.
+        return float("nan")
     # truncation_sigmas is resolved to a finite width at the dispatcher
     # entry (:func:`_entropy_maet_differential_dispatch`), so it is
     # always a finite positive float here and drives the span, the
@@ -1714,6 +1721,11 @@ def _entropy_maet_ma(
 
     Accepts a :class:`MaetDensity`.
     """
+    if dens.pruned().n == 0:
+        # A zero-mass density (every weight zero, or a window with no
+        # event in its support): the entropy is undefined, under every
+        # method.
+        return float("nan")
     base_dens = dens
     dim      = int(base_dens.dim)
     dim_per  = base_dens.dim_per_attr
@@ -1801,7 +1813,7 @@ def _entropy_maet_ma(
     # --- Shannon entropy ---
     total = float(np.sum(t))
     if total == 0.0:
-        return 0.0
+        return float("nan")        # zero-mass density: entropy undefined
 
     q = t / total
     N = int(q.size)

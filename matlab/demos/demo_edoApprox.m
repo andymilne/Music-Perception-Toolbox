@@ -53,12 +53,11 @@ period = 1200;    % one octave in cents
 
 edoRange = nMin:nMax;
 nEDOs    = numel(edoRange);
-maxN     = nMax;  % maximum number of pitches in any EDO
 
 % Reference: a single row vector — broadcast against all EDO rows of
 % pMatB by simMaet.
-% EDO multisets: NaN-padded to maxN columns
-pMatB = NaN(nEDOs, maxN);
+% EDO multisets: NaN-padded to nMax columns (the most pitches in any EDO)
+pMatB = NaN(nEDOs, nMax);
 for i = 1:nEDOs
     n = edoRange(i);
     edoPitches = (0:n-1) * (1200 / n);

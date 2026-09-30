@@ -1,8 +1,8 @@
 function table = buildOrbitTable(r)
-%MOBIUS.BUILDORBITTABLE  Orbit table for tensor order r by direct enumeration.
+%MOBIUS.BUILDORBITTABLE  Orbit table for tuple size r by direct enumeration.
 %
 %   TABLE = MOBIUS.BUILDORBITTABLE(R) returns the orbit table for the
-%   Mobius-Bulger orbit decomposition at tensor order R, as a struct
+%   Mobius-Bulger orbit decomposition at tuple size R, as a struct
 %   array with one element per orbit class. Each element has fields:
 %
 %     .weight  Number of (pi_A, pi_B) labelled partition pairs in the

@@ -110,7 +110,7 @@ SIGMA_OVER_P = [0.02, 0.03, 0.04, 0.05, 0.055, 0.06, 0.065, 0.07,
 # the orders the measure is actually used at.
 R_VALUES = [2, 3, 4]
 
-# Value counts to search, per tuple order.
+# Value counts to search, per tuple size.
 #
 # Only the shapes the cost model gives to Bulger's method are worth
 # searching. Where it gives them to the Moebius method the

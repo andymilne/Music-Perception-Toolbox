@@ -1,7 +1,7 @@
 function detM = quadraticFormDet(r, innerR, isRel)
 %INTERNAL.QUADRATICFORMDET  Determinant of the relative-mode quadratic form M for one attribute.
 %
-%   A single flat attribute of tuple order r in relative mode carries
+%   A single flat attribute of tuple size r in relative mode carries
 %   the metric M = I - e e' / r (the all-ones removed once), whose
 %   determinant is 1 / r. A nested attribute whose active
 %   co-transposition unit has block size s_u removes an all-ones within
@@ -10,7 +10,7 @@ function detM = quadraticFormDet(r, innerR, isRel)
 %   relative case) has M = I, determinant 1.
 %
 %   Parameters mirror the three-way branch every normalisation site
-%   used to inline: pass the attribute's tuple order R, its block
+%   used to inline: pass the attribute's tuple size R, its block
 %   size INNERR (0 when flat), and its ISREL flag.
 %
 %   Twin of Python mpt._tensor.dispatch._quadratic_form_det: same

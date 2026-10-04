@@ -86,7 +86,7 @@ For audio file support (spectral peak extraction via `audio_peaks`):
 pip install ./python[audio]
 ```
 
-Requires Python 3.10+. Dependencies (NumPy, SciPy) are installed automatically.
+Requires Python 3.10+. Dependencies (NumPy, SciPy, pandas) are installed automatically.
 
 ### Python, working on the toolbox itself
 

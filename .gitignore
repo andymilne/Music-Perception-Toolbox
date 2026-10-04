@@ -48,3 +48,4 @@ matlab/demos/jmm/data/ParseTrees.json
 Claude outputs/
 /Roadmap and Specs
 /Undistributed data
+*.egg-info/

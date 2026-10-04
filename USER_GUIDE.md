@@ -91,7 +91,7 @@ pip install ./Music-Perception-Toolbox/python        # or "./Music-Perception-To
 
 Each release is archived with a DOI on Zenodo: <https://doi.org/10.5281/zenodo.19412254>.
 
-The Python implementation requires Python 3.10 or later. Core dependencies (NumPy, SciPy) are installed automatically. The optional `soundfile` library is required only for `audio_peaks`.
+The Python implementation requires Python 3.10 or later. Core dependencies (NumPy, SciPy, pandas) are installed automatically. The optional `soundfile` library is required only for `audio_peaks`.
 
 All functions are accessible from the top-level `mpt` namespace:
 

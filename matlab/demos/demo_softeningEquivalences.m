@@ -46,7 +46,7 @@ SIG_F = logspace(1, 5, 41);                   % unflagged copy's widths (cents)
 SIG_F_TABLE = [100 300 1000 3000 10000];
 MOTIF = [6000 6200 6400 6700];                % C D E G (cents)
 
-% Each case: the flagged copy's [rel exch isPer], the query, and two
+% Each case: the flagged copy's [rel exch per], the query, and two
 % contexts that the flag identifies with the query, exactly or nearly.
 titles = {'1. Transposition softened ([rel] copy + absolute copy)', ...
           '2. Octave equivalence softened ([per] copy + non-periodic copy)', ...
@@ -158,11 +158,11 @@ end
 function pm = localPreMaet(x, copies)
 %LOCALPREMAET  One event whose element multiset x is carried by one
 %   attribute per copy; each row of the n x 4 cell copies is
-%   {sigma, rel, exch, isPer}, the attribute read whole (r = K).
+%   {sigma, rel, exch, per}, the attribute read whole (r = K).
     n = size(copies, 1);
     p = repmat({x(:)}, 1, n);
     per = [copies{:, 4}];
     pm = packPreMaet(p, [], flatSpecs(p, 'r', numel(x), ...
         'rel', [copies{:, 2}], 'exch', [copies{:, 3}], ...
-        'sigma', copies(:, 1).', 'isPer', per, 'period', 1200 * per));
+        'sigma', copies(:, 1).', 'per', per, 'period', 1200 * per));
 end

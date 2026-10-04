@@ -45,7 +45,7 @@ def _quiet():
 
 
 def _dens(values, sigma, *, r_levels=(2, 2), exch=(1, 1), chord=3,
-          is_rel=True, is_per=True, wrap='full-image', extra=None,
+          rel=True, per=True, wrap='full-image', extra=None,
           extra_r=1):
     v = np.asarray(values, float)
     if v.ndim == 1:
@@ -53,22 +53,22 @@ def _dens(values, sigma, *, r_levels=(2, 2), exch=(1, 1), chord=3,
     ngroup = v.shape[0] // chord
     tags = np.repeat(np.arange(ngroup), chord)
     spec = dict(r=list(r_levels), exch=[bool(s) for s in exch], tags=tags,
-                rel=([0] * (len(r_levels) - 1) + [1] if is_rel else None))
+                rel=([0] * (len(r_levels) - 1) + [1] if rel else None))
     p = [v]
     specs = [spec]
     sig = [sigma]
-    per = [bool(is_per)]
-    period = [P if is_per else 0.0]
+    per_list = [bool(per)]
+    period = [P if per else 0.0]
     wraps = [wrap]
     if extra is not None:
         ex = np.asarray(extra, float)
         p.append(ex.reshape(1, -1) if ex.ndim == 1 else ex)
         specs.append(dict(r=extra_r, rel=False, exch=True))
         sig.append(1.0)
-        per.append(False)
+        per_list.append(False)
         period.append(0.0)
         wraps.append('full-image')
-    return build_maet(p, None, specs=specs, sigma=sig, is_per=per,
+    return build_maet(p, None, specs=specs, sigma=sig, per=per_list,
                           period=period, wrap=wraps, verbose=False)
 
 
@@ -99,8 +99,8 @@ def _big_pair(N):
     rng = np.random.default_rng(11)
     vx = np.sort(rng.uniform(0.0, 40.0, (120, N)), axis=0)
     vy = np.sort(rng.uniform(0.0, 40.0, (120, N)), axis=0)
-    return (_dens(vx, 0.5, chord=12, is_per=False),
-            _dens(vy, 0.5, chord=12, is_per=False))
+    return (_dens(vx, 0.5, chord=12, per=False),
+            _dens(vy, 0.5, chord=12, per=False))
 
 
 def test_the_memory_guard_diverts_a_huge_shape(monkeypatch):
@@ -123,8 +123,8 @@ def test_a_small_shape_is_under_the_budget_and_stays_priced(monkeypatch):
     """The guard is a guard, not a policy: below the budget the estimated cost
     decides."""
     dx, dy = _big_pair(1)
-    small_x, small_y = _dens(_VX, 0.1, is_per=False), _dens(_VY, 0.1,
-                                                            is_per=False)
+    small_x, small_y = _dens(_VX, 0.1, per=False), _dens(_VY, 0.1,
+                                                            per=False)
     assert (_nc.nested_centres_working_set_bytes(small_x, small_y, 0)
             < _CENTRES_WORKING_SET_SOFT_BUDGET)
     _stub_prices(monkeypatch, {"centres": 1e-6, "contract_relnonper": 1e9})
@@ -208,8 +208,8 @@ def test_the_guard_never_moves_single_image_above_the_threshold():
 
 
 def test_an_absolute_attribute_stays_on_the_contraction(monkeypatch):
-    dx = _dens(_VX, 0.2, is_rel=False, is_per=False)
-    dy = _dens(_VY, 0.2, is_rel=False, is_per=False)
+    dx = _dens(_VX, 0.2, rel=False, per=False)
+    dy = _dens(_VY, 0.2, rel=False, per=False)
     assert _nested_admissible_routes(dx, dy, 0) == ["contract"]
     _stub_prices(monkeypatch, {"contract": 1e9, "centres": 1e-9})
     assert _nested_attr_route(dx, dy, 0) == "contract"

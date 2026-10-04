@@ -23,7 +23,7 @@ if depth == 0
     slotPath = zeros(K, 0);
     slotPos = (1:K)';
 else
-    % One slot per (group path, position), sized by the widest event.
+    % One row per (group path, position), sized by the widest event.
     allPaths = zeros(0, depth);
     for n = 1:N
         f = flat{n};

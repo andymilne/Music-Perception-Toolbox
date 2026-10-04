@@ -68,7 +68,7 @@ def main():
     )
     print(header)
     print("-" * len(header))
-    for mode_name, is_rel, is_per in MODES:
+    for mode_name, rel, per in MODES:
         for r, K_values in K_BY_R.items():
             for K in K_values:
                 pw_size = pairwise_size(r, K, N)
@@ -88,11 +88,11 @@ def main():
                         w2 = rng.uniform(0.1, 1.0, (K, N))
                         d1 = build_maet(
                             [p1], [w1], [sigma], [r], 
-                            [is_rel], [is_per], [P], verbose=False,
+                            [rel], [per], [P], verbose=False,
                         )
                         d2 = build_maet(
                             [p2], [w2], [sigma], [r], 
-                            [is_rel], [is_per], [P], verbose=False,
+                            [rel], [per], [P], verbose=False,
                         )
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")

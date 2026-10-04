@@ -90,12 +90,12 @@ p0 = sort(ips_P * rand(6, 3), 1); p1 = sort(ips_P * rand(4, 3), 1); p2 = sort(ip
 specs = { struct('tags', ips_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 0]), ...
           struct('r', 2, 'exch', true, 'rel', true), struct('r', 2, 'exch', false, 'rel', false) };
 d = buildMaet({p0, p1, p2}, {[], [], []}, 'specs', specs, 'sigma', [0.7 0.5 0.9], ...
-                 'isPer', [false false true], 'period', [ips_P ips_P ips_P], 'verbose', false);
+                 'per', [false false true], 'period', [ips_P ips_P ips_P], 'verbose', false);
 [ips_ok, ips_msg] = ipsCheckMethods(d, {'auto', 'bulger', 'mobius', 'centres', 'contract'});
 results{end+1, 1} = ['ip scale: mixed nested + relative flat + ordered flat' ips_msg];
 results{end, 2} = ips_ok;
 e = buildMaet({p0(:, end:-1:1) + 0.3, p1 + 0.1, p2 - 0.2}, {[], [], []}, 'specs', specs, ...
-                 'sigma', [0.7 0.5 0.9], 'isPer', [false false true], 'period', [ips_P ips_P ips_P], 'verbose', false);
+                 'sigma', [0.7 0.5 0.9], 'per', [false false true], 'period', [ips_P ips_P ips_P], 'verbose', false);
 xy = simMaet(d, e, 'normalize', 'none', 'verbose', false);
 xx = simMaet(d, d, 'normalize', 'none', 'verbose', false);
 yy = simMaet(e, e, 'normalize', 'none', 'verbose', false);
@@ -117,7 +117,7 @@ results{end, 2} = internal.selfIpMemoised(dY.selfIP);
 rng(4, 'twister');
 p = sort(ips_P * rand(6, 3), 1); p(6, 1) = NaN; p(5:6, 3) = NaN;
 d = buildMaet({p}, {[]}, 'specs', {struct('tags', ips_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 0])}, ...
-                 'sigma', 0.7, 'isPer', false, 'period', 0, 'verbose', false);
+                 'sigma', 0.7, 'per', false, 'period', 0, 'verbose', false);
 [ips_ip, ips_Z] = ipsReferenceSelfIp(d);
 h = entropyMaet(d, 'method', 'renyi2', 'base', exp(1), 'verbose', false);
 results{end+1, 1} = 'ip scale: renyi2 with ragged events matches enumeration';
@@ -156,7 +156,7 @@ function d = ipsFlat(K, N, r, rel, per, exch, P, seed, sigma)
     p = sort(P * rand(K, N), 1);
     w = 0.5 + rand(K, N);
     d = buildMaet({p}, {w}, 'specs', {struct('r', r, 'exch', exch, 'rel', rel)}, ...
-                     'sigma', sigma, 'isPer', per, 'period', P, 'verbose', false);
+                     'sigma', sigma, 'per', per, 'period', P, 'verbose', false);
 end
 
 
@@ -166,7 +166,7 @@ function d = ipsNested(tags, r, exch, rel, per, K, P, seed, sigma)
     p = sort(P * rand(K, 3), 1);
     w = 0.5 + rand(K, 3);
     spec = struct('tags', tags, 'r', r, 'exch', logical(exch), 'rel', rel);
-    d = buildMaet({p}, {w}, 'specs', {spec}, 'sigma', sigma, 'isPer', per, ...
+    d = buildMaet({p}, {w}, 'specs', {spec}, 'sigma', sigma, 'per', per, ...
                      'period', P, 'verbose', false);
 end
 
@@ -174,7 +174,7 @@ end
 function tol = ipsTol(d)
     % Relative-periodic attributes: the full-image routes and the
     % single-image enumeration differ by the measure gap at sigma/P.
-    if any(logical(d.isRel(:)) & logical(d.isPer(:)))
+    if any(logical(d.rel(:)) & logical(d.per(:)))
         tol = 1e-3;
     else
         tol = 1e-9;
@@ -211,7 +211,7 @@ function [ip, Z] = ipsReferenceSelfIp(dens)
     P_xx = ones(N, N); Zs = ones(N, A);
     for a = 1:A
         isNestedA = isfield(dens, 'nested') && numel(dens.nested) >= a && ~isempty(dens.nested{a});
-        if ~isNestedA && logical(dens.isRel(a)) && dens.r(a) == 1
+        if ~isNestedA && logical(dens.rel(a)) && dens.r(a) == 1
             continue;   % 0-D point mass: unit overlap and mass
         end
         [I, Za] = ipsRefAttr(dens, a);
@@ -231,7 +231,7 @@ function [I_a, Z_a] = ipsRefAttr(dens, a)
 %   is the enumeration entropyMaet carried for nested and ordered
 %   attributes until the inner-product machinery served it.
     sig  = dens.sigma(a);
-    isper = dens.isPer(a);
+    isper = dens.per(a);
     per  = dens.period(a);
     isNestedA = isfield(dens, 'nested') && numel(dens.nested) >= a ...
         && ~isempty(dens.nested{a}) && isstruct(dens.nested{a}) ...
@@ -240,17 +240,17 @@ function [I_a, Z_a] = ipsRefAttr(dens, a)
         % Nested attribute: rebuild from its resolved spec.
         spec = dens.nested{a};
         da = buildMaet({dens.pAttr{a}}, {dens.w{a}}, 'specs', {spec}, ...
-                          'sigma', sig, 'isPer', isper, 'period', per, ...
+                          'sigma', sig, 'per', isper, 'period', per, ...
                           'lazy', false, 'verbose', false);
     else
         % Flat ordered attribute: rebuild from its flat parameters with
-        % isExch = false, so the materialised tuples are the C(K, r_a)
+        % exch = false, so the materialised tuples are the C(K, r_a)
         % ordered sub-tuples (one kernel each, no orbit).
         spec = [];
         r_a0   = dens.r(a);
-        isRel0 = dens.isRel(a);
+        isRel0 = dens.rel(a);
         exch0 = true;
-        if isfield(dens, 'isExch') && ~isempty(dens.isExch); exch0 = logical(dens.isExch(a)); end
+        if isfield(dens, 'exch') && ~isempty(dens.exch); exch0 = logical(dens.exch(a)); end
         da = buildMaet({dens.pAttr{a}}, {dens.w{a}}, sig, r_a0, ...
                           isRel0, isper, per, exch0, ...
                           'lazy', false, 'verbose', false);
@@ -268,7 +268,7 @@ function [I_a, Z_a] = ipsRefAttr(dens, a)
         u = spec.relUnit;
         blockSize = prod(spec.r(1:u));
     end
-    isRel = da.isRel(1);
+    isRel = da.rel(1);
     r_a   = da.r(1);
     detM = internal.quadraticFormDet(r_a, blockSize, isRel);
     vol  = internal.gaussianMassConst(sig, d_a, detM);          % single-kernel mass

@@ -27,20 +27,20 @@ def wrap(d, P):
     return d - P * np.floor(d / P + 0.5)
 
 
-def cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, is_per, P):
+def cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, per, P):
     """Cosine similarity in absolute mode using the Möbius method's approach."""
     diffs = p_A[:, None] - p_B[None, :]
-    if is_per:
+    if per:
         diffs = wrap(diffs, P)
     K_AB = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
 
     diffs_AA = p_A[:, None] - p_A[None, :]
-    if is_per:
+    if per:
         diffs_AA = wrap(diffs_AA, P)
     K_AA = np.exp(-(diffs_AA ** 2) / (4 * sigma ** 2))
 
     diffs_BB = p_B[:, None] - p_B[None, :]
-    if is_per:
+    if per:
         diffs_BB = wrap(diffs_BB, P)
     K_BB = np.exp(-(diffs_BB ** 2) / (4 * sigma ** 2))
 
@@ -50,10 +50,10 @@ def cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, is_per, P):
     return AB / np.sqrt(AA * BB)
 
 
-def cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, is_per, P, N_u=600):
+def cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, per, P, N_u=600):
     """Cosine similarity in relative mode using orbit Möbius + integration."""
     def _inner(pA, wA, pB, wB):
-        if is_per:
+        if per:
             u_grid = np.linspace(0, P, N_u, endpoint=False)
             du = P / N_u
             diffs = (pA[None, :, None] - pB[None, None, :]) + u_grid[:, None, None]
@@ -65,7 +65,7 @@ def cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, is_per, P, N_u=600):
             diffs = (pA[None, :, None] - pB[None, None, :]) + u_grid[:, None, None]
         K_u = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
         F = inner_product_orbit_grid(K_u, wA, wB, r)
-        if is_per:
+        if per:
             integral = F.sum() * du
         else:
             integral = np.trapezoid(F, u_grid)
@@ -85,15 +85,15 @@ def cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, is_per, P, N_u=600):
 
 @pytest.mark.parametrize("r", [2, 3])
 @pytest.mark.parametrize("n", [8, 12])
-@pytest.mark.parametrize("is_per", [False, True])
-@pytest.mark.parametrize("is_rel", [False, True])
-def test_cos_sim_orbit_matches_toolbox(r, n, is_per, is_rel):
+@pytest.mark.parametrize("per", [False, True])
+@pytest.mark.parametrize("rel", [False, True])
+def test_cos_sim_orbit_matches_toolbox(r, n, per, rel):
     """Orbit-path cosine matches toolbox to floating-point precision."""
     P = 1200.0
     sigma = 12.0  # sigma/P = 0.01, well within the integration regime
-    rng = np.random.default_rng(seed=hash((r, n, is_per, is_rel)) & 0xFFFF)
+    rng = np.random.default_rng(seed=hash((r, n, per, rel)) & 0xFFFF)
 
-    if is_per:
+    if per:
         p_A = np.sort(rng.uniform(50, P - 50, n))
         p_B = np.sort(rng.uniform(50, P - 50, n))
     else:
@@ -102,14 +102,14 @@ def test_cos_sim_orbit_matches_toolbox(r, n, is_per, is_rel):
     w_A = rng.uniform(0.5, 1.5, n)
     w_B = rng.uniform(0.5, 1.5, n)
 
-    T_A = build_maet(p_A, w_A, sigma, r, is_rel, is_per, P, verbose=False)
-    T_B = build_maet(p_B, w_B, sigma, r, is_rel, is_per, P, verbose=False)
+    T_A = build_maet(p_A, w_A, sigma, r, rel, per, P, verbose=False)
+    T_B = build_maet(p_B, w_B, sigma, r, rel, per, P, verbose=False)
     cos_toolbox = float(sim_maet(T_A, T_B))
 
-    if is_rel:
-        cos_orbit = cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, is_per, P, N_u=2000 if is_per else 800)
+    if rel:
+        cos_orbit = cos_sim_orbit_rel(p_A, w_A, p_B, w_B, sigma, r, per, P, N_u=2000 if per else 800)
     else:
-        cos_orbit = cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, is_per, P)
+        cos_orbit = cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, per, P)
 
     abs_err = abs(cos_toolbox - cos_orbit)
     rel_err = abs_err / max(abs(cos_toolbox), abs(cos_orbit), 1e-300)
@@ -118,7 +118,7 @@ def test_cos_sim_orbit_matches_toolbox(r, n, is_per, is_rel):
     # measure here — relative error explodes when cos is near zero (cancellation
     # regime). We accept either tight relative error OR tight absolute error.
     assert rel_err < 1e-9 or abs_err < 1e-12, (
-        f"r={r}, n={n}, is_per={is_per}, is_rel={is_rel}: "
+        f"r={r}, n={n}, per={per}, rel={rel}: "
         f"toolbox={cos_toolbox:.10e}, orbit={cos_orbit:.10e}, "
         f"abs_err={abs_err:.2e}, rel_err={rel_err:.2e}"
     )

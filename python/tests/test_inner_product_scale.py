@@ -50,25 +50,25 @@ def reference_attr_matrix_and_mass(dens, a):
     nested = getattr(dens, "nested", None)
     spec = nested[a] if nested is not None else None
     sigma = float(dens.sigma[a])
-    is_per = bool(dens.is_per[a])
+    per = bool(dens.per[a])
     period = float(dens.period[a])
     if spec is not None:
         # Nested attribute: rebuild from its resolved spec.
         da = build_maet(
             [dens.p_attr[a]], [dens.w[a]], specs=[spec],
-            sigma=[sigma], is_per=[is_per], period=[period], verbose=False,
+            sigma=[sigma], per=[per], period=[period], verbose=False,
         )
     else:
         # Flat ordered attribute: rebuild from its flat parameters with
-        # is_exch=False, so the materialised tuples are the C(K, r_a)
+        # exch=False, so the materialised tuples are the C(K, r_a)
         # ordered sub-tuples (one kernel each, no orbit).
         r_a0 = int(dens.r[a])
-        is_rel0 = bool(dens.is_rel[a])
-        exch0 = bool(np.atleast_1d(getattr(dens, "is_exch",
+        is_rel0 = bool(dens.rel[a])
+        exch0 = bool(np.atleast_1d(getattr(dens, "exch",
                                           np.ones(dens.n_attrs, bool)))[a])
         da = build_maet(
             [dens.p_attr[a]], [dens.w[a]],
-            [sigma], [r_a0], [is_rel0], [is_per], [period], [exch0],
+            [sigma], [r_a0], [is_rel0], [per], [period], [exch0],
             verbose=False,
         )
     centres = da.centres[0]            # (d_a, n_j) reduced centres
@@ -79,9 +79,9 @@ def reference_attr_matrix_and_mass(dens, a):
     N = int(dens.n)
 
     block_size = int(_inner_r_vec(da)[0])   # s_u (inner/intermediate) or 0
-    is_rel = bool(da.is_rel[0])
+    rel = bool(da.rel[0])
     r_a = int(da.r[0])
-    det_m = _quadratic_form_det(r_a, block_size, is_rel)
+    det_m = _quadratic_form_det(r_a, block_size, rel)
     vol = _gaussian_mass_const(sigma, d_a, det_m)              # mass
     pref = _gaussian_mass_const(sigma, d_a, det_m, half=True)  # overlap
 
@@ -92,9 +92,9 @@ def reference_attr_matrix_and_mass(dens, a):
         D = centres[:, :, None] - centres[:, None, :]   # (d_a, n_j, n_j)
         if block_size >= 2:
             Q = _compute_Q_inner_blocks(
-                D, block_size, is_per, period, reduced=True)
+                D, block_size, per, period, reduced=True)
             overlap = pref * np.exp(-Q / (4 * sigma ** 2))
-        elif is_per and not is_rel:
+        elif per and not rel:
             # Abs-per: full-image via shared helper (image-sum or
             # Fourier by cost); single-image opt-in evaluates the
             # nearest image only.
@@ -103,8 +103,8 @@ def reference_attr_matrix_and_mass(dens, a):
                 wrap_a = str(dens.wrap[a])
             if wrap_a == 'single-image':
                 D = D - period * np.floor(D / period + 0.5)
-                Q = _compute_Q(D, r_a, is_rel, is_per, period,
-                               reduced=is_rel)
+                Q = _compute_Q(D, r_a, rel, per, period,
+                               reduced=rel)
                 overlap = pref * np.exp(-Q / (4 * sigma ** 2))
             else:
                 from mpt._wrapped_kernel import wrapped_gaussian_1d
@@ -115,7 +115,7 @@ def reference_attr_matrix_and_mass(dens, a):
                 )
                 overlap = pref * theta_per_position.prod(axis=0)
         else:
-            Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
+            Q = _compute_Q(D, r_a, rel, per, period, reduced=rel)
             overlap = pref * np.exp(-Q / (4 * sigma ** 2))
         wo = (w_j[:, None] * w_j[None, :]) * overlap
         # Aggregate tuples into their events (G is the N x n_j incidence).
@@ -138,7 +138,7 @@ def reference_self_ip_and_mass(dens):
     Zs = np.ones((N, A))
     for a in range(A):
         r_a = int(dens.r[a])
-        if nested[a] is None and bool(dens.is_rel[a]) and r_a == 1:
+        if nested[a] is None and bool(dens.rel[a]) and r_a == 1:
             continue                       # 0-D point mass: unit overlap and mass
         I, Z = reference_attr_matrix_and_mass(dens, a)
         P_xx *= I
@@ -151,7 +151,7 @@ def _flat(K, N, r, rel, per, exch=True, sigma=0.7, seed=0):
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     w = rng.uniform(0.5, 1.5, size=(K, N))
     return build_maet([p], [w], specs=[{"r": r, "exch": exch, "rel": rel}],
-                          sigma=[sigma], is_per=[per], period=[P], verbose=False)
+                          sigma=[sigma], per=[per], period=[P], verbose=False)
 
 
 def _nested(tags, r, exch, rel, per, K, N=3, sigma=0.7, seed=0):
@@ -159,7 +159,7 @@ def _nested(tags, r, exch, rel, per, K, N=3, sigma=0.7, seed=0):
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     w = rng.uniform(0.5, 1.5, size=(K, N))
     spec = {"tags": tags, "r": r, "exch": exch, "rel": rel}
-    return build_maet([p], [w], specs=[spec], sigma=[sigma], is_per=[per],
+    return build_maet([p], [w], specs=[spec], sigma=[sigma], per=[per],
                           period=[P], verbose=False)
 
 
@@ -188,7 +188,7 @@ NESTED = [
 def _tol(dens):
     # Relative-periodic attributes: the full-image routes and the
     # single-image enumeration differ by the measure gap at sigma/P.
-    rel_per = any(bool(dens.is_rel[a]) and bool(dens.is_per[a])
+    rel_per = any(bool(dens.rel[a]) and bool(dens.per[a])
                   for a in range(dens.n_attrs))
     return 1e-3 if rel_per else 1e-9
 
@@ -243,12 +243,12 @@ def test_mixed_density_and_cross_terms():
              {"r": 2, "exch": True, "rel": True},
              {"r": 2, "exch": False, "rel": False}]
     d = build_maet([p0, p1, p2], None, specs=specs, sigma=[0.7, 0.5, 0.9],
-                       is_per=[False, False, True], period=[P, P, P], verbose=False)
+                       per=[False, False, True], period=[P, P, P], verbose=False)
     _check_every_method(d, ("auto", "bulger", "mobius", "centres", "contract"))
     # a cross term between two different densities: the same scale, so the
     # cosine recomposes from three bare values
     e = build_maet([p0[:, ::-1] + 0.3, p1 + 0.1, p2 - 0.2], None, specs=specs,
-                       sigma=[0.7, 0.5, 0.9], is_per=[False, False, True],
+                       sigma=[0.7, 0.5, 0.9], per=[False, False, True],
                        period=[P, P, P], verbose=False)
     xy = sim_maet(d, e, normalize="none", verbose=False)
     xx = sim_maet(d, d, normalize="none", verbose=False)
@@ -289,7 +289,7 @@ def test_renyi2_ragged_events():
     p[4:, 2] = np.nan
     d = build_maet([p], None, specs=[{"tags": T2, "r": [1, 2], "exch": [1, 1],
                                           "rel": [0, 0]}],
-                       sigma=[0.7], is_per=[False], period=[0.0], verbose=False)
+                       sigma=[0.7], per=[False], period=[0.0], verbose=False)
     ip, Z = reference_self_ip_and_mass(d)
     h = entropy_maet(d, method="renyi2", base=math.e, verbose=False)
     assert h == pytest.approx(-math.log(ip / Z ** 2), rel=1e-9)

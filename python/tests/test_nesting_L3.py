@@ -22,7 +22,7 @@ from mpt._tensor.build import _nested_enum_indices
 _TAGS3 = np.array([[0, 0], [0, 0], [1, 0], [1, 0],
                    [2, 1], [2, 1], [3, 1], [3, 1]])
 _P3 = [np.array([[0., 4., 7., 11., 12., 16., 19., 23.]]).T]   # K_total=8, N=1
-_KW = dict(sigma=[30.0], is_per=[False], period=[0.0], verbose=False)
+_KW = dict(sigma=[30.0], per=[False], period=[0.0], verbose=False)
 
 
 def _spec(rel):

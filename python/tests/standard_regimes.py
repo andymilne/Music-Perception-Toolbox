@@ -76,7 +76,7 @@ def regime_sm_sigma_to_zero(seeds=SEEDS_QUICK, P=P_DEFAULT):
                 for seed in seeds:
                     cells.append(dict(
                         kind='single-multiset', r=r, K=K, sigma=sigma,
-                        is_rel=False, is_per=True, period=P,
+                        rel=False, per=True, period=P,
                         seed=seed,
                     ))
     return dict(
@@ -100,7 +100,7 @@ def regime_sm_high_r(seeds=SEEDS_QUICK, P=P_DEFAULT):
                 for seed in seeds:
                     cells.append(dict(
                         kind='single-multiset', r=r, K=K, sigma=sigma,
-                        is_rel=False, is_per=True, period=P,
+                        rel=False, per=True, period=P,
                         seed=seed,
                     ))
     return dict(
@@ -124,7 +124,7 @@ def regime_sm_abs_nonper(seeds=SEEDS_QUICK):
                 for seed in seeds:
                     cells.append(dict(
                         kind='single-multiset', r=r, K=K, sigma=sigma,
-                        is_rel=False, is_per=False, period=0.0,
+                        rel=False, per=False, period=0.0,
                         pitch_range=(-300.0, 300.0),
                         seed=seed,
                     ))
@@ -150,7 +150,7 @@ def regime_sm_rel_per(seeds=SEEDS_QUICK, P=P_DEFAULT):
                 for seed in seeds:
                     cells.append(dict(
                         kind='single-multiset', r=r, K=K, sigma=sigma,
-                        is_rel=True, is_per=True, period=P,
+                        rel=True, per=True, period=P,
                         seed=seed,
                     ))
     return dict(
@@ -174,7 +174,7 @@ def regime_sm_high_K(seeds=(0,), P=P_DEFAULT):
                 for seed in seeds:
                     cells.append(dict(
                         kind='single-multiset', r=r, K=K, sigma=sigma,
-                        is_rel=False, is_per=True, period=P,
+                        rel=False, per=True, period=P,
                         seed=seed,
                     ))
     return dict(
@@ -218,7 +218,7 @@ def regime_sm_adversarial(P=P_DEFAULT):
             for sigma in (33.0, 10.0, 3.0, 1.0):
                 cells.append(dict(
                     kind='single-multiset', r=r, K=len(p), sigma=sigma,
-                    is_rel=False, is_per=True, period=P,
+                    rel=False, per=True, period=P,
                     pitches=p.copy(), weights=w.copy(),
                     description=desc, seed=None,
                 ))
@@ -270,7 +270,7 @@ def regime_sm_spectral_weights(seeds=SEEDS_QUICK, P=P_DEFAULT):
                     fund = rng.uniform(0, P)
                     cells.append(dict(
                         kind='single-multiset', r=r, K=K, sigma=sigma,
-                        is_rel=False, is_per=True, period=P,
+                        rel=False, per=True, period=P,
                         pitches=((p_base + fund) % P).copy(),
                         weights=w.copy(),
                         description=desc, seed=seed,
@@ -308,8 +308,8 @@ def regime_ma_self_ip(seeds=SEEDS_QUICK, P=P_DEFAULT):
                 cells.append(dict(
                     kind='MA', A=A, r=list(r_vec), K=list(K_vec), N=5,
                     sigma=[sigma_pitch] + [0.05] * (A - 1),
-                    is_rel=[False] * A,
-                    is_per=[True] * A,
+                    rel=[False] * A,
+                    per=[True] * A,
                     period=[P] + [1.0] * (A - 1),
                     description=desc, seed=seed,
                 ))
@@ -356,8 +356,8 @@ def materialise_cell(cell, default_pitch_range=None):
     """Turn a cell parameter dict into the positional argument tuple
     expected by build_maet (single-multiset or MA, depending on cell['kind']).
 
-    single-multiset call: ``build_maet(p, w, sigma, r, is_rel, is_per, period)``
-    MA call: ``build_maet(p_attr, w, sigma, r, is_rel, is_per, period)``
+    single-multiset call: ``build_maet(p, w, sigma, r, rel, per, period)``
+    MA call: ``build_maet(p_attr, w, sigma, r, rel, per, period)``
     """
     if cell['kind'] == 'single-multiset':
         K = cell['K']
@@ -367,14 +367,14 @@ def materialise_cell(cell, default_pitch_range=None):
         else:
             seed = cell['seed']
             rng = np.random.default_rng(seed)
-            if cell['is_per']:
+            if cell['per']:
                 p = rng.uniform(0.0, cell['period'], K)
             else:
                 lo, hi = cell.get('pitch_range', default_pitch_range or (-300, 300))
                 p = rng.uniform(lo, hi, K)
             w = rng.uniform(0.5, 1.5, K)
         return (p, w, cell['sigma'], cell['r'],
-                cell['is_rel'], cell['is_per'], cell['period'])
+                cell['rel'], cell['per'], cell['period'])
     elif cell['kind'] == 'MA':
         A = cell['A']
         K_vec = cell['K']
@@ -388,7 +388,7 @@ def materialise_cell(cell, default_pitch_range=None):
             p_attr.append(rng.uniform(0.0, period_vec[a], (K_vec[a], N)))
             w.append(rng.uniform(0.5, 1.5, (K_vec[a], N)))
         return (p_attr, w, cell['sigma'], cell['r'],
-                cell['is_rel'], cell['is_per'], cell['period'])
+                cell['rel'], cell['per'], cell['period'])
     else:
         raise ValueError(f"Unknown cell kind: {cell['kind']!r}")
 

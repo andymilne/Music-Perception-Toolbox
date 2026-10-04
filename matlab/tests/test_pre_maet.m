@@ -24,8 +24,8 @@ end
 pC   = {[60 62 64 65], [0 1 2 3]};
 metC = [1 0.5 0.75 0.5];
 wC   = {metC, metC};
-spC  = flatSpecs(pC, 'r', 1, 'name', {'pitch', 'time'});
-KWC  = {'sigma', [0.5 0.25], 'isPer', [false false], ...
+spC  = flatSpecs(pC, 'r', 1, 'names', {'pitch', 'time'});
+KWC  = {'sigma', [0.5 0.25], 'per', [false false], ...
         'period', [0 0], 'verbose', false};
 
 % ---- Construction ----
@@ -135,7 +135,7 @@ results{end,2}   = throwsError(@() buildMaet(pmC, wC, KWC{:}));
 spK = spC;
 for a = 1:2
     spK{a}.sigma = KWC{2}(a);
-    spK{a}.isPer = false;
+    spK{a}.per = false;
     spK{a}.period = 0;
 end
 pmK = packPreMaet(pC, wC, spK);
@@ -157,9 +157,9 @@ results{end,2}   = abs(simMaet(pmK, pmK, 'verbose', false) - 1) < 1e-10;
 pWC = {[60 64 67 60 64 67], [0 1 2 5 6 7]};
 pWQ = {[60 64 67], [0 1 2]};
 spW = {struct('name','pitch','r',1,'rel',false,'exch',true, ...
-              'sigma',0.5,'isPer',true,'period',12), ...
+              'sigma',0.5,'per',true,'period',12), ...
        struct('name','time','r',1,'rel',false,'exch',true, ...
-              'sigma',0.25,'isPer',false,'period',0)};
+              'sigma',0.25,'per',false,'period',0)};
 pmWC = packPreMaet(pWC, [], spW);
 pmWQ = packPreMaet(pWQ, [], spW);
 ctrW = 0:0.5:7;
@@ -207,7 +207,7 @@ nqAxC = 0:(size(nqCtx, 2) - 1);
 nqAxQ = 0:(size(nqQry, 2) - 1);
 nqBind = @(v, ax) bindEvents({v, ax}, [], [2 1], 'relOuter', true, ...
     'specs', flatSpecs({v, ax}, 'r', 1, 'rel', false, 'exch', true, ...
-                       'sigma', 0.5, 'isPer', false, 'period', 0));
+                       'sigma', 0.5, 'per', false, 'period', 0));
 nqC = nqBind(nqCtx, nqAxC);
 nqQ = nqBind(nqQry, nqAxQ);
 nqPAttr = unpackPreMaet(nqC);
@@ -243,7 +243,7 @@ results{end,2}   = throwsError(@() sweptSimilarity(nqNest, nqFlat, ...
 
 mkPm = @(v) packPreMaet({v, [0 1 2]}, [], ...
     flatSpecs({v, [0 1 2]}, 'sigma', [0.5 0.25], ...
-              'isPer', [true false], 'period', [12 0]));
+              'per', [true false], 'period', [12 0]));
 pmL1 = mkPm([60 64 67]);
 pmL2 = mkPm([62 65 69]);
 dL1  = buildMaet(pmL1, 'verbose', false);
@@ -284,7 +284,7 @@ results{end,2}   = okSw;
 pChord = {[60 62 64; 64 65 67], [0 1 2]};
 spCh   = flatSpecs(pChord, 'r', 1);
 pmCh   = packPreMaet(pChord, [], spCh);
-KWCh   = {'sigma', [0.5 0.25], 'isPer', [false false], ...
+KWCh   = {'sigma', [0.5 0.25], 'per', [false false], ...
           'period', [0 0], 'verbose', false};
 
 dR = buildMaet(pmCh, 'r', [2 1], KWCh{:});
@@ -294,8 +294,8 @@ results{end,2}   = isequal(double(dR.r(:)'), [2 1]);
 dRS = buildMaet(pmCh, 'r', [2 1], 'rel', [true false], ...
                    'exch', [false true], KWCh{:});
 results{end+1,1} = 'packPreMaet: rel and exch override the specs'; %#ok<SAGROW>
-results{end,2}   = isequal(logical(dRS.isRel(:)'), [true false]) ...
-                   && isequal(logical(dRS.isExch(:)'), [false true]);
+results{end,2}   = isequal(logical(dRS.rel(:)'), [true false]) ...
+                   && isequal(logical(dRS.exch(:)'), [false true]);
 
 % A sweep over any of the six parameters stays one call per value, and
 % leaves the pre-MAET it sweeps unchanged.
@@ -303,7 +303,7 @@ sigmas = [0.25 0.5 1];
 got = zeros(1, numel(sigmas));
 for k = 1:numel(sigmas)
     dK = buildMaet(pmC, 'sigma', [sigmas(k) 0.25], ...
-                      'isPer', [false false], 'period', [0 0], ...
+                      'per', [false false], 'period', [0 0], ...
                       'verbose', false);
     got(k) = dK.sigma(1);
 end

@@ -15,7 +15,7 @@ function scale = ipCanonicalScale(dens, chosen, nestedRoutes)
 %   Every route drops constant per-attribute prefactors because they
 %   cancel in a ratio. Per attribute, with g_a = (sigma sqrt(pi))^d for an
 %   absolute attribute of tuple dimension d and, for a relative one whose
-%   co-transposition blocks have s_u slots, g_a = [(sigma sqrt(pi))^(s_u-1)
+%   co-transposition blocks have s_u positions, g_a = [(sigma sqrt(pi))^(s_u-1)
 %   sqrt(s_u)]^(number of blocks), the factors are:
 %     - flat Möbius matrix: 1;
 %     - flat centres closed form, and the ordered-flat centres inside the
@@ -30,6 +30,12 @@ function scale = ipCanonicalScale(dens, chosen, nestedRoutes)
 %       tau grid (the mean over the period of the same integrand):
 %       P |G| s (sigma sqrt(pi))^(s-2) / 2.
 %
+%   The nested per-route constants live in INTERNAL.NESTEDROUTESCALE. The
+%   nested plan's combiners (INTERNAL.NESTEDCONTRACT, including its sweep)
+%   put every nested attribute's matrix on the nested centres route's scale
+%   before combining, so on the plan a nested attribute's factor is g
+%   whichever route ran, and NESTEDROUTES no longer changes the result.
+%
 %   CHOSEN is the flat route ('bulger', 'mobius', 'centres') or
 %   'contract' for the nested plan, whose per-attribute routes are in
 %   NESTEDROUTES ('-' for a flat attribute). Pinned by
@@ -42,15 +48,15 @@ function scale = ipCanonicalScale(dens, chosen, nestedRoutes)
     if isfield(dens, 'nested') && ~isempty(dens.nested)
         for a = 1:min(A, numel(dens.nested)); nested{a} = dens.nested{a}; end
     end
-    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
-        isExch = logical(dens.isExch(:).');
+    if isfield(dens, 'exch') && ~isempty(dens.exch)
+        isExch = logical(dens.exch(:).');
     else
         isExch = true(1, A);
     end
     scale = 1.0;
     for a = 1:A
         sigma = double(dens.sigma(a));
-        isRel = logical(dens.isRel(a));
+        isRel = logical(dens.rel(a));
         sp = sigma * sqrt(pi);
         spec = nested{a};
         if isempty(spec)
@@ -77,40 +83,13 @@ function scale = ipCanonicalScale(dens, chosen, nestedRoutes)
             scale = scale * f;
             continue;
         end
-        rLevels = double(spec.r(:).');
-        sTot = prod(rLevels);
-        relUnit = [];
-        if isfield(spec, 'relUnit') && ~isempty(spec.relUnit) ...
-                && ~any(isnan(spec.relUnit)) && spec.relUnit > 0
-            relUnit = double(spec.relUnit);
-        end
-        if isempty(relUnit)
-            g = sp^sTot;
+        % Bulger's enumeration is on its own scale; the centres route and
+        % the nested plan (whose combiners put every route on the centres
+        % scale) are on the centres one.
+        if strcmp(chosen, 'bulger')
+            f = internal.nestedRouteScale(dens, a, 'bulger');
         else
-            sU = prod(rLevels(1:relUnit));
-            g = (sp^(sU - 1) * sqrt(sU))^(sTot / sU);
-        end
-        G = double(internal.nestedOrbitMult(rLevels, logical(spec.exch(:).')));
-        switch chosen
-            case 'bulger'
-                f = G * g;
-            case 'centres'
-                f = g;
-            otherwise
-                route = 'contract';
-                if a <= numel(nestedRoutes) && ~isempty(nestedRoutes{a})
-                    route = char(nestedRoutes{a});
-                end
-                switch route
-                    case 'centres'
-                        f = g;
-                    case 'contract_relnonper'
-                        f = G * sTot * sp^(sTot - 2) / 2;
-                    case 'taugrid'
-                        f = double(dens.period(a)) * G * sTot * sp^(sTot - 2) / 2;
-                    otherwise
-                        f = G * g;
-                end
+            f = internal.nestedRouteScale(dens, a, 'centres');
         end
         scale = scale * f;
     end

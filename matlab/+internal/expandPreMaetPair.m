@@ -1,7 +1,7 @@
 function args = expandPreMaetPair(args)
 %EXPANDPREMAETPAIR  Replace a pre-MAET in buildMaet's arguments.
 %   buildMaet's leading positional arguments are p and w, so a whole
-%   pre-MAET in the p slot expands into those two, and its specs are
+%   pre-MAET in the p argument expands into those two, and its specs are
 %   attached as the 'specs' name-value where the call did not name specs
 %   itself.
     if isempty(args) || ~internal.isPreMaet(args{1})

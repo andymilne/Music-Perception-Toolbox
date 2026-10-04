@@ -40,7 +40,7 @@ end
 
 rp2_P = 12.0;
 rp2_absWarn = warning('off', 'buildMaet:absPerSingleImage');
-rp2_relWarn = warning('off', 'buildMaet:isRelDegenerate');
+rp2_relWarn = warning('off', 'buildMaet:relDegenerate');
 rp2_warnCleanup = onCleanup(@() cellfun(@warning, ...
     {rp2_absWarn, rp2_relWarn})); %#ok<NASGU>
 
@@ -337,5 +337,5 @@ function d = rp2Nested(values, sigma, P) %#ok<INUSD>
     spec = struct('tags', tags, 'r', [2 2], 'exch', [true true], ...
                   'rel', [0 1]);
     d = buildMaet({v}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
-                     'isPer', false, 'period', 0, 'verbose', false);
+                     'per', false, 'period', 0, 'verbose', false);
 end

@@ -129,7 +129,7 @@ EXT_KS = (72, 110, 160, 240, 360, 540, 820, 1200)
 #: Cells beyond reach are skipped by the budget and the block abandoned,
 #: as everywhere else. None means 'use the task's full route list'.
 EXT_METHODS = None
-MODES = (                      # (is_rel, is_per, label)
+MODES = (                      # (rel, per, label)
     (False, False, 'absolute non-periodic'),
     (False, True,  'absolute periodic'),
     (True,  False, 'relative non-periodic'),
@@ -180,7 +180,7 @@ PAIR_RATE_S = 1.0e-8      # seconds per tuple pair; re-calibrated at startup
 #: well under a second: the slowest cell that survived a 2 s budget
 #: actually took 347 ms.
 MODE_SCALE = {
-    #  (is_rel, is_per): (bulger/centres-side multiplier)
+    #  (rel, per): (bulger/centres-side multiplier)
     (False, False): 1.0,
     (False, True):  3.2,
     (True,  False): 1.5,
@@ -225,17 +225,17 @@ def make_pair(K, rng):
     return (p, wp), (q, wq)
 
 
-def build(pair, r, is_rel, is_per, sigma=None):
+def build(pair, r, rel, per, sigma=None):
     (p, wp), (q, wq) = pair
     sigma = SIGMA if sigma is None else sigma
-    A = mpt.build_maet(p, wp, sigma, r, is_rel, is_per, PERIOD, verbose=False)
-    B = mpt.build_maet(q, wq, sigma, r, is_rel, is_per, PERIOD, verbose=False)
+    A = mpt.build_maet(p, wp, sigma, r, rel, per, PERIOD, verbose=False)
+    B = mpt.build_maet(q, wq, sigma, r, rel, per, PERIOD, verbose=False)
     return A, B
 
 
-def eval_points(r, is_rel, rng):
+def eval_points(r, rel, rng):
     """Query points for an evaluation cell, shaped (dim, n_queries)."""
-    dim = max(r - (1 if is_rel else 0), 1)
+    dim = max(r - (1 if rel else 0), 1)
     u = np.asarray(rng.uniform01(dim * N_QUERIES)).reshape(dim, N_QUERIES)
     return u * PERIOD
 
@@ -345,20 +345,20 @@ ORBIT_S = {
 }
 
 
-def predict_s(method, r, K, rate, is_rel=False, is_per=False):
+def predict_s(method, r, K, rate, rel=False, per=False):
     """Predicted seconds for ONE call."""
     n = pair_count(method, r, K)
     if n is None:
-        return ORBIT_S.get((is_rel, is_per), ORBIT_S[(False, False)]).get(r, 1.0)
+        return ORBIT_S.get((rel, per), ORBIT_S[(False, False)]).get(r, 1.0)
     # Measured multipliers on the per-pair rate. Periodic wrapping is the
     # large one: at r = 3, K = 20 the periodic Bulger call is ~18x the
     # non-periodic, and at K = 34 nearer 40x, the wrap being applied per
     # coordinate of every tuple pair. The relative modes add a quadrature
     # over the common shift. Both are deliberate over-estimates, so the
     # budget errs toward skipping a cell rather than running for minutes.
-    scale = MODE_SCALE.get((bool(is_rel), bool(is_per)), 1.0)
+    scale = MODE_SCALE.get((bool(rel), bool(per)), 1.0)
     if method == 'centres':
-        scale *= CENTRES_SCALE.get((bool(is_rel), bool(is_per)), 1.5)
+        scale *= CENTRES_SCALE.get((bool(rel), bool(per)), 1.5)
     return n * rate * scale
 
 
@@ -426,7 +426,7 @@ def run_ip(args, modes, rs, ks, rng, rate, rows, failures, skipped,
               + ''.join(f'{m:>12}' for m in methods) + '   fastest')
     print(header)
     print('-' * len(header))
-    for is_rel, is_per, mlabel in modes:
+    for rel, per, mlabel in modes:
         for r in rs:
             # Cost rises monotonically with K for each route separately,
             # so a route that has blown the budget will blow it at every
@@ -444,7 +444,7 @@ def run_ip(args, modes, rs, ks, rng, rate, rows, failures, skipped,
                 if K < r + 1:
                     continue
                 pair = make_pair(K, rng)
-                A, B = build(pair, r, is_rel, is_per, args.sigma)
+                A, B = build(pair, r, rel, per, args.sigma)
 
                 vals = {}
                 for m in methods:
@@ -452,9 +452,9 @@ def run_ip(args, modes, rs, ks, rng, rate, rows, failures, skipped,
                         continue
                     if (mlabel, r, K, m) in done_ip:
                         continue
-                    if predict_s(m, r, K, rate, is_rel, is_per) > args.budget:
+                    if predict_s(m, r, K, rate, rel, per) > args.budget:
                         skipped.append((mlabel, r, K, m,
-                                        predict_s(m, r, K, rate, is_rel, is_per)))
+                                        predict_s(m, r, K, rate, rel, per)))
                         done_methods.add(m)
                         continue
                     try:
@@ -478,7 +478,7 @@ def run_ip(args, modes, rs, ks, rng, rate, rows, failures, skipped,
 
                 times = {}
                 for m in vals:
-                    A2, B2 = build(pair, r, is_rel, is_per)
+                    A2, B2 = build(pair, r, rel, per)
                     try:
                         def fn(m=m, A2=A2, B2=B2):
                             clear_self_ip(A2, B2)
@@ -489,8 +489,8 @@ def run_ip(args, modes, rs, ks, rng, rate, rows, failures, skipped,
                         times[m] = t
                         rows.append(dict(language='python', task='ip', sigma=args.sigma,
                                          period=PERIOD,
-                                         mode=mlabel, is_rel=is_rel,
-                                         is_per=is_per, r=r, K=K,
+                                         mode=mlabel, rel=rel,
+                                         per=per, r=r, K=K,
                                          n_queries='', method=m,
                                          rel_route=('forced-by-method' if args.rel_route == 'auto'
                                                     else args.rel_route),
@@ -527,7 +527,7 @@ def run_eval(args, modes, rs, ks, rng, rows, failures, abandoned, done,
     print(f'point evaluation, {N_QUERIES} query points per cell\n')
     print(header)
     print('-' * len(header))
-    for is_rel, is_per, mlabel in modes:
+    for rel, per, mlabel in modes:
         for r in rs:
             done_methods = set()        # see the note in run_ip
             for K in ks:
@@ -537,9 +537,9 @@ def run_eval(args, modes, rs, ks, rng, rows, failures, abandoned, done,
                 if K < r + 1:
                     continue
                 (p, w), _ = make_pair(K, rng)
-                A = mpt.build_maet(p, w, args.sigma, r, is_rel, is_per,
+                A = mpt.build_maet(p, w, args.sigma, r, rel, per,
                                        PERIOD, verbose=False)
-                pts = eval_points(r, is_rel, rng)
+                pts = eval_points(r, rel, rng)
 
                 vals, times = {}, {}
                 for m in methods:
@@ -570,7 +570,7 @@ def run_eval(args, modes, rs, ks, rng, rows, failures, abandoned, done,
                         failures.append((mlabel, r, K, m,
                                          f'deviates from centres by {devs[m]:.2e}'))
                 for m in vals:
-                    A2 = mpt.build_maet(p, w, args.sigma, r, is_rel, is_per,
+                    A2 = mpt.build_maet(p, w, args.sigma, r, rel, per,
                                             PERIOD, verbose=False)
                     try:
                         def fn_eval(m=m, A2=A2):
@@ -582,8 +582,8 @@ def run_eval(args, modes, rs, ks, rng, rows, failures, abandoned, done,
                         times[m] = t
                         rows.append(dict(language='python', task='eval', sigma=args.sigma,
                                          period=PERIOD,
-                                         mode=mlabel, is_rel=is_rel,
-                                         is_per=is_per, r=r, K=K,
+                                         mode=mlabel, rel=rel,
+                                         per=per, r=r, K=K,
                                          n_queries=N_QUERIES, method=m,
                                          rel_route=('forced-by-method' if args.rel_route == 'auto'
                                                     else args.rel_route),

@@ -64,12 +64,12 @@ def _instrument():
         # time from .._mobius, so patching the module attribute suffices.
 
 
-def config(r, K, is_rel, is_per, w_hi):
+def config(r, K, rel, per, w_hi):
     """Worst bound and worst orbit/enumeration disagreement over seeds."""
     bounds, errs = [], []
     for seed in range(SEEDS):
         rng = np.random.default_rng(seed)
-        geom = ([0.025 * P], [r], [is_rel], [is_per], [P])
+        geom = ([0.025 * P], [r], [rel], [per], [P])
         d1 = build_maet([rng.uniform(0, P, (K, N))],
                             [rng.uniform(0.1, w_hi, (K, N))], *geom,
                             verbose=False)
@@ -96,14 +96,14 @@ def main():
               f"{'bound':>10} {'err':>10} {'bound>floor':>12}")
     print(header)
     print("-" * len(header))
-    for name, is_rel, is_per in [("abs_nonper", False, False),
+    for name, rel, per in [("abs_nonper", False, False),
                                  ("rel_nonper", True, False),
                                  ("rel_per", True, True)]:
         for r in (2, 3, 4, 5):
             for dk in (0, 1, 2, 3):
                 for w_hi in (1.0, 100.0):
                     K = r + dk
-                    b, e = config(r, K, is_rel, is_per, w_hi)
+                    b, e = config(r, K, rel, per, w_hi)
                     gate = "adm" if dk >= 2 else "ref"
                     print(f"{name:<11} {r:>2} {K:>2} {w_hi:>5.0f} {gate:>4} | "
                           f"{b:>10.2e} {e:>10.2e} "

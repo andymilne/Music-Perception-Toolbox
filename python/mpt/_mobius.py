@@ -1435,7 +1435,7 @@ def eval_orbit_abs(
     r: int,
     x: np.ndarray,
     *,
-    is_per: bool = False,
+    per: bool = False,
     period: float = 0.0,
     return_cancellation_ratio: bool = False,
     truncation_sigmas: float | None = None,
@@ -1486,11 +1486,11 @@ def eval_orbit_abs(
     x : (r, ...) ndarray
         Query points; the first dimension must equal ``r``, the
         remaining dimensions are query indices.
-    is_per : bool
+    per : bool
         Periodic mode flag. When True, all differences are wrapped to
         ``[-period/2, period/2)`` before squaring.
     period : float
-        Period (only consulted when ``is_per`` is True).
+        Period (only consulted when ``per`` is True).
     return_cancellation_ratio : bool, default False
         If True, additionally return the per-query-point cancellation
         ratios from the set-partition alternating sum, with the same
@@ -1558,7 +1558,7 @@ def eval_orbit_abs(
     # the regime where the culled (circular) kernel sum applies; elsewhere
     # it falls back to the exact direct broadcast.
     from ._kernel import gaussian_kernel_sum
-    if is_per:
+    if per:
         r_win = np.sqrt(2.0) * float(trunc_resolved) * sigma
         per_helper_global = period > 2.0 * r_win
     else:
@@ -1579,7 +1579,7 @@ def eval_orbit_abs(
         wm = w ** m if m > 1 else w
         sigma_eff = sigma / np.sqrt(m)
 
-        if not is_per:
+        if not per:
             if m == 1:
                 mean_x = x_B[0, :]
                 var_x = np.zeros(n_q_total, dtype=np.float64)
@@ -1610,8 +1610,8 @@ def eval_orbit_abs(
                             wrap=str(wrap))
             if kernel_precision is not None:
                 kw["kernel_precision"] = kernel_precision
-            if is_per:
-                kw["is_per"] = True
+            if per:
+                kw["per"] = True
                 kw["period"] = period
             kernel_sum = gaussian_kernel_sum(
                 p.reshape(1, -1), wm,
@@ -1634,7 +1634,7 @@ def eval_orbit_abs(
             # mean_x, and is not correct here where each coordinate is
             # broadcast separately.
             diffs = x_B[:, None, :] - p[None, :, None]
-            if is_per and str(wrap) == 'full-image':
+            if per and str(wrap) == 'full-image':
                 from ._wrapped_kernel import wrapped_gaussian_1d
                 theta = wrapped_gaussian_1d(
                     diffs, sigma, period, float(trunc_resolved),
@@ -1645,7 +1645,7 @@ def eval_orbit_abs(
                     np.einsum('i,iq->q', wm, kernel, optimize=True)
                 )
             else:
-                if is_per:
+                if per:
                     diffs = diffs - period * np.floor(diffs / period + 0.5)
                 sq_sum = np.sum(diffs * diffs, axis=0)
                 kernel = np.exp(-sq_sum * inv_2s2)
@@ -1871,7 +1871,7 @@ _FOURIER_ENABLED = True
 _FOURIER_MODE_SIGMAS = 8.6
 
 
-def _eval_orbit_rel_fourier(p, w, sigma, r, x_rel, is_per, period,
+def _eval_orbit_rel_fourier(p, w, sigma, r, x_rel, per, period,
                             truncation_sigmas):
     """Relative evaluation via the spectral (Fourier) form, r >= 2.
 
@@ -1904,7 +1904,7 @@ def _eval_orbit_rel_fourier(p, w, sigma, r, x_rel, is_per, period,
     n_q = x_rel.shape[1]
     p64 = np.asarray(p, dtype=np.float64).ravel()
     w64 = np.asarray(w, dtype=np.float64).ravel()
-    if is_per:
+    if per:
         L = float(period)
     else:
         pad = (k_res + 2.0) * sigma
@@ -1960,7 +1960,7 @@ def _eval_orbit_rel_fourier(p, w, sigma, r, x_rel, is_per, period,
         q1 = min(q0 + chunk, n_q)
         nqc = q1 - q0
         deltas = np.vstack([np.zeros((1, nqc)), x_rel[:, q0:q1]])
-        if is_per:
+        if per:
             deltas = deltas - period * np.round(deltas / period)
         stats = {}
         for blocks, mu in partitions:
@@ -2020,7 +2020,7 @@ def eval_orbit_rel(
     r: int,
     x_rel: np.ndarray,
     *,
-    is_per: bool = False,
+    per: bool = False,
     period: float = 0.0,
     samples_per_sigma: int | None = None,
     return_cancellation_ratio: bool = False,
@@ -2097,7 +2097,7 @@ def eval_orbit_rel(
         Convention: ``x_rel`` represents differences from the
         implicit reference position; the full r-vector at translation u
         is ``(u, u + x_rel_1, ..., u + x_rel_{r-1})``.
-    is_per, period, return_cancellation_ratio : as in
+    per, period, return_cancellation_ratio : as in
         :func:`eval_orbit_abs`.
     samples_per_sigma : int or None, default None
         u-grid density in points per σ. ``None`` derives the count from
@@ -2155,7 +2155,7 @@ def eval_orbit_rel(
     )
 
     # Build u-grid (mirrors _rel_inner_batched).
-    if is_per:
+    if per:
         N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
         u_grid = np.linspace(0.0, period, N_u, endpoint=False)
         du = period / N_u
@@ -2202,7 +2202,7 @@ def eval_orbit_rel(
     ):
         from ._defaults import resolve_truncation_sigmas as _rts
         _k_res = float(_rts(truncation_sigmas))
-        if is_per and r >= 2 and x_rel.size:
+        if per and r >= 2 and x_rel.size:
             # As in the factored-periodic gate: every query's position
             # span (position 0 carries delta 0) must fit inside half the
             # circle, under which the principal-image wrap of the
@@ -2212,13 +2212,13 @@ def eval_orbit_rel(
             _span_ok = float(np.max(_phi - _plo)) < 0.5 * period
         else:
             _span_ok = True
-        if _span_ok and ((not is_per)
+        if _span_ok and ((not per)
                          or (period > 2.0 * np.sqrt(2.0) * _k_res * sigma)):
             return _eval_orbit_rel_fourier(
-                p, w, sigma, r, x_rel, is_per, period, truncation_sigmas,
+                p, w, sigma, r, x_rel, per, period, truncation_sigmas,
             )
 
-    if is_per:
+    if per:
         # Factored-periodic is valid only where the circular variance/mean
         # block reduction survives wrapping: the truncation window must fit
         # within half the circle and each query's position span must too,
@@ -2281,7 +2281,7 @@ def eval_orbit_rel(
         for m in range(1, r + 1):
             sig_m = sigma / np.sqrt(m)
             wm = w ** m if m > 1 else w
-            if is_per:
+            if per:
                 # Uniform grid over exactly one period; the read-back
                 # wraps its stencil, so no padding is needed. Tabulate the
                 # circular S_m directly (gaussian_kernel_sum's periodic
@@ -2292,7 +2292,7 @@ def eval_orbit_rel(
                 grid_m = h_m * np.arange(n_m)
                 vals = gaussian_kernel_sum(
                     p.reshape(1, -1), wm, grid_m.reshape(1, -1),
-                    float(sig_m), is_per=True, period=period, **kw,
+                    float(sig_m), per=True, period=period, **kw,
                 )
             else:
                 h_m = sig_m / spp
@@ -2341,7 +2341,7 @@ def eval_orbit_rel(
                 var_d = np.sum((dB - mean_d) ** 2, axis=0)
                 lo, h_m, ym = tables[m]
                 pts = u_grid[:, None] + mean_d[None, :]
-                if is_per:
+                if per:
                     Sm = _lagrange6_circular(ym, lo, h_m, pts)
                 else:
                     Sm = _lagrange6_uniform(ym, lo, h_m, pts)
@@ -2384,7 +2384,7 @@ def eval_orbit_rel(
             if return_cancellation_ratio:
                 vals_chunk, ratios_chunk = eval_orbit_abs(
                     p, w, sigma, r, x_full,
-                    is_per=is_per, period=period,
+                    per=per, period=period,
                     return_cancellation_ratio=True,
                     truncation_sigmas=truncation_sigmas,
                     kernel_precision=kernel_precision,
@@ -2394,13 +2394,13 @@ def eval_orbit_rel(
             else:
                 vals_chunk = eval_orbit_abs(
                     p, w, sigma, r, x_full,
-                    is_per=is_per, period=period,
+                    per=per, period=period,
                     truncation_sigmas=truncation_sigmas,
                     kernel_precision=kernel_precision,
                 )
                 F[:, c0:c1] = vals_chunk
 
-    if is_per:
+    if per:
         integral = F.sum(axis=0) * du
     else:
         integral = np.trapezoid(F, u_grid, axis=0)

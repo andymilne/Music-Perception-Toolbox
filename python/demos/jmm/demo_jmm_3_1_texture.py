@@ -86,7 +86,7 @@ SIGMAS_T    = [0.015, 0.100]   # coincidence (precedence/fusion window), redunda
 # which swept_entropy overrides per call.
 piece = mpt.pre_maet_from_attr_table(
     pe.piece_table(),
-    attributes=(dict(column='pitch', sigma=SIGMA_PITCH),
+    specs=(dict(column='pitch', sigma=SIGMA_PITCH),
                 dict(column='onset', name='time', sigma=SIGMAS_T[0])),
     time='seconds', chords='separate', weights='ones')
 onset = mpt.unpack_pre_maet(piece)[0][1].ravel()

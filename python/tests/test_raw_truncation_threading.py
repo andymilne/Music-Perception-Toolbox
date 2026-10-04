@@ -37,7 +37,7 @@ def _chord(seed, K, span):
     return p, w
 
 
-# (r, K, is_rel, is_per, span, period)
+# (r, K, rel, per, span, period)
 _CASES = [
     (3, 12, False, False, 3600.0, 0.0),
     (2, 16, True, False, 3600.0, 0.0),
@@ -54,34 +54,34 @@ _WIDTH_CASES = [
 ]
 
 
-@pytest.mark.parametrize("r,K,is_rel,is_per,span,period", _CASES)
-def test_eval_raw_scalar_matches_prebuilt(r, K, is_rel, is_per, span, period):
+@pytest.mark.parametrize("r,K,rel,per,span,period", _CASES)
+def test_eval_raw_scalar_matches_prebuilt(r, K, rel, per, span, period):
     p, w = _chord(0, K, span)
     sigma = 15.0
-    dim = r - 1 if is_rel else r
+    dim = r - 1 if rel else r
     x = np.random.default_rng(7).uniform(0.0, span, (dim, 40))
     dens = build_maet(
         [p.reshape(K, 1)], [w.reshape(K, 1)], [sigma], [r],
-        [is_rel], [is_per], [period], verbose=False,
+        [rel], [per], [period], verbose=False,
     )
     v_pre = eval_maet(dens, x, verbose=False)
     v_raw = eval_maet(
-        p, w, sigma, r, is_rel, is_per, period, x, verbose=False,
+        p, w, sigma, r, rel, per, period, x, verbose=False,
     )
     # Exact agreement also witnesses the raw form is truncated (not dense).
     assert np.max(np.abs(v_raw - v_pre)) == 0.0
 
 
-@pytest.mark.parametrize("r,K,is_rel,is_per,span,period", _WIDTH_CASES)
-def test_eval_raw_scalar_honours_width(r, K, is_rel, is_per, span, period):
+@pytest.mark.parametrize("r,K,rel,per,span,period", _WIDTH_CASES)
+def test_eval_raw_scalar_honours_width(r, K, rel, per, span, period):
     p, w = _chord(1, K, span)
     sigma = 60.0   # wide kernel so the truncation width bites
-    dim = r - 1 if is_rel else r
+    dim = r - 1 if rel else r
     x = np.random.default_rng(3).uniform(0.0, span, (dim, 40))
 
     def val(ts):
         return eval_maet(
-            p, w, sigma, r, is_rel, is_per, period, x,
+            p, w, sigma, r, rel, per, period, x,
             truncation_sigmas=ts, verbose=False,
         )
 

@@ -139,7 +139,7 @@ results{end,2}   = throwsErrorWithId(@() transformAttributes({[1 2]}, [], {@(x) 
                    && throwsErrorWithId(@() transformAttributes({[1 2]}, [], {@(x) x(1)}), ...
                                         'transformAttributes:badOutputShape');
 
-sp = flatSpecs({zeros(1, 2), zeros(1, 2)}, 'name', {'pitch', 'ioi'});
+sp = flatSpecs({zeros(1, 2), zeros(1, 2)}, 'names', {'pitch', 'ioi'});
 results{end+1,1} = 'transform: message names the attribute';
 results{end,2}   = errorMessageContains(@() transformAttributes({[1 2], [0.5 0]}, [], ...
                                             {[], 'log'}, 'specs', sp), 'attribute 2 (''ioi'')');
@@ -155,7 +155,7 @@ results{end,2}   = isequal(out{1}, [1 2]) && max(abs(out{2} - [2 3])) < tol ...
 results{end+1,1} = 'transform: single entry broadcasts to all attributes';
 results{end,2}   = max(abs(out2{1} - [1 sqrt(2)])) < tol;
 
-spIn = flatSpecs({[1 2]}, 'r', 2, 'name', 'x');
+spIn = flatSpecs({[1 2]}, 'r', 2, 'names', 'x');
 [~, w, sp] = unpackPreMaet(transformAttributes({[1 2]}, {[0.5 0.5]}, {'log'}, 'specs', spIn));
 results{end+1,1} = 'transform: weights and specs pass through';
 results{end,2}   = isequal(sp{1}, spIn{1}) && isequal(w{1}, [0.5 0.5]);
@@ -165,7 +165,7 @@ results{end+1,1} = 'transform: function handle on a K_total x N matrix';
 results{end,2}   = max(abs(out{1}(:) - [1; 3; 2; 4])) < tol;
 
 p = {[2 -3 0], [1 1 1]};
-sp = flatSpecs(p, 'name', {'ivl', 't'});
+sp = flatSpecs(p, 'names', {'ivl', 't'});
 [out, w, s] = unpackPreMaet(transformAttributes(p, {1, 2}, {{'log', 'offset', 1}, []}, 'specs', sp, 'sign', [true false]));
 results{end+1,1} = 'transform: sign attribute inserted after its source';
 results{end,2}   = numel(out) == 3 && numel(w) == 3 && numel(s) == 3 ...
@@ -218,7 +218,7 @@ results{end,2}   = max(abs(d{1} - [1 0 1])) < tol;
 
 [d, w, sp] = unpackPreMaet(differenceEvents({[60 64 62 62 67]}, [], 1));
 [p, w, sp] = unpackPreMaet(transformAttributes(d, w, {{'log', 'offset', 1}}, 'specs', sp, 'sign', true));
-dens = buildMaet(p, w, 'specs', sp, 'sigma', [0.2 0.3], 'isPer', [false false], ...
+dens = buildMaet(p, w, 'specs', sp, 'sigma', [0.2 0.3], 'per', [false false], ...
                     'period', [0 0], 'verbose', false);
 results{end+1,1} = 'transform: difference then log(x+1) with sign feeds build';
 results{end,2}   = numel(dens.sigma) == 2 ...

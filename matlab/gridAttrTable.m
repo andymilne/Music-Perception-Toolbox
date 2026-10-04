@@ -114,7 +114,7 @@ function G = gridAttrTable(T, step, nvArgs)
 %   Example
 %       T = readScore('score.mid');
 %       G = gridAttrTable(T, 0.25);            % sixteenth notes
-%       pm = preMaetFromAttrTable(G, 'attributes', {'pitch'}, ...
+%       pm = preMaetFromAttrTable(G, 'specs', {'pitch'}, ...
 %                             'weights', 'weight', 'time', 'beats');
 %
 %   See also UNGRIDATTRTABLE, READSCORE, PREMAETFROMATTRTABLE.

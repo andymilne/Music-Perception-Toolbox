@@ -108,8 +108,8 @@ def spectral_entropy(
     indicates greater consonance.
 
     ``spectral_entropy`` is a thin wrapper around
-    :func:`~mpt.entropy_maet` with ``r=1``, ``is_rel=False``,
-    ``is_per=False`` (1-D absolute non-periodic density). It applies
+    :func:`~mpt.entropy_maet` with ``r=1``, ``rel=False``,
+    ``per=False`` (1-D absolute non-periodic density). It applies
     :func:`~mpt.spectra.add_spectra` to enrich the pitches with
     partials (if a ``spectrum`` argument is supplied), shifts the
     lowest pitch to 0, computes appropriate grid bounds where needed,
@@ -421,11 +421,11 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
 
         # Canonical key: spectral_entropy transposes internally
         # (p -= min), so transposition is part of the symmetry. r=1,
-        # is_rel=True (transposition-invariant after the internal
-        # shift), is_per=False.
+        # rel=True (transposition-invariant after the internal
+        # shift), per=False.
         key, _, _ = _chord_canonical_key(
             p_valid, w_valid,
-            sigma=sigma, r=1, is_rel=True, is_per=False, period=1200.0,
+            sigma=sigma, r=1, rel=True, per=False, period=1200.0,
         )
 
         if key in result_cache:
@@ -766,7 +766,7 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
         # use a relative, non-periodic canonical form.
         key, p_canon, w_canon = _chord_canonical_key(
             p_valid, w_valid,
-            sigma=sigma, r=1, is_rel=True, is_per=False, period=1200.0,
+            sigma=sigma, r=1, rel=True, per=False, period=1200.0,
         )
         if key in result_cache:
             h_max_out[i], h_ent_out[i] = result_cache[key]
@@ -1057,7 +1057,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
         key, p_canon, _ = _chord_canonical_key(
             p_valid,
             W[i, mask] if use_w else None,
-            sigma=sigma, r=n_p, is_rel=True, is_per=False, period=1200.0,
+            sigma=sigma, r=n_p, rel=True, per=False, period=1200.0,
         )
 
         row_n_p[i] = n_p
@@ -1432,7 +1432,7 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
         # per-row p_offset.
         key, _, _ = _chord_canonical_key(
             p_valid, w_valid,
-            sigma=sigma, r=1, is_rel=True, is_per=False, period=1200.0,
+            sigma=sigma, r=1, rel=True, per=False, period=1200.0,
         )
 
         if key in result_cache:

@@ -18,7 +18,7 @@ function [p, w] = addSpectra(p, w, mode, varargin)
 %   belonging to one.
 %
 %   The expansion multiplies the attribute's K by the number of partials
-%   and leaves N and the spec alone; a padded slot expands to padded
+%   and leaves N and the spec alone; a padded position expands to padded
 %   partials at weight zero, a missing value having no spectrum. Partials
 %   of one value differ in weight, so the result always carries weights,
 %   even where the input carried none. The expanded rows come in the order
@@ -228,7 +228,7 @@ function [p, w] = addSpectra(p, w, mode, varargin)
 %   See also buildMaet, evalMaet, simMaet.
 
 % === Two forms ===
-% Given a pre-MAET, every positional argument after it sits one slot
+% Given a pre-MAET, every positional argument after it sits one position
 % early, and the weights come from the pre-MAET itself.
 if internal.isPreMaet(p)
     if nargin < 2
@@ -479,7 +479,7 @@ function pm = localPreMaet(pm, mode, args)
 %localPreMaet Give one attribute of a pre-MAET its partials, at every event.
 %
 % The values grow by a factor of the partial count and the events do not,
-% so K becomes K * P and N and the spec stand. A padded slot expands to
+% so K becomes K * P and N and the spec stand. A padded position expands to
 % padded partials at weight zero, a missing value having no spectrum.
 if ~ischar(mode) && ~isstring(mode)
     error('addSpectra:noMode', ...

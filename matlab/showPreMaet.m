@@ -11,9 +11,9 @@ function out = showPreMaet(varargin)
 %   attribute is unordered ([exch] = 1) and parenthesis-delimited where it
 %   is ordered; a nested attribute is bracketed level by level, the
 %   outermost level outermost. A single element is written bare. On an
-%   ordered attribute the slot is the level (a voice, a coordinate), so
-%   an empty slot (NaN) before the event's last value is written as a
-%   blank, (62, _, 67); on an unordered one empty slots are omitted. Where
+%   ordered attribute the position identifies the level (a voice, a coordinate), so
+%   a position with no value (NaN) before the event's last value is written as a
+%   blank, (62, _, 67); on an unordered one such gaps are omitted. Where
 %   the weights are not uniform they are written as parenthesized
 %   superscripts on their values, 60^(0.6). The markdown rendering is
 %   plain ASCII, so that its column widths are the same in MATLAB and in
@@ -26,10 +26,10 @@ function out = showPreMaet(varargin)
 %   STR = SHOWPREMAET(...) also returns the rendered table.
 %
 %   Name-value arguments:
-%     'sigma', 'isRel', 'isPer', 'period'
+%     'sigma', 'rel', 'per', 'period'
 %                     Kernel parameters, scalar or length A, shown in the
 %                     attribute row. Ignored when a density is passed;
-%                     'isRel' overrides the specs' rel field.
+%                     'rel' overrides the specs' rel field.
 %     'names'         Attribute names, a string or length-A cell array.
 %                     Defaults to the specs' name fields, then to a_1,
 %                     a_2, and so on.
@@ -51,7 +51,7 @@ function out = showPreMaet(varargin)
 %   Example:
 %     p = {[67 66 64], [5 6 7]};
 %     showPreMaet(p, [], [], 'names', {'pitch', 'time'}, ...
-%                 'sigma', [0.5 0.25], 'isPer', [true false], ...
+%                 'sigma', [0.5 0.25], 'per', [true false], ...
 %                 'period', [12 0]);
 %
 %   See also buildMaet, flatSpecs, differenceEvents, bindEvents.
@@ -70,7 +70,7 @@ if nargin < 2, w = []; end
 if nargin < 3, specs = []; end
 
 nvDefaults = struct( ...
-    'sigma', [], 'isRel', [], 'isPer', [], 'period', [], ...
+    'sigma', [], 'rel', [], 'per', [], 'period', [], ...
     'names', [], 'format', 'markdown', 'maxEvents', 8, ...
     'maxElements', 8, 'decimals', 4, 'weights', 'auto', ...
     'title', [], 'caption', [], 'label', [], 'verbose', true, ...
@@ -212,11 +212,11 @@ if isstruct(pAttr) && isfield(pAttr, 'pAttr') && isfield(pAttr, 'nAttrs')
             sp{a} = d.nested{a};
         else
             sp{a} = struct('r', double(d.r(a)), ...
-                'rel', logical(d.isRel(a)), 'exch', logical(d.isExch(a)));
+                'rel', logical(d.rel(a)), 'exch', logical(d.exch(a)));
         end
     end
     prm = struct('sigma', {num2cell(double(d.sigma(:)'))}, ...
-        'isPer', {num2cell(logical(d.isPer(:)'))}, ...
+        'per', {num2cell(logical(d.per(:)'))}, ...
         'period', {num2cell(double(d.period(:)'))});
     names = localNames(nv.names, sp, A);
     return;
@@ -269,10 +269,9 @@ end
 % Def. 2.6); an explicit argument overrides it, as at build time.
 prm = struct( ...
     'sigma', {localBcast(nv.sigma, A, 'sigma')}, ...
-    'isPer', {localBcast(nv.isPer, A, 'isPer')}, ...
+    'per', {localBcast(nv.per, A, 'per')}, ...
     'period', {localBcast(nv.period, A, 'period')});
-kFields = {'sigma', 'isPer', 'period'};
-kAliases = {'sigma', 'is_per', 'period'};
+kFields = {'sigma', 'per', 'period'};
 for a = 1:A
     for kf = 1:numel(kFields)
         if ~isempty(prm.(kFields{kf}){a})
@@ -280,14 +279,12 @@ for a = 1:A
         end
         if isfield(sp{a}, kFields{kf})
             prm.(kFields{kf}){a} = sp{a}.(kFields{kf});
-        elseif isfield(sp{a}, kAliases{kf})
-            prm.(kFields{kf}){a} = sp{a}.(kAliases{kf});
         end
     end
 end
 
-if ~isempty(nv.isRel)
-    relV = localBcast(nv.isRel, A, 'isRel');
+if ~isempty(nv.rel)
+    relV = localBcast(nv.rel, A, 'rel');
     for a = 1:A
         sp{a}.rel = logical(relV{a});
     end
@@ -399,10 +396,10 @@ exchLevels = localLevels(spec, 'exch', 1);
 
 if ~isfield(spec, 'tags') || isempty(spec.tags)
     if ~isempty(exchLevels) && ~exchLevels(1)
-        % Ordered: the slot is the level (a voice, a coordinate), so an
-        % empty slot before the last value is shown as a blank and the
-        % values keep their positions. Trailing empty slots are left off,
-        % since reading a cell fills slots from the first. Index 0 marks
+        % Ordered: the position identifies the level (a voice, a coordinate), so an
+        % position with no value before the last value is shown as a blank and the
+        % values keep their positions. Trailing positions with no value are left off,
+        % since reading a cell fills positions from the first. Index 0 marks
         % a blank for localLeaves.
         last = find(finite, 1, 'last');
         if isempty(last), last = 0; end
@@ -475,7 +472,7 @@ end
 
 function lf = localLeaf(k, pCol, wCol)
 if k == 0
-    lf = '_';                          % an empty slot of an ordered attribute
+    lf = '_';                          % an ordered attribute's position with no value
     return;
 end
 if isempty(wCol)
@@ -631,7 +628,7 @@ function stub = localStub(spec, prm, a, isLatex)
 r = localLevels(spec, 'r', 1);
 rel = localLevels(spec, 'rel', 0);
 sigma = prm.sigma{a};
-isPer = prm.isPer{a};
+isPer = prm.per{a};
 period = prm.period{a};
 
 if isLatex
@@ -905,7 +902,7 @@ for a = 1:A
            localFmtParam(prm.sigma{a}), ...
            localFmtParam(localSpecLevels(sp{a}, 'r', 1)), ...
            localFmtParam(localSpecLevels(sp{a}, 'rel', 0)), ...
-           localFmtParam(localCsvFlag(prm.isPer{a})), ...
+           localFmtParam(localCsvFlag(prm.per{a})), ...
            localFmtParam(prm.period{a}), ...
            localFmtParam(localSpecLevels(sp{a}, 'exch', 1))};
     for j = 1:nCol

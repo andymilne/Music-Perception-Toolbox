@@ -650,7 +650,7 @@ def test_ordered_bound_r9_cos_sim_end_to_end():
         p_b, w_b, sp_b = unpack_pre_maet(bind_events(p_attr, None, L,
                                      rel_outer=[False, True, False]))
         return build_maet(p_b, w_b, specs=sp_b, sigma=sig,
-                              is_per=[False] * 3, period=[None] * 3,
+                              per=[False] * 3, period=[None] * 3,
                               verbose=False)
 
     got = sim_maet(dens(x), dens(y), verbose=False)

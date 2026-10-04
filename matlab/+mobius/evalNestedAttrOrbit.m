@@ -20,16 +20,16 @@ function vals = evalNestedAttrOrbit(p, w, tags, rLevels, exchLevels, relUnit, ..
 %
 %     - at a symmetric level, the sum over ordered r-tuples of DISTINCT
 %       children is written by inclusion-exclusion over the set partitions
-%       pi of the r tuple slots,
+%       pi of the r tuple positions,
 %           sum_distinct prod_t M(c_t, t)
 %               = sum_pi mu(pi) prod_{B in pi} sum_c prod_{t in B} M(c, t),
 %       where M(c, t) is child c's sub-density at the query coordinates of
-%       slot t --- the identity mobius.evalOrbitAbs uses, with children in
+%       position t --- the identity mobius.evalOrbitAbs uses, with children in
 %       place of values;
 %     - at an ordered level the sum runs over children in listed order, a
 %       dynamic programme over the children (no factorial);
 %     - at the leaf, M(v, t) = w_v theta(x_t - p_v) is the weighted one-body
-%       kernel of value v at slot t.
+%       kernel of value v at position t.
 %
 %   Because the query side is a single fixed point rather than a summed
 %   tuple set, the identity needs no orbit table: only the set-partition
@@ -106,10 +106,10 @@ function vals = evalNestedAttrOrbit(p, w, tags, rLevels, exchLevels, relUnit, ..
     ts = internal.accuracyFloor('resolve', opts.truncationSigmas);
     ctx = struct();
     ctx.p = p; ctx.w = w; ctx.sigma = sigma;
-    ctx.isPer = logical(opts.is_per); ctx.period = double(opts.period);
+    ctx.per = logical(opts.is_per); ctx.period = double(opts.period);
     ctx.wrap = char(opts.wrap); ctx.ts = ts;
     ctx.rLevels = rLevels;
-    ctx.s = cumprod(rLevels);          % s(l) = leaf slots of one level-l sub-tuple
+    ctx.s = cumprod(rLevels);          % s(l) = leaf positions of one level-l sub-tuple
     if isempty(relUnit) || any(isnan(relUnit)) || relUnit <= 0
         ctx.relUnit = 0;               % 0 = absolute (levels are 1-based)
         ctx.spp = [];
@@ -218,7 +218,7 @@ end
 function th = localTheta(d, ctx)
     % One-body kernel per coordinate: Gaussian, or its wrapped form on a
     % periodic attribute under the declared measure.
-    if ctx.isPer
+    if ctx.per
         if strcmp(ctx.wrap, 'single-image')
             d = d - ctx.period * round(d / ctx.period);
         else
@@ -232,7 +232,7 @@ end
 function v = localCombine(M, r, exch)
     % Sum over r-tuples of distinct children of prod_t M(c_t, t, :).
     % M is (nChildren x r x n_q). Symmetric: the Möbius set-partition sum
-    % over the r slots. Ordered: children in listed order, by a dynamic
+    % over the r positions. Ordered: children in listed order, by a dynamic
     % programme over the children.
     n = size(M, 1);
     n_q = size(M, 3);
@@ -281,7 +281,7 @@ function v = localIntegrateTranslation(node, xq, ctx)
         return;
     end
     sigma = ctx.sigma;
-    if ctx.isPer
+    if ctx.per
         N_u = max(64, ceil(ctx.period / sigma * ctx.spp));
         uGrid = (0:N_u - 1) * (ctx.period / N_u);
         du = ctx.period / N_u;
@@ -300,7 +300,7 @@ function v = localIntegrateTranslation(node, xq, ctx)
     X = reshape(reshape(xFull, [s, n_q, 1]) + reshape(uGrid, [1, 1, N_u]), ...
                 [s, n_q * N_u]);
     F = reshape(localContractAbs(node, X, ctx), [n_q, N_u]);
-    if ctx.isPer
+    if ctx.per
         integral = sum(F, 2) * du;
     else
         integral = trapz(uGrid, F, 2);

@@ -9,15 +9,15 @@ function dens = ensureMaetExpensive(dens)
 %   This is the helper used by consumer entry points (simMaet,
 %   evalMaet, entropyMaet, etc.) on density inputs.
 %   buildMaet defaults to 'lazy', true, returning a skinny density
-%   that exposes only cheap fields (pAttr, w, sigma, r, isRel,
-%   isPer, period, dim, etc.). Orbit-method consumers operate
+%   that exposes only cheap fields (pAttr, w, sigma, r, rel,
+%   per, period, dim, etc.). Orbit-method consumers operate
 %   directly on the cheap fields and skip this helper; pairwise/centre
 %   consumers prepend a single call to it.
 %
 %   Cheap fields (always present after buildMaet):
 %     tag 'MaetDensity' (single-multiset is the A = N = 1 corner):
 %       nAttrs, N, r, K, pAttr,
-%       w, sigma, isRel, isPer, period, dim, dimPerAttr
+%       w, sigma, rel, per, period, dim, dimPerAttr
 %
 %   Expensive fields (populated by this helper):
 %       Centres, U_perm, V_comb, wJ, wv_comb, nJ, nK,
@@ -42,13 +42,13 @@ function dens = ensureMaetExpensive(dens)
         return
     end
 
-    % Forward the stored isExch flag so an ordered ([exch]=0) density does
+    % Forward the stored exch flag so an ordered ([exch]=0) density does
     % not silently revert to symmetric when its expensive fields are
     % materialised. Older skinny structs without the field default to
     % symmetric (empty -> buildMaet default).
     exchArgs = {};
-    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
-        exchArgs = {dens.isExch};
+    if isfield(dens, 'exch') && ~isempty(dens.exch)
+        exchArgs = {dens.exch};
     end
 
     % Forward the per-attribute nesting spec (representation B) so a
@@ -95,7 +95,7 @@ function dens = ensureMaetExpensive(dens)
         case 'MaetDensity'
             dens = buildMaet( ...
                 dens.pAttr, dens.w, dens.sigma, dens.r, ...
-                dens.isRel, dens.isPer, dens.period, exchArgs{:}, ...
+                dens.rel, dens.per, dens.period, exchArgs{:}, ...
                 nestedArgs{:}, 'lazy', false, 'verbose', false);
             if ~isempty(savedNames)
                 dens.names = savedNames;

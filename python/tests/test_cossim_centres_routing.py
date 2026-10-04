@@ -32,28 +32,28 @@ from mpt import (
 # -----------------------------------------------------------------------
 
 
-def _build_density_pair(*, is_rel: bool, is_per: bool, sigma=12.0,
+def _build_density_pair(*, rel: bool, per: bool, sigma=12.0,
                         period=1200.0, r=3):
     """Two small chord-like densities."""
     p_x = np.array([0., 400., 700.])
     p_y = np.array([0., 300., 700.])
-    dens_x = build_maet(p_x, np.ones(3), sigma, r, is_rel, is_per,
-                            period if is_per else 0.0)
-    dens_y = build_maet(p_y, np.ones(3), sigma, r, is_rel, is_per,
-                            period if is_per else 0.0)
+    dens_x = build_maet(p_x, np.ones(3), sigma, r, rel, per,
+                            period if per else 0.0)
+    dens_y = build_maet(p_y, np.ones(3), sigma, r, rel, per,
+                            period if per else 0.0)
     return dens_x, dens_y
 
 
 class TestCosSimSACentresRouting:
 
-    @pytest.mark.parametrize("is_rel, is_per", [
+    @pytest.mark.parametrize("rel, per", [
         (False, False),  # abs non-per — routed
         (False, True),   # abs per — routed (componentwise wrap)
         (True, False),   # rel non-per — routed
     ])
-    def test_exact_vs_truncated_small(self, is_rel, is_per):
+    def test_exact_vs_truncated_small(self, rel, per):
         reset_defaults()
-        dens_x, dens_y = _build_density_pair(is_rel=is_rel, is_per=is_per)
+        dens_x, dens_y = _build_density_pair(rel=rel, per=per)
         s_exact = sim_maet(
             dens_x, dens_y, method='bulger', verbose=False,
         )
@@ -65,7 +65,7 @@ class TestCosSimSACentresRouting:
         # cosine itself is O(1) and normalisation absorbs absolute scale,
         # so 1e-7 absolute on cosine is a generous bound.
         assert abs(s_exact - s_trunc) < 1e-7, (
-            f"is_rel={is_rel}, is_per={is_per}: "
+            f"rel={rel}, per={per}: "
             f"exact={s_exact}, trunc={s_trunc}, "
             f"|diff|={abs(s_exact - s_trunc):.3e}"
         )
@@ -78,7 +78,7 @@ class TestCosSimSACentresRouting:
         Möbius IP path. Result agrees with the un-truncated reference
         to better than the truncation tail ``exp(-k^2/2)``."""
         reset_defaults()
-        dens_x, dens_y = _build_density_pair(is_rel=True, is_per=True)
+        dens_x, dens_y = _build_density_pair(rel=True, per=True)
         s_exact = sim_maet(
             dens_x, dens_y, method='bulger', verbose=False,
         )
@@ -97,7 +97,7 @@ class TestCosSimSACentresRouting:
         """set_default(truncation_sigmas=...) reaches the helper through
         the public dispatcher."""
         reset_defaults()
-        dens_x, dens_y = _build_density_pair(is_rel=True, is_per=False)
+        dens_x, dens_y = _build_density_pair(rel=True, per=False)
 
         s_explicit = sim_maet(
             dens_x, dens_y, method='bulger',

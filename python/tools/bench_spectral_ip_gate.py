@@ -21,7 +21,7 @@ discarded to absorb any one-off cost; the reported figure is the median
 of the rest. Expect a few minutes. Send back the block between
 CSV_BEGIN and CSV_END.
 
-Columns: r, K, N, sigmaOverP, isPer, gridSize, msSpectral, msGrid, ratio
+Columns: r, K, N, sigmaOverP, per, gridSize, msSpectral, msGrid, ratio
 where ratio = msGrid / msSpectral (branch worth taking where ratio > 1).
 """
 import sys
@@ -44,16 +44,16 @@ SOPS = (0.002, 0.005, 0.0125, 0.05, 0.20)
 IS_PERS = (True, False)
 
 
-def _grid_size(sigma, r, is_per):
+def _grid_size(sigma, r, per):
     # Mirrors the MATLAB harness's reported sizing exactly: the
     # non-periodic embedding length assumes each multiset spans the full
     # period (span_x + span_y = 2 * PERIOD), so the reported gridSize is
-    # a fixed function of (sigma, r, is_per) and does not depend on the
+    # a fixed function of (sigma, r, per) and does not depend on the
     # particular points. This is the sizing bench_spectral_ip_gate.m
     # prints, not necessarily the one the branch computes internally from
     # the actual span; it exists so the two languages' CSV rows carry the
     # same gridSize column and line up.
-    if is_per:
+    if per:
         L = PERIOD
     else:
         L = 2.0 * PERIOD + 2.0 * (MODE_SIGMAS + 2.0) * sigma
@@ -61,7 +61,7 @@ def _grid_size(sigma, r, is_per):
     return (2 * M + 1) ** (r - 1)
 
 
-def _time(Px, Wx, Py, Wy, sigma, r, is_per, spectral):
+def _time(Px, Wx, Py, Wy, sigma, r, per, spectral):
     prev = _mobius_inner._SPECTRAL_IP_ENABLED
     prev_force = _mobius_inner._SPECTRAL_IP_FORCE
     _mobius_inner._SPECTRAL_IP_ENABLED = spectral
@@ -73,11 +73,11 @@ def _time(Px, Wx, Py, Wy, sigma, r, is_per, spectral):
     # comparison only, never the _SPECTRAL_IP_MAX_POINTS memory guard.
     _mobius_inner._SPECTRAL_IP_FORCE = bool(spectral)
     try:
-        period = PERIOD if is_per else 0.0
+        period = PERIOD if per else 0.0
         # One warm-up call, discarded, which also gauges the cost.
         t0 = time.perf_counter()
         _mobius_inner._rel_inner_batched(
-            Px, Wx, Py, Wy, sigma, r, is_per, period,
+            Px, Wx, Py, Wy, sigma, r, per, period,
             truncation_sigmas=float('inf'))
         first = time.perf_counter() - t0
         # Cost-aware repetition: cheap cells get the full REPS for a
@@ -94,7 +94,7 @@ def _time(Px, Wx, Py, Wy, sigma, r, is_per, spectral):
         for _ in range(reps):
             t0 = time.perf_counter()
             _mobius_inner._rel_inner_batched(
-                Px, Wx, Py, Wy, sigma, r, is_per, period,
+                Px, Wx, Py, Wy, sigma, r, per, period,
                 truncation_sigmas=float('inf'))
             ts.append(time.perf_counter() - t0)
         return 1e3 * float(np.median(ts))
@@ -111,8 +111,8 @@ def main():
     sys.stderr.flush()
 
     print("CSV_BEGIN")
-    print("r,K,N,sigmaOverP,isPer,gridSize,msSpectral,msGrid,ratio")
-    for is_per in IS_PERS:
+    print("r,K,N,sigmaOverP,per,gridSize,msSpectral,msGrid,ratio")
+    for per in IS_PERS:
         for r in RS:
             for K in KS:
                 if K < r:
@@ -125,7 +125,7 @@ def main():
                         Py = np.sort(rng.uniform(0, PERIOD, (K, N)), axis=0)
                         Wx = np.ones((K, N))
                         Wy = np.ones((K, N))
-                        gs = _grid_size(sigma, r, is_per)
+                        gs = _grid_size(sigma, r, per)
                         # When the mode grid exceeds the memory guard the
                         # branch always declines, so both toggle states run
                         # the grid path and the ratio is 1 by construction.
@@ -133,14 +133,14 @@ def main():
                         # these are the slowest cells, so record the decline
                         # without paying for a multi-second grid contraction.
                         if gs > _mobius_inner._SPECTRAL_IP_MAX_POINTS:
-                            print(f"{r},{K},{N},{sop:.4f},{int(is_per)},{gs},"
+                            print(f"{r},{K},{N},{sop:.4f},{int(per)},{gs},"
                                   f"nan,nan,nan")
                             sys.stdout.flush()
                             continue
-                        ms_s = _time(Px, Wx, Py, Wy, sigma, r, is_per, True)
-                        ms_g = _time(Px, Wx, Py, Wy, sigma, r, is_per, False)
+                        ms_s = _time(Px, Wx, Py, Wy, sigma, r, per, True)
+                        ms_g = _time(Px, Wx, Py, Wy, sigma, r, per, False)
                         ratio = ms_g / max(ms_s, 1e-12)
-                        print(f"{r},{K},{N},{sop:.4f},{int(is_per)},{gs},"
+                        print(f"{r},{K},{N},{sop:.4f},{int(per)},{gs},"
                               f"{ms_s:.4f},{ms_g:.4f},{ratio:.4f}")
                         sys.stdout.flush()
     print("CSV_END")

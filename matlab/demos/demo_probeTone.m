@@ -39,7 +39,7 @@ prevDefaults = mptDefaults('showHints', false);
 % The TISMIR article's settings (Section 2.4): sigma = 10 cents, 16
 % harmonics, power-law rolloff rho = 1. SPCS: r = 1, absolute, periodic
 % at the octave.
-sigma = 10; r = 1; isRel = false; isPer = true; period = 1200;
+sigma = 10; r = 1; rel = false; per = true; period = 1200;
 specHarm = {'harmonic', 16, 'powerlaw', 1};
 
 % Krumhansl and Kessler (1982) major-key probe-tone ratings, C to B.
@@ -69,8 +69,8 @@ asRows = @(v) [v, nan(numel(v), 1)];
 
 fprintf('=== 1. C-major scale: SPCS against K&K major-key ratings ===\n');
 cMajor = [0 200 400 500 700 900 1100];
-spcsC = simMaet(cMajor, [], asRows(fine), [], sigma, r, isRel, ...
-                isPer, period, 'spectrum', specHarm, 'verbose', false);
+spcsC = simMaet(cMajor, [], asRows(fine), [], sigma, r, rel, ...
+                per, period, 'spectrum', specHarm, 'verbose', false);
 spcsC12 = spcsC(1:100:end);
 % The squared correlation is the R^2 of the best affine map from the
 % ratings to SPCS, the fit reported in the article. (The article's
@@ -90,11 +90,11 @@ fprintf('  R^2 = %.3f   (article: 0.63)\n', r2C);
 fprintf('\n=== 2. Porcupine[7] in 22-EDO, 22 probes ===\n');
 step = 1200 / 22;
 porcupine = [0 4 7 10 13 16 19] * step;        % steps 4333333
-spcsP = simMaet(porcupine, [], asRows(fine), [], sigma, r, isRel, ...
-                isPer, period, 'spectrum', specHarm, 'verbose', false);
+spcsP = simMaet(porcupine, [], asRows(fine), [], sigma, r, rel, ...
+                per, period, 'spectrum', specHarm, 'verbose', false);
 probes22 = (0:21).' * step;
 spcsP22 = simMaet(porcupine, [], asRows(probes22), [], sigma, r, ...
-                  isRel, isPer, period, 'spectrum', specHarm, ...
+                  rel, per, period, 'spectrum', specHarm, ...
                   'verbose', false);
 [~, order] = sort(spcsP22, 'descend');
 for k = order(1:7).'
@@ -151,7 +151,7 @@ fprintf('\n  %-10s %-8s  R^2 K&K C  R^2 K&K G  SD\n', 'spectrum', 'weights');
 for si = 1:3
     for ci = 1:2
         s = simMaet(ctxP{ci}, ctxW{ci}, asRows(chrom), [], sigma, r, ...
-                    isRel, isPer, period, 'spectrum', spectra{si}, ...
+                    rel, per, period, 'spectrum', spectra{si}, ...
                     'verbose', false);
         prof{si, ci} = s;
         Rc = corrcoef(s(:), kkMajor(:));

@@ -35,9 +35,9 @@ def gaussian_kernel_sum(
     X: np.ndarray,
     sigma: float,
     *,
-    is_rel: bool = False,
+    rel: bool = False,
     r: int = 0,
-    is_per: bool = False,
+    per: bool = False,
     period: float = 0.0,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
@@ -50,10 +50,10 @@ def gaussian_kernel_sum(
 
         v[q] = sum_j wJ[j] * exp(-Q(c_j - x_q) / (2 * sigma**2))
 
-    and ``Q`` is the quadratic form determined by ``is_rel`` and ``r``:
+    and ``Q`` is the quadratic form determined by ``rel`` and ``r``:
 
-    - abs mode (``is_rel=False``):  ``Q(D) = sum(D**2)``
-    - rel mode (``is_rel=True``):   ``Q(D) = sum(D**2) - sum(D)**2 / r``
+    - abs mode (``rel=False``):  ``Q(D) = sum(D**2)``
+    - rel mode (``rel=True``):   ``Q(D) = sum(D**2) - sum(D)**2 / r``
 
     Parameters
     ----------
@@ -65,18 +65,18 @@ def gaussian_kernel_sum(
         Queries.
     sigma : float
         Gaussian width.
-    is_rel : bool, default False
+    rel : bool, default False
         Use the rel-mode quadratic form (requires ``r >= 2``).
     r : int, default 0
-        Tuple size, required for ``is_rel=True``.
-    is_per : bool, default False
+        Tuple size, required for ``rel=True``.
+    per : bool, default False
         Periodic mode: wraps differences to ``[-period/2, period/2)``
         before applying ``Q``. Truncation applies here too: the 1-D
         absolute case uses a circular window, the full-image image sum
         truncates per image, and every other periodic form drops pairs
         outside the Q-ball on the exhaustive path.
     period : float, default 0.0
-        Period; required for ``is_per=True``.
+        Period; required for ``per=True``.
     n_terms : int, optional
         Number of centre-query pairs the caller will reduce to a single
         value. When given, the truncation width is raised so that the
@@ -145,9 +145,9 @@ def gaussian_kernel_sum(
         )
     if wJ.size != nJ:
         raise ValueError(f"wJ must have length nJ = {nJ}; got {wJ.size}")
-    if is_rel and r < 2:
+    if rel and r < 2:
         raise ValueError(f"rel mode requires r >= 2 (got {r})")
-    if is_per and period <= 0:
+    if per and period <= 0:
         raise ValueError("periodic mode requires period > 0")
 
     nQ = X.shape[1]
@@ -177,21 +177,21 @@ def gaussian_kernel_sum(
         q_cutoff = truncation_radius(float(truncation_sigmas),
                                      float(sigma)) ** 2
 
-    if use_truncation and not is_per:
+    if use_truncation and not per:
         # Dispatch on dimensionality: the 1-D abs case admits a much
         # tighter path via sorted centres + searchsorted, which yields a
         # contiguous centre window per query and so avoids the 3**dim
         # neighbour-offset expansion and ragged scatter the general path
         # needs in higher dimensions.
         dim_w = C_w.shape[0]
-        if dim_w == 1 and not is_rel:
+        if dim_w == 1 and not rel:
             v = _truncated_kernel_sum_1d_vectorised(
                 C_w, wJ_w, X_w, sigma_w,
                 float(truncation_sigmas), inv2s2,
             )
         elif _bucket_index_worthwhile(dim_w, nJ, nQ):
             v = _truncated_kernel_sum(
-                C_w, wJ_w, X_w, sigma_w, is_rel, r,
+                C_w, wJ_w, X_w, sigma_w, rel, r,
                 float(truncation_sigmas), inv2s2,
             )
         else:
@@ -210,10 +210,10 @@ def gaussian_kernel_sum(
             # matrix-valued kernel covariance after whitening -- would
             # silently skip truncation.
             v = _exact_kernel_sum(
-                C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
+                C_w, wJ_w, X_w, rel, r, per, dtype(period), inv2s2,
                 sigma_w, truncation_sigmas, wrap, q_cutoff=q_cutoff,
             )
-    elif use_truncation and is_per and C_w.shape[0] == 1 and not is_rel:
+    elif use_truncation and per and C_w.shape[0] == 1 and not rel:
         # Circular 1-D truncation, valid only when the window is
         # narrower than the circle; otherwise no savings (and the
         # replication trick would double count), so fall through to the
@@ -227,12 +227,12 @@ def gaussian_kernel_sum(
             )
         else:
             v = _exact_kernel_sum(
-                C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
+                C_w, wJ_w, X_w, rel, r, per, dtype(period), inv2s2,
                 sigma_w, truncation_sigmas, wrap, q_cutoff=q_cutoff,
             )
     else:
         v = _exact_kernel_sum(
-            C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
+            C_w, wJ_w, X_w, rel, r, per, dtype(period), inv2s2,
             sigma_w, truncation_sigmas, wrap, q_cutoff=q_cutoff,
         )
 
@@ -259,7 +259,7 @@ def _bucket_index_worthwhile(dim: int, nJ: int, nQ: int) -> bool:
 # Exact path
 # ---------------------------------------------------------------------
 
-def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
+def _exact_kernel_sum(C, wJ, X, rel, r, per, period, inv2s2, sigma,
                       truncation_sigmas=None, wrap='full-image',
                       q_cutoff=None):
     """Visit every centre-query pair, chunked to the kernel budget.
@@ -291,7 +291,7 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
     # left without one.
     n_threads = kernel_thread_count(nQ * nJ)
     if bytes_needed <= BUDGET and n_threads <= 1:
-        return _eval_chunk(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
+        return _eval_chunk(C, wJ, X, rel, r, per, period, inv2s2, sigma,
                            truncation_sigmas, wrap, q_cutoff)
 
     chunk = max(1, (BUDGET // max(1, n_threads))
@@ -305,7 +305,7 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
         for c0 in range(lo, hi, chunk):
             c1 = min(c0 + chunk, hi)
             out[c0:c1] = _eval_chunk(
-                C, wJ, X[:, c0:c1], is_rel, r, is_per, period, inv2s2, sigma,
+                C, wJ, X[:, c0:c1], rel, r, per, period, inv2s2, sigma,
                 truncation_sigmas, wrap, q_cutoff
             )
 
@@ -313,7 +313,7 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
     return out
 
 
-def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
+def _eval_chunk(C, wJ, Xq, rel, r, per, period, inv2s2, sigma,
                 truncation_sigmas=None, wrap='full-image', q_cutoff=None):
     dim = C.shape[0]
     # Abs-per full-image is the hot path at large K; handle it up
@@ -333,7 +333,7 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
     # sigma/P <= 0.01 (r = 2, 3, nJ = 1500-2000, nQ = 200), so take the
     # joint path there; the two agree to ~3e-16.
     from ._wrapped_kernel import _image_count_L
-    if (is_per and not is_rel and wrap != 'single-image'
+    if (per and not rel and wrap != 'single-image'
             and _image_count_L(float(sigma), float(period),
                                truncation_sigmas, 2) > 0):
         from ._wrapped_kernel import wrapped_gaussian_1d
@@ -362,11 +362,11 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
     # (including exact half-period boundaries); ~2x faster by
     # avoiding np.mod's two-pass implementation. Reduction-order
     # numerical agreement (~1e-13).
-    if is_per and not is_rel:
+    if per and not rel:
         # Abs-per single-image opt-in: nearest-image reduction, then
         # fall through to the shared Q-form path.
         D = D - period * np.floor(D / period + 0.5)
-    Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
+    Q = _compute_Q(D, r, rel, per, period, reduced=rel)
     # Use the direct division (Q / (2*sigma^2)) rather than Q * inv2s2,
     # to match v2.0 ULP-for-ULP at default settings (in all modes
     # except rel+per, where v2.X corrects an inherited v1 single-axis-
@@ -383,7 +383,7 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
 # Truncated path — grid-bucket spatial index
 # ---------------------------------------------------------------------
 
-def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
+def _truncated_kernel_sum(C, wJ, X, sigma, rel, r, k_sigma, inv2s2):
     """Truncated kernel sum, fully vectorised over queries.
 
     Builds the bucket grid, then for all queries at once: expands the
@@ -417,12 +417,12 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
     if n_threads > 1 and nQ >= 2 * n_threads:
         parts = run_in_kernel_threads(
             lambda b: _truncated_kernel_sum(
-                C, wJ, X[:, b[0]:b[1]], sigma, is_rel, r, k_sigma, inv2s2),
+                C, wJ, X[:, b[0]:b[1]], sigma, rel, r, k_sigma, inv2s2),
             split_ranges(nQ, n_threads))
         return np.concatenate(parts)
 
     # Coordinate transform to make Q-ball spherical (rel-mode only).
-    if is_rel:
+    if rel:
         e = np.ones(dim, dtype=np.float64)
         M = np.eye(dim, dtype=np.float64) - np.outer(e, e) / r
         lams, U = np.linalg.eigh(M)
@@ -527,7 +527,7 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
 
     # === One vectorised kernel computation over all candidate pairs ===
     Dq = C[:, c_arr] - X[:, q_arr]              # (dim, total)
-    if is_rel:
+    if rel:
         Q = np.sum(Dq * Dq, axis=0) - np.sum(Dq, axis=0) ** 2 / r
     else:
         Q = np.sum(Dq * Dq, axis=0)

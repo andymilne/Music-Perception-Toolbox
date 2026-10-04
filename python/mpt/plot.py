@@ -73,19 +73,19 @@ def _kernel_cov(dens, dim):
     all-ones diagonal and circular across it.
     """
     sigma = float(np.atleast_1d(dens.sigma)[0])
-    if bool(np.atleast_1d(dens.is_rel)[0]):
+    if bool(np.atleast_1d(dens.rel)[0]):
         return sigma ** 2 * (np.eye(dim) + np.ones((dim, dim)))
     return sigma ** 2 * np.eye(dim)
 
 
-def _wrap_shifts(centre, reach, is_per, period, dim):
+def _wrap_shifts(centre, reach, per, period, dim):
     """The copies of a centre a periodic box calls for: zero always,
     and one period either way for each coordinate whose kernel reaches
     past a face."""
     shifts = []
     for i in range(dim):
         s = [0.0]
-        if is_per:
+        if per:
             r = float(np.atleast_1d(reach)[min(i, np.atleast_1d(reach).size - 1)])
             if centre[i] + r > period:
                 s.append(-period)
@@ -95,10 +95,10 @@ def _wrap_shifts(centre, reach, is_per, period, dim):
     return shifts
 
 
-def _limits(centres, cov, is_per, period, k_sigma):
+def _limits(centres, cov, per, period, k_sigma):
     """The box drawn in: one period on a periodic attribute, otherwise
     the centres' own extent with room for the kernels around them."""
-    if is_per:
+    if per:
         return (0.0, float(period))
     pad = 3.0 * float(np.sqrt(np.diag(cov)).max()) * max(k_sigma, 1.0)
     return (float(centres.min()) - pad, float(centres.max()) + pad)
@@ -221,7 +221,7 @@ def _new_axes(plt, dim):
 
 # --------------------------------------------------------------- kernels
 
-def _kernels_1d(ax, dens, centres, cov, is_per, period, colour_gamma, cmap):
+def _kernels_1d(ax, dens, centres, cov, per, period, colour_gamma, cmap):
     """One curve per centre, summing to the density.
 
     The density under ``normalize='none'`` is
@@ -246,13 +246,13 @@ def _kernels_1d(ax, dens, centres, cov, is_per, period, colour_gamma, cmap):
     lines = []
     for j in range(centres.shape[1]):
         for shift in _wrap_shifts(centres[:, j], np.array([reach]),
-                                  is_per, period, 1)[0]:
+                                  per, period, 1)[0]:
             lines.extend(ax.plot(centres[0, j] + shift + t, w_j[j] * bell,
                                  color=rgba[j], linewidth=1.0))
     return lines
 
 
-def _kernels_2d(ax, centres, peaks, cov, is_per, period, k_sigma,
+def _kernels_2d(ax, centres, peaks, cov, per, period, k_sigma,
                 colour_gamma, cmap):
     """One ellipse per centre, in a single collection."""
     from matplotlib.collections import PolyCollection
@@ -262,7 +262,7 @@ def _kernels_2d(ax, centres, peaks, cov, is_per, period, k_sigma,
     reach = k_sigma * np.sqrt(np.diag(cov))
     polys, values = [], []
     for j in range(centres.shape[1]):
-        sx, sy = _wrap_shifts(centres[:, j], reach, is_per, period, 2)
+        sx, sy = _wrap_shifts(centres[:, j], reach, per, period, 2)
         for dx in sx:
             for dy in sy:
                 polys.append(unit @ chol.T + centres[:, j] + np.array([dx, dy]))
@@ -274,7 +274,7 @@ def _kernels_2d(ax, centres, peaks, cov, is_per, period, k_sigma,
     return patch
 
 
-def _kernels_3d(ax, centres, peaks, cov, is_per, period, k_sigma,
+def _kernels_3d(ax, centres, peaks, cov, per, period, k_sigma,
                 colour_gamma, cmap):
     """One ellipsoid per centre, in a single collection."""
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -285,7 +285,7 @@ def _kernels_3d(ax, centres, peaks, cov, is_per, period, k_sigma,
     reach = k_sigma * np.sqrt(np.diag(cov))
     blocks, values = [], []
     for j in range(centres.shape[1]):
-        sx, sy, sz = _wrap_shifts(centres[:, j], reach, is_per, period, 3)
+        sx, sy, sz = _wrap_shifts(centres[:, j], reach, per, period, 3)
         for dx in sx:
             for dy in sy:
                 for dz in sz:
@@ -405,7 +405,7 @@ def plot_maet(dens, method='kernels', ax=None, limits=None, k_sigma=1.0,
     """Draw a one-, two-, or three-dimensional expectation tensor density.
 
     Dispatches on the dimensionality the density carries,
-    ``dim = r - is_rel``. Four or more cannot be drawn and is refused.
+    ``dim = r - rel``. Four or more cannot be drawn and is refused.
 
     Three methods, each named for what it shows rather than for the
     geometry it uses, since the geometry is what changes with the
@@ -540,12 +540,12 @@ def plot_maet(dens, method='kernels', ax=None, limits=None, k_sigma=1.0,
             'surfaces, which matplotlib has no counterpart for; use '
             "'points'. The MATLAB mirror, plotMaet, draws it.")
 
-    is_per = bool(np.atleast_1d(dens.is_per)[0])
+    per = bool(np.atleast_1d(dens.per)[0])
     period = float(np.atleast_1d(dens.period)[0])
-    if is_per:
+    if per:
         centres = np.mod(centres, period)
     cov = _kernel_cov(dens, dim)
-    lims = (_limits(centres, cov, is_per, period, k_sigma)
+    lims = (_limits(centres, cov, per, period, k_sigma)
             if limits is None else
             (float(min(limits)), float(max(limits))))
 
@@ -566,14 +566,14 @@ def plot_maet(dens, method='kernels', ax=None, limits=None, k_sigma=1.0,
 
     if method == 'kernels':
         if dim == 1:
-            handle = _kernels_1d(ax, dens, centres, cov, is_per, period,
+            handle = _kernels_1d(ax, dens, centres, cov, per, period,
                                  colour_gamma, cmap)
         else:
             with _quiet():
                 peaks = np.asarray(eval_maet(dens, centres, 'none',
                                              verbose=False)).ravel()
             draw = _kernels_2d if dim == 2 else _kernels_3d
-            handle = draw(ax, centres, peaks, cov, is_per, period, k_sigma,
+            handle = draw(ax, centres, peaks, cov, per, period, k_sigma,
                           colour_gamma, cmap)
     elif method == 'points':
         handle = _points_3d(ax, dens, lims, step, thresh_frac, marker_size,

@@ -21,9 +21,14 @@ nested multisets"):
   ([rel] = (0, 1)) and periodic (P = 12, sigma = 0.15). The optional
   inversion flag is a second, simplex-coded attribute (+/-0.5,
   sigma_flag = 0.1) carried by query and context alike.
+* Each bound window also carries one time, that of its last beat (its
+  resolution), as an absolute, non-periodic attribute with
+  sigma_time = 0.1 beat: narrow enough that a window a beat away is out
+  of reach when the query is translated along it.
 
 Context and queries are bound with the toolbox's ``bind_events``; the
-demo compares them with ``swept_similarity``. ``show_pre_maet`` is
+demo translates each query along the context's time attribute with
+``swept_similarity``. ``show_pre_maet`` is
 re-exported for the demo. Data come from ``jmm_data`` (the bundled
 MusicXML read with ``mpt.read_score``).
 """
@@ -42,6 +47,7 @@ from jmm_data import (bwv347_notes, bwv347_fermata_spans, GRID_STEP_QN)
 SIGMA_PITCH = 0.15      # semitones
 PERIOD      = 12.0      # octave (MIDI semitones)
 SIGMA_FLAG  = 0.1       # simplex-coded two-level flag
+SIGMA_TIME  = 0.1       # beats; windows a beat apart do not overlap
 ROOT_YES    = +0.5      # flag level: predicate holds
 ROOT_NO     = -0.5      # flag level: predicate fails
 
@@ -96,9 +102,9 @@ def _beat_table():
 #: numbers of notes, with the beat's own time alongside for locating it.
 _BEATS = mpt.pre_maet_from_attr_table(
     _beat_table(),
-    attributes=(dict(column="pitch", sigma=SIGMA_PITCH, r=1, exch=True,
-                     is_per=True, period=PERIOD),
-                dict(column="onset", sigma=1.0)),
+    specs=(dict(column="pitch", sigma=SIGMA_PITCH, r=1, exch=True,
+                     per=True, period=PERIOD),
+                dict(column="onset", sigma=SIGMA_TIME)),
     time="beats", weights="weight")
 
 
@@ -128,8 +134,8 @@ def _flag_rows():
 
 
 def _flag_spec(values):
-    return flat_specs([values], r=1, rel=False, exch=False, name="flag",
-                      sigma=SIGMA_FLAG, is_per=False, period=0.0)
+    return flat_specs([values], r=1, rel=False, exch=False, names="flag",
+                      sigma=SIGMA_FLAG, per=False, period=0.0)
 
 
 def bound_context(L: int, r_inner: int = 1, flag: str | None = None):
@@ -171,9 +177,9 @@ def query(chords, flag=None, r_inner: int = 1):
                           "weight": np.ones(len(pitch))})
     pm = mpt.pre_maet_from_attr_table(
         table,
-        attributes=(dict(column="pitch", sigma=SIGMA_PITCH, r=1, exch=True,
-                         is_per=True, period=PERIOD),
-                    dict(column="onset", sigma=1.0)),
+        specs=(dict(column="pitch", sigma=SIGMA_PITCH, r=1, exch=True,
+                         per=True, period=PERIOD),
+                    dict(column="onset", sigma=SIGMA_TIME)),
         time="beats", weights="weight")
     p_attr, w_attr, specs = unpack_pre_maet(pm)
     p_attr, w_attr, specs = list(p_attr), list(w_attr or []), list(specs)
@@ -187,15 +193,6 @@ def query(chords, flag=None, r_inner: int = 1):
         orders.append(1)
     return bind_events(p_attr, w_attr or None, orders, rel_outer=True,
                        specs=specs)
-
-
-def as_compared(pm):
-    """A bound pre-MAET without its time attribute, the window
-    attribute: what the comparison actually receives, once the sweep has
-    used the time to place the window."""
-    kept = [spec["name"] for spec in unpack_pre_maet(pm)[2]
-            if spec["name"] != "onset"]
-    return mpt.select_pre_maet(pm, attributes=kept)
 
 
 # --- the minimal cadential prototype (dyad skeleton) -------------------------

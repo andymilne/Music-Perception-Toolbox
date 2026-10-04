@@ -27,17 +27,17 @@ class TestMAET:
         """MA with one event and one attribute reproduces single-multiset bit-for-bit."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
-        sigma, r, is_rel, is_per, period = 10.0, 2, False, True, 1200.0
+        sigma, r, rel, per, period = 10.0, 2, False, True, 1200.0
 
         dens_sm = mpt.build_maet(
-            p, w, sigma, r, is_rel, is_per, period, verbose=False
+            p, w, sigma, r, rel, per, period, verbose=False
         )
 
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_maet(
             p_attr, w_ma, [sigma], [r], 
-            [is_rel], [is_per], [period], verbose=False,
+            [rel], [per], [period], verbose=False,
         )
 
         assert dens_ma.tag == "MaetDensity"
@@ -50,19 +50,19 @@ class TestMAET:
         np.testing.assert_array_almost_equal(dens_ma.wv_comb, dens_sm.wv_comb)
 
     def test_ma_matches_single_multiset_rel(self):
-        """Centres reduction: is_rel=True collapses r_a dims to r_a-1."""
+        """Centres reduction: rel=True collapses r_a dims to r_a-1."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
-        sigma, r, is_rel, is_per, period = 10.0, 2, True, True, 1200.0
+        sigma, r, rel, per, period = 10.0, 2, True, True, 1200.0
 
         dens_sm = mpt.build_maet(
-            p, w, sigma, r, is_rel, is_per, period, verbose=False
+            p, w, sigma, r, rel, per, period, verbose=False
         )
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_maet(
             p_attr, w_ma, [sigma], [r], 
-            [is_rel], [is_per], [period], verbose=False,
+            [rel], [per], [period], verbose=False,
         )
         assert dens_ma.centres[0].shape == (r - 1, dens_ma.n_j)
         np.testing.assert_array_equal(dens_ma.centres[0], dens_sm.centres[0])
@@ -237,14 +237,26 @@ class TestMAET:
 
     # --- Error paths -------------------------------------------------
 
-    def test_ma_insufficient_values_errors(self):
-        # Event 1 has 1 valid value, r=2 -> error
+    def test_ma_insufficient_values_warns(self):
+        # Event 1 has 1 valid value, r=2 -> it contributes nothing, warned
         pitch = np.array(
             [[0, 0], [4, np.nan], [np.nan, np.nan]], dtype=float
         )
-        with pytest.raises(ValueError, match="non-NaN value"):
+        with pytest.warns(UserWarning, match="too few non-NaN"):
+            dens = mpt.build_maet(
+                [pitch], None, [10.0], [2],
+                [False], [True], [1200.0], verbose=False,
+            )
+        assert float(mpt.mass_maet(dens)) == pytest.approx(2.0)
+
+    def test_ma_insufficient_positions_errors(self):
+        # Three positions, r=4 -> no event can supply a 4-tuple
+        pitch = np.array(
+            [[0, 0], [4, np.nan], [np.nan, np.nan]], dtype=float
+        )
+        with pytest.raises(ValueError, match="3 position"):
             mpt.build_maet(
-                [pitch], None, [10.0], [2], 
+                [pitch], None, [10.0], [4],
                 [False], [True], [1200.0], verbose=False,
             )
 
@@ -293,14 +305,14 @@ class TestMAET:
     # --- evalMaet MA path ------------------------------------------
 
     def test_ma_eval_matches_sa_abs(self):
-        """MA eval matches single-multiset at the same query points (is_rel=False)."""
+        """MA eval matches single-multiset at the same query points (rel=False)."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
-        sigma, r, is_rel, is_per, period = 10.0, 2, False, True, 1200.0
+        sigma, r, rel, per, period = 10.0, 2, False, True, 1200.0
         x_sm = np.array([[100, 500], [300, 600]], dtype=float)  # 2 x 2 (single-multiset)
 
         dens_sm = mpt.build_maet(
-            p, w, sigma, r, is_rel, is_per, period, verbose=False
+            p, w, sigma, r, rel, per, period, verbose=False
         )
         vals_sm = mpt.eval_maet(dens_sm, x_sm, verbose=False)
 
@@ -308,7 +320,7 @@ class TestMAET:
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_maet(
             p_attr, w_ma, [sigma], [r], 
-            [is_rel], [is_per], [period], verbose=False,
+            [rel], [per], [period], verbose=False,
         )
         vals_ma_cell = mpt.eval_maet(dens_ma, [x_sm], verbose=False)
         vals_ma_mat = mpt.eval_maet(dens_ma, x_sm, verbose=False)
@@ -317,20 +329,20 @@ class TestMAET:
         np.testing.assert_allclose(vals_ma_mat, vals_sm, rtol=1e-12, atol=1e-12)
 
     def test_ma_eval_matches_sa_rel(self):
-        """Same with is_rel=True: reduced-dim query points."""
+        """Same with rel=True: reduced-dim query points."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
-        sigma, r, is_rel, is_per, period = 10.0, 3, True, True, 1200.0
+        sigma, r, rel, per, period = 10.0, 3, True, True, 1200.0
         x_sm = np.array([[400, 200], [700, 500]], dtype=float)  # (r-1) x nQ
 
         dens_sm = mpt.build_maet(
-            p, w, sigma, r, is_rel, is_per, period, verbose=False
+            p, w, sigma, r, rel, per, period, verbose=False
         )
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_maet(
             p_attr, w_ma, [sigma], [r], 
-            [is_rel], [is_per], [period], verbose=False,
+            [rel], [per], [period], verbose=False,
         )
 
         vals_sm = mpt.eval_maet(dens_sm, x_sm, verbose=False)
@@ -341,17 +353,17 @@ class TestMAET:
         """'gaussian' and 'pdf' normalisation modes match single-multiset."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
-        sigma, r, is_rel, is_per, period = 10.0, 3, True, True, 1200.0
+        sigma, r, rel, per, period = 10.0, 3, True, True, 1200.0
         x_sm = np.array([[400, 200], [700, 500]], dtype=float)
 
         dens_sm = mpt.build_maet(
-            p, w, sigma, r, is_rel, is_per, period, verbose=False
+            p, w, sigma, r, rel, per, period, verbose=False
         )
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_maet(
             p_attr, w_ma, [sigma], [r], 
-            [is_rel], [is_per], [period], verbose=False,
+            [rel], [per], [period], verbose=False,
         )
         for mode in ("gaussian", "pdf"):
             vals_sm = mpt.eval_maet(dens_sm, x_sm, mode, verbose=False)
@@ -496,55 +508,55 @@ class TestMAET:
     # --- simMaet MA path ---------------------------------------
 
     def test_ma_cossim_matches_sa_abs(self):
-        """MA cos-sim matches single-multiset at the Single-multiset equivalence mapping (is_rel=False)."""
+        """MA cos-sim matches single-multiset at the Single-multiset equivalence mapping (rel=False)."""
         p_a = [0.0, 400.0, 700.0]
         p_b = [0.0, 300.0, 700.0]
         w_a = [1.0, 0.7, 0.5]
         w_b = [1.0, 0.6, 0.8]
-        sigma, r, is_rel, is_per, period = 10.0, 2, False, True, 1200.0
+        sigma, r, rel, per, period = 10.0, 2, False, True, 1200.0
 
         s_sm = mpt.sim_maet(
-            p_a, w_a, p_b, w_b, sigma, r, is_rel, is_per, period,
+            p_a, w_a, p_b, w_b, sigma, r, rel, per, period,
             verbose=False,
         )
 
         # MA form: one attribute, one event, column weight
         da = mpt.build_maet(
             [np.array(p_a).reshape(3, 1)], [np.array(w_a).reshape(3, 1)],
-            [sigma], [r], [is_rel], [is_per], [period], verbose=False,
+            [sigma], [r], [rel], [per], [period], verbose=False,
         )
         db = mpt.build_maet(
             [np.array(p_b).reshape(3, 1)], [np.array(w_b).reshape(3, 1)],
-            [sigma], [r], [is_rel], [is_per], [period], verbose=False,
+            [sigma], [r], [rel], [per], [period], verbose=False,
         )
         s_ma = mpt.sim_maet(da, db, verbose=False)
 
         np.testing.assert_allclose(s_ma, s_sm, rtol=1e-12, atol=1e-12)
 
     def test_ma_cossim_matches_sa_rel(self):
-        """Single-multiset equivalence with is_rel=True (uses pairwise-diff formula periodically)."""
+        """Single-multiset equivalence with rel=True (uses pairwise-diff formula periodically)."""
         p_a = [0.0, 400.0, 700.0]
         p_b = [0.0, 300.0, 700.0]
         w_a = [1.0, 0.7, 0.5]
         w_b = [1.0, 0.6, 0.8]
-        for r, is_per, period in [(2, True, 1200.0),
+        for r, per, period in [(2, True, 1200.0),
                                    (3, True, 1200.0),
                                    (3, False, 0.0)]:
             s_sm = mpt.sim_maet(
-                p_a, w_a, p_b, w_b, 10.0, r, True, is_per, period, verbose=False
+                p_a, w_a, p_b, w_b, 10.0, r, True, per, period, verbose=False
             )
             da = mpt.build_maet(
                 [np.array(p_a).reshape(3, 1)], [np.array(w_a).reshape(3, 1)],
-                [10.0], [r], [True], [is_per], [period], verbose=False,
+                [10.0], [r], [True], [per], [period], verbose=False,
             )
             db = mpt.build_maet(
                 [np.array(p_b).reshape(3, 1)], [np.array(w_b).reshape(3, 1)],
-                [10.0], [r], [True], [is_per], [period], verbose=False,
+                [10.0], [r], [True], [per], [period], verbose=False,
             )
             s_ma = mpt.sim_maet(da, db, verbose=False)
             np.testing.assert_allclose(
                 s_ma, s_sm, rtol=1e-12, atol=1e-12,
-                err_msg=f"r={r}, is_per={is_per}, period={period}",
+                err_msg=f"r={r}, per={per}, period={period}",
             )
 
     def test_ma_cossim_self_is_one(self):
@@ -585,7 +597,7 @@ class TestMAET:
 
     def test_ma_cossim_isrel_transposition_invariance(self):
         """Shifting all pitches by a constant preserves cos_sim when
-        the pitch group has is_rel=True (one event, so the shift affects
+        the pitch group has rel=True (one event, so the shift affects
         every pitch position equally)."""
         pitch = np.array([[0.0], [400.0], [700.0]])  # K=3, N=1
         time  = np.array([[1.0]])
@@ -685,12 +697,12 @@ class TestMAET:
         )
         with pytest.raises(ValueError, match="sigma"):
             mpt.sim_maet(d_ref, d_s, verbose=False)
-        # Different is_rel
+        # Different rel
         d_rel = mpt.build_maet(
             [pitch], None, [10.0], [2], 
             [True], [True], [1200.0], verbose=False,
         )
-        with pytest.raises(ValueError, match="is_rel"):
+        with pytest.raises(ValueError, match="rel"):
             mpt.sim_maet(d_ref, d_rel, verbose=False)
         # Different period on periodic group
         d_p = mpt.build_maet(
@@ -704,7 +716,7 @@ class TestMAET:
 
     def test_ma_entropy_sa_equivalence_periodic(self):
         """MA entropy matches single-multiset entropy at the Single-multiset equivalence mapping
-        (single periodic group, is_rel=False)."""
+        (single periodic group, rel=False)."""
         p = np.array([0.0, 4.0, 7.0])
         w = np.array([1.0, 1.0, 1.0])
         H_sm = mpt.entropy_maet(
@@ -859,7 +871,7 @@ class TestMAET:
             p, None,
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         expected = np.exp(
@@ -875,7 +887,7 @@ class TestMAET:
             p, None,
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=1.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         half = 3.0 * np.sqrt(3.0)
@@ -892,7 +904,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=5.0, sd=2.0, shape=g,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             ))
             assert abs(np.asarray(w_out[0])[0, 0] - 1.0) < 1e-12, (
@@ -911,7 +923,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=0.0, sd=width, shape=g,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             ))
             h = np.asarray(w_out[0]).ravel()
@@ -929,7 +941,7 @@ class TestMAET:
             p, None,
             input_attr=0, target_attr=0,
             centre=1.5, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         )
         assert sorted(out) == ["p_attr", "specs", "w_attr"]
@@ -952,7 +964,7 @@ class TestMAET:
             p, w_in,
             input_attr=0, target_attr=1,
             centre=2.0, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         # Attr 2 (not input, not target) keeps its weight unchanged.
@@ -967,7 +979,7 @@ class TestMAET:
             p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,    # Gaussian on time at t=1
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         expected_factor = np.exp(
@@ -990,7 +1002,7 @@ class TestMAET:
             p, w_in,
             input_attr=1, target_attr=0,
             centre=0.0, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         # The (1, 2) factor broadcasts across the 3 pitch positions, giving (3, 2).
@@ -1008,7 +1020,7 @@ class TestMAET:
             p, None,
             input_attr=0, target_attr=0,
             centre=0.0, sd=2.0, shape=0.0,
-            is_per=True, period=12.0,
+            per=True, period=12.0,
             drop_input_attr=False,
         ))
         deltas = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
@@ -1023,7 +1035,7 @@ class TestMAET:
             p, w_in,
             input_attr=0, target_attr=0,
             centre=2.0, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         h = np.exp(-(np.array([1.0, 2.0, 3.0]) - 2.0) ** 2 / 2.0)
@@ -1042,7 +1054,7 @@ class TestMAET:
             p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         # Second call: beat-window into pitch.
@@ -1050,7 +1062,7 @@ class TestMAET:
             p1, w1,
             input_attr=2, target_attr=0,
             centre=0.5, sd=0.5, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         # Result: the pitch attribute's weights carry the product of both factors.
@@ -1069,7 +1081,7 @@ class TestMAET:
             p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=True,
         ))
         assert len(p_out) == 1
@@ -1089,7 +1101,7 @@ class TestMAET:
             p, None,
             input_attr=1, target_attr=0,
             centre=3.5, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=True,
         ))
         # Input attr 1 removed: originals 0 and 2 remain at output indices 0, 1.
@@ -1112,7 +1124,7 @@ class TestMAET:
             p, None,
             input_attr=0, target_attr=2,
             centre=1.5, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=True,
         ))
         # Input attr 0 removed: originals 1 and 2 remain at output indices 0, 1.
@@ -1133,7 +1145,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=True,
             )
 
@@ -1145,7 +1157,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
             )
 
     def test_weight_k_input_greater_than_one_uses_locate(self):
@@ -1155,7 +1167,7 @@ class TestMAET:
         p = [np.array([[60.0, 62.0],
                        [64.0, 65.0]])]   # K = 2
         kw = dict(input_attr=0, target_attr=0, centre=62.0, sd=2.0,
-                  shape=0.0, is_per=False, period=0.0,
+                  shape=0.0, per=False, period=0.0,
                   drop_input_attr=False)
         for locate, loc in (("centroid", [62.0, 63.5]),
                             ("start", [60.0, 62.0]),
@@ -1175,7 +1187,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=0.0, shape=0.5,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             )
 
@@ -1186,7 +1198,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=-1.0, shape=0.5,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             )
 
@@ -1198,7 +1210,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=1.5,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             )
         with pytest.raises(ValueError, match="shape"):
@@ -1206,7 +1218,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=-0.1,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             )
 
@@ -1217,7 +1229,7 @@ class TestMAET:
                 p, None,
                 input_attr=2, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             )
 
@@ -1228,7 +1240,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=3,
                 centre=1.0, sd=1.0, shape=0.0,
-                is_per=False, period=0.0,
+                per=False, period=0.0,
                 drop_input_attr=False,
             )
 
@@ -1239,7 +1251,7 @@ class TestMAET:
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
-                is_per=True, period=0.0,
+                per=True, period=0.0,
                 drop_input_attr=False,
             )
 
@@ -1256,14 +1268,14 @@ class TestMAET:
             p_t, None,
             input_attr=0, target_attr=0,
             centre=c, sd=width, shape=gamma,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         _, w_first, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
             centre=c - mu, sd=width, shape=gamma,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
         np.testing.assert_allclose(
@@ -1272,7 +1284,7 @@ class TestMAET:
 
     # --- translate_attributes -------------------------------------------
     # translate_attributes moved onto the (p_attr, w, specs) triple
-    # (3c-iv-d): per-attribute per-position offsets, is_rel read from specs,
+    # (3c-iv-d): per-attribute per-position offsets, rel read from specs,
     # groups/dict offset forms removed. Its tests live in
     # tests/test_translate.py.
 
@@ -1292,15 +1304,15 @@ class TestMAET:
         mpt.reset_defaults()
         from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip_default = _ma_per_attr_inner_matrix(
-            p, w, p, w, sigma=80.0, r=1, is_rel=False,
-            is_per=False, period=0.0,
+            p, w, p, w, sigma=80.0, r=1, rel=False,
+            per=False, period=0.0,
         )
         # Force chunking with a small budget.
         mpt.set_default(kernel_chunk_bytes=4096)
         try:
             ip_chunked = _ma_per_attr_inner_matrix(
-                p, w, p, w, sigma=80.0, r=1, is_rel=False,
-                is_per=False, period=0.0,
+                p, w, p, w, sigma=80.0, r=1, rel=False,
+                per=False, period=0.0,
             )
         finally:
             mpt.reset_defaults()
@@ -1317,14 +1329,14 @@ class TestMAET:
         mpt.reset_defaults()
         from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip_default = _ma_per_attr_inner_matrix(
-            p, w, p, w, sigma=80.0, r=2, is_rel=False,
-            is_per=False, period=0.0,
+            p, w, p, w, sigma=80.0, r=2, rel=False,
+            per=False, period=0.0,
         )
         mpt.set_default(kernel_chunk_bytes=4096)
         try:
             ip_chunked = _ma_per_attr_inner_matrix(
-                p, w, p, w, sigma=80.0, r=2, is_rel=False,
-                is_per=False, period=0.0,
+                p, w, p, w, sigma=80.0, r=2, rel=False,
+                per=False, period=0.0,
             )
         finally:
             mpt.reset_defaults()
@@ -1340,14 +1352,14 @@ class TestMAET:
         mpt.reset_defaults()
         from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip_default = _ma_per_attr_inner_matrix(
-            p, w, p, w, sigma=0.3, r=2, is_rel=True,
-            is_per=True, period=12.0,
+            p, w, p, w, sigma=0.3, r=2, rel=True,
+            per=True, period=12.0,
         )
         mpt.set_default(kernel_chunk_bytes=8192)
         try:
             ip_chunked = _ma_per_attr_inner_matrix(
-                p, w, p, w, sigma=0.3, r=2, is_rel=True,
-                is_per=True, period=12.0,
+                p, w, p, w, sigma=0.3, r=2, rel=True,
+                per=True, period=12.0,
             )
         finally:
             mpt.reset_defaults()
@@ -1363,8 +1375,8 @@ class TestMAET:
         w = rng.uniform(0.5, 1.5, size=(K, N))
         from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip = _ma_per_attr_inner_matrix(
-            p, w, p, w, sigma=10.0, r=1, is_rel=False,
-            is_per=False, period=0.0,
+            p, w, p, w, sigma=10.0, r=1, rel=False,
+            per=False, period=0.0,
         )
         # Sanity: result is (N, N), finite, with positive diagonal.
         assert ip.shape == (N, N)

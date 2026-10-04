@@ -47,7 +47,7 @@ for r = [2 3 4 5]
     for exchFlag = [true false]
         specs = flatSpecs({SCALE(:)}, 'r', r, 'rel', true, 'exch', exchFlag);
         dens  = buildMaet({SCALE(:)}, [], 'specs', specs, ...
-                          'sigma', SIGMA, 'isPer', true, ...
+                          'sigma', SIGMA, 'per', true, ...
                           'period', PERIOD, 'verbose', false);
         dim = r - 1;
         X = rand(dim, 4000) * PERIOD;
@@ -68,7 +68,7 @@ end
 
 specs = flatSpecs({SCALE(:)}, 'r', 4, 'rel', true, 'exch', true);
 dens  = buildMaet({SCALE(:)}, [], 'specs', specs, 'sigma', SIGMA, ...
-                  'isPer', true, 'period', PERIOD, 'verbose', false);
+                  'per', true, 'period', PERIOD, 'verbose', false);
 Cc = maetCentres(dens);
 vals = evalMaet(dens, Cc{1}, 'verbose', false);
 results{end+1,1} = 'periodic cull: the density at its own centres is at least 1';
@@ -93,7 +93,7 @@ results{end,2}   = max(abs(a(:) - b(:))) < 1e-9;
 WIDE = 400;
 specsW = flatSpecs({SCALE(:)}, 'r', 4, 'rel', true, 'exch', true);
 densW  = buildMaet({SCALE(:)}, [], 'specs', specsW, 'sigma', WIDE, ...
-                   'isPer', true, 'period', PERIOD, 'verbose', false);
+                   'per', true, 'period', PERIOD, 'verbose', false);
 Xw = rand(3, 500) * PERIOD;
 gotW  = evalMaet(densW, Xw, 'verbose', false);
 wantW = evalMaet(densW, Xw, 'truncationSigmas', Inf, 'verbose', false);

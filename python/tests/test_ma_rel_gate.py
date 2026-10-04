@@ -8,7 +8,7 @@ its decisions on the labelled truth set from that fit, including the
 r=2 band where the previous raw-op-count gate over-selected centres by
 one to two orders of magnitude in wall time.
 
-Each case is one (K, r, sigma, span_or_period, is_per, expect_centres)
+Each case is one (K, r, sigma, span_or_period, per, expect_centres)
 tuple. ``expect_centres`` is what the calibrated model predicts and
 also what timing measurements agree with (in the cells verified to
 within the crossover neighbourhood).
@@ -209,9 +209,9 @@ def test_swapping_the_two_densities_does_not_change_the_centres_estimate():
     # The route computes the cross matrix and both self matrices, so its
     # element count is symmetric in the two value counts even though the
     # cross matrix alone is not.
-    for r, is_per in ((2, True), (3, False), (4, True)):
-        a = _predicted_centres_wall_ns(6, 30, r, is_per)
-        b = _predicted_centres_wall_ns(30, 6, r, is_per)
+    for r, per in ((2, True), (3, False), (4, True)):
+        a = _predicted_centres_wall_ns(6, 30, r, per)
+        b = _predicted_centres_wall_ns(30, 6, r, per)
         assert a == b
 
 
@@ -239,16 +239,16 @@ def test_gate_returns_false_when_second_count_below_r():
 # Cost model sanity: predictions must be finite and positive.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("K, r, is_per", [
+@pytest.mark.parametrize("K, r, per", [
     (5, 2, False), (15, 2, False), (60, 2, False),
     (6, 3, False), (12, 3, False),
     (5, 4, False), (8, 4, False),
     (5, 2, True), (15, 2, True), (60, 2, True),
     (5, 5, False), (6, 6, False),  # extrapolation regime
 ])
-def test_predicted_walls_finite_and_positive(K, r, is_per):
-    c = _predicted_centres_wall_ns(K, K, r, is_per)
-    g = _predicted_grid_wall_ns(K, r, 15.0, 3600.0, is_per)
+def test_predicted_walls_finite_and_positive(K, r, per):
+    c = _predicted_centres_wall_ns(K, K, r, per)
+    g = _predicted_grid_wall_ns(K, r, 15.0, 3600.0, per)
     assert np.isfinite(c) and c > 0
     assert np.isfinite(g) and g > 0
 

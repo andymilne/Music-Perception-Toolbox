@@ -18,7 +18,7 @@ def _pm():
     p = [np.array([[60.0, 62.0, 64.0, 65.0]]),
          np.array([[0.0, 1.0, 2.0, 3.0]])]
     w = [np.array([[1.0, 0.5, 0.75, 0.5]]), np.array([[1.0, 0.5, 0.75, 0.5]])]
-    sp = mpt.flat_specs(p, r=1, name=["pitch", "time"])
+    sp = mpt.flat_specs(p, r=1, names=["pitch", "time"])
     return p, w, sp
 
 
@@ -152,7 +152,7 @@ class TestOperators:
 class TestBoundary:
     """The pre-MAET at the boundary: build, eval, and cosine."""
 
-    KW = dict(sigma=[0.5, 0.25], is_per=[False, False], period=[0.0, 0.0],
+    KW = dict(sigma=[0.5, 0.25], per=[False, False], period=[0.0, 0.0],
               verbose=False)
 
     def test_build_maet_takes_a_pre_maet(self):
@@ -171,9 +171,9 @@ class TestBoundary:
     def test_entropy_takes_a_pre_maet(self):
         p, w, sp = _pm()
         pm = mpt.pack_pre_maet(p, w, mpt.flat_specs(
-            p, r=1, name=["pitch", "time"]))
+            p, r=1, names=["pitch", "time"]))
         for a in range(2):
-            pm["specs"][a].update(sigma=self.KW["sigma"][a], is_per=False,
+            pm["specs"][a].update(sigma=self.KW["sigma"][a], per=False,
                                   period=0.0)
         d = mpt.build_maet(pm, verbose=False)
         assert mpt.entropy_maet(pm, method="renyi2", verbose=False) \
@@ -183,9 +183,9 @@ class TestBoundary:
     def test_eval_and_cosine_take_a_pre_maet(self):
         p, w, sp = _pm()
         pm = mpt.pack_pre_maet(p, w, mpt.flat_specs(
-            p, r=1, name=["pitch", "time"]))
+            p, r=1, names=["pitch", "time"]))
         for a in range(2):
-            pm["specs"][a].update(sigma=self.KW["sigma"][a], is_per=False,
+            pm["specs"][a].update(sigma=self.KW["sigma"][a], per=False,
                                   period=0.0)
         d = mpt.build_maet(pm, verbose=False)
         X = np.array([[62.0], [1.0]])
@@ -210,20 +210,20 @@ class TestWindowed:
 
         def nest(vals, r_outer):
             p = [vals]
-            specs = mpt.flat_specs(p, r=1, rel=False, exch=True, name='p',
-                                   sigma=0.5, is_per=False, period=0.0)
+            specs = mpt.flat_specs(p, r=1, rel=False, exch=True, names='p',
+                                   sigma=0.5, per=False, period=0.0)
             return mpt.bind_events(p, None, r_outer, rel_outer=True,
                                    specs=specs)
 
         ctx = mpt.bind_events([ctx_vals, axis], None, [2, 1], rel_outer=True,
                               specs=mpt.flat_specs(
                                   [ctx_vals, axis], r=1, rel=False, exch=True,
-                                  sigma=0.5, is_per=False, period=0.0))
+                                  sigma=0.5, per=False, period=0.0))
         q_axis = np.arange(q_vals.shape[1], dtype=float).reshape(1, -1)
         qry = mpt.bind_events([q_vals, q_axis], None, [2, 1], rel_outer=True,
                               specs=mpt.flat_specs(
                                   [q_vals, q_axis], r=1, rel=False, exch=True,
-                                  sigma=0.5, is_per=False, period=0.0))
+                                  sigma=0.5, per=False, period=0.0))
         at = mpt.unpack_pre_maet(ctx)[0][1][0]
         out = np.asarray(mpt.swept_similarity(
             ctx, qry, sweep={1: at}, align={1: 'window'},
@@ -261,9 +261,9 @@ class TestWindowed:
               np.array([[0.0, 1, 2, 5, 6, 7]])]
         pQ = [np.array([[60.0, 64, 67]]), np.array([[0.0, 1, 2]])]
         sp = [{"name": "pitch", "r": 1, "rel": False, "exch": True,
-               "sigma": 0.5, "is_per": True, "period": 12.0},
+               "sigma": 0.5, "per": True, "period": 12.0},
               {"name": "time", "r": 1, "rel": False, "exch": True,
-               "sigma": 0.25, "is_per": False, "period": 0.0}]
+               "sigma": 0.25, "per": False, "period": 0.0}]
         return pC, pQ, sp
 
     KW = dict(align={1: "both"},
@@ -330,7 +330,7 @@ class TestLists:
     def _pm(vals):
         p = [np.array([vals], dtype=float), np.array([[0.0, 1.0, 2.0]])]
         return mpt.pack_pre_maet(p, specs=mpt.flat_specs(
-            p, sigma=[0.5, 0.25], is_per=[True, False], period=[12.0, 0.0]))
+            p, sigma=[0.5, 0.25], per=[True, False], period=[12.0, 0.0]))
 
     def test_list_versus_list(self):
         a, b = self._pm([60, 64, 67]), self._pm([62, 65, 69])
@@ -386,7 +386,7 @@ class TestLists:
 class TestGeometryOverrides:
     """r, rel, and exch override the specs, as sigma and its kin do."""
 
-    KW = dict(sigma=[0.5, 0.25], is_per=[False, False], period=[0.0, 0.0],
+    KW = dict(sigma=[0.5, 0.25], per=[False, False], period=[0.0, 0.0],
               verbose=False)
 
     @staticmethod
@@ -409,14 +409,14 @@ class TestGeometryOverrides:
         pm = mpt.pack_pre_maet(p, w, sp)
         d = mpt.build_maet(pm, r=[2, 1], rel=[True, False],
                                exch=[False, True], **self.KW)
-        assert list(d.is_rel) == [True, False]
-        assert list(d.is_exch) == [False, True]
+        assert list(d.rel) == [True, False]
+        assert list(d.exch) == [False, True]
 
     def test_a_sweep_is_one_call_per_value(self):
         p, w, sp = _pm()
         pm = mpt.pack_pre_maet(p, w, sp)
         vals = [mpt.build_maet(pm, sigma=[s, 0.25],
-                                   is_per=[False, False],
+                                   per=[False, False],
                                    period=[0.0, 0.0], verbose=False)
                 for s in (0.25, 0.5, 1.0)]
         assert [v.sigma[0] for v in vals] == [0.25, 0.5, 1.0]

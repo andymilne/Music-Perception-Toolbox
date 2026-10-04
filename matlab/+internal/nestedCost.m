@@ -362,7 +362,7 @@ function bytes = localWorkingSetBytes(densX, a, info)
 %   the row factor of two the flat guard uses for its index and weight
 %   companions, so the two guards read the same quantity in the same
 %   units. Twin of nested_centres_working_set_bytes.
-    isRel = logical(densX.isRel(a));
+    isRel = logical(densX.rel(a));
     R = double(densX.r(a));
     dim = max(1, R - double(isRel));
     nJx = info.Nx * info.mPermX;
@@ -454,8 +454,8 @@ function [chosen, planMs, enumMs, detail] = localSelect(laws, keys, budget, ...
             continue;
         end
         isExchA = true;
-        if isfield(densX, 'isExch') && numel(densX.isExch) >= a
-            isExchA = logical(densX.isExch(a));
+        if isfield(densX, 'exch') && numel(densX.exch) >= a
+            isExchA = logical(densX.exch(a));
         end
         if ~isExchA && double(densX.r(a)) > 1
             orderedA(end + 1) = a; %#ok<AGROW>
@@ -474,8 +474,8 @@ function [chosen, planMs, enumMs, detail] = localSelect(laws, keys, budget, ...
             rVec(i)  = double(densX.r(a));
             kVec(i)  = size(densX.pAttr{a}, 1);
             kVecY(i) = size(densY.pAttr{a}, 1);
-            relVec(i) = logical(densX.isRel(a));
-            if relVec(i) && logical(densX.isPer(a))
+            relVec(i) = logical(densX.rel(a));
+            if relVec(i) && logical(densX.per(a))
                 nuVec(i) = internal.autoNtauDefault(double(densX.period(a)), ...
                                                     double(densX.sigma(a)), ts);
                 sop = max(sop, double(densX.sigma(a)) ...

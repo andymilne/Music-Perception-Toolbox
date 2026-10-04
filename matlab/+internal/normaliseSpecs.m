@@ -7,7 +7,7 @@ function [rVec, isRelVec, isExchVec, nestedList, names, specKernel] = ...
     %   rel/exch); a nested attribute carries a 'tags' field plus per-level
     %   vectors. The presence of 'tags' is the flat-vs-nested discriminant.
     %   A spec may also carry the attribute's scalar kernel geometry
-    %   (sigma, isPer, period), which is not level-structured but is part
+    %   (sigma, per, period), which is not level-structured but is part
     %   of the pre-MAET as Milne (2026, Def. 2.6) defines it. Each is
     %   optional in the pre-MAET and compulsory at the tensor: an operator
     %   that cannot carry one forward writes NA (NaN) rather than a stale
@@ -29,16 +29,13 @@ function [rVec, isRelVec, isExchVec, nestedList, names, specKernel] = ...
     end
     rVec = zeros(1, A); isRelVec = false(1, A); isExchVec = true(1, A);
     nestedList = cell(1, A); names = cell(1, A);
-    specKernel = struct('sigma', {cell(1, A)}, 'isPer', {cell(1, A)}, ...
+    specKernel = struct('sigma', {cell(1, A)}, 'per', {cell(1, A)}, ...
                         'period', {cell(1, A)});
-    kFields = {'sigma', 'isPer', 'period'};
-    kAliases = {'sigma', 'is_per', 'period'};
+    kFields = {'sigma', 'per', 'period'};
     for a = 1:A
         for kf = 1:numel(kFields)
             if isfield(specs{a}, kFields{kf})
                 specKernel.(kFields{kf}){a} = specs{a}.(kFields{kf});
-            elseif isfield(specs{a}, kAliases{kf})
-                specKernel.(kFields{kf}){a} = specs{a}.(kAliases{kf});
             end
         end
     end

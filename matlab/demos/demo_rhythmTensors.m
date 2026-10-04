@@ -203,7 +203,7 @@ fprintf('\nDone.\n');
 function pm = rhythmPm(onsets, sigma, period)
 %RHYTHMPM A rhythm as a pre-MAET: one onset per event.
     p = {onsets(:)'};
-    specs = flatSpecs(p, 'name', {'onset'}, 'sigma', sigma, ...
-                      'isPer', true, 'period', period);
+    specs = flatSpecs(p, 'names', {'onset'}, 'sigma', sigma, ...
+                      'per', true, 'period', period);
     pm = packPreMaet(p, [], specs);
 end

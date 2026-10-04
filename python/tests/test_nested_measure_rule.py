@@ -75,7 +75,7 @@ def _dens(values, sigma, spec=SPEC, wrap=None, extra=None):
         per.append(False)
         period.append(0.0)
         wraps.append('full-image')
-    return build_maet(p, None, specs=specs, sigma=sig, is_per=per,
+    return build_maet(p, None, specs=specs, sigma=sig, per=per,
                           period=period, wrap=wraps, verbose=False)
 
 
@@ -303,7 +303,7 @@ def test_ma_memo_key_separates_the_routes():
 
 
 _BULGER_CASES = [
-    # label, rel on the outer level, is_per, period, sigma
+    # label, rel on the outer level, per, period, sigma
     ("abs non-periodic", 0, False, 0.0, 2.0),
     ("rel non-periodic", 1, False, 0.0, 2.0),
     ("abs periodic", 0, True, P, 0.24),
@@ -311,9 +311,9 @@ _BULGER_CASES = [
 ]
 
 
-@pytest.mark.parametrize("label,rel,is_per,period,sigma", _BULGER_CASES)
+@pytest.mark.parametrize("label,rel,per,period,sigma", _BULGER_CASES)
 def test_bulger_agrees_with_the_contraction_on_an_ma_nested_density(
-        label, rel, is_per, period, sigma):
+        label, rel, per, period, sigma):
     """``method='bulger'`` on a multi-attribute nested density agrees with
     the contraction to floating point, in every mode, at a sigma/P where the
     two measures coincide.
@@ -334,7 +334,7 @@ def test_bulger_agrees_with_the_contraction_on_an_ma_nested_density(
     specs = [dict(r=[2, 2], exch=[True, True],
                   tags=np.array([0, 0, 1, 1]), rel=[0, rel]),
              dict(r=1, rel=False, exch=True)]
-    kw = dict(specs=specs, sigma=[sigma, 1.0], is_per=[is_per, False],
+    kw = dict(specs=specs, sigma=[sigma, 1.0], per=[per, False],
               period=[period, 0.0], verbose=False)
 
     def pair():

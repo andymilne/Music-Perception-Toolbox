@@ -65,7 +65,7 @@ else
         Px = c.px(:); Py = c.py(:);
         Wx = c.wx(:); Wy = c.wy(:);
         got = mobius.spectralRelInnerMatrix(Px, Wx, Py, Wy, c.sigma, ...
-                                            c.r, logical(c.isPer), siP, true);
+                                            c.r, logical(c.per), siP, true);
         siNValue = siNValue + 1;
         if ~isempty(got)
             rel = abs(got(1,1) - c.value) / max(abs(c.value), realmin);

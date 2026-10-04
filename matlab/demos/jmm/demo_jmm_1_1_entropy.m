@@ -11,9 +11,9 @@
 % whose partials cohere, so the spectral pitch density there is peaked and
 % its differential entropy low; passing sonorities between cadences spread
 % the density and raise the entropy. Read at every grid point and grouped
-% by metric class, the profile tests the article's prediction that
+% by metric class, the profile bears on the article's prediction that
 % spectral entropy (a model for dissonance) is on average higher at times
-% of lower metrical weight.
+% of lower metrical weight, which a permutation test then tests directly.
 %
 % How it is computed. The chorale is gridded (gridAttrTable) and converted
 % to a two-attribute pre-MAET (pitch, time) in one call
@@ -35,6 +35,15 @@
 % points; their error bars are cluster-robust standard errors with the
 % sonority as the cluster, so that the grid points of a chord held across
 % several of them are not treated as independent observations.
+%
+% The test. The prediction is tested on the rectangular-window profile,
+% one observation per sonority: its entropy and the metric class of its
+% onset, ranked downbeat > medium > weak > offbeat. The repeat of bars
+% 1-4 is omitted, so that it does not count twice. The statistic is
+% Kendall's tau-b between rank and entropy, which the prediction makes
+% negative; its one-sided p-value comes from permuting the entropies
+% among the sonorities of each phrase (the stretches closed by the
+% score's fermatas), which leaves any difference between phrases intact.
 %
 % Data: jmm.bwv347Notes (the bundled MusicXML read with readScore,
 % repeats expanded). Toolbox: gridAttrTable, preMaetFromAttrTable,
@@ -91,7 +100,7 @@ fprintf('Loading BWV 347 and enriching it spectrally...\n');
 % take their partials ('units', 12: twelve units to the octave), which
 % multiplies the pitch attribute's K by twelve and leaves the events alone.
 g = gridAttrTable(jmm.bwv347Notes(), jmm.gridStepQn());
-pm = preMaetFromAttrTable(g, 'attributes', { ...
+pm = preMaetFromAttrTable(g, 'specs', { ...
         struct('column', 'pitch', 'sigma', SIGMA_PITCH, 'r', 1, ...
                'exch', true), ...
         struct('column', 'onset', 'name', 'time', 'sigma', 1.0)}, ...
@@ -210,6 +219,63 @@ for wi = 1:nWindows
                 classMeans(wi, cls), classSems(wi, cls), classCounts(cls));
     end
 end
+
+% ---------------------------------------------------------------------------
+% Test of the prediction
+% ---------------------------------------------------------------------------
+% One observation per sonority, from the rectangular-window profile: its
+% entropy (the same at every grid point it holds) and the metric class of
+% its onset, ranked downbeat 4 > medium 3 > weak 2 > offbeat 1. The grid
+% points from 16 to 32 QN repeat those from 0 to 16 QN (bars 1-4 and
+% their upbeat), so they are omitted rather than counted twice.
+REPEAT_SPAN = [16, 32];         % QN: the expanded repeat of bars 1-4
+N_PERM = 20000;
+CLASS_RANK = [4, 3, 2, 1];      % downbeat, medium, weak, offbeat
+
+% Phrases: each closes with the last grid point of a fermata.
+fermataPts = false(1, N);
+fermataPts(unique(g.gridIndex(logical(g.fermata)))) = true;
+phrase = [0, cumsum(fermataPts(1:end - 1) & ~fermataPts(2:end))];
+
+first = [true, sonority(2:end) ~= sonority(1:end - 1)];
+inRepeat = times >= REPEAT_SPAN(1) & times < REPEAT_SPAN(2);
+obs = find(first & ~inRepeat);
+rankObs = CLASS_RANK(classesPerEvent(obs));
+hObs = H(1, obs);
+phraseObs = phrase(obs);
+
+% Kendall's tau-b from the pairwise sign matrices. Permuting the
+% entropies changes only the numerator: the tie counts, and so the
+% denominator, stay fixed.
+nObs = numel(obs);
+sRank = sign(rankObs(:) - rankObs(:).');
+sH = sign(hObs(:) - hObs(:).');
+nPairs = nObs * (nObs - 1) / 2;
+untiedRank = nPairs - (nnz(sRank == 0) - nObs) / 2;
+untiedH = nPairs - (nnz(sH == 0) - nObs) / 2;
+concord = sum(sRank .* sH, 'all') / 2;
+tauB = concord / sqrt(untiedRank * untiedH);
+
+% One-sided p-value: entropies permuted among the sonorities of each
+% phrase, so that differences between phrases cannot produce the result.
+rs = RandStream('mt19937ar', 'Seed', 347);
+phraseIds = unique(phraseObs);
+members = arrayfun(@(k) find(phraseObs == k), phraseIds, ...
+                   'UniformOutput', false);
+nAsLow = 0;
+for b = 1:N_PERM
+    perm = 1:nObs;
+    for m = 1:numel(members)
+        idx = members{m};
+        perm(idx) = idx(randperm(rs, numel(idx)));
+    end
+    nAsLow = nAsLow + (sum(sRank .* sH(perm, perm), 'all') / 2 <= concord);
+end
+pPerm = (1 + nAsLow) / (1 + N_PERM);
+fprintf(['Test (rectangular window, %d sonorities, repeat omitted): ' ...
+         'Kendall tau-b = %.3f, one-sided permutation p = %.2g ' ...
+         '(%d permutations within %d phrases)\n'], ...
+        nObs, tauB, pPerm, N_PERM, numel(members));
 
 % ---------------------------------------------------------------------------
 % Plot: one row per window

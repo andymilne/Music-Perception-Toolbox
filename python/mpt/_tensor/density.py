@@ -27,7 +27,7 @@ from scipy.special import comb as _comb
 from .._utils import validate_weights
 
 
-def _warn_if_abs_per_single_image(sigma, is_rel, is_per, period, wrap=None):
+def _warn_if_abs_per_single_image(sigma, rel, per, period, wrap=None):
     """Warn once per absolute-periodic attribute whose sigma/period puts
     it past the point where the single-image measure departs from the
     full-image one — but only when the user has opted into single-image
@@ -47,11 +47,11 @@ def _warn_if_abs_per_single_image(sigma, is_rel, is_per, period, wrap=None):
     )
 
     try:
-        if is_per is None or period is None or sigma is None:
+        if per is None or period is None or sigma is None:
             return
-        per_v = np.atleast_1d(np.asarray(is_per, dtype=bool))
-        rel_v = (np.zeros_like(per_v) if is_rel is None
-                 else np.atleast_1d(np.asarray(is_rel, dtype=bool)))
+        per_v = np.atleast_1d(np.asarray(per, dtype=bool))
+        rel_v = (np.zeros_like(per_v) if rel is None
+                 else np.atleast_1d(np.asarray(rel, dtype=bool)))
         wrap_v = (None if wrap is None
                   else np.atleast_1d(np.asarray(wrap, dtype=object)))
         for a in range(per_v.size):
@@ -119,10 +119,10 @@ class MaetDensity:
     Lazy materialisation
     --------------------
     The eager-stored fields (``p_attr``, ``w``, ``sigma``, ``r``,
-    ``k``, ``is_rel``, ``is_per``, ``is_exch``, ``period``, ``n_attrs``, ``n``,
+    ``k``, ``rel``, ``per``, ``exch``, ``period``, ``n_attrs``, ``n``,
     ``dim``, ``dim_per_attr``, ``tag``) are populated by
     ``build_maet``. Every attribute is self-contained, so the
-    geometry fields ``sigma``, ``is_rel``, ``is_per``, ``is_exch``, and
+    geometry fields ``sigma``, ``rel``, ``per``, ``exch``, and
     ``period`` are per-attribute (length *A*). The per-tuple fields (``n_j``,
     ``n_k``, ``centres``, ``u_perm``, ``v_comb``, ``w_j``, ``wv_comb``,
     ``event_of_j``, ``event_of_k``) are constructed lazily on first
@@ -163,12 +163,12 @@ class MaetDensity:
         p_attr: list,
         w: list,
         sigma: np.ndarray,
-        is_rel: np.ndarray,
-        is_per: np.ndarray,
+        rel: np.ndarray,
+        per: np.ndarray,
         period: np.ndarray,
         dim: int,
         dim_per_attr: np.ndarray,
-        is_exch: np.ndarray | None = None,
+        exch: np.ndarray | None = None,
         nested: list | None = None,
         names: list | None = None,
         wrap: np.ndarray | None = None,
@@ -186,8 +186,8 @@ class MaetDensity:
         self.p_attr = p_attr
         self.w = w
         self.sigma = sigma
-        self.is_rel = is_rel
-        self.is_per = is_per
+        self.rel = rel
+        self.per = per
         self.period = period
         # Per-attribute wrap choice (v3+). 'full-image' (default)
         # sums the kernel over all periodic images (torus measure);
@@ -199,14 +199,14 @@ class MaetDensity:
         # opted into single-image on an abs-per attribute at large
         # sigma/P (v3+). At full-image (the default) the kernel is
         # positive-definite by construction, so the warning is silent.
-        _warn_if_abs_per_single_image(sigma, is_rel, is_per, period, self.wrap)
+        _warn_if_abs_per_single_image(sigma, rel, per, period, self.wrap)
         self.dim = dim
         self.dim_per_attr = dim_per_attr
         # Per-attribute symmetrisation flag. Default all-True (legacy
         # symmetric reading) when a caller constructs the struct without
         # specifying it.
-        self.is_exch = (np.ones(n_attrs, dtype=bool) if is_exch is None
-                       else np.asarray(is_exch, dtype=bool).ravel())
+        self.exch = (np.ones(n_attrs, dtype=bool) if exch is None
+                       else np.asarray(exch, dtype=bool).ravel())
         # Per-attribute nesting spec (representation B): None per attribute
         # for flat attributes, or a dict {tags, r, exch, rel, ...} (per-level
         # r/exch vectors and the resolved [rel] projection) for a nested one.
@@ -333,16 +333,16 @@ class MaetDensity:
         def _build_lazy():
             return _ma_build_perm_arrays(
                 p_attr=p_attr, w_list=w, r_vec=self.r,
-                is_rel_vec=self.is_rel, is_exch_vec=self.is_exch,
+                is_rel_vec=self.rel, is_exch_vec=self.exch,
                 N=n_k, A=self.n_attrs, nested=self.nested,
             )
 
         out = MaetDensity(
             tag=self.tag, n_attrs=self.n_attrs,
             n=n_k, r=self.r, k=self.k,
-            p_attr=p_attr, w=w, sigma=self.sigma, is_rel=self.is_rel,
-            is_per=self.is_per, period=self.period, dim=self.dim,
-            dim_per_attr=self.dim_per_attr, is_exch=self.is_exch,
+            p_attr=p_attr, w=w, sigma=self.sigma, rel=self.rel,
+            per=self.per, period=self.period, dim=self.dim,
+            dim_per_attr=self.dim_per_attr, exch=self.exch,
             nested=self.nested,
             names=self.names,
             _build_lazy=_build_lazy,
@@ -391,7 +391,7 @@ class MaetDensity:
 
     @property
     def centres(self) -> list:
-        """List of length A; each entry is ``(r_a - is_rel[g(a)]) x n_j`` (lazy)."""
+        """List of length A; each entry is ``(r_a - rel[g(a)]) x n_j`` (lazy)."""
         if self._centres is None:
             self._materialise()
         return self._centres
@@ -650,20 +650,20 @@ class _SingleMultisetView:
         return int(self._d.r[0])
 
     @property
-    def is_rel(self):
-        return bool(self._d.is_rel[0])
+    def rel(self):
+        return bool(self._d.rel[0])
 
     @property
-    def is_per(self):
-        return bool(self._d.is_per[0])
+    def per(self):
+        return bool(self._d.per[0])
 
     @property
     def period(self):
         return float(self._d.period[0])
 
     @property
-    def is_exch(self):
-        return bool(self._d.is_exch[0])
+    def exch(self):
+        return bool(self._d.exch[0])
 
     @property
     def dim(self):
@@ -739,7 +739,7 @@ class _SingleMultisetView:
         from .build import _build_maet_single_multiset
         out = _build_maet_single_multiset(
             self.p[live], self.w[live], self.sigma, self.r,
-            self.is_rel, self.is_per, self.period, self.is_exch,
+            self.rel, self.per, self.period, self.exch,
             verbose=False,
         )
         return single_multiset_view(out)

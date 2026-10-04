@@ -28,7 +28,7 @@ eo_prevEps = internal.accuracyFloor('setEps', 1e-300);
 %% ---- Internal consistency: factored vs joint-centres, across modes ----
 
 cfgs = {
-  % label, sigma, r, isRel, isPer, period, N
+  % label, sigma, r, rel, per, period, N
   {'A2 abs r2',    [6 5],     [2 2],   [false false],       [false false],      [0 0],       1}
   {'A2 rel r2',    [6 5],     [2 2],   [true true],         [false false],      [0 0],       1}
   {'A2 mixed',     [6 5],     [2 3],   [true false],        [false false],      [0 0],       1}

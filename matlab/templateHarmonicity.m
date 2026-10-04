@@ -46,7 +46,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %        use the chord's pitches and weights as given (suitable for
 %        empirical spectral peaks, e.g., from audioPeaks).
 %     4. Evaluate both as 1-D absolute expectation tensors (r = 1,
-%        isRel = false) on a fine grid.
+%        rel = false) on a fine grid.
 %     5. Cross-correlate the two density vectors.
 %     6. Normalize by the geometric mean of their energies (giving
 %        cosine similarity at each lag).
@@ -233,7 +233,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
     end
 
     % === Build template tensor and evaluate on grid ===
-    % r = 1, isRel = false: intrinsic to the harmonicity definition
+    % r = 1, rel = false: intrinsic to the harmonicity definition
     % (1-D absolute density of spectral components).
 
     margin = 4 * sigma;
@@ -243,7 +243,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
     % Time estimate (kernel cost only; conv() and other overheads not
     % included, so this is a lower bound). Pair count is the sum of
     % the two evalMaet workloads. dim = 1 since both densities use
-    % r = 1, isRel = false.
+    % r = 1, rel = false.
     nPairs = double(numel(chord_p)) * double(numel(x_chord)) ...
            + double(numel(tmpl_p))  * double(numel(x_tmpl));
     estimateCompTime(nPairs, 1, 'templateHarmonicity', nvArgs.verbose);
@@ -463,7 +463,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
     % --- Main loop with canonical-key cache ----------------------
     % Template-harmonicity is invariant under joint transposition
     % (lowest pitch is shifted to 0 internally), so the canonical key
-    % uses (isRel=true, isPer=false). Structurally-identical chords
+    % uses (rel=true, per=false). Structurally-identical chords
     % share one cached (hMax, hEntropy) result.
     resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 

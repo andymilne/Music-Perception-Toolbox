@@ -27,14 +27,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from _independent_ip import centres_inner_product  # noqa: E402
 
 
-def _pair(K=7, r=3, sigma=30.0, is_rel=False, is_per=False, period=1200.0):
+def _pair(K=7, r=3, sigma=30.0, rel=False, per=False, period=1200.0):
     rng = np.random.default_rng(20260823)
     p = np.sort(rng.uniform(0.0, period, K))
     q = np.sort(rng.uniform(0.0, period, K))
     w = rng.uniform(0.4, 1.0, K)
     wq = rng.uniform(0.4, 1.0, K)
-    a = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
-    b = build_maet(q, wq, sigma, r, is_rel, is_per, period, verbose=False)
+    a = build_maet(p, w, sigma, r, rel, per, period, verbose=False)
+    b = build_maet(q, wq, sigma, r, rel, per, period, verbose=False)
     return a, b
 
 
@@ -65,9 +65,9 @@ def test_direct_retired_on_both_entry_points():
         eval_maet(a, np.array([[0.0]]), method=RETIRED, verbose=False)
 
 
-@pytest.mark.parametrize("is_rel,is_per", [(False, False), (False, True),
+@pytest.mark.parametrize("rel,per", [(False, False), (False, True),
                                            (True, False), (True, True)])
-def test_three_routes_agree(is_rel, is_per):
+def test_three_routes_agree(rel, per):
     """All three inner-product routes compute the same value.
 
     The centres route shares no reduction with the other two, so this is
@@ -79,7 +79,7 @@ def test_three_routes_agree(is_rel, is_per):
     sigma/P tends to zero. The sigma used here keeps sigma/P at 0.025,
     well inside the regime where they coincide.
     """
-    a, b = _pair(is_rel=is_rel, is_per=is_per)
+    a, b = _pair(rel=rel, per=per)
     vals = {m: float(sim_maet(a, b, method=m,
                                       truncation_sigmas=float("inf"),
                                       verbose=False))
@@ -91,9 +91,9 @@ def test_three_routes_agree(is_rel, is_per):
         assert abs_err < 1e-12 or rel_err < 1e-9, f"{m}: {vals}"
 
 
-@pytest.mark.parametrize("is_rel,is_per", [(False, False), (False, True),
+@pytest.mark.parametrize("rel,per", [(False, False), (False, True),
                                            (True, False), (True, True)])
-def test_routes_agree_with_an_independent_implementation(is_rel, is_per):
+def test_routes_agree_with_an_independent_implementation(rel, per):
     """The shipped routes agree with code that shares nothing with them.
 
     All three shipped routes go through ``_ip_core_ma`` -- that is what
@@ -110,12 +110,12 @@ def test_routes_agree_with_an_independent_implementation(is_rel, is_per):
 
     def ind(pa, wa, pb, wb):
         return centres_inner_product(pa, wa, pb, wb, sigma, r,
-                                     is_rel, is_per, period)
+                                     rel, per, period)
 
     expected = ind(p, w, q, wq) / np.sqrt(ind(p, w, p, w) * ind(q, wq, q, wq))
 
-    a = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
-    b = build_maet(q, wq, sigma, r, is_rel, is_per, period, verbose=False)
+    a = build_maet(p, w, sigma, r, rel, per, period, verbose=False)
+    b = build_maet(q, wq, sigma, r, rel, per, period, verbose=False)
     for method in ("bulger", "centres", "mobius"):
         got = float(sim_maet(a, b, method=method,
                                      truncation_sigmas=float("inf"),
@@ -134,8 +134,8 @@ REL_ROUTES = ("auto", "centres", "mobius")
 
 
 @pytest.mark.parametrize("route", REL_ROUTES)
-@pytest.mark.parametrize("is_per", [False, True])
-def test_forced_mobius_runs_mobius_on_relative_attributes(route, is_per):
+@pytest.mark.parametrize("per", [False, True])
+def test_forced_mobius_runs_mobius_on_relative_attributes(route, per):
     """method='mobius' must not be served by centres enumeration.
 
     Inside the Moebius route a relative attribute's inner matrices may be
@@ -158,7 +158,7 @@ def test_forced_mobius_runs_mobius_on_relative_attributes(route, is_per):
     try:
         mpt.set_default(rel_attr_route=route)
         forced = _ma_rel_attr_prefers_centres(
-            p.reshape(-1, 1), q.reshape(-1, 1), sigma, r, True, is_per,
+            p.reshape(-1, 1), q.reshape(-1, 1), sigma, r, True, per,
             period, truncation_sigmas=float("inf"),
             user_forced_mobius=True)
         if route == "centres":
@@ -203,21 +203,21 @@ def test_value_is_unchanged_by_the_sub_route(route):
     prev = mpt.get_default("rel_attr_route")
     got = {}
     try:
-        for is_per in (False, True):
-            a = build_maet(p, w, sigma, r, True, is_per, period,
+        for per in (False, True):
+            a = build_maet(p, w, sigma, r, True, per, period,
                                verbose=False)
-            b = build_maet(q, wq, sigma, r, True, is_per, period,
+            b = build_maet(q, wq, sigma, r, True, per, period,
                                verbose=False)
             mpt.set_default(rel_attr_route=route)
-            got[is_per] = float(sim_maet(
+            got[per] = float(sim_maet(
                 a, b, method="mobius", truncation_sigmas=float("inf"),
                 verbose=False))
             mpt.set_default(rel_attr_route="auto")
             ref = float(sim_maet(
                 a, b, method="bulger", truncation_sigmas=float("inf"),
                 verbose=False))
-            assert abs(got[is_per] - ref) <= 1e-9 * max(abs(ref), 1.0), (
-                f"route={route} is_per={is_per}: {got[is_per]} vs {ref}")
+            assert abs(got[per] - ref) <= 1e-9 * max(abs(ref), 1.0), (
+                f"route={route} per={per}: {got[per]} vs {ref}")
     finally:
         mpt.set_default(rel_attr_route=prev)
 

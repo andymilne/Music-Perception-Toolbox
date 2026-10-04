@@ -206,10 +206,10 @@ def build_density(ev, log_ioi, sigma_count=SIGMA_COUNT,
         if len(sig) > 3:
             names.append('count')
         mpt.show_pre_maet(p_b, w_b, sp_b, names=names, sigma=sig,
-                          is_per=[False] * len(sig), max_elements=6)
+                          per=[False] * len(sig), max_elements=6)
         print()
     return build_maet(p_b, w_b, specs=sp_b, sigma=sig,
-                          is_per=[False] * len(sig),
+                          per=[False] * len(sig),
                           period=[None] * len(sig), verbose=False)
 
 

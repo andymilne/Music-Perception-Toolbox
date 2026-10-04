@@ -3,16 +3,16 @@
 %  Mirror of the Python tests/test_exch.py. Covers the exch-flag
 %  specification §10:
 %
-%   * r = 1: the flag is vacuous; isExch true/false coincide (single-multiset + MA).
-%   * r = K: isExch = false deposits the single ordered tuple; isExch =
+%   * r = 1: the flag is vacuous; exch true/false coincide (single-multiset + MA).
+%   * r = K: exch = false deposits the single ordered tuple; exch =
 %     true deposits the full S_K orbit (K! tuples).
-%   * 1 < r < K: isExch = false is the de-reflected isExch = true density,
+%   * 1 < r < K: exch = false is the de-reflected exch = true density,
 %     verified by the exact orbit-sum relation at r = 2.
-%   * OPT-completeness: isExch = false with isRel = true reaches the
+%   * OPT-completeness: exch = false with rel = true reaches the
 %     ordered transposition-invariant spaces (an ordered interval is
-%     distinguished from its inversion; isExch = true cannot) --- both the
-%     line R^{n-1} and, with isPer = true, the torus T^{n-1}. The three
-%     Sym/Ord confirmations are also checked under isPer = true.
+%     distinguished from its inversion; exch = true cannot) --- both the
+%     line R^{n-1} and, with per = true, the torus T^{n-1}. The three
+%     Sym/Ord confirmations are also checked under per = true.
 %   * Cross-cardinality comparability at fixed r; doubling reweights
 %     without equalising (anti-C).
 %   * Default value is symmetric; ordered self-similarity is 1.
@@ -154,7 +154,7 @@ results{end,2}   = abs(mL_exch - 1) < 1e-9 && mL_ord < 1 - 1e-4;
 % ---------------------------------------------------------------------
 
 dRel = buildMaet(p3, [], 1, 3, true, false, 0, false, 'verbose', false);
-results{end+1,1} = 'exch: isRel drops dim by one (independent of isExch)';
+results{end+1,1} = 'exch: rel drops dim by one (independent of exch)';
 results{end,2}   = dRel.dim == 2;
 
 up   = [0 4];     % ordered interval +4
@@ -172,16 +172,16 @@ results{end,2}   = abs(s_exch_oi - 1) < 1e-9 && s_ord_oi < 0.5;
 
 
 % ---------------------------------------------------------------------
-%  Periodic + ordered (isPer = true with isExch = false): the second of
+%  Periodic + ordered (per = true with exch = false): the second of
 %  the two ordered transposition-invariant spaces (the torus T^{n-1}),
-%  and the isPer = true arm of the r-sweep confirmations.
+%  and the per = true arm of the r-sweep confirmations.
 % ---------------------------------------------------------------------
 
 Pp = 12;
 
-% isRel drops one dimension on the torus too (T^{n-1}).
+% rel drops one dimension on the torus too (T^{n-1}).
 dRelP = buildMaet(p3, [], 1, 2, true, true, Pp, false, 'verbose', false);
-results{end+1,1} = 'exch: periodic isRel drops dim by one (T^{n-1})';
+results{end+1,1} = 'exch: periodic rel drops dim by one (T^{n-1})';
 results{end,2}   = dRelP.dim == 1;
 
 % Ordered relative on a period-12 torus distinguishes +4 from -4 (==+8);
@@ -199,7 +199,7 @@ s_ord_poi = simMaet( ...
 results{end+1,1} = 'exch: periodic ordered interval vs inversion (T^{n-1})';
 results{end,2}   = abs(s_exch_poi - 1) < 1e-9 && s_ord_poi < 0.5;
 
-% isPer wraps the attribute's values in the ordered path: [0 4] equals [0 16]
+% per wraps the attribute's values in the ordered path: [0 4] equals [0 16]
 % (16 == 4 mod 12) when periodic, but is distinct when not.
 s_wrap = simMaet( ...
     buildMaet([0 4],  [], 0.5, 2, false, true, Pp, false, 'verbose', false), ...
@@ -212,7 +212,7 @@ s_nowrap = simMaet( ...
 results{end+1,1} = 'exch: periodic wrapping active in ordered mode';
 results{end,2}   = abs(s_wrap - 1) < 1e-9 && s_nowrap < 0.5;
 
-% r = K under isPer: ordered deposits one whole tuple, symmetric the
+% r = K under per: ordered deposits one whole tuple, symmetric the
 % full S_K orbit (K! = 6). Periodicity does not change the orbit count.
 dKpo = internal.ensureMaetExpensive( ...
     buildMaet(p3, [], 1, 3, false, true, Pp, false, 'verbose', false));
@@ -221,7 +221,7 @@ dKps = internal.ensureMaetExpensive( ...
 results{end+1,1} = 'exch: periodic r = K single ordered tuple vs S_K orbit';
 results{end,2}   = size(dKpo.U_perm{1}, 2) == 1 && size(dKps.U_perm{1}, 2) == 6;
 
-% r = 1 under isPer: the flag is vacuous, so ordered and symmetric
+% r = 1 under per: the flag is vacuous, so ordered and symmetric
 % periodic densities are identical pointwise.
 xgp   = linspace(-3, 14, 60);
 d1po  = buildMaet(p3, [], 1, 1, false, true, Pp, false, 'verbose', false);
@@ -269,7 +269,7 @@ dExch = internal.ensureMaetExpensive( ...
     buildMaet(p3, [], 1, 2, false, false, 0, true, 'verbose', false));
 results{end+1,1} = 'exch: default is symmetric';
 results{end,2}   = size(dDef.U_perm{1}, 2) == size(dExch.U_perm{1}, 2) ...
-                && all(logical(dDef.isExch(:)));
+                && all(logical(dDef.exch(:)));
 
 dSelf = buildMaet(p3, [], 30, 2, false, false, 0, false, 'verbose', false);
 results{end+1,1} = 'exch: ordered self-similarity is 1';
@@ -281,11 +281,11 @@ results{end,2}   = abs(simMaet(dSelf, dSelf, 'verbose', false) - 1) < 1e-9;
 % ---------------------------------------------------------------------
 
 P2 = [0 4 7; 7 4 0];
-results{end+1,1} = 'exch: batched cosSim rejects isExch=false at r>1';
+results{end+1,1} = 'exch: batched cosSim rejects exch=false at r>1';
 results{end,2}   = errorMessageContains( ...
     @() simMaet(P2, [], P2, [], 30, 2, false, false, 0, false, ...
                       'verbose', false), 'ordered');
-results{end+1,1} = 'exch: batched eval rejects isExch=false at r>1';
+results{end+1,1} = 'exch: batched eval rejects exch=false at r>1';
 results{end,2}   = errorMessageContains( ...
     @() evalMaet(P2, [], 30, 2, false, false, 0, false, [0;4], ...
                     'verbose', false), 'ordered');

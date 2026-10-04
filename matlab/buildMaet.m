@@ -6,8 +6,8 @@ function dens = buildMaet(varargin)
 %   positional multi-attribute form.
 %
 %   SINGLE-ATTRIBUTE (legacy):
-%     dens = buildMaet(p, w, sigma, r, isRel, isPer, period)
-%     dens = buildMaet(p, w, sigma, r, isRel, isPer, period, isExch)
+%     dens = buildMaet(p, w, sigma, r, rel, per, period)
+%     dens = buildMaet(p, w, sigma, r, rel, per, period, exch)
 %     dens = buildMaet(..., 'verbose', false)
 %
 %   PRE-MAET (the canonical multi-attribute entry):
@@ -15,7 +15,7 @@ function dens = buildMaet(varargin)
 %     dens = buildMaet(pm, 'sigma', sigmaVec, ...)
 %   A pre-MAET (packPreMaet) stands in place of pAttr and wAttr, bringing
 %   its specs with it. Any of the six per-attribute parameters --
-%   'sigma', 'isPer', 'period', 'r', 'rel', 'exch' -- may be given
+%   'sigma', 'per', 'period', 'r', 'rel', 'exch' -- may be given
 %   alongside, and a supplied value wins over the specs for every
 %   attribute, so a sweep over any of them is one call per value and
 %   leaves the pre-MAET untouched.
@@ -49,15 +49,15 @@ function dens = buildMaet(varargin)
 %                 the toolbox's standard broadcast convention in
 %                 User Guide §10.4).
 %     sigma     - Standard deviation of the Gaussian kernel.
-%     r         - Tuple size (positive integer; r >= 2 if isRel = true).
-%     isRel     - If true, use transposition-invariant (relative)
+%     r         - Tuple size (positive integer; r >= 2 if rel = true).
+%     rel     - If true, use transposition-invariant (relative)
 %                 quadratic form (effective dim = r - 1).
-%     isPer     - If true, wrap differences to periodic interval
+%     per     - If true, wrap differences to periodic interval
 %                 [-period/2, period/2).
 %     period    - Period for periodic wrapping (e.g., 1200 for one
 %                 octave in cents, or the cycle length for rhythmic
 %                 analyses).
-%     isExch    - Optional (default: true). If true, the multiset is
+%     exch    - Optional (default: true). If true, the multiset is
 %                 exchangeable (unordered): the density is invariant
 %                 under permuting a tuple's coordinates. If false, it is
 %                 ordered, and position in the tuple carries identity
@@ -85,11 +85,11 @@ function dens = buildMaet(varargin)
 %                 K_a x N.
 %     sigmaVec  - 1 x A vector of per-attribute Gaussian widths
 %     rVec      - 1 x A vector of per-attribute tuple sizes
-%     isRelVec  - 1 x A logical vector of per-attribute isRel flags
+%     isRelVec  - 1 x A logical vector of per-attribute rel flags
 %     isPerVec  - 1 x A logical vector of per-attribute periodic flags
 %     periodVec - 1 x A vector of per-attribute periods (0 when not periodic)
 %     isExchVec - Optional 1 x A logical vector of per-attribute
-%                 exchangeability flags (default: all true). See isExch
+%                 exchangeability flags (default: all true). See exch
 %                 above; an ordered attribute (false) keeps the order of
 %                 its values.
 %
@@ -107,9 +107,9 @@ function dens = buildMaet(varargin)
 %       .pAttr         = 1 x A cell, input value matrices
 %       .w             = 1 x A cell, post-broadcast K_a x N weight matrices
 %       .sigma         = 1 x G
-%       .isRel         = 1 x G logical
-%       .isPer         = 1 x G logical
-%       .isExch        = 1 x A logical, per-attribute exchangeability
+%       .rel         = 1 x G logical
+%       .per         = 1 x G logical
+%       .exch        = 1 x A logical, per-attribute exchangeability
 %       .period        = 1 x G
 %       .dim           = scalar total, sum_a (r_a - isRel_{g(a)})
 %       .dimPerAttr    = 1 x A vector, r_a - isRel_{g(a)}
@@ -155,7 +155,7 @@ function dens = buildMaet(varargin)
     end
 
     % --- Canonical specs form (level-structured geometry lives in specs;
-    %     scalar sigma/isPer/period are supplied as name-value kwargs) ---
+    %     scalar sigma/per/period are supplied as name-value kwargs) ---
     if ~isempty(specs)
         if ~iscell(posArgs{1})
             error('buildMaet:specsMultiOnly', ...
@@ -165,7 +165,7 @@ function dens = buildMaet(varargin)
         if numel(posArgs) ~= 2
             error('buildMaet:specsPositional', ...
                   ['With specs, pass only (pAttr, wAttr) positionally; supply ' ...
-                   'sigma, isPer, period as name-value kwargs (level-' ...
+                   'sigma, per, period as name-value kwargs (level-' ...
                    'structured r/rel/exch live in specs).']);
         end
         if ~isempty(nested)
@@ -185,8 +185,8 @@ function dens = buildMaet(varargin)
         % is a value missing from both places.
         sigmaKw = internal.resolveKernelParam(sigmaKw, specKernel.sigma, ...
                                      'sigma', names, A, false);
-        isPerKw = internal.resolveKernelParam(isPerKw, specKernel.isPer, ...
-                                     'isPer', names, A, false);
+        isPerKw = internal.resolveKernelParam(isPerKw, specKernel.per, ...
+                                     'per', names, A, false);
         periodKw = internal.resolveKernelParam(periodKw, specKernel.period, ...
                                       'period', names, A, true);
         hasKc = iscell(sigmaKw) && any(cellfun(@internal.isKernelCov, sigmaKw));
@@ -225,7 +225,7 @@ function dens = buildMaet(varargin)
     end
     if ~isempty(sigmaKw) || ~isempty(isPerKw) || ~isempty(periodKw)
         error('buildMaet:scalarKwargWithoutSpecs', ...
-              ['sigma/isPer/period kwargs are only for the specs form; ' ...
+              ['sigma/per/period kwargs are only for the specs form; ' ...
                'the positional form takes them in order.']);
     end
 
@@ -319,7 +319,7 @@ function [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, ...
     while i <= numel(posArgs)
         if (ischar(posArgs{i}) || isstring(posArgs{i})) ...
                 && any(strcmpi(posArgs{i}, {'verbose', 'lazy', 'nested', ...
-                                            'specs', 'sigma', 'isPer', ...
+                                            'specs', 'sigma', 'per', ...
                                             'period', 'wrap', 'r', ...
                                             'rel', 'exch'}))
             key = lower(char(posArgs{i}));
@@ -338,7 +338,7 @@ function [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, ...
                     specs = posArgs{i + 1};
                 case 'sigma'
                     sigmaKw = posArgs{i + 1};
-                case 'isper'
+                case 'per'
                     isPerKw = posArgs{i + 1};
                 case 'period'
                     periodKw = posArgs{i + 1};
@@ -358,7 +358,7 @@ function [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, ...
             error('buildMaet:unknownKwarg', ...
                   ['Unrecognised name-value argument ''%s''. Supported ' ...
                    'names are verbose, lazy, nested, specs, sigma, ' ...
-                   'isPer, period, wrap, r, rel, and exch.'], ...
+                   'per, period, wrap, r, rel, and exch.'], ...
                   char(posArgs{i}));
         else
             i = i + 1;
@@ -390,7 +390,7 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
     else
         error('buildMaet:singleMultisetArgCount', ...
               ['Single-multiset call expects 7 or 8 positional ' ...
-               'arguments: p, w, sigma, r, isRel, isPer, period[, isExch].']);
+               'arguments: p, w, sigma, r, rel, per, period[, exch].']);
     end
     isExch = logical(isExch);
 
@@ -418,13 +418,13 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
         dens.pAttr      = {zeros(0, 1)};
         dens.w          = {zeros(0, 1)};
         dens.sigma      = sigma;
-        dens.isRel      = isRel;
-        dens.isPer      = logical(isPer);
+        dens.rel      = isRel;
+        dens.per      = logical(isPer);
         dens.period     = period;
         dens.wrap       = internal.normaliseWrapMa(wrap, 1);
         internal.maybeWarnAbsPerSingleImage(sigma, isRel, isPer, period, ...
                                             dens.wrap);
-        dens.isExch      = logical(isExch);
+        dens.exch       = logical(isExch);
         dens.dim        = dim;
         dens.dimPerAttr = dim;
         dens.nested     = {[]};
@@ -463,7 +463,7 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
         error('w must have the same number of entries as p.');
     end
 
-    % r = 1 with isRel = true is a degenerate case: the relative
+    % r = 1 with rel = true is a degenerate case: the relative
     % density is constant on a 0-dimensional space. The closed-form
     % total mass is sum(w), and entropyMaet returns 0 by convention
     % for Rényi-2 in this regime, so we relax to a warning that
@@ -471,8 +471,8 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
     % that genuinely cannot handle dim = 0 (e.g. evalMaet with a
     % query in a 0-D space) raise their own clearer errors.
     if isRel && r < 2
-        warning('buildMaet:isRelDegenerate', ...
-                ['isRel = true with r = 1 produces a degenerate ' ...
+        warning('buildMaet:relDegenerate', ...
+                ['rel = true with r = 1 produces a degenerate ' ...
                  '(constant) density. For cross-event translation ' ...
                  'invariance, use differenceEvents as a preprocessing ' ...
                  'step.']);
@@ -602,8 +602,8 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     end
     % A spec that already carries the internal 'proj' field was produced by
     % a previous build (a rebuild via ensureMaetExpensive forwards it),
-    % not typed by a user; the user-isRel guard below is skipped for those
-    % so the derived isRel value round-trips cleanly.
+    % not typed by a user; the user-rel guard below is skipped for those
+    % so the derived rel value round-trips cleanly.
     nestedWasNorm = false(1, A);
     for a = 1:A
         spec = nested{a};
@@ -684,7 +684,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
         end
         [relUnit, proj] = localCanonicaliseNestedRel(relRaw, L, a);
         spec.r       = rLevels;
-        spec.exch     = exchLevels;
+        spec.exch    = exchLevels;
         spec.tags    = tags;
         spec.relUnit = relUnit;
         spec.proj    = proj;
@@ -702,11 +702,11 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     isPerVec  = logical(isPerVec(:).');
     periodVec = double(periodVec(:).');
     if numel(sigmaVec)  ~= A, error('buildMaet:sigmaLength',  'sigmaVec must have length %d (nAttrs).',  A); end
-    if numel(isRelVec)  ~= A, error('buildMaet:isRelLength',  'isRelVec must have length %d (nAttrs).',  A); end
-    if numel(isPerVec)  ~= A, error('buildMaet:isPerLength',  'isPerVec must have length %d (nAttrs).',  A); end
+    if numel(isRelVec)  ~= A, error('buildMaet:relLength',  'isRelVec must have length %d (nAttrs).',  A); end
+    if numel(isPerVec)  ~= A, error('buildMaet:perLength',  'isPerVec must have length %d (nAttrs).',  A); end
     if numel(periodVec) ~= A, error('buildMaet:periodLength', 'periodVec must have length %d (nAttrs).', A); end
 
-    % isExch per attribute. Default (empty) is symmetric for every
+    % exch per attribute. Default (empty) is symmetric for every
     % attribute (legacy reading). Must otherwise have length A, matching
     % the other per-attribute parameter vectors.
     if isempty(isExchVec)
@@ -714,7 +714,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     else
         isExchVec = logical(isExchVec(:).');
         if numel(isExchVec) ~= A
-            error('buildMaet:isExchLength', ...
+            error('buildMaet:exchLength', ...
                   'isExchVec must have length %d (nAttrs).', A);
         end
     end
@@ -730,7 +730,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     % same density and the same inner products (to floating-point floor)
     % and lets both the build and -- the larger cost -- the cosine take
     % the flat route. Periodicity rides through unchanged. Whole-tuple
-    % co-transposition maps onto the flat isRel ('outer' -> relative,
+    % co-transposition maps onto the flat rel ('outer' -> relative,
     % 'absolute' -> absolute); an 'inner'/'intermediate' projection
     % reduces within sub-tuples and never collapses to flat.
     %
@@ -771,7 +771,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
         isRelVec(a)  = strcmp(spec.proj, 'outer');
     end
 
-    % isRel + r_a = 1 degenerate warning (per attribute); nested mapping
+    % rel + r_a = 1 degenerate warning (per attribute); nested mapping
     for a = 1:A
         if ~isempty(nested{a})
             if isRelVec(a) && ~nestedWasNorm(a)
@@ -781,14 +781,14 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
                        'isRelVec entry (leave it false for nested attributes).'], a);
             end
             % The outer / whole-tuple co-transposition unit is exactly the
-            % flat isRel reduction on the whole D_a-tuple, so map it onto
-            % the internal isRel machinery; absolute leaves it off.
+            % flat rel reduction on the whole D_a-tuple, so map it onto
+            % the internal rel machinery; absolute leaves it off.
             isRelVec(a) = strcmp(nested{a}.proj, 'outer');
             continue
         end
         if isRelVec(a) && rVec(a) < 2
-            warning('buildMaet:isRelDegenerate', ...
-                    ['isRel = true combined with r_a = 1 for ' ...
+            warning('buildMaet:relDegenerate', ...
+                    ['rel = true combined with r_a = 1 for ' ...
                      'attribute %d produces a degenerate (constant) density. ' ...
                      'For cross-event translation invariance, use ' ...
                      'differenceEvents as a preprocessing step.'], a);
@@ -808,6 +808,9 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     % per-event r = 1 path (localFillMAExpensive) exactly as for a
     % directly-built single multiset. Mirrors the Python collapse in
     % _build_maet_ma.
+    % The number of positions, values and NaNs together, per attribute,
+    % counted before the collapse below discards the NaNs.
+    nPos = cellfun(@(x) size(x, 1), pAttr);
     if A == 1 && rVec(1) == 1 && N > 1 && isempty(nested{1})
         P     = pAttr{1};
         W     = wCell{1};
@@ -847,18 +850,18 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     end
     dim = sum(dimPerAttr);
 
-    % --- Eager input validation: each event must have either enough
-    % non-NaN values for its tuple size or none at all. An event with no
-    % value on an attribute -- a grid slice with nothing sounding, say --
-    % admits no tuple there, so it contributes nothing to the density,
-    % the inner product, or any entropy taken from them, while keeping
-    % its place in the event sequence for binding and differencing. An
-    % event with some but too few values is a mistake and is refused.
-    % --- each event must have enough non-NaN
-    % values in every attribute. We check here (cheap) so that bad inputs
-    % fail at buildMaet time even when lazy=true. The full per-event
-    % enumeration in localFillMAExpensive recomputes the valid index
-    % vectors anyway, so this is just a guard.
+    % --- Eager input validation. A NaN is a position with no value, read
+    % as a value of weight 0. An event with no value on an attribute -- a
+    % grid slice with nothing sounding, say -- admits no tuple there, so
+    % it contributes nothing to the density, the inner product, or any
+    % entropy taken from them, while keeping its place in the event
+    % sequence for binding and differencing. An event with some values
+    % but fewer than r likewise contributes nothing, and is warned of,
+    % since it may be a mistake. An attribute whose positions are too few
+    % for any event to supply an r-tuple is an error. Checked here
+    % (cheap) so that bad inputs fail at buildMaet time even when
+    % lazy = true. Mirrors the Python check in _build_maet_ma.
+    tooFew = zeros(1, A);
     for n = 1:N
         for a = 1:A
             valCol = pAttr{a}(:, n);
@@ -870,27 +873,57 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
                     tg = tg(:);                      % K_total x 1 (L = 2)
                 end
                 validIdx = find(~isnan(valCol(:))).';   % 1 x Kv value indices
-                % An event with no value at all on this attribute admits
-                % no tuple and contributes nothing; only a partly filled
-                % one is an error.
-                if ~isempty(validIdx) && ~localNestedFeasible(validIdx, tg, rLv, numel(rLv))
+                % As on a flat attribute: positions too few to admit a
+                % full nested r-tuple even with every value present are
+                % an error; an event whose non-NaN values admit none
+                % contributes nothing, and is warned of.
+                if n == 1 && ~localNestedFeasible(1:numel(valCol), tg, rLv, numel(rLv))
                     error('buildMaet:nestedInfeasible', ...
-                          ['Event %d, nested attribute %d: the non-NaN ' ...
-                           'values do not admit a full nested r-tuple for ' ...
-                           'r = [%s] (too few groups or values at some ' ...
-                           'nesting level).'], n, a, num2str(rLv));
+                          ['Nested attribute %d: its positions, values and ' ...
+                           'NaNs together, do not admit a full nested ' ...
+                           'r-tuple for r = [%s] (too few groups or ' ...
+                           'positions at some nesting level), so no event ' ...
+                           'can supply one.'], a, num2str(rLv));
+                end
+                if ~isempty(validIdx) && ~localNestedFeasible(validIdx, tg, rLv, numel(rLv))
+                    tooFew(a) = tooFew(a) + 1;
                 end
                 continue
             end
             valid = ~isnan(valCol);
             K_na = sum(valid);
             r_a = rVec(a);
+            % No positions at all is every event empty (the r = 1 collapse
+            % of an all-NaN attribute, say), which contributes nothing.
+            if nPos(a) > 0 && r_a > nPos(a)
+                error('buildMaet:tooFewPositions', ...
+                      ['Attribute %d has %d position(s) per event, values ' ...
+                       'and NaNs together, fewer than its tuple size ' ...
+                       'r_a = %d, so no event can supply an r-tuple. Give ' ...
+                       'the attribute at least r positions or use a ' ...
+                       'smaller r.'], a, nPos(a), r_a);
+            end
             if K_na > 0 && K_na < r_a
-                error('buildMaet:insufficientValues', ...
-                      ['Event %d, attribute %d has %d non-NaN value(s) ' ...
-                       'but r_a = %d.'], n, a, K_na, r_a);
+                tooFew(a) = tooFew(a) + 1;
             end
         end
+    end
+    if any(tooFew)
+        parts = {};
+        for a = find(tooFew)
+            if isempty(nested{a})
+                rStr = sprintf('%d', rVec(a));
+            else
+                rStr = ['[' num2str(nested{a}.r(:).') ']'];
+            end
+            parts{end + 1} = sprintf(['%d event(s) on attribute %d hold ' ...
+                'too few non-NaN values for a tuple of size r = %s'], ...
+                tooFew(a), a, rStr); %#ok<AGROW>
+        end
+        warning('buildMaet:tooFewValues', ...
+                ['buildMaet: %s, and so contribute nothing. A NaN is a ' ...
+                 'position with no value, read as a value of weight 0, so ' ...
+                 'every r-tuple through it vanishes.'], strjoin(parts, '; '));
     end
 
     % --- Pack skinny struct ---
@@ -904,8 +937,8 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     dens.pAttr        = pAttr;
     dens.w            = wCell;
     dens.sigma        = sigmaVec;
-    dens.isRel        = isRelVec;
-    dens.isPer        = isPerVec;
+    dens.rel        = isRelVec;
+    dens.per        = isPerVec;
     dens.period       = periodVec;
     % Per-attribute wrap choice. 'full-image' (default) sums the kernel
     % over all periodic images (torus measure); 'single-image' evaluates
@@ -913,7 +946,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     dens.wrap = internal.normaliseWrapMa(wrap, A);
     internal.maybeWarnAbsPerSingleImage(sigmaVec, isRelVec, isPerVec, ...
                                         periodVec, dens.wrap);
-    dens.isExch        = isExchVec;
+    dens.exch         = isExchVec;
     dens.dim          = dim;
     dens.dimPerAttr   = dimPerAttr;
     dens.nested       = nested;
@@ -946,8 +979,8 @@ function dens = localFillMAExpensive(dens, verbose)
     A           = dens.nAttrs;
     N           = dens.N;
     rVec        = dens.r;
-    isRelVec    = dens.isRel;
-    isExchVec    = dens.isExch;
+    isRelVec    = dens.rel;
+    isExchVec    = dens.exch;
     pAttr       = dens.pAttr;
     wCell       = dens.w;
     if isfield(dens, 'nested')
@@ -1022,11 +1055,6 @@ function dens = localFillMAExpensive(dens, verbose)
         if N == 1
             valCol = P(:, 1);
             valid  = find(~isnan(valCol));
-            if numel(valid) > 0 && numel(valid) < r_a
-                error('buildMaet:insufficientValues', ...
-                      ['Event %d, attribute %d has %d non-NaN value(s) ' ...
-                       'but r_a = %d.'], 1, 1, numel(valid), r_a);
-            end
             [permMat, combMat, wJ, wvComb] = ...
                 localEnumFlatAttr(valCol, valid, r_a, isExchVec(1), W(:, 1));
             nJ = size(permMat, 2);
@@ -1078,12 +1106,6 @@ function dens = localFillMAExpensive(dens, verbose)
                 for n = 1:N
                     val    = P(:, n);
                     validn = find(~isnan(val));
-                    if numel(validn) > 0 && numel(validn) < r_a
-                        error('buildMaet:insufficientValues', ...
-                              ['Event %d, attribute %d has %d non-NaN ' ...
-                               'value(s) but r_a = %d.'], n, 1, ...
-                              numel(validn), r_a);
-                    end
                     [pm, cm, pw, cw] = ...
                         localEnumFlatAttr(val, validn, r_a, isExchVec(1), W(:, n));
                     Ub{n}   = reshape(val(pm), r_a, size(pm, 2));
@@ -1170,11 +1192,6 @@ function dens = localFillMAExpensive(dens, verbose)
             end
 
             r_a     = rVec(a);
-            if K_na > 0 && K_na < r_a
-                error('buildMaet:insufficientValues', ...
-                      ['Event %d, attribute %d has %d non-NaN value(s) ' ...
-                       'but r_a = %d.'], n, a, K_na, r_a);
-            end
 
             [permIdx{n, a}, combIdx{n, a}, permW{n, a}, combW{n, a}] = ...
                 localEnumFlatAttr(valCol, valid, r_a, isExchVec(a), ...
@@ -1249,7 +1266,7 @@ function dens = localFillMAExpensive(dens, verbose)
         offK = offK + nKh;
     end
 
-    % --- Centres (per-attribute isRel reduction) ---
+    % --- Centres (per-attribute rel reduction) ---
 
     Centres = cell(1, A);
     for a = 1:A

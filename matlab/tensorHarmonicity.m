@@ -23,7 +23,7 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %     1. Build a harmonic template spectrum via addSpectra.
 %     2. Duplicate the template K times (see 'duplicate' below).
 %     3. Build the relative r-ad expectation tensor (r = number of
-%        pitches, isRel = true, isPer = false) from the template.
+%        pitches, rel = true, per = false) from the template.
 %     4. Compute the chord's intervals relative to its lowest pitch.
 %     5. Evaluate the tensor density at that single interval point.
 %

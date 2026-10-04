@@ -35,7 +35,7 @@ def _weights(table, note_id):
 #: One pitch-class attribute, for the identities below: every note's
 #: pitch read as a class, singly.
 PITCH_CLASS = dict(column="pitch", name="pitchClass", sigma=0.5,
-                   is_per=True, period=12.0)
+                   per=True, period=12.0)
 
 
 def main():
@@ -91,12 +91,12 @@ voice into one slice, and the weighting below then applies.
     def gridded(policy):
         return mpt.build_maet(mpt.pre_maet_from_attr_table(
             mpt.grid_attr_table(table, 1.0, weights=policy),
-            attributes=(PITCH_CLASS,), time="beats", chords="separate",
+            specs=(PITCH_CLASS,), time="beats", chords="separate",
             weights="weight"), verbose=False)
 
     def ungridded(weights):
         return mpt.build_maet(mpt.pre_maet_from_attr_table(
-            table, attributes=(PITCH_CLASS,), time="beats",
+            table, specs=(PITCH_CLASS,), time="beats",
             chords="separate", weights=weights), verbose=False)
 
     print("against the ungridded score, at r = 1:")

@@ -38,8 +38,8 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
     A        = densX.nAttrs;
     rVec     = densX.r;
     sigmaG   = densX.sigma;
-    isRelG   = logical(densX.isRel);
-    isPerG   = logical(densX.isPer);
+    isRelG   = logical(densX.rel);
+    isPerG   = logical(densX.per);
     periodG  = densX.period;
 
     % Per-attribute wrap opt-in (v3+). The density's wrap cell selects the
@@ -137,18 +137,18 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
     % count an ordered attribute's C(K_a, r_a) tuples rather than the
     % unordered K_a!/(K_a - r_a)!.
     nestedAny = localAnyNested(densX) || localAnyNested(densY);
-    if isfield(densX, 'isExch')
-        exchVec = logical(densX.isExch(:).');
+    if isfield(densX, 'exch')
+        exchVec = logical(densX.exch(:).');
     else
         exchVec = true(1, A);
     end
 
-    % Ordered (isExch = false) attributes at r_a > 1 on either side.
+    % Ordered (exch = false) attributes at r_a > 1 on either side.
     rRow = double(rVec(:).');
     orderedAny = any(~exchVec & (rRow > 1));
-    if isfield(densY, 'isExch')
+    if isfield(densY, 'exch')
         orderedAny = orderedAny ...
-            || any(~logical(densY.isExch(:).') & (rRow > 1));
+            || any(~logical(densY.exch(:).') & (rRow > 1));
     end
 
     in = struct( ...

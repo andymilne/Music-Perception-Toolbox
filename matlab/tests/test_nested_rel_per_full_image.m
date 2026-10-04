@@ -41,7 +41,7 @@ nrpf_spec = struct('tags', nrpf_tags, 'r', [1 nrpf_nCh], ...
 
 nrpf_pts = @(seed) nrpfPts(seed, nrpf_P, nrpf_chord * nrpf_nCh, nrpf_N);
 nrpf_dens = @(p, sigma) buildMaet({p}, {[]}, 'specs', {nrpf_spec}, ...
-    'sigma', sigma, 'isPer', true, 'period', nrpf_P, 'verbose', false);
+    'sigma', sigma, 'per', true, 'period', nrpf_P, 'verbose', false);
 
 % --- contract == all-image brute force at every sigma/P ---
 for nrpf_sop = [0.02 0.05 0.1 0.2 0.3]

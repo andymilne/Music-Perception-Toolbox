@@ -112,7 +112,7 @@ for isRel = [false true]
                       'verbose', false);
     sSelf = simMaet(dS, dS, 'method', 'bulger', 'verbose', false);
     results{end+1,1} = sprintf( ...
-        'gram: self similarity is 1 (isRel=%d, far from origin)', isRel);
+        'gram: self similarity is 1 (rel=%d, far from origin)', isRel);
     results{end,2} = abs(sSelf - 1) <= 1e-12;
 end
 

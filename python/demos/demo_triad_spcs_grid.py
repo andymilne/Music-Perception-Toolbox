@@ -49,8 +49,8 @@ rho = 1          # power-law rolloff exponent (1/n)
 # Expectation tensor parameters
 sigma = 10       # Gaussian smoothing width in cents
 r = 1            # monad expectation tensor
-is_rel = False   # absolute (not transposition-invariant)
-is_per = True    # periodic (pitch-class equivalence)
+rel = False   # absolute (not transposition-invariant)
+per = True    # periodic (pitch-class equivalence)
 period = 1200    # one octave in cents
 
 # Display options
@@ -88,7 +88,7 @@ print(f"Computing SPCS for {ref_name} reference "
 
 sim_vector = mpt.sim_maet(
     ref_pitches, None, p_mat_b, None,
-    sigma, r, is_rel, is_per, period,
+    sigma, r, rel, per, period,
     spectrum=['harmonic', n_harm, 'powerlaw', rho],
     verbose=False,
 )

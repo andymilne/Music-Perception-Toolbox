@@ -43,7 +43,7 @@ diat_cents = np.array([0, 200, 400, 500, 700, 900, 1100], dtype=float)
 clave = [0, 3, 6, 10, 12]                        # 16-step cycle
 
 # ===================================================================
-#  1. Expectation tensors of a single multiset  (User Guide §3.1, §8, §13.1)
+#  1. Expectation tensors of a single multiset  (User Guide §3.1, §8)
 # ===================================================================
 
 # An expectation tensor replaces each element of a multiset with a
@@ -101,7 +101,7 @@ chord_mat = np.array([
 chord_names = ["Major", "Minor", "Dim"]
 
 # SPCS compares such densities with pitch periodic at the octave
-# (is_per = True, period 1200), so each spectrum is folded onto one
+# (per = True, period 1200), so each spectrum is folded onto one
 # octave of pitch classes before the comparison.
 #
 # Batched call: the scale (a 1-D vector) is broadcast against every
@@ -180,9 +180,9 @@ for name, sc in scales.items():
 
 # The same diatonic scale drawn four ways. The tuple size r sets how many
 # elements each point of the density describes, and relative mode
-# (is_rel) reads a tuple's intervals rather than its pitches, which
+# (rel) reads a tuple's intervals rather than its pitches, which
 # makes the density transposition-invariant and removes one dimension:
-# dim = r - is_rel. All four are periodic at the octave.
+# dim = r - rel. All four are periodic at the octave.
 #
 #   r = 1, absolute   the pitch classes themselves
 #   r = 2, absolute   pairs of pitch classes
@@ -194,13 +194,13 @@ for name, sc in scales.items():
 print("\n=== 1e. Tensor parameters (figure) ===")
 configs = [(1, False), (2, False), (2, True), (3, True)]
 fig, axes = plt.subplots(2, 2, figsize=(9, 8))
-for ax, (r, is_rel) in zip(axes.flat, configs):
-    dens = mpt.build_maet(diat_cents, None, 15, r, is_rel, True, 1200,
+for ax, (r, rel) in zip(axes.flat, configs):
+    dens = mpt.build_maet(diat_cents, None, 15, r, rel, True, 1200,
                           verbose=False)
     mpt.plot_maet(dens, method='density', ax=ax)
-    dim = r - int(is_rel)
-    label = 'interval' if is_rel else 'pitch class'
-    ax.set_title(f"r = {r}, {'relative' if is_rel else 'absolute'} "
+    dim = r - int(rel)
+    label = 'interval' if rel else 'pitch class'
+    ax.set_title(f"r = {r}, {'relative' if rel else 'absolute'} "
                  f"(dim = {dim})")
     if dim == 1:
         ax.set_xlabel(f'{label} (cents)')
@@ -213,8 +213,8 @@ fig.tight_layout()
 print("  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.")
 
 # See also:
-#   demo_maet_plots          every combination of r, is_rel, is_per, and
-#                            is_exch, drawn by each of plot_maet's methods
+#   demo_maet_plots          every combination of r, rel, per, and
+#                            exch, drawn by each of plot_maet's methods
 #   demo_triad_spcs_grid     SPCS of every triad containing a fifth
 #   demo_edo_approx          how well each n-EDO approximates a JI chord
 #   demo_gen_chain_pcs       the same, over generator-chain tunings
@@ -223,7 +223,7 @@ print("  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.")
 #                            speed controls, and Renyi-2 entropy
 
 # ===================================================================
-#  2. Multi-attribute expectation tensors  (User Guide §3.3, §6-§8, §13.2)
+#  2. Multi-attribute expectation tensors  (User Guide §3.3, §6-§8)
 # ===================================================================
 
 # A MAET takes a sequence of events, each carrying several attributes
@@ -256,8 +256,8 @@ pitch = mpt.transform_attributes(midi, None, ('midi', 'cents'))
 #   demo_repetition_handling  a non-linear rescaling (log step size)
 
 p_attr = [pitch[None, :], onsets[None, :]]      # one row per attribute
-specs = mpt.flat_specs(p_attr, name=['pitch', 'onset'],
-                       sigma=[20, 0.5], is_per=[True, False],
+specs = mpt.flat_specs(p_attr, names=['pitch', 'onset'],
+                       sigma=[20, 0.5], per=[True, False],
                        period=[1200, 0])
 melody = mpt.pack_pre_maet(p_attr, None, specs)
 mpt.show_pre_maet(melody, max_events=None)

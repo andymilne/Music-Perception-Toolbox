@@ -59,7 +59,7 @@ results{end,2}   = size(Crel{1}, 1) == 1;
 pAttr = {TRIAD(:)};
 specsUnord = flatSpecs(pAttr, 'r', 2, 'rel', false, 'exch', true);
 specsOrd   = flatSpecs(pAttr, 'r', 2, 'rel', false, 'exch', false);
-kw = {'sigma', 10, 'isPer', false, 'period', PERIOD, 'verbose', false};
+kw = {'sigma', 10, 'per', false, 'period', PERIOD, 'verbose', false};
 Cunord = maetCentres(buildMaet(pAttr, [], 'specs', specsUnord, kw{:}));
 Cord   = maetCentres(buildMaet(pAttr, [], 'specs', specsOrd, kw{:}));
 results{end+1,1} = ['maetCentres: ordered tuples are the ' ...

@@ -33,7 +33,7 @@ results(end+1, :) = {'rOuter defaults to min group size', sp2{1}.r(2) == 4}; %#o
 
 % --- self-similarity = 1 on a ragged density -----------------------------
 [pb3, wb3, sp3] = unpackPreMaet(bindEvents({pit2, onset2}, [], [], 'groupBy', 2, 'rOuter', 4, 'exchOuter', true));
-d3 = buildMaet(pb3, wb3, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp3, 'verbose', false);
+d3 = buildMaet(pb3, wb3, 'sigma', [30 0.01], 'per', [false false], 'period', [0 0], 'specs', sp3, 'verbose', false);
 s3 = simMaet(d3, d3, 'verbose', false);
 results(end+1, :) = {'ragged self-similarity == 1', abs(s3 - 1) < tol}; %#ok<SAGROW>
 
@@ -41,7 +41,7 @@ results(end+1, :) = {'ragged self-similarity == 1', abs(s3 - 1) < tol}; %#ok<SAG
 onset4 = [zeros(1,7), ones(1,6), 2*ones(1,8)];   % sizes 7,6,8 -> min 6
 pit4 = 60 + (0:numel(onset4)-1);
 [pb4, wb4, sp4] = unpackPreMaet(bindEvents({pit4, onset4}, [], [], 'groupBy', 2, 'rOuter', 6, 'exchOuter', true));
-d4 = buildMaet(pb4, wb4, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp4, 'verbose', false);
+d4 = buildMaet(pb4, wb4, 'sigma', [30 0.01], 'per', [false false], 'period', [0 0], 'specs', sp4, 'verbose', false);
 s4 = simMaet(d4, d4, 'verbose', false);
 results(end+1, :) = {'large-tuple-size ragged self-similarity == 1', abs(s4 - 1) < tol}; %#ok<SAGROW>
 
@@ -74,8 +74,8 @@ results(end+1, :) = {'groupBy K~=1 errors', threwK}; %#ok<SAGROW>
 bnPitch = [60 64 67 62 65];
 bnChord = [0 0 0 1 1];
 bnSpecs = flatSpecs({bnPitch, bnChord}, 'sigma', [0.5 0.25], ...
-                    'isPer', [true false], 'period', [12 0], ...
-                    'name', {'pitch', 'chord'});
+                    'per', [true false], 'period', [12 0], ...
+                    'names', {'pitch', 'chord'});
 [pbName, wbName, spName] = unpackPreMaet(bindEvents({bnPitch, bnChord}, [], [], ...
     'groupBy', 'chord', 'specs', bnSpecs, 'rOuter', 2));
 [pbIdx, ~, ~] = unpackPreMaet(bindEvents({bnPitch, bnChord}, [], [], ...
@@ -83,7 +83,7 @@ bnSpecs = flatSpecs({bnPitch, bnChord}, 'sigma', [0.5 0.25], ...
 okSame = isequaln(pbName{1}, pbIdx{1});
 okSigma = isfield(spName{1}, 'sigma') && abs(spName{1}.sigma - 0.5) < tol ...
     && isfield(spName{2}, 'sigma') && abs(spName{2}.sigma - 0.25) < tol;
-okPer = isfield(spName{1}, 'isPer') && spName{1}.isPer ...
+okPer = isfield(spName{1}, 'per') && spName{1}.per ...
     && abs(spName{1}.period - 12) < tol;
 okBuild = true;
 try
@@ -92,7 +92,7 @@ try
 catch
     okBuild = false;
 end
-results(end+1, :) = {'groupBy by name, sigma/isPer/period carried', ...
+results(end+1, :) = {'groupBy by name, sigma/per/period carried', ...
     okSame && okSigma && okPer && okBuild}; %#ok<SAGROW>
 
 % --- an inner attribute of K > 1 gets its weight on every value row -------
@@ -108,7 +108,7 @@ okWrows = max(abs(wbW{1}(1:2, :) - [1 2; 1 2]), [], 'all') < tol ...
     && max(abs(wbW{1}(3:4, :) - [0.5 0.25; 0.5 0.25]), [], 'all') < tol;
 okWbuild = true;
 try
-    buildMaet(pbW, wbW, 'sigma', [1 1], 'isPer', [false false], ...
+    buildMaet(pbW, wbW, 'sigma', [1 1], 'per', [false false], ...
               'period', [0 0], 'specs', spW, 'verbose', false);
 catch
     okWbuild = false;

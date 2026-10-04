@@ -71,7 +71,7 @@ from mpt.tensor import build_maet, eval_maet
 
 def _ref_eval(dens, x):
     """Plain broadcast-subtract-exp-sum, no truncation, double precision."""
-    # A MaetDensity carries per-attribute vectors (r, sigma, is_rel, ...);
+    # A MaetDensity carries per-attribute vectors (r, sigma, rel, ...);
     # this frozen reference is written against the flat single-multiset
     # field names, so take that view rather than indexing the vectors here.
     from mpt._tensor.density import single_multiset_view
@@ -80,8 +80,8 @@ def _ref_eval(dens, x):
     w_j = dens.w_j
     sigma = dens.sigma
     r = int(dens.r)
-    is_rel = bool(dens.is_rel)
-    is_per = bool(dens.is_per)
+    rel = bool(dens.rel)
+    per = bool(dens.per)
     period = float(dens.period)
 
     x = np.asarray(x, dtype=np.float64)
@@ -89,7 +89,7 @@ def _ref_eval(dens, x):
         x = x.reshape(1, -1)
 
     D = centres[:, :, None] - x[:, None, :]
-    if is_rel:
+    if rel:
         # A relative density depends on a tuple only through its
         # within-tuple differences, and
         #     sum_i D_i^2 - (sum_i D_i)^2 / r = (1/r) sum_{i<j} (D_i - D_j)^2
@@ -104,12 +104,12 @@ def _ref_eval(dens, x):
         for i in range(r):
             for j in range(i + 1, r):
                 d = D[i] - D[j]
-                if is_per:
+                if per:
                     d = np.mod(d + period / 2, period) - period / 2
                 Q = Q + d * d
         Q = Q / r
     else:
-        if is_per:
+        if per:
             D = np.mod(D + period / 2, period) - period / 2
         Q = np.sum(D * D, axis=0)
     E = np.exp(-Q / (2 * sigma ** 2))
@@ -129,7 +129,7 @@ def reset_defaults_each_test():
 # A representative battery: r in {2, 3}, abs and rel, non-periodic
 # and periodic, different K, σ.
 @pytest.fixture(params=[
-    # (description, K, r, is_rel, is_per, period, sigma, n_q)
+    # (description, K, r, rel, per, period, sigma, n_q)
     ("abs r=2 K=6",        6, 2, False, False, 0.0,    8.0,  30),
     ("rel r=2 K=6",        6, 2, True,  False, 0.0,    8.0,  30),
     ("abs r=3 K=5",        5, 3, False, False, 0.0,   12.0,  20),
@@ -139,7 +139,7 @@ def reset_defaults_each_test():
     ("abs-per r=2 K=6",    6, 2, False, True,  1200.0, 25.0, 25),
 ])
 def density_case(request):
-    label, K, r, is_rel, is_per, period, sigma, n_q = request.param
+    label, K, r, rel, per, period, sigma, n_q = request.param
     # Seed from a stable digest of the label, not from hash(): Python
     # salts string hashing per process, so hash(label) gives different
     # data on every run and a failure cannot be reproduced from the
@@ -147,9 +147,9 @@ def density_case(request):
     rng = np.random.default_rng(zlib.crc32(label.encode()))
     p = np.sort(rng.uniform(0, 1000, K))
     w = rng.uniform(0.5, 1.5, K)
-    dens = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
-    dim = r - 1 if is_rel else r
-    if is_per:
+    dens = build_maet(p, w, sigma, r, rel, per, period, verbose=False)
+    dim = r - 1 if rel else r
+    if per:
         x = rng.uniform(0, period, (dim, n_q))
     else:
         x = rng.uniform(0, 1000, (dim, n_q))
@@ -205,7 +205,7 @@ def test_explicit_inf_matches_reference(density_case):
 def test_truncation_within_bound(density_case, k):
     label, dens, x = density_case
     # Periodic mode falls through to exact: truncation has no effect.
-    if dens.is_per:
+    if dens.per:
         pytest.skip("periodic mode currently exact-only")
     v_trunc = eval_maet(
         dens, x, method='centres', truncation_sigmas=k, verbose=False,
@@ -243,7 +243,7 @@ def test_periodic_truncation_agrees_within_floor(density_case):
     exp(-k^2/2) at k = 6 -- not bitwise equality.
     """
     label, dens, x = density_case
-    if not dens.is_per:
+    if not dens.per:
         pytest.skip("only applies to periodic")
     v_default = eval_maet(dens, x, method='centres', verbose=False)
     v_trunc = eval_maet(

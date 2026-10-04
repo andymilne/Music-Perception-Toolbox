@@ -264,7 +264,7 @@ def _swept_ma_inputs(n_events: int, seed: int):
         p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
-        is_per=False, period=0.0,
+        per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
     ))
     return p_w, w_w, g_w

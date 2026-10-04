@@ -104,7 +104,7 @@ def test_an_empty_grid_point_is_a_row_with_its_note_columns_missing():
 
 def test_empty_points_survive_into_a_pre_maet_as_events_with_no_value():
     pm = pre_maet_from_attr_table(grid_attr_table(_gapped(), 1.0),
-                             attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True),), weights="weight",
+                             specs=(dict(column="pitch", sigma=1.0, r=1, exch=True),), weights="weight",
                              time="beats")
     p, w, _ = unpack_pre_maet(pm)
     assert np.isnan(p[0][0, [1, 2]]).all()
@@ -179,10 +179,10 @@ def test_item_weighting_reproduces_the_ungridded_density_at_r_one():
                           verbose=False)
 
     ungridded = density(pre_maet_from_attr_table(
-        t, attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True),), chords="separate", weights="ones",
+        t, specs=(dict(column="pitch", sigma=1.0, r=1, exch=True),), chords="separate", weights="ones",
         time="beats"))
     gridded = density(pre_maet_from_attr_table(
-        g, attributes=(dict(column="pitch", sigma=1.0, r=1, exch=True),), weights="weight", time="beats"))
+        g, specs=(dict(column="pitch", sigma=1.0, r=1, exch=True),), weights="weight", time="beats"))
     query = [[64.0]]
     assert eval_maet(gridded, query, verbose=False) == pytest.approx(
         eval_maet(ungridded, query, verbose=False), rel=1e-12)
@@ -260,7 +260,7 @@ def test_a_beat_grid_may_be_read_in_seconds(chorale):
     """Which is the point: metrical slices, a sigma on a clock."""
     g = grid_attr_table(chorale, 0.25)
     p, _, specs = mpt.unpack_pre_maet(mpt.pre_maet_from_attr_table(
-        g, time="seconds", attributes=(
+        g, time="seconds", specs=(
             dict(column="pitch", sigma=0.5, r=4, exch=False),
             dict(column="onset", sigma=0.05))))
     np.testing.assert_allclose(p[1][0][:4], [0.0, 0.125, 0.25, 0.375])
@@ -283,7 +283,7 @@ def test_one_time_base_gives_one_grid_onset(chorale):
     assert "grid_onset_beats" not in g.columns
     with pytest.raises(ValueError, match="carries no grid onset in beats"):
         mpt.pre_maet_from_attr_table(
-            g, time="beats", attributes=(dict(column="onset", sigma=1.0),))
+            g, time="beats", specs=(dict(column="onset", sigma=1.0),))
 
 
 def test_the_grid_collapses_back_to_the_table_it_came_from(chorale):

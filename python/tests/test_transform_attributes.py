@@ -139,7 +139,7 @@ class TestDomain:
             transform_attributes([np.array([1.0, 2.0])], None, [lambda x: x.ravel()[:1]])
 
     def test_message_names_the_attribute(self):
-        specs = mpt.flat_specs([np.zeros(2), np.zeros(2)], name=["pitch", "ioi"])
+        specs = mpt.flat_specs([np.zeros(2), np.zeros(2)], names=["pitch", "ioi"])
         with pytest.raises(ValueError, match=r"attribute 1 \('ioi'\)"):
             transform_attributes([np.array([1.0, 2.0]), np.array([0.5, 0.0])], None,
                                  [None, "log"], specs=specs)
@@ -167,7 +167,7 @@ class TestListForm:
         would edit the spec the caller still holds.
         """
         p = [np.array([1.0, 2.0])]
-        specs = mpt.flat_specs(p, r=2, name="x")
+        specs = mpt.flat_specs(p, r=2, names="x")
         out, w, s = unpack_pre_maet(transform_attributes(p, [np.array([0.5, 0.5])], ["log"], specs=specs))
         assert s[0] is not specs[0]
         assert s[0] == specs[0]
@@ -188,7 +188,7 @@ class TestListForm:
 
     def test_sign_attribute_is_inserted_after_its_source(self):
         p = [np.array([2.0, -3.0, 0.0]), np.array([1.0, 1.0, 1.0])]
-        specs = mpt.flat_specs(p, name=["ivl", "t"])
+        specs = mpt.flat_specs(p, names=["ivl", "t"])
         out, w, s = unpack_pre_maet(transform_attributes(p, [1.0, 2.0], [("log", {"offset": 1}), None],
                                          specs=specs, sign=[True, False]))
         assert len(out) == 3 and len(w) == 3 and len(s) == 3
@@ -258,7 +258,7 @@ class TestComposition:
         p, w, specs = unpack_pre_maet(transform_attributes(d, w, [("log", {"offset": 1})],
                                            specs=specs, sign=True))
         dens = mpt.build_maet(p, w, specs=specs, sigma=[0.2, 0.3],
-                                  is_per=[False, False], period=[0, 0],
+                                  per=[False, False], period=[0, 0],
                                   verbose=False)
         assert len(dens.sigma) == 2
         s = mpt.sim_maet(dens, dens, verbose=False)

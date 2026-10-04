@@ -32,7 +32,7 @@ RTOL = 1e-10
 
 
 @pytest.mark.parametrize(
-    "r,K,is_rel,is_per",
+    "r,K,rel,per",
     [
         (2, 9, False, True),
         (2, 9, False, False),
@@ -45,21 +45,21 @@ RTOL = 1e-10
         (3, 8, True, False),
     ],
 )
-def test_eval_methods_agree(r, K, is_rel, is_per):
+def test_eval_methods_agree(r, K, rel, per):
     """At well-conditioned cells, centres / orbit / auto agree to
     floating-point precision (with abs floor for near-zero density)."""
     rng = np.random.default_rng(0)
-    sigma = 33.0 if is_per else 30.0
-    period = P if is_per else 0.0
-    if is_per:
+    sigma = 33.0 if per else 30.0
+    period = P if per else 0.0
+    if per:
         p = rng.uniform(0, P, K)
     else:
         p = rng.uniform(-300, 300, K)
     w = rng.uniform(0.5, 1.5, K)
-    T = build_maet(p, w, sigma, r, is_rel, is_per, period, verbose=False)
+    T = build_maet(p, w, sigma, r, rel, per, period, verbose=False)
 
-    dim = r - 1 if is_rel else r
-    if is_per:
+    dim = r - 1 if rel else r
+    if per:
         x = rng.uniform(0, P, (dim, 30))
     else:
         x = rng.uniform(-300, 300, (dim, 30))
@@ -131,20 +131,20 @@ def test_eval_orbit_memory_efficient_at_high_r():
 # -------------------------------------------------------------------
 
 
-def _small_dens(r, K, is_rel, is_per, sigma_over_P=0.0083):
+def _small_dens(r, K, rel, per, sigma_over_P=0.0083):
     rng = np.random.default_rng(0)
     p = np.sort(rng.uniform(0.0, P, K))
     w = 0.2 + 0.8 * rng.random(K)
-    return build_maet(p, w, sigma_over_P * P, r, is_rel, is_per,
-                          P if is_per else 0.0, verbose=False)
+    return build_maet(p, w, sigma_over_P * P, r, rel, per,
+                          P if per else 0.0, verbose=False)
 
 
-@pytest.mark.parametrize("r,K,is_rel,is_per", [
+@pytest.mark.parametrize("r,K,rel,per", [
     (2, 12, False, True),
     (3, 12, False, False),
 ])
 def test_small_shape_near_tie_follows_the_cheaper_estimate(
-        r, K, is_rel, is_per, monkeypatch):
+        r, K, rel, per, monkeypatch):
     """Below the centres working-set soft budget the near-tie safety
     factor does not apply, so 'auto' follows the cost model's own
     ranking rather than being pushed to Möbius by the multiplier.
@@ -156,9 +156,9 @@ def test_small_shape_near_tie_follows_the_cheaper_estimate(
     a property of the machine they were fitted on.
     """
     import mpt._tensor.dispatch as D
-    dens = _small_dens(r, K, is_rel, is_per)
+    dens = _small_dens(r, K, rel, per)
     n_q = 24
-    ws = D._estimate_ma_joint_working_set_bytes([r], [K], [is_rel])
+    ws = D._estimate_ma_joint_working_set_bytes([r], [K], [rel])
     assert ws <= D._CENTRES_WORKING_SET_SOFT_BUDGET
     assert 1.2 < 1.0 * D._MA_MOBIUS_SAFETY
     monkeypatch.setattr(D, "_ma_eval_costs_ms",

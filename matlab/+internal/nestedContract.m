@@ -123,6 +123,11 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
     cacheX     = localOptField(opts, 'cacheX', struct('keys', {{}}, 'vals', []));
     cacheY     = localOptField(opts, 'cacheY', struct('keys', {{}}, 'vals', []));
     routesOnly = localOptField(opts, 'routesOnly', false);
+    % selfOnly: validate and plan as usual, but form only the self inner
+    % products the normalisation needs (triple.xy is []). The sweep forms
+    % its cross term itself, at every offset, and would otherwise pay for
+    % this one twice. Twin of the Python self_only.
+    selfOnly   = localOptField(opts, 'selfOnly', false);
     termsOnly  = localOptField(opts, 'termsOnly', false);
     termsAttr  = localOptField(opts, 'termsAttr', 1);
     termsSkipXX = localOptField(opts, 'termsSkipXX', false);
@@ -142,7 +147,9 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
     if ~isempty(sweepOffsets)
         % The self inner products (and every decline) come from the
         % ordinary plan; the cross term is then formed at every offset.
+        % The plan forms no cross term of its own (selfOnly).
         opts = rmfield(opts, 'sweepOffsets');
+        opts.selfOnly = true;
         [triple, routes, cacheX, cacheY] = internal.nestedContract( ...
             densX, densY, normalize, truncationSigmas, force, opts);
         if isempty(triple) || routesOnly
@@ -173,7 +180,7 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         % joint tuple.
         [triple, routes, cacheX, cacheY] = nestedContractMA(densX, densY, ...
             normalize, truncationSigmas, force, forceRoute, methodName, ...
-            cacheX, cacheY, routesOnly);
+            cacheX, cacheY, routesOnly, selfOnly);
         return;
     end
     if ~isfield(densX, 'nested') || ~iscell(densX.nested) ...
@@ -232,8 +239,8 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         return;
     end
     sameStruct = isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY);
-    isRel  = logical(densX.isRel(1));
-    isPer  = logical(densX.isPer(1));
+    isRel  = logical(densX.rel(1));
+    isPer  = logical(densX.per(1));
     period = double(densX.period(1));
     sigma  = double(densX.sigma(1));
     % Resolve the truncation width once, at entry, through the shared
@@ -324,7 +331,11 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         wrapA = wrapPair(densX, densY, 1);
         [cxB, cacheX] = internal.nestedCentresMemoised(cacheX, densX, 1);
         [cyB, cacheY] = internal.nestedCentresMemoised(cacheY, densY, 1);
-        ipxy = sum(sum(mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA, ts)));
+        if selfOnly
+            ipxy = [];
+        else
+            ipxy = sum(sum(mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA, ts)));
+        end
         if xxHit
             ipxx = xxVal;
         elseif ~needXX
@@ -352,8 +363,12 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         else
             recipeY = buildRecipe(rLevels, exchLevels, tagsY, isRel, isPer);
         end
-        ipxy = tripSum(recipeX, recipeY, PX, WX, PY, WY, sigma, period, ...
-                       ts, quad, false);
+        if selfOnly
+            ipxy = [];
+        else
+            ipxy = tripSum(recipeX, recipeY, PX, WX, PY, WY, sigma, period, ...
+                           ts, quad, false);
+        end
         if xxHit
             ipxx = xxVal;
         elseif ~needXX
@@ -371,6 +386,13 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
                            period, ts, quad, true);
         end
     end
+    % The common scale (the centres route's; see COMMONFACTOR), so a
+    % caller may combine these with matrices another route produced. A
+    % memo hit was stored on it already.
+    c = commonFactor(densX, 1, route);
+    ipxy = ipxy * c;
+    if formXX; ipxx = ipxx * c; end
+    if formYY; ipyy = ipyy * c; end
     if formXX; cacheX = cacheSet(cacheX, key, ipxx); end
     if formYY; cacheY = cacheSet(cacheY, key, ipyy); end
     triple = struct('xy', ipxy, 'xx', ipxx, 'yy', ipyy);
@@ -413,7 +435,7 @@ function [route, quad] = nestedAttrPlan(densX, densY, a, forceRoute, ts, ...
         quad = [];
         return;
     end
-    quad = makeQuadrature(logical(densX.isRel(a)), logical(densX.isPer(a)), ...
+    quad = makeQuadrature(logical(densX.rel(a)), logical(densX.per(a)), ...
                           double(densX.sigma(a)), double(densX.period(a)), ...
                           vmin, vmax, ts, wrapPair(densX, densY, a));
 end
@@ -450,8 +472,8 @@ function admissible = nestedAdmissibleRoutes(densX, densY, a, ts)
 %       method and the Moebius method: its wrap override is reached only
 %       above the threshold, and below it the two are raced whatever
 %       wrap says.
-    isRel = logical(densX.isRel(a));
-    isPer = logical(densX.isPer(a));
+    isRel = logical(densX.rel(a));
+    isPer = logical(densX.per(a));
     if ~isRel
         admissible = {'contract'};
         return;
@@ -505,8 +527,8 @@ function route = nestedAttrRoute(densX, densY, a, forceRoute, ts, ...
 %   compute, so the cost model does not estimate them.
     if nargin < 6 || isempty(skipXX); skipXX = false; end
     if nargin < 7 || isempty(skipYY); skipYY = false; end
-    isRel = logical(densX.isRel(a));
-    isPer = logical(densX.isPer(a));
+    isRel = logical(densX.rel(a));
+    isPer = logical(densX.per(a));
     forced = '';
     if ~isempty(forceRoute)
         forced = char(forceRoute);
@@ -648,7 +670,7 @@ function tf = nestedEnumerationAdmissible(densX, densY, ts)
     tf = true;
     limit = internal.relPerSigmaOverPThreshold(ts);
     for a = 1:double(densX.nAttrs)
-        if ~(logical(densX.isRel(a)) && logical(densX.isPer(a)))
+        if ~(logical(densX.rel(a)) && logical(densX.per(a)))
             continue;
         end
         if strcmp(wrapPair(densX, densY, a), 'single-image')
@@ -705,12 +727,15 @@ function s = routeSignature(route, quad)
 %   self-IP memo key. Twin of the Python (route, tau_sig) tuple: the node
 %   count and the two endpoints pin the grid, and a value taken under one
 %   grid must never be reused under another.
+    %   The trailing '|common' marks values on the common scale
+    %   (COMMONFACTOR), so a memo written on a route's bare scale is never
+    %   read back. Twin of the Python "common" key element.
     if isempty(quad) || ~isfield(quad, 'taus') || isempty(quad.taus)
-        s = route;
+        s = [route '|common'];
         return;
     end
     t = quad.taus;
-    s = sprintf('%s|%d|%.17g|%.17g', route, numel(t), t(1), t(end));
+    s = sprintf('%s|%d|%.17g|%.17g|common', route, numel(t), t(1), t(end));
 end
 
 
@@ -1049,7 +1074,7 @@ end
 % ----------------------------------------------------------------------
 function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
         densX, densY, normalize, truncationSigmas, force, forceRoute, ...
-        methodName, cacheX, cacheY, routesOnly)
+        methodName, cacheX, cacheY, routesOnly, selfOnly)
 %NESTEDCONTRACTMA  MA cosine when one or more attributes are nested or
 %   ordered. Mirror of the Python cosine._try_nested_contract_ma.
 %
@@ -1184,8 +1209,8 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
     % ---- Pass 2: form the matrices.
     for a = 1:A
         sigma  = densX.sigma(a);
-        isRel  = logical(densX.isRel(a));
-        isPer  = logical(densX.isPer(a));
+        isRel  = logical(densX.rel(a));
+        isPer  = logical(densX.per(a));
         period = densX.period(a);
         r_a    = densX.r(a);
         wrapA  = wrapPair(densX, densY, a);
@@ -1200,9 +1225,11 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
                 % user had declared.
                 Px = densX.pAttr{a}; Wx = densX.w{a};
                 Py = densY.pAttr{a}; Wy = densY.w{a};
-                P_xy = P_xy .* mobius.maPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
-                    sigma, r_a, isRel, isPer, period, ...
-                    'truncationSigmas', ts, 'wrap', wrapA);
+                if ~selfOnly
+                    P_xy = P_xy .* mobius.maPerAttrInnerMatrix(Px, Wx, ...
+                        Py, Wy, sigma, r_a, isRel, isPer, period, ...
+                        'truncationSigmas', ts, 'wrap', wrapA);
+                end
                 if formXX
                     P_xx = P_xx .* mobius.maPerAttrInnerMatrix(Px, Wx, ...
                         Px, Wx, sigma, r_a, isRel, isPer, period, ...
@@ -1226,8 +1253,10 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
                     cacheX, densX, a);
                 [cyB, cacheY] = internal.nestedCentresMemoised( ...
                     cacheY, densY, a);
-                P_xy = P_xy .* mobius.closedFormAttrMatrixFrom( ...
-                    cxB, cyB, wrapA, ts);
+                if ~selfOnly
+                    P_xy = P_xy .* mobius.closedFormAttrMatrixFrom( ...
+                        cxB, cyB, wrapA, ts);
+                end
                 if formXX
                     P_xx = P_xx .* mobius.closedFormAttrMatrixFrom( ...
                         cxB, cxB, wrapA, ts);
@@ -1240,8 +1269,8 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
             otherwise   % 'nested'
                 [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
                     densX, densY, a, attrRoutes{a}, quads{a}, ts, ...
-                    formXX, formYY, cacheX, cacheY);
-                P_xy = P_xy .* Ixy;
+                    formXX, formYY, cacheX, cacheY, ~selfOnly);
+                if ~selfOnly; P_xy = P_xy .* Ixy; end
                 if formXX; P_xx = P_xx .* Ixx; end
                 if formYY; P_yy = P_yy .* Iyy; end
         end
@@ -1273,7 +1302,12 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
     % one measure caveat NESTEDENUMERATIONADMISSIBLE carries, that the
     % enumeration computes the minimum-image reading of a
     % relative-periodic attribute.
-    triple = struct('xy', sum(P_xy(:)), 'xx', ip_xx, 'yy', ip_yy);
+    if selfOnly
+        ip_xy = [];
+    else
+        ip_xy = sum(P_xy(:));
+    end
+    triple = struct('xy', ip_xy, 'xx', ip_xx, 'yy', ip_yy);
 end
 
 
@@ -1320,7 +1354,9 @@ function I = localAttrMatrix(densX, densY, a, shift, ts, cacheX, cacheY)
 %LOCALATTRMATRIX  The N_x x N_y inner matrix of attribute A with densY's
 %   values translated by SHIFT (0 for an attribute that is not swept; a
 %   swept attribute reaching here is flat). The kinds and routes are those
-%   of NESTEDCONTRACTMA.
+%   of NESTEDCONTRACTMA, a nested route priced for the cross term alone;
+%   its matrix comes back on the common scale (NESTEDATTRMATRICES), so it
+%   combines with the self inner products whatever route those took.
     wrapA = wrapPair(densX, densY, a);
     isNested = isfield(densX, 'nested') && iscell(densX.nested) ...
         && numel(densX.nested) >= a && ~isempty(densX.nested{a});
@@ -1341,7 +1377,7 @@ function I = localAttrMatrix(densX, densY, a, shift, ts, cacheX, cacheY)
     end
     I = mobius.maPerAttrInnerMatrix(densX.pAttr{a}, densX.w{a}, ...
         densY.pAttr{a} + shift, densY.w{a}, densX.sigma(a), densX.r(a), ...
-        logical(densX.isRel(a)), logical(densX.isPer(a)), ...
+        logical(densX.rel(a)), logical(densX.per(a)), ...
         densX.period(a), 'truncationSigmas', ts, 'wrap', wrapA);
 end
 
@@ -1358,7 +1394,7 @@ function S = sweepAttrInnerStack(densX, densY, a, mus, ts)
 %   _nested_contraction.nested_attr_matrix_sweep.
     specX = densX.nested{a};
     specY = densY.nested{a};
-    isPer  = logical(densX.isPer(a));
+    isPer  = logical(densX.per(a));
     sigma  = densX.sigma(a);
     period = densX.period(a);
     PXa = double(densX.pAttr{a});
@@ -1426,25 +1462,28 @@ function S = sweepAttrInnerStack(densX, densY, a, mus, ts)
         St(sub2ind([na, nb], mi, ni)) = V(:, t);
         S(:, :, t) = St;
     end
+    % The contraction's scale, taken to the common one (COMMONFACTOR).
+    S = S * commonFactor(densX, a, 'contract');
 end
 
 
 function tf = localIsOrderedFlat(dens, a)
 %LOCALISORDEREDFLAT  A non-nested attribute the user asked to keep
-%   ordered ([exch] = false) at r > 1. Densities built before isExch
+%   ordered ([exch] = false) at r > 1. Densities built before exch
 %   existed default to the symmetric reading, unchanged.
     tf = false;
     if double(dens.r(a)) <= 1
         return;
     end
-    if isfield(dens, 'isExch') && numel(dens.isExch) >= a
-        tf = ~logical(dens.isExch(a));
+    if isfield(dens, 'exch') && numel(dens.exch) >= a
+        tf = ~logical(dens.exch(a));
     end
 end
 
 
 function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
-        densX, densY, a, route, quad, ts, wantXX, wantYY, cacheX, cacheY)
+        densX, densY, a, route, quad, ts, wantXX, wantYY, cacheX, cacheY, ...
+        wantXY)
 %NESTEDATTRMATRICES  The (N_x, N_y), (N_x, N_x) and (N_y, N_y) inner
 %   matrices for one nested attribute, on the ROUTE and shared QUAD that
 %   NESTEDATTRPLAN settled (passed in so xy, xx and yy share one measure
@@ -1454,9 +1493,12 @@ function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
 %
 %   WANTXX / WANTYY false skips a self matrix whose value is already
 %   memoised; the skipped output is [] and the caller must not read it.
+%   WANTXY false (default true) likewise skips the cross matrix, for a
+%   caller that needs only the self matrices.
     Ixy = [];  Ixx = [];  Iyy = [];
     if nargin < 9;  cacheX = struct('keys', {{}}, 'vals', []); end
     if nargin < 10; cacheY = struct('keys', {{}}, 'vals', []); end
+    if nargin < 11; wantXY = true; end
     wrapA = wrapPair(densX, densY, a);
     if strcmp(route, 'centres')
         % Centres bundles memoised on each density's memo struct (see
@@ -1464,7 +1506,9 @@ function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
         % thread them back to the density.
         [cxB, cacheX] = internal.nestedCentresMemoised(cacheX, densX, a);
         [cyB, cacheY] = internal.nestedCentresMemoised(cacheY, densY, a);
-        Ixy = mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA, ts);
+        if wantXY
+            Ixy = mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA, ts);
+        end
         if wantXX
             Ixx = mobius.closedFormAttrMatrixFrom(cxB, cxB, wrapA, ts);
         end
@@ -1476,8 +1520,8 @@ function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
 
     specX = densX.nested{a};
     specY = densY.nested{a};
-    isRel  = logical(densX.isRel(a));
-    isPer  = logical(densX.isPer(a));
+    isRel  = logical(densX.rel(a));
+    isPer  = logical(densX.per(a));
     sigma  = densX.sigma(a);
     period = densX.period(a);
     PXa = double(densX.pAttr{a});
@@ -1509,8 +1553,10 @@ function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
     end
     % (The former mpt:nestedSurrogateResolution warning is gone: see the
     % note at the single-attribute site above.)
-    Ixy = nestedAttrInnerMatrix(recipeX, recipeY, PXa, PYa, WXa, WYa, ...
-                                sigma, period, ts, quad, false);
+    if wantXY
+        Ixy = nestedAttrInnerMatrix(recipeX, recipeY, PXa, PYa, WXa, WYa, ...
+                                    sigma, period, ts, quad, false);
+    end
     if wantXX
         Ixx = nestedAttrInnerMatrix(recipeX, recipeX, PXa, PXa, WXa, WXa, ...
                                     sigma, period, ts, quad, true);
@@ -1519,6 +1565,23 @@ function [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
         Iyy = nestedAttrInnerMatrix(recipeY, recipeY, PYa, PYa, WYa, WYa, ...
                                     sigma, period, ts, quad, true);
     end
+    % The common scale (the centres route's, on which the branch above
+    % returns): the routes' bare matrices differ by exactly known
+    % constants, divided out here so that terms from different routes may
+    % be combined. Twin of the Python cosine._nested_attr_matrix_common.
+    c = commonFactor(densX, a, route);
+    if wantXY; Ixy = Ixy * c; end
+    if wantXX; Ixx = Ixx * c; end
+    if wantYY; Iyy = Iyy * c; end
+end
+
+
+function c = commonFactor(dens, a, route)
+%COMMONFACTOR  Factor taking nested attribute A's bare matrix on ROUTE to
+%   the common scale, the nested centres route's (1 for 'centres'). Twin
+%   of the Python cosine._nested_common_factor.
+    c = internal.nestedRouteScale(dens, a, route) ...
+        / internal.nestedRouteScale(dens, a, 'centres');
 end
 
 
@@ -2255,11 +2318,11 @@ function K = absKernel(d, sigma, period, ts, quad)
     % through the shared helper keeps the image-sum / Fourier choice
     % identical to the flat path's. Mirror of the Python
     % _nested_contraction._nested_attr_matrix_impl.
-    if quad.isPer && ~strcmp(quad.wrap, 'single-image')
+    if quad.per && ~strcmp(quad.wrap, 'single-image')
         K = internal.wrappedGaussian1d(d, sigma, period, ts, 4);
         return;
     end
-    if quad.isPer
+    if quad.per
         d = d - period * round(d / period);
     end
     K = exp(-d.^2 / (4 * sigma^2));
@@ -2309,7 +2372,7 @@ function w = wrapPair(densX, densY, a)
     % compared. Twin of the Python cosine._declared_wrap.
     w = wrapOf(densX, a);
     wy = wrapOf(densY, a);
-    if ~strcmp(w, wy) && logical(densX.isPer(a))
+    if ~strcmp(w, wy) && logical(densX.per(a))
         error('mpt:wrapMismatch', ...
             ['wrap mismatch on attribute %d: densX declares ''%s'' and ' ...
              'densY declares ''%s''. The wrap declares the measure, so ' ...
@@ -2326,7 +2389,7 @@ function quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts, wrap
         wrapA = 'full-image';
     end
     if ~isRel
-        quad = struct('mode', 'abs', 'isPer', logical(isPer), ...
+        quad = struct('mode', 'abs', 'per', logical(isPer), ...
                       'wrap', char(wrapA));
         return;
     end
@@ -2370,8 +2433,8 @@ function out = localNestedTerms(densX, densY, a, ts, skipXX, skipYY)
 %   ordered flat companion on the centres law.
     if nargin < 5 || isempty(skipXX); skipXX = false; end
     if nargin < 6 || isempty(skipYY); skipYY = false; end
-    isRel  = logical(densX.isRel(a));
-    isPer  = logical(densX.isPer(a));
+    isRel  = logical(densX.rel(a));
+    isPer  = logical(densX.per(a));
     sigma  = double(densX.sigma(a));
     period = double(densX.period(a));
     Nx = double(densX.N);
@@ -2404,8 +2467,8 @@ function out = localNestedTerms(densX, densY, a, ts, skipXX, skipYY)
         [mPermY, mCombY] = localAttrCounts(densY, a);
         rA = double(densX.r(a));
         isExchA = true;
-        if isfield(densX, 'isExch') && numel(densX.isExch) >= a
-            isExchA = logical(densX.isExch(a));
+        if isfield(densX, 'exch') && numel(densX.exch) >= a
+            isExchA = logical(densX.exch(a));
         end
         if isExchA && rA > 1
             mult = factorial(rA);
@@ -2506,8 +2569,8 @@ function [mPerm, mComb] = localAttrCounts(dens, a)
     rA = double(dens.r(a));
     K = size(dens.pAttr{a}, 1);
     isExch = true;
-    if isfield(dens, 'isExch') && numel(dens.isExch) >= a
-        isExch = logical(dens.isExch(a));
+    if isfield(dens, 'exch') && numel(dens.exch) >= a
+        isExch = logical(dens.exch(a));
     end
     mComb = nchoosekCount(K, rA);
     if isExch && rA > 1

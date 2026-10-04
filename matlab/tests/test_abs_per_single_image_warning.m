@@ -35,7 +35,7 @@ absPerID = 'buildMaet:absPerSingleImage';
 absPerP_ = [0; 100; 300; 700];
 absPerW_ = ones(4, 1);
 
-% Each row: label, sigma/period, isRel, isPer, period, wrap, expectWarning
+% Each row: label, sigma/period, rel, per, period, wrap, expectWarning
 %
 % Cases where wrap='single-image' at high sigma/P: warn (single-image
 % opt-in is genuinely a choice with consequences).

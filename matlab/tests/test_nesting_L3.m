@@ -28,7 +28,7 @@ specOut = struct('tags', tags3, 'r', [2 2 2], 'exch', [true true false], ...
 specOutS = struct('tags', tags3, 'r', [2 2 2], 'exch', [true true false], ...
                   'rel', 'outermost');
 
-bkw = {'sigma', 30, 'isPer', false, 'period', 0, 'verbose', false};
+bkw = {'sigma', 30, 'per', false, 'period', 0, 'verbose', false};
 
 dA  = buildMaet(P3, [], 'specs', {specAbs},  bkw{:});
 dO  = buildMaet(P3, [], 'specs', {specOut},  bkw{:});

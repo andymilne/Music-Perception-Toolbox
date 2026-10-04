@@ -144,7 +144,7 @@ _PRIOR_RATE = {"B": 2.0e-8, "C": 2.0e-8, "G": 1.0e-8}
 #: The one place the column names live, so the header cannot drift from
 #: the rows. _ROW_FIELDS is what the row format string emits, asserted
 #: equal to the header width by the check mode.
-_HEADER = ("r,K_x,K_y,N,shape,weights,isPer,sigma,seed,nu,M_x,M_y,"
+_HEADER = ("r,K_x,K_y,N,shape,weights,per,sigma,seed,nu,M_x,M_y,"
            "t_bulger,t_centres,t_grid,pred_bulger,pred_mobius,"
            "max_abs_diff,gate_route,faster,"
            "declined_bulger,declined_centres,declined_grid")
@@ -367,7 +367,7 @@ def main(argv=None):
                 for profile in WEIGHT_PROFILES:
                   for N in N_BY_ORDER[r]:
                     for sigma in args.sigmas:
-                        for is_per in (False, True):
+                        for per in (False, True):
                             for seed in args.seeds:
                                 rng = np.random.default_rng(
                                     7919 * K + 131 * r + 17 * seed
@@ -387,7 +387,7 @@ def main(argv=None):
 
                                 M_x = math.factorial(r) * math.comb(K_x, r)
                                 M_y = math.factorial(r) * math.comb(K_y, r)
-                                if is_per:
+                                if per:
                                     nu = auto_ntau_default(args.period, sigma)
                                     sop = sigma / args.period
                                 else:
@@ -413,7 +413,7 @@ def main(argv=None):
                                 # events -- a different computation, and
                                 # one that cannot even broadcast when the
                                 # two sides carry different value counts.
-                                P = args.period if is_per else 0.0
+                                P = args.period if per else 0.0
                                 # The multi-attribute signature, selected
                                 # by passing lists, is the one that carries
                                 # events: it keeps a (K, N) matrix as K
@@ -424,10 +424,10 @@ def main(argv=None):
                                 with contextlib.redirect_stdout(io.StringIO()):
                                     dens_x = mpt.build_maet(
                                         [p_x], [w_x], [sigma], [r], [1],
-                                        [int(is_per)], [P], verbose=False)
+                                        [int(per)], [P], verbose=False)
                                     dens_y = mpt.build_maet(
                                         [p_y], [w_y], [sigma], [r], [1],
-                                        [int(is_per)], [P], verbose=False)
+                                        [int(per)], [P], verbose=False)
                                 pairs = float(N * N)
                                 too_big = (_bulger_kernel_entries(
                                     r, K_x, K_y, N) > _BULGER_MAX_ENTRIES)
@@ -439,7 +439,7 @@ def main(argv=None):
                                          pairs * float(nu) * K_big))
                                 print(f"  r={r} K={K_x}/{K_y} N={N} "
                                       f"{shape} {profile} "
-                                      f"per={int(is_per)} sigma={sigma:g}",
+                                      f"per={int(per)} sigma={sigma:g}",
                                       file=sys.stderr, flush=True)
                                 times, vals, why = {}, [], {}
                                 for tag, method, route, predictor in arms:
@@ -465,7 +465,7 @@ def main(argv=None):
                                 gate = ("centres"
                                         if _ma_rel_attr_prefers_centres(
                                             p_x[:, None], p_y[:, None], sigma,
-                                            r, True, is_per,
+                                            r, True, per,
                                             max(args.period, 1.0))
                                         else "grid")
                                 # A censored arm still settles the
@@ -485,8 +485,8 @@ def main(argv=None):
                                 _, p_b, p_m = _select_ma_inner_product_method(
                                     r_vec=np.array([r]),
                                     k_vec=np.array([K_x]), A=1, N_x=N, N_y=N,
-                                    any_per=is_per, any_rel_nonper=not is_per,
-                                    any_rel_per=is_per, sigma_over_P_max=sop,
+                                    any_per=per, any_rel_nonper=not per,
+                                    any_rel_per=per, sigma_over_P_max=sop,
                                     user_method="auto",
                                     rel_vec=np.array([True]),
                                     nu_vec=np.array([float(nu)]),
@@ -496,7 +496,7 @@ def main(argv=None):
 
                                 print(f"{r},{K_x},{K_y},{N},{shape},"
                                       f"{profile},"
-                                      f"{int(is_per)},{sigma:g},{seed},{nu},"
+                                      f"{int(per)},{sigma:g},{seed},{nu},"
                                       f"{M_x},{M_y},{times['B']:.4f},"
                                       f"{times['C']:.4f},{times['G']:.4f},"
                                       f"{p_b:.4f},{p_m:.4f},{diff:.3e},"

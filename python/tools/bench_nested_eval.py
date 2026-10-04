@@ -96,7 +96,7 @@ def main():
                     "rel": rel}
             sigma = 0.6
             d = build_maet([p], None, specs=[spec], sigma=[sigma],
-                               is_per=[per], period=[P], verbose=False)
+                               per=[per], period=[P], verbose=False)
             if d.dim == 0:
                 continue
             m_perm = int(d.n_j // N)

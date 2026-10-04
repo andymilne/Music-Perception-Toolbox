@@ -111,7 +111,7 @@ def _resolve_locate(locate, axis):
 
 
 class _Window(tuple):
-    """A window on one attribute: ``(profile, closed, is_per, period,
+    """A window on one attribute: ``(profile, closed, per, period,
     shift)``, the resolved weighting profile of :mod:`preprocessing`, the
     geometry its displacement is measured in, and ``shift``, the
     displacement of the window's centre from its reference value (half the
@@ -119,13 +119,13 @@ class _Window(tuple):
 
     __slots__ = ()
 
-    def __new__(cls, profile, closed, is_per=False, period=0.0, shift=0.0):
-        return tuple.__new__(cls, (profile, bool(closed), bool(is_per),
+    def __new__(cls, profile, closed, per=False, period=0.0, shift=0.0):
+        return tuple.__new__(cls, (profile, bool(closed), bool(per),
                                    float(period), float(shift)))
 
     profile = property(lambda self: self[0])
     closed = property(lambda self: self[1])
-    is_per = property(lambda self: self[2])
+    per = property(lambda self: self[2])
     period = property(lambda self: self[3])
     shift = property(lambda self: self[4])
 
@@ -139,8 +139,8 @@ class _Window(tuple):
         of its own."""
         return self.profile.sd / 2.0
 
-    def with_geometry(self, is_per, period):
-        return _Window(self.profile, self.closed, is_per, period,
+    def with_geometry(self, per, period):
+        return _Window(self.profile, self.closed, per, period,
                        self.shift)
 
 
@@ -150,20 +150,20 @@ def _window_factor(loc_row, at, win):
     the same implementation. A window aligned at its start or end is
     evaluated about its centre, ``win.shift`` from ``at``."""
     return _weight_factor(loc_row, at + win.shift, win.profile,
-                          is_per=win.is_per,
+                          per=win.per,
                           period=win.period, closed=win.closed)
 
 
-def _axis_is_rel(specs, is_rel, a):
+def _axis_is_rel(specs, rel, a):
     if specs is not None:
         sp = specs[a]
         if isinstance(sp, dict):
-            rel = sp.get("rel", False)
-            if isinstance(rel, (list, tuple, np.ndarray)):
-                return bool(rel[-1]) if len(rel) else False
-            return bool(rel)
+            rel_s = sp.get("rel", False)
+            if isinstance(rel_s, (list, tuple, np.ndarray)):
+                return bool(rel_s[-1]) if len(rel_s) else False
+            return bool(rel_s)
         return False
-    return bool(is_rel[a]) if a < len(is_rel) else False
+    return bool(rel[a]) if a < len(rel) else False
 
 
 def _apply_windows(p, w, specs, at, win, locate, target):
@@ -192,10 +192,10 @@ def _sub(seq, keep):
     return seq
 
 
-def _check_is_exch_vs_specs(is_exch, specs):
-    if is_exch is not None and specs is not None:
+def _check_is_exch_vs_specs(exch, specs):
+    if exch is not None and specs is not None:
         raise ValueError(
-            "`is_exch` applies to the flat per-attribute surface; nested "
+            "`exch` applies to the flat per-attribute surface; nested "
             "geometry carries its per-level exch inside `specs`. Pass one "
             "or the other.")
 
@@ -219,9 +219,9 @@ def _sweep_row(pc, wc, sc, pq, wq, sq, sg, rr, rl, pr, pd, exch_args,
     level by level with the offsets as a batch dimension."""
     try:
         if nested:
-            dc = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
+            dc = build_maet(pc, wc, sigma=sg, per=pr, period=pd, specs=sc,
                             verbose=False)
-            dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd, specs=sq,
+            dq = build_maet(pq, wq, sigma=sg, per=pr, period=pd, specs=sq,
                             verbose=False)
         else:
             dc = build_maet(pc, wc, sg, rr, rl, pr, pd, *exch_args,
@@ -430,7 +430,7 @@ def _is_rect(win):
             and np.isfinite(prof.sd))
 
 
-def _rect_pieces(p_context, a, locate, win, lo, hi, is_per=False,
+def _rect_pieces(p_context, a, locate, win, lo, hi, per=False,
                  period=0.0):
     """Default sweep values for a rectangular window placed alone.
 
@@ -449,7 +449,7 @@ def _rect_pieces(p_context, a, locate, win, lo, hi, is_per=False,
                      dtype=float).ravel()
     loc = loc[np.isfinite(loc)]
     b = np.concatenate([loc - hw, loc + hw]) - win.shift
-    if is_per and period and period > 0:
+    if per and period and period > 0:
         k_lo = int(np.floor((lo - b.max()) / period)) - 1
         k_hi = int(np.ceil((hi - b.min()) / period)) + 1
         b = np.concatenate([b + k * period for k in range(k_lo, k_hi + 1)])
@@ -476,7 +476,7 @@ def _rect_pieces(p_context, a, locate, win, lo, hi, is_per=False,
 
 
 def _window_default(p_context, a, start, stop, step, default_step, win,
-                    locate, is_per, period):
+                    locate, per, period):
     """Generated sweep values where only a window is placed: a pure
     rectangle's pieces (see :func:`_rect_pieces`) where no step is given,
     and otherwise the uniform grid of :func:`_generate`."""
@@ -490,10 +490,10 @@ def _window_default(p_context, a, start, stop, step, default_step, win,
         hi = float(v.max()) if stop.get(a) is None else float(stop[a])
         if hi < lo:
             raise ValueError(f"attribute {a}: `stop` is below `start`.")
-        per = bool(is_per[a]) if is_per is not None else False
+        periodic = bool(per[a]) if per is not None else False
         pd_ = float(period[a]) if (period is not None
                                    and period[a] is not None) else 0.0
-        return _rect_pieces(p_context, a, locate, win, lo, hi, per, pd_)
+        return _rect_pieces(p_context, a, locate, win, lo, hi, periodic, pd_)
     return _generate(p_context, a, start.get(a), stop.get(a), step.get(a),
                      default_step)
 
@@ -683,13 +683,13 @@ def _translation_range(p_context, p_query, a, ref, periodic, period):
         False
 
 
-def _is_rel(specs, is_rel, a, n):
-    return _axis_is_rel(specs, [False] * n if is_rel is None else is_rel, a)
+def _is_rel(specs, rel, a, n):
+    return _axis_is_rel(specs, [False] * n if rel is None else rel, a)
 
 
-def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
+def _build_plan(p_context, p_query, specs, rel, sweep, start, stop, step,
                 align, window, drop, query_ref, locate, func, sigma=None,
-                is_per=None, period=None, r=None):
+                per=None, period=None, r=None):
     """Validate the placement arguments and return the sweep plan.
 
     One rule places everything: at each sweep value ``s``, a window has its
@@ -728,7 +728,7 @@ def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
     if has_query:
         align = _attr_map(align, n, "align")
         query_ref = _attr_map(query_ref, n, "query_ref")
-        # Attribute translation over the whole context is the default role.
+        # Attribute translation over the whole context is the default alignment.
         for a in swept - set(align):
             align[a] = "query"
     else:
@@ -772,7 +772,7 @@ def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
     for a in sorted(align):
         m = align[a]
         gen = any(a in d for d in (start, stop, step))
-        rel = _is_rel(specs, is_rel, a, n)
+        rel_a = _is_rel(specs, rel, a, n)
         # --- the window ---
         if m == "query":
             if a in window:
@@ -807,13 +807,13 @@ def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
                 window.get(a), a, "window",
                 lambda a=a: _holding_width(p_query, a, locate, q_ref[a]))
             _warn_if_query_cut(p_query, a, locate, q_ref[a], win)
-        if win is not None and is_per is not None and bool(is_per[a]):
+        if win is not None and per is not None and bool(per[a]):
             # On a periodic attribute the window's displacement wraps, as
             # weight_events wraps it.
             win = win.with_geometry(True, float(period[a]))
         # --- what may be translated, given the geometry ---
         if m != "window":
-            if rel:
+            if rel_a:
                 raise ValueError(
                     f"attribute {a} is relative: translating the query "
                     f"changes none of its within-tuple differences, so "
@@ -835,18 +835,18 @@ def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
             # for a tuple of D coordinates (window or no window), on the
             # values' lattice where they lie on one, so that every exact
             # match is on the grid.
-            per = bool(is_per[a]) if is_per is not None else False
+            periodic = bool(per[a]) if per is not None else False
             pd_ = float(period[a]) if (period is not None
                                        and period[a] is not None) else 0.0
             kw_ = _peak_width(sigma, r, specs, a)
             if kw_ is not None:
                 default_step = _lattice_step(p_context, p_query, a,
-                                             kw_ / 2.0, pd_ if per else 0.0)
+                                             kw_ / 2.0, pd_ if periodic else 0.0)
             elif m == "query":
                 default_step = None
             if a not in sweep or sweep[a] is None:
                 default_range, open_stop = _translation_range(
-                    p_context, p_query, a, q_ref[a], per, pd_)
+                    p_context, p_query, a, q_ref[a], periodic, pd_)
                 if open_stop and default_step is not None \
                         and step.get(a) is None:
                     # One period, on the grid through the lowest offset, so
@@ -880,7 +880,7 @@ def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
                     f"query_values)}}.")
             if w_vals is None:
                 w_vals = _window_default(p_context, a, start, stop, step,
-                                         default_step, win, locate, is_per,
+                                         default_step, win, locate, per,
                                          period)
             elif gen:
                 raise ValueError(
@@ -914,7 +914,7 @@ def _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop, step,
                 vals = _values(sweep[a], a, "sweep")
             elif m == "window":
                 vals = _window_default(p_context, a, start, stop, step,
-                                       default_step, win, locate, is_per,
+                                       default_step, win, locate, per,
                                        period)
             else:
                 vals = _generate(p_context, a, start.get(a), stop.get(a),
@@ -1008,17 +1008,17 @@ def _translate(p, w, specs, shifts, n):
     return unpack_pre_maet(translate_attributes(p, w, offs, specs=specs))
 
 
-def _run_similarity(p_context, w_context, p_query, w_query, sigma, r, is_rel,
-                    is_per, period, is_exch, specs, query_specs, plan, locate,
+def _run_similarity(p_context, w_context, p_query, w_query, sigma, r, rel,
+                    per, period, exch, specs, query_specs, plan, locate,
                     target_attr, normalize):
     dims, drop, ctx_win, q_ref = plan
     n = len(p_context)
     p_context, p_query = list(p_context), list(p_query)
     target, keep = _target(target_attr, drop, n)
     nested = specs is not None
-    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
-                          _sub(is_per, keep), _sub(period, keep))
-    sy = None if is_exch is None else _sub(is_exch, keep)
+    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(rel, keep),
+                          _sub(per, keep), _sub(period, keep))
+    sy = None if exch is None else _sub(exch, keep)
     exch_args = () if sy is None else (sy,)
     win = {a: spec for a, (spec, _) in ctx_win.items()}
     shape = tuple(d[2].shape[-1] for d in dims)
@@ -1030,9 +1030,9 @@ def _run_similarity(p_context, w_context, p_query, w_query, sigma, r, is_rel,
 
     def compare(pc, wc, sc, pq, wq, sq):
         if nested:
-            dc = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
+            dc = build_maet(pc, wc, sigma=sg, per=pr, period=pd, specs=sc,
                             verbose=False)
-            dq = build_maet(pq, wq, sigma=sg, is_per=pr, period=pd, specs=sq,
+            dq = build_maet(pq, wq, sigma=sg, per=pr, period=pd, specs=sq,
                             verbose=False)
             return float(sim_maet(dc, dq, normalize=normalize, verbose=False))
         return float(sim_maet(pc, wc, pq, wq, sg, rr, rl, pr, pd, *exch_args,
@@ -1082,8 +1082,8 @@ def _run_similarity(p_context, w_context, p_query, w_query, sigma, r, is_rel,
     return out
 
 
-def _run_local(p_context, w_context, sigma, r, is_rel, is_per, period,
-               is_exch, specs, plan, locate, target_attr, measure):
+def _run_local(p_context, w_context, sigma, r, rel, per, period,
+               exch, specs, plan, locate, target_attr, measure):
     """At each sweep value, window the context, build the windowed
     density, and apply ``measure`` to it (``swept_entropy``,
     ``swept_mass``)."""
@@ -1092,9 +1092,9 @@ def _run_local(p_context, w_context, sigma, r, is_rel, is_per, period,
     p_context = list(p_context)
     target, keep = _target(target_attr, drop, n)
     nested = specs is not None
-    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
-                          _sub(is_per, keep), _sub(period, keep))
-    sy = None if is_exch is None else _sub(is_exch, keep)
+    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(rel, keep),
+                          _sub(per, keep), _sub(period, keep))
+    sy = None if exch is None else _sub(exch, keep)
     exch_args = () if sy is None else (sy,)
     win = {a: spec for a, (spec, _) in ctx_win.items()}
     out = np.empty(tuple(d[2].size for d in dims), dtype=float)
@@ -1104,7 +1104,7 @@ def _run_local(p_context, w_context, sigma, r, is_rel, is_per, period,
                                           win, locate, target)
         pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop)
         if nested:
-            dens = build_maet(pc, wc, sigma=sg, is_per=pr, period=pd,
+            dens = build_maet(pc, wc, sigma=sg, per=pr, period=pd,
                               specs=sc, verbose=False)
         else:
             dens = build_maet(pc, wc, sg, rr, rl, pr, pd, *exch_args,
@@ -1113,35 +1113,35 @@ def _run_local(p_context, w_context, sigma, r, is_rel, is_per, period,
     return out
 
 
-def _run_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
-                 is_exch, specs, plan, locate, target_attr, method, base,
+def _run_entropy(p_context, w_context, sigma, r, rel, per, period,
+                 exch, specs, plan, locate, target_attr, method, base,
                  grid=None):
     from ..entropy import entropy_maet
     grid = {k: v for k, v in (grid or {}).items() if v is not None}
     return _run_local(
-        p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
+        p_context, w_context, sigma, r, rel, per, period, exch,
         specs, plan, locate, target_attr,
         lambda dens: entropy_maet(dens, method=method, base=base,
                                   verbose=False, **grid))
 
 
-def _run_mass(p_context, w_context, sigma, r, is_rel, is_per, period,
-              is_exch, specs, plan, locate, target_attr):
+def _run_mass(p_context, w_context, sigma, r, rel, per, period,
+              exch, specs, plan, locate, target_attr):
     from .mass import mass_maet
     return _run_local(
-        p_context, w_context, sigma, r, is_rel, is_per, period, is_exch,
+        p_context, w_context, sigma, r, rel, per, period, exch,
         specs, plan, locate, target_attr, mass_maet)
 
 
 @_with_dispatch_scope
 def swept_similarity(p_context, w_context=None, p_query=None,
                      w_query=None, sigma=None, r=None,
-                     is_rel=None, is_per=None, period=None, *,
+                     rel=None, per=None, period=None, *,
                      sweep=None, start=None, stop=None, step=None,
                      align=None, window=None, drop=None,
                      query_ref=None, locate="centroid",
                      target_attr=None, normalize="oneSidedDenom",
-                     is_exch=None, rel=None, exch=None, specs=None,
+                     exch=None, specs=None,
                      return_offsets=False, return_sweep_values=False,
                      verbose=False):
     r"""Compare a query with a context at each of a list of sweep values
@@ -1233,7 +1233,7 @@ def swept_similarity(p_context, w_context=None, p_query=None,
     The query itself is not windowed here. To weight the query's own events
     by a window, apply :func:`weight_events` to the query before the call.
 
-    **Choosing a role.**
+    **Choosing an alignment.**
 
     - ``'query'``: the canonical sweep: where in the context, or at which
       transposition, the query best matches the context as a whole. Only
@@ -1254,10 +1254,10 @@ def swept_similarity(p_context, w_context=None, p_query=None,
 
     **Treatment of the swept attribute.** Whether the swept attribute is
     absolute or relative (its specs), and whether it is dropped (``drop``),
-    decides what it contributes to each comparison, whatever the role:
+    decides what it contributes to each comparison, whatever the alignment:
 
     - *Absolute*: compared by position, so translating the query along it
-      changes where the query matches, and all four roles apply. Under
+      changes where the query matches, and all four alignments apply. Under
       ``'window'`` the query is compared in place: the profile shows where
       in the context its match with the query as written comes from (two
       parts of a piece on a shared time axis, say, whose similarity the
@@ -1318,14 +1318,14 @@ def swept_similarity(p_context, w_context=None, p_query=None,
     - ``swept_similarity(pm_context, pm_query, ...)``, with two whole
       pre-MAETs (the canonical entry). The geometry is taken from their
       specs. Any of the six per-attribute parameters (``sigma``,
-      ``is_per``, ``period``, ``r``, ``rel``, ``exch``) may be given
+      ``per``, ``period``, ``r``, ``rel``, ``exch``) may be given
       alongside to override it, as at :func:`build_maet`, either in full or
       selectively as a length-A list whose ``None`` entries keep the spec's
       value. The two pre-MAETs describe one comparison, so they must agree
-      on ``r``, ``rel``, ``exch``, and the nesting; ``sigma``, ``is_per``,
+      on ``r``, ``rel``, ``exch``, and the nesting; ``sigma``, ``per``,
       and ``period`` may differ, and the context's are used.
     - ``swept_similarity(p_context, w_context, p_query, w_query, sigma,
-      r, is_rel, is_per, period, ...)``, the raw positional form, with each
+      r, rel, per, period, ...)``, the raw positional form, with each
       operand's per-attribute values and weights and the shared geometry
       written out as for :func:`sim_maet`.
 
@@ -1335,10 +1335,10 @@ def swept_similarity(p_context, w_context=None, p_query=None,
         Raw form: each operand's per-attribute value matrices and weights,
         as at :func:`sim_maet`. Pre-MAET form: the context and query
         pre-MAETs are the first two arguments.
-    sigma, r, is_rel, is_per, period
+    sigma, r, rel, per, period
         Raw form: the shared per-attribute geometry, as at
         :func:`build_maet`. Pre-MAET form: optional overrides of the specs,
-        with ``rel`` and ``exch`` naming the other two.
+        as is ``exch``.
     sweep : dict, int, or list of int
         ``{a: values}``: the sweep values of attribute ``a``. A bare
         attribute index ``a``, or a list of them, asks for default sweep
@@ -1353,7 +1353,7 @@ def swept_similarity(p_context, w_context=None, p_query=None,
         ``start`` to ``stop`` in steps of ``step``, in place of listing
         them; each overrides one default. A bare number applies to the
         swept attribute where ``sweep`` names one (``sweep=1,
-        step=0.5``). The defaults depend on the role. Where the sweep
+        step=0.5``). The defaults depend on the alignment. Where the sweep
         values translate the query (``'query'``, ``'both'``), ``start``
         and ``stop`` cover every placement at which the query overlaps
         the context (from its highest value on the context's lowest to
@@ -1470,9 +1470,10 @@ def swept_similarity(p_context, w_context=None, p_query=None,
         the query's self inner product, so a windowed context identical to
         the query scores 1. ``'cosine'`` gives the shape-only cosine
         similarity, bounded in [-1, 1]; ``'none'`` the bare inner product.
-    is_exch : array_like of bool, optional
-        Per-attribute exchangeability for the raw form (``None`` keeps the
-        unordered default). Needed, in particular, for ordered attributes
+    exch : array_like of bool, optional
+        Per-attribute exchangeability: in the raw form, the flags
+        themselves (``None`` keeps the unordered default); in the pre-MAET
+        form, an override of the specs. Needed, in particular, for ordered attributes
         carrying a matrix-valued kernel covariance. Not allowed together
         with ``specs``, whose nesting gives exchangeability level by level.
     specs : list, optional
@@ -1544,11 +1545,11 @@ def swept_similarity(p_context, w_context=None, p_query=None,
                 "swept_similarity(pm_context, pm_query, ...): the pre-MAET "
                 "form takes no third positional argument; give the sweep "
                 "values as sweep={a: values}.")
-        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
+        (p_attrs, w_attrs, sigma, r, rel, per, period, exch,
          side_specs) = _swept_pre_maet_args(
             [p_context, w_context],
-            {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
-             "rel": rel if rel is not None else is_rel, "exch": exch},
+            {"sigma": sigma, "per": per, "period": period, "r": r,
+             "rel": rel, "exch": exch},
             "swept_similarity")
         p_context, p_query = p_attrs
         w_context, w_query = w_attrs
@@ -1560,12 +1561,12 @@ def swept_similarity(p_context, w_context=None, p_query=None,
     else:
         p_context, w_context = _parts_per_event(p_context, w_context)
         p_query, w_query = _parts_per_event(p_query, w_query)
-    _check_is_exch_vs_specs(is_exch, specs)
-    plan = _build_plan(p_context, p_query, specs, is_rel, sweep, start, stop,
+    _check_is_exch_vs_specs(exch, specs)
+    plan = _build_plan(p_context, p_query, specs, rel, sweep, start, stop,
                        step, align, window, drop, query_ref,
-                       locate, "swept_similarity", sigma, is_per, period, r)
+                       locate, "swept_similarity", sigma, per, period, r)
     out = _run_similarity(p_context, w_context, p_query, w_query, sigma, r,
-                          is_rel, is_per, period, is_exch, specs,
+                          rel, per, period, exch, specs,
                           query_specs, plan, locate, target_attr, normalize)
     extra = []
     if return_offsets:
@@ -1599,13 +1600,13 @@ def _offsets(plan):
 
 @_with_dispatch_scope
 def swept_entropy(p_context, w_context=None, sigma=None, r=None,
-                  is_rel=None, is_per=None, period=None, *,
+                  rel=None, per=None, period=None, *,
                   sweep=None, start=None, stop=None, step=None,
                   window=None, drop=None, locate="centroid",
                   target_attr=None, method="differential", base=2.0,
                   n_points_per_dim=None, x_min=float("nan"),
                   x_max=float("nan"), grid_limit=None,
-                  is_exch=None, rel=None, exch=None, specs=None,
+                  exch=None, specs=None,
                   return_sweep_values=False, verbose=False):
     r"""Align a window on a context at each of a list of sweep values and
     take the entropy of the windowed density at each.
@@ -1626,10 +1627,10 @@ def swept_entropy(p_context, w_context=None, sigma=None, r=None,
     so the sweep values always align the window.
 
     **Input forms**: ``swept_entropy(pm, ...)`` with a whole pre-MAET,
-    whose specs give the geometry (any of ``sigma``, ``is_per``,
+    whose specs give the geometry (any of ``sigma``, ``per``,
     ``period``, ``r``, ``rel``, ``exch`` may be given alongside to override
     it); or the raw positional form ``swept_entropy(p_context,
-    w_context, sigma, r, is_rel, is_per, period, ...)``.
+    w_context, sigma, r, rel, per, period, ...)``.
 
     Parameters
     ----------
@@ -1681,7 +1682,7 @@ def swept_entropy(p_context, w_context=None, sigma=None, r=None,
         required for those methods, and ``x_min`` / ``x_max`` for a
         non-periodic attribute that is kept. The continuous methods ignore
         them.
-    is_exch, specs, verbose
+    exch, specs, verbose
         As at :func:`swept_similarity`.
     return_sweep_values : bool, default False
         Also return the sweep values, as a dict ``{a: values}``, one array
@@ -1702,23 +1703,23 @@ def swept_entropy(p_context, w_context=None, sigma=None, r=None,
                 "swept_entropy(pm, ...): the pre-MAET form takes no second "
                 "positional argument; give the sweep values as "
                 "sweep={a: values}.")
-        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
+        (p_attrs, w_attrs, sigma, r, rel, per, period, exch,
          side_specs) = _swept_pre_maet_args(
             [p_context],
-            {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
-             "rel": rel if rel is not None else is_rel, "exch": exch},
+            {"sigma": sigma, "per": per, "period": period, "r": r,
+             "rel": rel, "exch": exch},
             "swept_entropy")
         p_context, = p_attrs
         w_context, = w_attrs
         specs, = side_specs
     if not is_pre_maet(p_context):
         p_context, w_context = _parts_per_event(p_context, w_context)
-    _check_is_exch_vs_specs(is_exch, specs)
-    plan = _build_plan(p_context, None, specs, is_rel, sweep, start, stop,
+    _check_is_exch_vs_specs(exch, specs)
+    plan = _build_plan(p_context, None, specs, rel, sweep, start, stop,
                        step, None, window, drop, None, locate,
-                       "swept_entropy", sigma, is_per, period)
-    H = _run_entropy(p_context, w_context, sigma, r, is_rel, is_per,
-                     period, is_exch, specs, plan, locate, target_attr,
+                       "swept_entropy", sigma, per, period)
+    H = _run_entropy(p_context, w_context, sigma, r, rel, per,
+                     period, exch, specs, plan, locate, target_attr,
                      method, base,
                      grid={"n_points_per_dim": n_points_per_dim,
                            "x_min": x_min, "x_max": x_max,
@@ -1727,11 +1728,11 @@ def swept_entropy(p_context, w_context=None, sigma=None, r=None,
 
 
 def swept_mass(p_context, w_context=None, sigma=None, r=None,
-               is_rel=None, is_per=None, period=None, *,
+               rel=None, per=None, period=None, *,
                sweep=None, start=None, stop=None, step=None,
                window=None, drop=None, locate="centroid",
                target_attr=None,
-               is_exch=None, rel=None, exch=None, specs=None,
+               exch=None, specs=None,
                return_sweep_values=False, verbose=False):
     r"""Align a window on a context at each of a list of sweep values and
     take the total mass of the windowed density at each.
@@ -1750,7 +1751,7 @@ def swept_mass(p_context, w_context=None, sigma=None, r=None,
 
     **Input forms**: ``swept_mass(pm, ...)`` with a whole pre-MAET, or
     the raw positional form ``swept_mass(p_context, w_context, sigma, r,
-    is_rel, is_per, period, ...)``, as at :func:`swept_entropy`.
+    rel, per, period, ...)``, as at :func:`swept_entropy`.
 
     Parameters
     ----------
@@ -1792,7 +1793,7 @@ def swept_mass(p_context, w_context=None, sigma=None, r=None,
     target_attr : int, optional
         The attribute whose weights the window multiplies (default: the
         first attribute not dropped).
-    is_exch, specs, verbose
+    exch, specs, verbose
         As at :func:`swept_similarity`.
     return_sweep_values : bool, default False
         Also return the sweep values, as a dict ``{a: values}``, one array
@@ -1817,23 +1818,23 @@ def swept_mass(p_context, w_context=None, sigma=None, r=None,
                 "swept_mass(pm, ...): the pre-MAET form takes no second "
                 "positional argument; give the sweep values as "
                 "sweep={a: values}.")
-        (p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
+        (p_attrs, w_attrs, sigma, r, rel, per, period, exch,
          side_specs) = _swept_pre_maet_args(
             [p_context],
-            {"sigma": sigma, "is_per": is_per, "period": period, "r": r,
-             "rel": rel if rel is not None else is_rel, "exch": exch},
+            {"sigma": sigma, "per": per, "period": period, "r": r,
+             "rel": rel, "exch": exch},
             "swept_mass")
         p_context, = p_attrs
         w_context, = w_attrs
         specs, = side_specs
     if not is_pre_maet(p_context):
         p_context, w_context = _parts_per_event(p_context, w_context)
-    _check_is_exch_vs_specs(is_exch, specs)
-    plan = _build_plan(p_context, None, specs, is_rel, sweep, start, stop,
+    _check_is_exch_vs_specs(exch, specs)
+    plan = _build_plan(p_context, None, specs, rel, sweep, start, stop,
                        step, None, window, drop, None, locate,
-                       "swept_mass", sigma, is_per, period)
-    M = _run_mass(p_context, w_context, sigma, r, is_rel, is_per,
-                  period, is_exch, specs, plan, locate, target_attr)
+                       "swept_mass", sigma, per, period)
+    M = _run_mass(p_context, w_context, sigma, r, rel, per,
+                  period, exch, specs, plan, locate, target_attr)
     return (M, _sweep_values(plan)) if return_sweep_values else M
 
 
@@ -1857,7 +1858,7 @@ def _swept_pre_maet_args(pms, kw, func):
     pms : list of Mapping
         The pre-MAET operands, context first.
     kw : dict
-        The six overrides, keyed ``sigma``, ``is_per``, ``period``,
+        The six overrides, keyed ``sigma``, ``per``, ``period``,
         ``r``, ``rel``, ``exch``; ``None`` where not given.
     func : str
         The caller's name, for error messages.
@@ -1865,7 +1866,7 @@ def _swept_pre_maet_args(pms, kw, func):
     Returns
     -------
     tuple
-        ``(p_attrs, w_attrs, sigma, r, is_rel, is_per, period, is_exch,
+        ``(p_attrs, w_attrs, sigma, r, rel, per, period, exch,
         specs)``, with ``specs`` ``None`` unless the geometry is nested.
     """
     from .build import (_normalise_specs, _override_specs,
@@ -1886,8 +1887,8 @@ def _swept_pre_maet_args(pms, kw, func):
     _, _, _, _, names, spec_kernel = _normalise_specs(specs, A)
     sigma = _resolve_kernel_param(kw.get("sigma"), spec_kernel["sigma"],
                                   "sigma", names, A)
-    is_per = _resolve_kernel_param(kw.get("is_per"), spec_kernel["is_per"],
-                                   "is_per", names, A)
+    per = _resolve_kernel_param(kw.get("per"), spec_kernel["per"],
+                                   "per", names, A)
     period = _resolve_kernel_param(kw.get("period"), spec_kernel["period"],
                                    "period", names, A, default=0.0)
     r_vec, is_rel_vec, is_exch_vec, nested_list, _, _ = \
@@ -1905,7 +1906,7 @@ def _swept_pre_maet_args(pms, kw, func):
                                  if k != "tags"}
                            for shared, one in zip(specs, own)])
     return ([pm["p_attr"] for pm in pms], [pm.get("w_attr") for pm in pms],
-            sigma, r_vec, is_rel_vec, is_per, period,
+            sigma, r_vec, is_rel_vec, per, period,
             None if nested else is_exch_vec,
             [sp if nested else None for sp in side_specs])
 
@@ -1913,7 +1914,7 @@ def _swept_pre_maet_args(pms, kw, func):
 def _check_specs_agree(specs_a, specs_b, A, func):
     """The pre-MAETs of one comparison must share the structural geometry.
 
-    ``tags`` is not among the fields compared. It says which slot of its
+    ``tags`` is not among the fields compared. It says which position of its
     own side belongs to which nesting group, so its length is that side's
     padded inner cardinality --- a chorale's beat may hold seven notes
     where the prototype it is compared against holds two. What must agree
@@ -1932,7 +1933,7 @@ def _check_specs_agree(specs_a, specs_b, A, func):
                 raise ValueError(
                     f"{func}: the two pre-MAETs disagree on '{f}' for "
                     f"attribute {a}. They describe one comparison, so the "
-                    "structural geometry must match; sigma, is_per and "
+                    "structural geometry must match; sigma, per and "
                     "period may differ and are taken from the first.")
         if (specs_a[a].get("tags") is None) != (specs_b[a].get("tags") is None):
             raise ValueError(

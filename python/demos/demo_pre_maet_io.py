@@ -63,9 +63,9 @@ p_attr = [
 ]
 specs = [
     {"name": "pitch", "r": 2, "rel": False, "exch": True,
-     "sigma": 0.15, "is_per": True, "period": 12.0},
+     "sigma": 0.15, "per": True, "period": 12.0},
     {"name": "onset", "r": 1, "rel": False, "exch": True,
-     "sigma": 0.1, "is_per": False, "period": 0.0},
+     "sigma": 0.1, "per": False, "period": 0.0},
 ]
 
 # pack_pre_maet holds the three parts in one variable, which every function
@@ -114,7 +114,7 @@ dens = mpt.build_maet(pm_back, verbose=False)
 print(f"  build_maet(pm)                 ->  dim {dens.dim}")
 print(f"  self-similarity                    ->  "
       f"{float(mpt.sim_maet(dens, dens, verbose=False)):.4f}")
-print("  No sigma, is_per or period passed: the file carried them.\n")
+print("  No sigma, per or period passed: the file carried them.\n")
 
 
 # ===================================================================
@@ -127,7 +127,7 @@ print("=== 4. Overriding what the pre-MAET carries ===\n")
 # attribute and without comment: holding a baseline in the pre-MAET and
 # sweeping a width past it is the ordinary idiom, so a disagreement is
 # intent rather than error. All six per-attribute parameters resolve this
-# way --- sigma, is_per and period, and r, rel and exch --- so a sweep over
+# way --- sigma, per and period, and r, rel and exch --- so a sweep over
 # any of them is one call per value.
 #
 # show_pre_maet reads the override too, so the table states what the build
@@ -241,9 +241,9 @@ if os.path.exists(score):
     # Each attribute names its column and the parameters under which it
     # is read: the pitch of a bound chord as a periodic class taken two
     # at a time, and the chord's onset singly.
-    pm_s = mpt.pre_maet_from_attr_table(mpt.read_score(score), attributes=(
+    pm_s = mpt.pre_maet_from_attr_table(mpt.read_score(score), specs=(
         dict(column="pitch", sigma=0.5, r=2, exch=True,
-             is_per=True, period=12.0),
+             per=True, period=12.0),
         dict(column="onset", sigma=0.25)), chords="bind")
     mpt.show_pre_maet(pm_s, max_events=5, max_elements=4)
     # Some events hold a single note (the second, at onset 0.25, is one

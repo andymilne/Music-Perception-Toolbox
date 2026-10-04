@@ -19,7 +19,7 @@ function [M, sv] = sweptMass(varargin)
 %   INPUT FORMS, as at sweptEntropy:
 %
 %     M = sweptMass(pm, ...)
-%     M = sweptMass(pAttr, w, sigma, r, isRel, isPer, period, ...)
+%     M = sweptMass(pAttr, w, sigma, r, rel, per, period, ...)
 %
 %   NAME-VALUE OPTIONS (per-attribute maps are N x 2 cells {a, value; ...})
 %     'sweep'        {a, values; ...}: the sweep values of attribute a; a
@@ -60,7 +60,7 @@ function [M, sv] = sweptMass(varargin)
 %     'locate'       As at sweptSimilarity (default 'centroid').
 %     'targetAttr'   The attribute whose weights the window multiplies
 %                    (default: the first attribute not dropped).
-%     'specs', 'isExch', 'verbose'
+%     'specs', 'exch', 'verbose'
 %                    As at sweptSimilarity.
 %
 %   The output has one dimension per swept attribute, in attribute order;
@@ -99,19 +99,19 @@ arguments
     nv.locate = 'centroid'
     nv.targetAttr = []
     nv.specs = []
-    nv.isExch = []
+    nv.exch = []
     nv.verbose (1,1) logical = false
 end
 
-if ~isempty(nv.isExch) && ~isempty(nv.specs)
-    error('sweptMass:isExchVsSpecs', ...
-        ['isExch applies to the flat per-attribute surface; nested ' ...
+if ~isempty(nv.exch) && ~isempty(nv.specs)
+    error('sweptMass:exchVsSpecs', ...
+        ['exch applies to the flat per-attribute surface; nested ' ...
          'geometry carries its per-level exch inside specs. Pass one ' ...
          'or the other.']);
 end
 nv.align = []; nv.queryRef = [];
 plan = internal.sweptPlan(pAttr, [], nv.specs, isRel, nv, ...
-    'sweptMass', struct('sigma', {sigma}, 'isPer', {isPer}, ...
+    'sweptMass', struct('sigma', {sigma}, 'per', {isPer}, ...
     'period', {period}));
 
 A = numel(pAttr);
@@ -127,7 +127,7 @@ end
 
 nested = ~isempty(nv.specs);
 [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-exchC = internal.subExchArgs(nv.isExch, keep);
+exchC = internal.subExchArgs(nv.exch, keep);
 dims = plan.dims;
 axes = [dims.a];
 sizes = arrayfun(@(d) numel(d.vals), dims);
@@ -142,7 +142,7 @@ for li = 1:prod(sizes)
         plan.win(axes), locates, target);
     [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, A);
     if nested
-        dens = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+        dens = buildMaet(pc, wc, 'sigma', sg, 'per', pr, 'period', pd, ...
             'specs', sc, 'verbose', false);
     else
         dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);

@@ -21,7 +21,7 @@
 %    - The two ways of getting the unrestricted matrix -- clearing the
 %      bundle's comb field, and the INTERNAL.COMBRESTRICTIONENABLED
 %      switch -- agree exactly.
-%    - Declines: r_a = 1 and an ordered (isExch = false) attribute carry
+%    - Declines: r_a = 1 and an ordered (exch = false) attribute carry
 %      no comb bundle.
 %    - Cosine level: the switch changes cost, not value.
 %    - Nested: the same three claims for a nested attribute, whose perm
@@ -65,7 +65,7 @@ for ccr_r = [2, 3]
 end
 
 % --- Unit: restricted == unrestricted, entrywise ----------------------
-% isRel, isPer, r, label
+% rel, per, r, label
 ccr_cases = { ...
     true,  true,  2, 'rel-per r=2'; ...
     true,  true,  3, 'rel-per r=3'; ...
@@ -173,7 +173,7 @@ results{end,2}   = ~isempty(ccr_nB.comb) && ccr_nB.comb.mult == 8 ...
     && size(ccr_nB.comb.Centres, 1) == size(ccr_nB.Centres, 1) ...
     && ccr_nB.innerBlockSize == 0;
 
-% isRel, isPer, period, sigma, label
+% rel, per, period, sigma, label
 ccr_nCases = { ...
     true,  true,  1200.0, 6.0, 'nested rel-per'; ...
     true,  false, 0.0,    6.0, 'nested rel-nonper'; ...
@@ -350,7 +350,7 @@ function dens = localCcrMakeNested(N, spec, sigma, isPerP, periodP, seed)
     rng(seed);
     vals = rand(4, N) * 60;
     dens = buildMaet({vals}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
-        'isPer', isPerP, 'period', periodP, 'verbose', false);
+        'per', isPerP, 'period', periodP, 'verbose', false);
 end
 
 

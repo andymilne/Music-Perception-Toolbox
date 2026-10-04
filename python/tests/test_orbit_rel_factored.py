@@ -103,10 +103,10 @@ def test_periodic_factored_raises_and_auto_uses_direct():
     p, w, sigma = _template()
     x = _on_support_queries(p, 3, 5) % 1200.0
     with pytest.raises(ValueError, match="periodic"):
-        eval_orbit_rel(p, w, sigma, 3, x, is_per=True, period=1200.0,
+        eval_orbit_rel(p, w, sigma, 3, x, per=True, period=1200.0,
                        factored=True)
-    va = eval_orbit_rel(p, w, sigma, 3, x, is_per=True, period=1200.0)
-    vd = eval_orbit_rel(p, w, sigma, 3, x, is_per=True, period=1200.0,
+    va = eval_orbit_rel(p, w, sigma, 3, x, per=True, period=1200.0)
+    vd = eval_orbit_rel(p, w, sigma, 3, x, per=True, period=1200.0,
                         factored=False)
     assert np.array_equal(va, vd)
 

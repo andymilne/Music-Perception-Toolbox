@@ -216,7 +216,7 @@ def _orbit_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
 
 
 def _ma_per_attr_inner_matrix(
-    Px, Wx, Py, Wy, sigma, r, is_rel, is_per, period,
+    Px, Wx, Py, Wy, sigma, r, rel, per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
     prune_zero_weight_events=True, wrap='full-image',
 ):
@@ -302,7 +302,7 @@ def _ma_per_attr_inner_matrix(
             sub = _ma_per_attr_inner_matrix(
                 Px[:, keep_x], Wx[:, keep_x],
                 Py[:, keep_y], Wy[:, keep_y],
-                sigma, r, is_rel, is_per, period,
+                sigma, r, rel, per, period,
                 return_cancellation_ratio=return_cancellation_ratio,
                 truncation_sigmas=truncation_sigmas,
                 prune_zero_weight_events=False,   # avoid infinite recursion
@@ -333,7 +333,7 @@ def _ma_per_attr_inner_matrix(
         # wrapped Gaussian (overlap convention, exponent_denominator=4).
         # Single-image opt-in reduces to the nearest image; the pre-v3
         # code did the reduction unconditionally.
-        abs_per_full_image = is_per and str(wrap) == 'full-image'
+        abs_per_full_image = per and str(wrap) == 'full-image'
         if abs_per_full_image:
             from .._wrapped_kernel import wrapped_gaussian_1d
             trunc_eff = float(get_default('truncation_sigmas')
@@ -349,7 +349,7 @@ def _ma_per_attr_inner_matrix(
                     exponent_denominator=4,
                 )
             else:
-                if is_per:
+                if per:
                     diffs = diffs - period * np.floor(diffs / period + 0.5)
                 K_tens = _trunc_kernel_exp(diffs ** 2, sigma,
                                             truncation_sigmas)
@@ -371,7 +371,7 @@ def _ma_per_attr_inner_matrix(
                         exponent_denominator=4,
                     )
                 else:
-                    if is_per:
+                    if per:
                         diffs = diffs - period * np.floor(diffs / period + 0.5)
                     K_tens = _trunc_kernel_exp(diffs ** 2, sigma,
                                                 truncation_sigmas)
@@ -385,10 +385,10 @@ def _ma_per_attr_inner_matrix(
         return result
 
     # --- r >= 2 rel: batched translation-grid integration, zero-pad ---
-    if is_rel:
+    if rel:
         Px_, Wx_, Py_, Wy_ = _zero_pad_nan(Px, Wx, Py, Wy)
         return _rel_inner_batched(
-            Px_, Wx_, Py_, Wy_, sigma, r, is_per, period,
+            Px_, Wx_, Py_, Wy_, sigma, r, per, period,
             return_cancellation_ratio=return_cancellation_ratio,
             truncation_sigmas=truncation_sigmas,
         )
@@ -415,7 +415,7 @@ def _ma_per_attr_inner_matrix(
     # per-pair orbit beats the dense batched contraction. Gate on a
     # cheap density probe from one representative pair.
     use_sparse = False
-    if (not is_per) and r >= 2 \
+    if (not per) and r >= 2 \
             and K_x_max * K_y_max >= _ORBIT_SPARSE_MIN_KERNEL:
         vx0 = Wx_[:, 0] != 0.0
         vy0 = Wy_[:, 0] != 0.0
@@ -442,7 +442,7 @@ def _ma_per_attr_inner_matrix(
         # (overlap convention, exponent_denominator=4). Single-image
         # opt-in reduces to the nearest image; the pre-v3 code did the
         # reduction unconditionally.
-        abs_per_full_image = is_per and str(wrap) == 'full-image'
+        abs_per_full_image = per and str(wrap) == 'full-image'
         if abs_per_full_image:
             from .._wrapped_kernel import wrapped_gaussian_1d
             trunc_eff = float(get_default('truncation_sigmas')
@@ -462,7 +462,7 @@ def _ma_per_attr_inner_matrix(
                     exponent_denominator=4,
                 )
             else:
-                if is_per:
+                if per:
                     diffs = diffs - period * np.floor(
                         diffs / period + 0.5)
                 K_tens = _trunc_kernel_exp(
@@ -635,7 +635,7 @@ _SPECTRAL_IP_MAX_POINTS = 4_000_000
 #: decline it.
 #:
 #: The form was selected, not assumed. Every subset of
-#: {log gridSize, log K, log N, log N_u, log P(r), log B(r), isPer} was
+#: {log gridSize, log K, log N, log N_u, log P(r), log B(r), per} was
 #: fitted as a log-linear model of log(t_grid / t_spectral) and scored
 #: by BIC and by cross-validated regret over 40 random halves. No fitted
 #: subset beat this form, whose exponents (1, -2, -2) are pinned by the
@@ -643,7 +643,7 @@ _SPECTRAL_IP_MAX_POINTS = 4_000_000
 #: than most of the family, because likelihood weights cells far from
 #: the boundary where the decision is easy, while the decision depends
 #: only on the sign near zero. Offset families (a separate constant per
-#: isPer, per r, or per (r, isPer)) all fit the full data better and
+#: per, per r, or per (r, per)) all fit the full data better and
 #: generalise worse.
 #:
 #: The form was re-tested outside the fitted range, on the specific
@@ -651,7 +651,7 @@ _SPECTRAL_IP_MAX_POINTS = 4_000_000
 #: underestimates the grid route where the data span many sigmas: 145
 #: cells, r = 2..4, K = 6..200, event counts 1..16, both periodic modes,
 #: span/sigma from 4 to 360 (three octaves at sigma = 10). Every subset
-#: of {log gridSize, log K, log nPairs, log N_u, isPer, r} was refitted
+#: of {log gridSize, log K, log nPairs, log N_u, per, r} was refitted
 #: and scored by cross-validated routing regret over 40 random halves.
 #: The pinned-exponent form above scored 1.016 of oracle; the best
 #: fitted subset (which does include log N_u) scored 1.041, and the
@@ -720,7 +720,7 @@ def _rel_per_image_count(sigma, period, truncation_sigmas):
     return int(np.ceil(n))
 
 
-def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
+def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, per, period):
     """Relative-mode per-attribute inner matrix by the spectral form.
 
     The relative inner product is the integral of the absolute inner
@@ -772,7 +772,7 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
         vals = P_[live]
         return float(vals.min()), float(vals.max())
 
-    if is_per:
+    if per:
         L = float(period)
     else:
         lo_x, hi_x = _span(Px, Wx)
@@ -898,7 +898,7 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
 
 
 def _rel_inner_batched(
-    Px, Wx, Py, Wy, sigma, r, is_per, period,
+    Px, Wx, Py, Wy, sigma, r, per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
     samples_per_sigma=None,
 ):
@@ -963,7 +963,7 @@ def _rel_inner_batched(
         and not return_cancellation_ratio
     ):
         _spec = _spectral_rel_inner_matrix(
-            Px, Wx, Py, Wy, float(sigma), int(r), bool(is_per),
+            Px, Wx, Py, Wy, float(sigma), int(r), bool(per),
             float(period),
         )
         if _spec is not None:
@@ -995,7 +995,7 @@ def _rel_inner_batched(
     # weight operand of the einsum, which costs ~2-3x per kernel op).
     shared_w = (np.all(Wx == Wx[:, :1]) and np.all(Wy == Wy[:, :1]))
 
-    if is_per:
+    if per:
         N_u = auto_ntau_default(period, sigma, truncation_sigmas)
         u_grid = np.linspace(0.0, period, N_u, endpoint=False)
         du = period / N_u
@@ -1048,7 +1048,7 @@ def _rel_inner_batched(
     # per pair. Same size/density thresholds as the absolute path, with
     # a cheap density probe at u = 0 from the first pair (the band
     # fraction is u-independent, so one node is representative).
-    if is_per and r >= 2 and K_x * K_y >= _ORBIT_SPARSE_MIN_KERNEL:
+    if per and r >= 2 and K_x * K_y >= _ORBIT_SPARSE_MIN_KERNEL:
         from .._defaults import truncation_ip_sqdist
         cutoff = float(truncation_ip_sqdist(truncation_sigmas, sigma))
         # Strict margin: the builder's padded candidate window must never
@@ -1110,7 +1110,7 @@ def _rel_inner_batched(
             u_s = u_grid[u_start:u_end]
             nu = u_end - u_start
             diffs = base[None, :, :, :] + u_s[:, None, None, None]
-            if is_per:
+            if per:
                 diffs = diffs - period * np.floor(diffs / period + 0.5)
                 n_img = _rel_per_image_count(sigma, period, truncation_sigmas)
                 if n_img > 0:
@@ -1270,7 +1270,7 @@ _CENTRES_NS_BASE = 45.0 / 3.0   # per-element base (exp dominates)
 _CENTRES_NS_LIN  = 15.0 / 3.0   # per-element linear-in-(r_a - 1) term
 
 
-_CENTRES_NS_WRAP = 10.0 / 3.0   # per-element (r_a-1)(r_a-2), is_per only
+_CENTRES_NS_WRAP = 10.0 / 3.0   # per-element (r_a-1)(r_a-2), per only
 
 
 _GRID_NS_FLOOR   = 1_000_000.0  # 1 ms fixed per-pair setup
@@ -1290,7 +1290,7 @@ _GRID_NS_PER_OP = {2: 30.0, 3: 700.0, 4: 2000.0}  # ns per (N_u·K) op, per r_a
 #: estimate now would pre-empt that measurement.
 
 
-def _predicted_centres_wall_ns(K_x, K_y, r_a, is_per):
+def _predicted_centres_wall_ns(K_x, K_y, r_a, per):
     """Nanosecond wall-time estimate for one event pair on the centres
     (pairwise closed-form) path.
 
@@ -1304,12 +1304,12 @@ def _predicted_centres_wall_ns(K_x, K_y, r_a, is_per):
     M_y = math.factorial(r_a) * math.comb(K_y, r_a)
     n_e = M_x * M_y + M_x * M_x + M_y * M_y
     per_el = _CENTRES_NS_BASE + _CENTRES_NS_LIN * (r_a - 1)
-    if is_per:
+    if per:
         per_el += _CENTRES_NS_WRAP * (r_a - 1) * (r_a - 2)
     return per_el * n_e
 
 
-def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per,
+def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, per,
                             truncation_sigmas=None):
     """Nanosecond wall-time estimate for one event pair on the grid
     (spectral or u-grid) path. ``span_or_period`` is the period in the
@@ -1321,7 +1321,7 @@ def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per,
     from ._nested_contraction import auto_ntau_default
     from .._defaults import resolve_truncation_sigmas
     truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
-    if is_per:
+    if per:
         n_u = auto_ntau_default(span_or_period, sigma, truncation_sigmas)
     else:
         margin = _rel_window_margin(truncation_sigmas)
@@ -1337,7 +1337,7 @@ def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per,
     return _GRID_NS_FLOOR + g_op * float(n_u) * float(K)
 
 
-def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
+def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, rel, per, period,
                                  truncation_sigmas=None,
                                  user_forced_mobius=False):
     """True when a relative attribute's inner matrices should use the
@@ -1385,10 +1385,10 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
     # positive definite; and a value count below r_a leaves an empty
     # tuple set. The rel_attr_route lever below overrides the cost
     # judgement only, so none of these may be forced past.
-    if not is_rel or r_a < 2:
+    if not rel or r_a < 2:
         return False
     blocked_by_measure = (
-        is_per and (sigma / period)
+        per and (sigma / period)
         > _orbit_sigma_over_p_threshold(truncation_sigmas))
     K_x = int(Px.shape[0])
     K_y = int(Py.shape[0])
@@ -1428,14 +1428,14 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
 
     if blocked_by_measure or empty_tuple_set:
         return False
-    if is_per:
+    if per:
         span_or_period = float(period)
     else:
         span_or_period = (float(np.nanmax(Px) - np.nanmin(Px))
                           + float(np.nanmax(Py) - np.nanmin(Py)))
-    c_wall_ns = _predicted_centres_wall_ns(K_x, K_y, r_a, is_per)
+    c_wall_ns = _predicted_centres_wall_ns(K_x, K_y, r_a, per)
     g_wall_ns = _predicted_grid_wall_ns(
-        K_x, r_a, sigma, span_or_period, is_per, truncation_sigmas,
+        K_x, r_a, sigma, span_or_period, per, truncation_sigmas,
     )
     return c_wall_ns < g_wall_ns
 
@@ -1478,7 +1478,7 @@ def _nested_orbit_mult(r_levels, exch_levels):
     return int(mult)
 
 
-def _reduced_centres_from_values(V, spec_a, r_a, is_rel):
+def _reduced_centres_from_values(V, spec_a, r_a, rel):
     """Centres array for a value matrix ``V`` (``r_a`` rows), in the same
     reduction the build applies to the perm side.
 
@@ -1497,14 +1497,14 @@ def _reduced_centres_from_values(V, spec_a, r_a, is_rel):
         raise ValueError(
             "the tuple-centres closed form does not carry an inner [rel] "
             "unit; the nested plan should have declined this attribute")
-    if is_rel:
+    if rel:
         if int(r_a) < 2:
             return np.empty((0, V.shape[1]), dtype=np.float64)
         return V[1:, :] - V[:1, :]
     return V
 
 
-def _comb_side_restriction(da, spec, r_a, is_rel):
+def _comb_side_restriction(da, spec, r_a, rel):
     """Bulger's restriction for the X side of the centres sub-route.
 
     The tuple kernel depends on the two tuples only through the
@@ -1571,7 +1571,7 @@ def _comb_side_restriction(da, spec, r_a, is_rel):
 
     * ``r_a < 2`` for a flat attribute, or ``|G| < 2`` for a nested one
       (every level ordered);
-    * an **ordered** flat attribute (``is_exch = False``): the build sets
+    * an **ordered** flat attribute (``exch = False``): the build sets
       the perm side equal to the comb side, so multiplying by ``r_a!``
       would be wrong;
     * any density whose materialised sides do not satisfy
@@ -1604,7 +1604,7 @@ def _comb_side_restriction(da, spec, r_a, is_rel):
     if n_k <= 0 or int(da.n_j) != mult * n_k:
         return None        # ordered attribute, or an unexpected tiling
     v = np.asarray(da.v_comb[0], dtype=np.float64)
-    c = _reduced_centres_from_values(v, spec_a, r_a, is_rel)
+    c = _reduced_centres_from_values(v, spec_a, r_a, rel)
     return (c, np.asarray(da.wv_comb, dtype=np.float64),
             np.asarray(da.event_of_k), mult)
 
@@ -1624,8 +1624,8 @@ def _closed_form_attr_centres(dens, a):
     under ``wrap='single-image'`` (consistent with the flat per-attribute
     matrix; see the note in :func:`_closed_form_attr_matrix_from`).
 
-    Returns ``(centres, w_j, event_of_j, inner_block_size, is_per, period,
-    r_a, is_rel, sigma, n_events, comb_side)``. Variable-K (NaN-padded) values
+    Returns ``(centres, w_j, event_of_j, inner_block_size, per, period,
+    r_a, rel, sigma, n_events, comb_side)``. Variable-K (NaN-padded) values
     are carried by the rebuild, which drops every tuple touching a padded value
     to zero weight. ``comb_side`` is the X-side restriction to combinations
     described in :func:`_comb_side_restriction`, or ``None`` where the
@@ -1644,24 +1644,24 @@ def _closed_form_attr_centres(dens, a):
     nested = getattr(dens, "nested", None)
     spec = nested[a] if nested is not None else None
     sigma = float(dens.sigma[a])
-    is_per = bool(dens.is_per[a])
+    per = bool(dens.per[a])
     period = float(dens.period[a])
     if spec is not None:
         da = _bld([dens.p_attr[a]], [dens.w[a]], specs=[spec],
-                  sigma=[sigma], is_per=[is_per], period=[period],
+                  sigma=[sigma], per=[per], period=[period],
                   verbose=False)
     else:
         is_exch_vec = np.asarray(
-            getattr(dens, "is_exch", np.ones(int(dens.n_attrs), dtype=bool))
+            getattr(dens, "exch", np.ones(int(dens.n_attrs), dtype=bool))
         ).ravel()
         da = _bld([dens.p_attr[a]], [dens.w[a]], [sigma], [int(dens.r[a])],
-                  [bool(dens.is_rel[a])], [is_per], [period],
+                  [bool(dens.rel[a])], [per], [period],
                   [bool(is_exch_vec[a])], verbose=False)
     out = (da.centres[0], da.w_j, da.event_of_j, int(_inner_r_vec(da)[0]),
-           is_per, period, int(da.r[0]), bool(da.is_rel[0]), sigma,
+           per, period, int(da.r[0]), bool(da.rel[0]), sigma,
            int(da.n),
            _comb_side_restriction(da, spec, int(da.r[0]),
-                                  bool(da.is_rel[0])))
+                                  bool(da.rel[0])))
     if _cache is not None:
         _cache[a] = out
     return out
@@ -1711,7 +1711,7 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     dispatch in :func:`~mpt._tensor.cosine._nested_attr_route` decides between
     this route and the tau-grid contraction on cost alone.
     """
-    (Cx, Wx, Ex, bs, is_per, period, r_a, is_rel, sigma, Nx) = cx[:10]
+    (Cx, Wx, Ex, bs, per, period, r_a, rel, sigma, Nx) = cx[:10]
     (Cy, Wy, Ey, _bs, _ip, _pe, _ra, _ir, _sg, Ny) = cy[:10]
     # An inner ``[rel]`` co-transposition unit (``bs >= 2``) has a
     # block-diagonal metric that this flat quadratic form does not
@@ -1737,7 +1737,7 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
         # The identity needs the *Y* perm side to be stable under the
         # same group, i.e. the two densities to carry the same tuple
         # symmetry. Guaranteed by every caller (a flat attribute's
-        # is_exch and a nested one's [r]/[exch] are checked equal before
+        # exch and a nested one's [r]/[exch] are checked equal before
         # the pair reaches here), and checked structurally: the Y side
         # must be the same orbit tiling of its own comb side.
         if (comb_y is None or int(comb_y[3]) != int(comb[3])
@@ -1768,7 +1768,7 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     for s in range(0, njx, chunk):
         e = min(s + chunk, njx)
         D = Cx[:, s:e, None] - Cy[:, None, :]
-        if is_per and not is_rel:
+        if per and not rel:
             # Abs-per full-image via the shared wrapped-Gaussian helper,
             # which picks image-sum or Fourier by cost (crossover at
             # sigma/P ~ 0.2). ``wrap_a='single-image'`` forces the
@@ -1795,8 +1795,8 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
                     or _image_count_L(float(sigma), float(period), ts,
                                       4) == 0):
                 D = D - period * np.floor(D / period + 0.5)
-                Q = _compute_Q(D, r_a, is_rel, is_per, period,
-                               reduced=is_rel)
+                Q = _compute_Q(D, r_a, rel, per, period,
+                               reduced=rel)
                 kernel_val = np.exp(-Q * inv4s2)
             else:
                 from .._wrapped_kernel import wrapped_gaussian_1d
@@ -1805,7 +1805,7 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
                 )
                 kernel_val = theta_per_position.prod(axis=0)
         else:
-            Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
+            Q = _compute_Q(D, r_a, rel, per, period, reduced=rel)
             kernel_val = np.exp(-Q * inv4s2)
         ov = (Wx[s:e, None] * Wy[None, :]) * kernel_val
         # X-side incidence matmul (mirror of the MATLAB implementation):

@@ -100,11 +100,11 @@ def helix_pre_maet(pitch_cents, time_sec, sigma_pc, sigma_time):
     n = p.shape[1]
     specs = [
         {"name": "pitch class",  "r": 1, "rel": False, "exch": True,
-         "sigma": sigma_pc,   "is_per": True,  "period": 1200.0},
+         "sigma": sigma_pc,   "per": True,  "period": 1200.0},
         {"name": "pitch height", "r": 1, "rel": False, "exch": True,
-         "sigma": float("nan"), "is_per": False, "period": 0.0},
+         "sigma": float("nan"), "per": False, "period": 0.0},
         {"name": "time",         "r": 1, "rel": False, "exch": True,
-         "sigma": sigma_time, "is_per": False, "period": 0.0},
+         "sigma": sigma_time, "per": False, "period": 0.0},
     ]
     return mpt.pack_pre_maet([p, p, t], [np.ones((1, n))] * 3, specs)
 

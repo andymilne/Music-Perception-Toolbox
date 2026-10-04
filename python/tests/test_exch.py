@@ -372,7 +372,7 @@ class TestDefaultAndSelf:
         d_exch = build_maet(p, None, 1.0, 2, False, False, 0.0, True,
                                verbose=False)
         assert _smv(d_default).u_perm.shape[1] == _smv(d_exch).u_perm.shape[1]
-        assert bool(np.all(d_default.is_exch))
+        assert bool(np.all(d_default.exch))
 
     def test_ordered_self_similarity_is_one(self):
         p = [0.0, 4.0, 7.0]

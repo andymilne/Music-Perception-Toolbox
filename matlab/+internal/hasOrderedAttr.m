@@ -15,8 +15,8 @@ function tf = hasOrderedAttr(dens)
     tf = false;
     A = double(dens.nAttrs);
 
-    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
-        isExch = logical(dens.isExch(:).');
+    if isfield(dens, 'exch') && ~isempty(dens.exch)
+        isExch = logical(dens.exch(:).');
     else
         isExch = true(1, A);          % default: symmetric
     end

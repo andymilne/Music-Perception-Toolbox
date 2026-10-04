@@ -136,7 +136,7 @@ print(f'{len(notes)} notes; pitch range {notes["pitch"].min():.0f}-'
       f'{notes["pitch"].max():.0f} (MIDI); span '
       f'{notes["onset_beats"].max():.1f} QN')
 melody = pre_maet_from_attr_table(
-    notes, attributes=(dict(column='pitch', name='pitch', sigma=SIGMA_PITCH),
+    notes, specs=(dict(column='pitch', name='pitch', sigma=SIGMA_PITCH),
                        dict(column='onset', name='onset', sigma=SIGMA_TIME)),
     time='beats', chords='separate', weights='ones')
 

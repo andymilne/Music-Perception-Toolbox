@@ -54,26 +54,26 @@ from mpt._tensor._mobius_inner import (
 P = 12.0
 
 
-def _flat(K, N, r, is_rel, is_per, sigma, seed, wrap="full-image",
+def _flat(K, N, r, rel, per, sigma, seed, wrap="full-image",
           span=20.0):
     rng = np.random.default_rng(seed)
-    hi = P if is_per else span
+    hi = P if per else span
     p = np.sort(rng.uniform(0.0, hi, size=(K, N)), axis=0)
     return build_maet([p], [np.ones((K, N))], [sigma], [r],
-                          [is_rel], [is_per], [P], verbose=False,
+                          [rel], [per], [P], verbose=False,
                           wrap=[wrap])
 
 
-def _nested(n_values, sigma, is_rel, is_per, seed, r_levels=(2, 2),
+def _nested(n_values, sigma, rel, per, seed, r_levels=(2, 2),
             wrap="full-image"):
     rng = np.random.default_rng(seed)
-    hi = P if is_per else 24.0
+    hi = P if per else 24.0
     v = np.sort(rng.uniform(0.0, hi, n_values))
     tags = np.repeat(np.arange(n_values // r_levels[-1]), r_levels[-1])
     spec = dict(r=list(r_levels), exch=[True] * len(r_levels), tags=tags,
-                rel=[0] * (len(r_levels) - 1) + [1 if is_rel else 0])
+                rel=[0] * (len(r_levels) - 1) + [1 if rel else 0])
     return build_maet([v.reshape(-1, 1)], None, specs=[spec],
-                          sigma=[sigma], is_per=[is_per], period=[P],
+                          sigma=[sigma], per=[per], period=[P],
                           wrap=[wrap], verbose=False)
 
 
@@ -87,11 +87,11 @@ def _bulger_ip(dens):
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("is_rel,is_per", [(False, False), (False, True),
+@pytest.mark.parametrize("rel,per", [(False, False), (False, True),
                                            (True, False)])
 @pytest.mark.parametrize("r", [2, 3])
 @pytest.mark.parametrize("sigma", [0.3, 1.0])
-def test_route_scale_identities(is_rel, is_per, r, sigma):
+def test_route_scale_identities(rel, per, r, sigma):
     """Each route's bare self inner product, over Bulger's, is its constant.
 
     Per attribute, against Bulger's perm-versus-comb enumeration:
@@ -111,13 +111,13 @@ def test_route_scale_identities(is_rel, is_per, r, sigma):
     :func:`test_routes_do_not_agree_to_working_precision` for what happens at
     the shipped default).
     """
-    d = _flat(6, 3, r, is_rel, is_per, sigma, seed=11)
+    d = _flat(6, 3, r, rel, per, sigma, seed=11)
     base = _bulger_ip(d)
 
     grid = _ma_per_attr_inner_matrix(
         d.p_attr[0], d.w[0], d.p_attr[0], d.w[0], sigma, r,
-        is_rel, is_per, P, wrap="full-image").sum()
-    if is_rel:
+        rel, per, P, wrap="full-image").sum()
+    if rel:
         expect = (math.factorial(r)
                   * (sigma * math.sqrt(math.pi)) ** (r - 1)
                   * math.sqrt(r))
@@ -130,20 +130,20 @@ def test_route_scale_identities(is_rel, is_per, r, sigma):
                                            "full-image").sum()
     assert closed / base == pytest.approx(math.factorial(r), rel=1e-12)
 
-    d2 = _flat(6, 3, r, is_rel, is_per, sigma, seed=11)
+    d2 = _flat(6, 3, r, rel, per, sigma, seed=11)
     centres = _sim_maet_ma_centres(d2, d2, verbose=False)[1]
     assert centres / base == pytest.approx(math.factorial(r), rel=1e-12)
 
 
-@pytest.mark.parametrize("is_rel,is_per,expect_route", [
+@pytest.mark.parametrize("rel,per,expect_route", [
     (False, False, "contract"),
     (False, True, "contract"),
     (True, False, "centres"),
 ])
-def test_nested_route_scale_identities(is_rel, is_per, expect_route):
+def test_nested_route_scale_identities(rel, per, expect_route):
     """The nested per-level contraction is on Bulger's own scale; the nested
     centres route is on it times the wreath-product orbit order."""
-    d = _nested(6, 0.8, is_rel, is_per, seed=3)
+    d = _nested(6, 0.8, rel, per, seed=3)
     base = _bulger_ip(d)
     route, taus = _nested_attr_plan(d, d, 0)
     assert route == expect_route

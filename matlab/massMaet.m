@@ -65,7 +65,7 @@ N    = dens.N;
 P    = dens.pAttr;
 W    = dens.w;
 rVec = dens.r(:).';
-isExchV = dens.isExch(:).';
+isExchV = dens.exch(:).';
 
 % Per-attribute tuple-index structure over the ever-valid values, as the
 % factored evaluation builds it: the index pattern is the same in every

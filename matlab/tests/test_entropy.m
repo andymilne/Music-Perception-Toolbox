@@ -93,7 +93,7 @@ results{end,2}   = ~isnan(H_short(1)) && isnan(H_short(2));
 
 % --- v3 fix: single multiset entropy with dim > 1 (previously errored) -----------
 
-% r = 2, isRel = false: dim = 2. Build a periodic dyad density and
+% r = 2, rel = false: dim = 2. Build a periodic dyad density and
 % compute its entropy via the new Cartesian grid path.
 H_dim2_per = entropyMaet([0, 4, 7], [], 100, 2, false, true, 1200, ...
     'method', 'normalized', 'nPointsPerDim', 60, 'verbose', false);

@@ -81,7 +81,7 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA, truncationSigmas)
     % Bulger's restriction on the X side. The identity needs the *Y*
     % perm side to be stable under the same permutation group, i.e. the
     % two densities to carry the same tuple symmetry. Guaranteed by
-    % every caller (the two densities share r_a and isExch), and checked
+    % every caller (the two densities share r_a and exch), and checked
     % structurally: the Y side must be the same orbit tiling of its own
     % comb side. Twin of the Python guard.
     combX = localCombOf(cx);
@@ -98,7 +98,7 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA, truncationSigmas)
         Ex = combX.eventOfJ(:);
     end
     sigma = cx.sigma;  r_a = cx.r;
-    isRel = cx.isRel;  isPer = cx.isPer;  period = cx.period;
+    isRel = cx.rel;  isPer = cx.per;  period = cx.period;
     % Co-transposition block size (0 = flat metric). Bundles assembled
     % before the field existed read as 0, which is the flat path they
     % were built for.
@@ -182,7 +182,7 @@ end
 function Q = localComputeQFlat(D, r, isRel, isPer, period)
 %LOCALCOMPUTEQFLAT  Quadratic form from centre differences (flat attrs).
 %
-%   Mirror of Python dispatch._compute_Q with reduced=isRel: relative
+%   Mirror of Python dispatch._compute_Q with reduced=rel: relative
 %   centres arrive in the first-coordinate reduced convention (r - 1 rows),
 %   absolute centres as full r-tuples.
 %

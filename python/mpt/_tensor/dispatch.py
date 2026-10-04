@@ -546,7 +546,7 @@ def _select_ma_inner_product_method(
     N_x, N_y : int
         Event counts of the two densities.
     any_per : bool
-        True if any group has is_per=True (drives Bulger wrap cost).
+        True if any group has per=True (drives Bulger wrap cost).
     any_rel_nonper : bool
     any_rel_per : bool
     sigma_over_P_max : float
@@ -711,14 +711,14 @@ def _select_ma_inner_product_method(
 
 
 
-def _compute_Q_inner_blocks(D, r_inner, is_per, period, *, reduced):
+def _compute_Q_inner_blocks(D, r_inner, per, period, *, reduced):
     """Block-diagonal quadratic form for the inner ``[rel]`` co-transposition unit.
 
     The inner unit removes each source event's own all-ones, leaving the
     within-event intervals tensor-joined across events (toolbox spec
     §6.3). Concretely the metric is block-diagonal: ``D``'s rows are
     ``r_outer`` event-blocks and the form is the sum over blocks of the
-    per-block flat relative quotient :func:`_compute_Q` (``is_rel=True``).
+    per-block flat relative quotient :func:`_compute_Q` (``rel=True``).
 
     ``reduced=False``: each block is a full ``r_inner``-tuple, so ``D`` has
     ``r_outer * r_inner`` rows (the inner-product / cosine convention,
@@ -737,7 +737,7 @@ def _compute_Q_inner_blocks(D, r_inner, is_per, period, *, reduced):
     Q = np.zeros(D.shape[1:], dtype=D.dtype)
     for b in range(n_blocks):
         sl = slice(b * block, (b + 1) * block)
-        Q = Q + _compute_Q(D[sl], r_inner, True, is_per, period,
+        Q = Q + _compute_Q(D[sl], r_inner, True, per, period,
                             reduced=reduced)
     return Q
 
@@ -750,7 +750,7 @@ def _inner_r_vec(dens):
     attribute resolved to an ``inner`` or ``intermediate`` co-transposition
     unit *u* (innermost-outward, 0-based), and 0 otherwise (flat
     attributes, ``absolute``, and the whole-tuple ``outer`` unit, which
-    rides the ordinary ``is_rel`` path). The block-diagonal metric removes
+    rides the ordinary ``rel`` path). The block-diagonal metric removes
     each level-*u* sub-tuple's own all-ones; there are ``D_a / s_u`` such
     blocks. Used by the evaluation and inner-product paths to switch on
     :func:`_compute_Q_inner_blocks`.
@@ -770,7 +770,7 @@ def _inner_r_vec(dens):
     return out
 
 
-def _quadratic_form_det(r, inner_r, is_rel) -> float:
+def _quadratic_form_det(r, inner_r, rel) -> float:
     """Determinant of the relative-mode quadratic form ``M`` for one attribute.
 
     A single flat attribute of tuple size ``r`` in relative mode carries
@@ -784,13 +784,13 @@ def _quadratic_form_det(r, inner_r, is_rel) -> float:
 
     Parameters mirror the three-way branch every normalisation site used
     to inline: pass the attribute's tuple size ``r``, its block size
-    ``inner_r`` (0 when flat), and its ``is_rel`` flag.
+    ``inner_r`` (0 when flat), and its ``rel`` flag.
     """
     r = int(r)
     inner_r = int(inner_r)
     if inner_r >= 2:
         return (1.0 / float(inner_r)) ** (r // inner_r)
-    if bool(is_rel) and r >= 2:
+    if bool(rel) and r >= 2:
         return 1.0 / float(r)
     return 1.0
 
@@ -814,7 +814,7 @@ def _gaussian_mass_const(sigma, dim, det_m, *, half: bool = False) -> float:
     return (c * np.pi * float(sigma) ** 2) ** (float(dim) / 2.0) / np.sqrt(det_m)
 
 
-def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
+def _compute_Q(D, r, rel, per, period, *, reduced=False):
     """Compute the quadratic form from differences D.
 
     Two input conventions, controlled by ``reduced``:
@@ -827,14 +827,14 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
       "position 0 anchored" reduction ``D[k] = d_{k+1} − d_0`` of an
       r-tuple. This is what the single-multiset centres-array evaluation path uses,
       where ``centres = u_perm[1:] − u_perm[0]`` are stored in
-      effective coordinates. Only meaningful when ``is_rel=True``;
+      effective coordinates. Only meaningful when ``rel=True``;
       ignored for absolute mode (which has dim = r and is unaffected).
 
-    Four cases of (is_rel, is_per):
+    Four cases of (rel, per):
 
-    - **abs (is_rel=False):** ``Q = sum(D**2, axis=0)``. The caller
+    - **abs (rel=False):** ``Q = sum(D**2, axis=0)``. The caller
       must pre-wrap D into the principal period interval when
-      ``is_per``. ``reduced`` is ignored here.
+      ``per``. ``reduced`` is ignored here.
     - **rel non-periodic:** ``Q = sum(D**2) - sum(D)**2 / r``. The
       same formula serves both conventions, because the algebraic
       identity that produces it doesn't depend on whether the
@@ -851,8 +851,8 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
     The result dtype matches ``D.dtype`` (relevant for callers that
     pass single-precision tensors via ``kernel_precision='single'``).
     """
-    if is_rel:
-        if is_per:
+    if rel:
+        if per:
             dt = D.dtype
             p_g = dt.type(period)
             half = dt.type(0.5)
@@ -1458,7 +1458,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
         )
 
 
-def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel,
+def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, rel,
                                          exch_vec=None) -> int:
     """Estimate the multi-attribute joint-centres working set in bytes.
 
@@ -1490,7 +1490,7 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel,
         if exch[a]:
             cnt *= factorial(r_a)
         n_joint *= max(cnt, 1)
-        D += r_a - (1 if bool(is_rel[a]) else 0)
+        D += r_a - (1 if bool(rel[a]) else 0)
         # Cap to avoid unbounded big-int growth in the estimate itself;
         # anything past the budget is already "infeasible".
         if n_joint * max(D, 1) * 8 > (1 << 60):
@@ -1608,7 +1608,7 @@ class _Lin:
         return bool(self.value)
 
 
-def _centres_query_slope(C, T, is_per, is_rel):
+def _centres_query_slope(C, T, per, rel):
     """Per-query centres slope and the tuple count it multiplies.
 
     Three kernels, three constants. The non-periodic kernel is
@@ -1621,10 +1621,10 @@ def _centres_query_slope(C, T, is_per, is_rel):
     ``(slope, T_effective)``; the caller applies the culling factor,
     which is 1 on either periodic kernel.
     """
-    if is_per and is_rel:
+    if per and rel:
         return (C["CENTRES_QUERY_PER_JOINT_REL_PER_MS"],
                 T ** C["CENTRES_QUERY_JOINT_EXP_REL_PER"])
-    if is_per:
+    if per:
         return (C["CENTRES_QUERY_PER_JOINT_PER_MS"],
                 T ** C["CENTRES_QUERY_JOINT_EXP_PER"])
     return C["CENTRES_QUERY_PER_JOINT_MS"], T
@@ -1671,14 +1671,14 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     A = int(dens.n_attrs)
     r_vec = [int(v) for v in np.atleast_1d(dens.r)]
     k_vec = [int(v) for v in np.atleast_1d(dens.k)]
-    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
-    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    rel = [bool(v) for v in np.atleast_1d(dens.rel)]
+    per = [bool(v) for v in np.atleast_1d(dens.per)]
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
     n_q_eff = float(max(int(n_q), 1))
     # Nested attributes are estimated by _nested_eval_costs_ms; here they
-    # are skipped (their r is the leaf-slot total, not a flat order).
+    # are skipped (their r is the leaf-position total, not a flat order).
     nested = getattr(dens, "nested", None) or [None] * A
     flat_attrs = [a for a in range(A) if nested[a] is None]
     if not flat_attrs and not _track:
@@ -1717,12 +1717,12 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         sums over images rather than discarding a tail --- so it is not
         reduced.
         """
-        if is_per[a] or sigma[a] <= 0:
+        if per[a] or sigma[a] <= 0:
             return 1.0
         spread = _attr_spread(a)
         if spread <= 0:
             return 1.0
-        dim = max(1, int(r_vec[a]) - (1 if is_rel[a] else 0))
+        dim = max(1, int(r_vec[a]) - (1 if rel[a] else 0))
         return min(1.0, (C["CENTRES_CULL_C"] * sigma[a] / spread) ** dim)
 
     # The factored centres route (all r_a >= 2, scalar sigma) never
@@ -1742,12 +1742,12 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         for a in flat_attrs:
             r_a, K_a = r_vec[a], k_vec[a]
             T_a = float(factorial(r_a)) * float(_math_comb(K_a, r_a))
-            q_slope, T_q = _centres_query_slope(C, T_a, is_per[a], is_rel[a])
+            q_slope, T_q = _centres_query_slope(C, T_a, per[a], rel[a])
             centres_ms += (
                 C["CENTRES_CALL_PER_JOINT_MS"] * T_a
                 + n_q_eff * (
                     C["CENTRES_FACTORED_QUERY_BASE_MS"]
-                    + (C["CENTRES_QUERY_BASE_PER_MS"] if is_per[a]
+                    + (C["CENTRES_QUERY_BASE_PER_MS"] if per[a]
                        else C["CENTRES_QUERY_BASE_MS"])
                     + q_slope * T_q * _attr_cull(a)
                 )
@@ -1759,8 +1759,8 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         cull_joint = 1.0
         for a in flat_attrs:
             cull_joint *= _attr_cull(a)
-        any_per = any(bool(is_per[a]) for a in flat_attrs)
-        any_rel_per = any(bool(is_per[a]) and bool(is_rel[a])
+        any_per = any(bool(per[a]) for a in flat_attrs)
+        any_rel_per = any(bool(per[a]) and bool(rel[a])
                           for a in flat_attrs)
         q_base = (C["CENTRES_QUERY_BASE_PER_MS"] if any_per
                   else C["CENTRES_QUERY_BASE_MS"])
@@ -1781,7 +1781,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         ops = float(2 ** r_a - 1) * r_a * K_a
         mobius_ms += C["MOBIUS_SETUP_PER_BELL_MS"] * B_r
         per_query_ms = C["MOBIUS_QUERY_PER_OP_MS"] * ops
-        if is_rel[a]:
+        if rel[a]:
             # The spectral (Fourier) strategy engages inside the mobius
             # relative evaluator for r_a in 2..4 above its query
             # thresholds (see the gate in mpt._mobius.eval_orbit_rel);
@@ -1819,7 +1819,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
                 arr = np.asarray(p_a[a], dtype=np.float64)
                 if arr.size:
                     spread = float(np.max(arr) - np.min(arr))
-            if is_per[a] and period[a] > 0:
+            if per[a] and period[a] > 0:
                 window = float(period[a])
             else:
                 window = 2.0 * spread + 16.0 * sigma[a]
@@ -1845,14 +1845,14 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
                 # where no periodic cell was measured).
                 four_ms = (_four_per_mode[r_a]
                            * (window / max(sigma[a], 1e-12)) * n_q_eff)
-                if is_per[a] and _FOUR_PER_PERIODIC_K_MS.get(r_a, 0.0):
+                if per[a] and _FOUR_PER_PERIODIC_K_MS.get(r_a, 0.0):
                     four_ms += (_FOUR_PER_PERIODIC_K_MS[r_a] * k_vec[a]
                                 * (window / max(sigma[a], 1e-12)) * n_q_eff)
                 mobius_ms += C["MOBIUS_SETUP_MS"] + four_ms
                 continue
             from .._defaults import resolve_samples_per_sigma
             sps = float(resolve_samples_per_sigma(None, r_a, None))
-            if is_per[a] and period[a] > 0:
+            if per[a] and period[a] > 0:
                 n_u = max(64.0, np.ceil(sps * period[a] / sigma[a]))
                 node_ms = (
                     C["MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS"] * ops)
@@ -1899,7 +1899,7 @@ def _predict_ma_eval_cost_ms(dens, n_q, chosen):
 #:     mobius_ms  = M0 + N * (M1 + n_q * M2 * (K * s)**alpha * n_u)
 #:
 #: with ``T = m_perm * N`` the tuple-centre count, ``d`` the reduced
-#: dimension, ``s`` the leaf slots, ``K`` the values per event and
+#: dimension, ``s`` the leaf positions, ``K`` the values per event and
 #: ``n_u`` the translation-grid node count (1 when absolute). The
 #: Möbius per-event per-query cost is a near power law in ``K * s``
 #: (log residual 0.18--0.19 in both languages) and does not see the
@@ -1996,7 +1996,7 @@ def _nested_eval_costs_ms(dens, n_q):
     A = int(dens.n_attrs)
     nested = getattr(dens, "nested", None) or [None] * A
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
-    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    per = [bool(v) for v in np.atleast_1d(dens.per)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
     n_q_eff = float(max(int(n_q), 1))
     centres_ms = 0.0
@@ -2021,7 +2021,7 @@ def _nested_eval_costs_ms(dens, n_q):
             K_sum += float(live.sum())
         K = K_sum / max(N, 1)
         d_a = _nested_attr_dim(dens, a)
-        n_u = _nested_grid_nodes(spec, p_a, sigma[a], is_per[a], period[a])
+        n_u = _nested_grid_nodes(spec, p_a, sigma[a], per[a], period[a])
         centres_ms += (
             _NESTED_COST_CENTRES_SETUP_MS
             + _NESTED_COST_CENTRES_PER_TUPLE_MS * T
@@ -2039,7 +2039,7 @@ def _nested_eval_costs_ms(dens, n_q):
 
 
 def _nested_attr_dim(dens, a):
-    """Reduced dimension of attribute ``a`` (leaf slots less one per
+    """Reduced dimension of attribute ``a`` (leaf positions less one per
     co-transposition unit block)."""
     spec = dens.nested[a]
     r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
@@ -2079,13 +2079,13 @@ def _has_ordered_attr(dens) -> bool:
     single Möbius sum.
     """
     A = int(dens.n_attrs)
-    is_exch = np.atleast_1d(
-        getattr(dens, "is_exch", np.ones(A, dtype=bool))
+    exch = np.atleast_1d(
+        getattr(dens, "exch", np.ones(A, dtype=bool))
     )
     r_vec = np.atleast_1d(dens.r)
     nested = getattr(dens, "nested", [None] * A)
     for a in range(A):
-        if nested[a] is None and not bool(is_exch[a]) and int(r_vec[a]) > 1:
+        if nested[a] is None and not bool(exch[a]) and int(r_vec[a]) > 1:
             return True
     return False
 
@@ -2187,8 +2187,8 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     A = int(dens.n_attrs)
     r_vec = [int(v) for v in np.atleast_1d(dens.r)]
     k_vec = [int(v) for v in np.atleast_1d(dens.k)]
-    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
-    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    rel = [bool(v) for v in np.atleast_1d(dens.rel)]
+    per = [bool(v) for v in np.atleast_1d(dens.per)]
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
@@ -2245,8 +2245,8 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
         # to materialise, there is no cheaper fallback (Möbius is
         # refused here), so raise rather than OOM.
         joint_ws = _estimate_ma_joint_working_set_bytes(
-            r_vec, k_vec, is_rel,
-            exch_vec=getattr(dens, "is_exch", None))
+            r_vec, k_vec, rel,
+            exch_vec=getattr(dens, "exch", None))
         if joint_ws > _DISPATCH_MEM_BUDGET:
             raise SingleImageInfeasibleError(
                 f"eval_maet requires the single-image centres route "
@@ -2267,7 +2267,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # centres route is selected instead, on the same threshold. ----
     wrap = getattr(dens, 'wrap', None)
     for a in range(A):
-        if (is_rel[a] and is_per[a] and period[a] > 0
+        if (rel[a] and per[a] and period[a] > 0
                 and sigma[a] / period[a]
                 > _orbit_sigma_over_p_threshold(truncation_sigmas)):
             wrap_a = (str(wrap[a]) if wrap is not None
@@ -2291,7 +2291,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # a joint working set above the soft budget. Below it the comparison
     # is a pure time comparison and the cheaper estimate wins.
     joint_ws = _estimate_ma_joint_working_set_bytes(
-        r_vec, k_vec, is_rel, exch_vec=getattr(dens, "is_exch", None))
+        r_vec, k_vec, rel, exch_vec=getattr(dens, "exch", None))
     safety = (_MA_MOBIUS_SAFETY
               if joint_ws > _CENTRES_WORKING_SET_SOFT_BUDGET
               else _MA_MOBIUS_SAFETY_SMALL)

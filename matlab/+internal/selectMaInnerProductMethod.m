@@ -97,7 +97,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % exch_vec and guard_forced_bulger.
     if nargin < 19 || isempty(exchVec);            exchVec = [];             end
     if nargin < 20 || isempty(guardForcedBulger); guardForcedBulger = true; end
-    % Per-attribute isPer flags for the wrap rule below: only a
+    % Per-attribute [per] flags for the wrap rule below: only a
     % relative-PERIODIC attribute's wrap declares a measure. Empty (older
     % callers) treats every relative attribute as periodic, the pre-fix
     % reading. Twin of the Python selector's per_vec.

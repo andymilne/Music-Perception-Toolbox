@@ -54,11 +54,11 @@ MOTIF = np.array([6000.0, 6200.0, 6400.0, 6700.0])   # C D E G (cents)
 
 def pre_maet(x, copies):
     """One event whose element multiset x is carried by one attribute per
-    copy; each copy is (sigma, rel, exch, is_per), read whole (r = K)."""
+    copy; each copy is (sigma, rel, exch, per), read whole (r = K)."""
     p = [np.reshape(x, (-1, 1))] * len(copies)
     sig, rel, exch, per = (list(c) for c in zip(*copies))
     return mpt.pack_pre_maet(p, None, mpt.flat_specs(
-        p, r=len(x), rel=rel, exch=exch, sigma=sig, is_per=per,
+        p, r=len(x), rel=rel, exch=exch, sigma=sig, per=per,
         period=[1200.0 if q else 0.0 for q in per]))
 
 
@@ -70,7 +70,7 @@ def sim(q, x, copies):
                         truncation_sigmas=np.inf, verbose=False)
 
 
-# Each case: the flagged copy's (rel, exch, is_per), the query, and two
+# Each case: the flagged copy's (rel, exch, per), the query, and two
 # contexts that the flag identifies with the query, exactly or nearly.
 CASES = [
     ("1. Transposition softened ([rel] copy + absolute copy)",

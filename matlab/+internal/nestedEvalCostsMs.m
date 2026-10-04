@@ -16,7 +16,7 @@ function [centresMs, mobiusMs] = nestedEvalCostsMs(dens, nQ)
 %       mobiusMs  = M0 + N * (M1 + nQ * M2 * (K * s)^alpha * nU)
 %
 %   with T = mPerm * N the tuple-centre count, d the reduced dimension,
-%   s the leaf slots, K the values per event, and nU the translation-grid
+%   s the leaf positions, K the values per event, and nU the translation-grid
 %   node count (1 when absolute). Fitted September 2026 by
 %   python/tools/fit_nested_eval_cost.py on the 3096-cell grid of
 %   tools/benchNestedEval.m (two-level shapes of 2--4 groups of 3--5
@@ -45,7 +45,7 @@ function [centresMs, mobiusMs] = nestedEvalCostsMs(dens, nQ)
     end
     A = double(dens.nAttrs);
     sigmaG = double(dens.sigma(:).');
-    isPerG = logical(dens.isPer(:).');
+    isPerG = logical(dens.per(:).');
     periodG = double(dens.period(:).');
     nQeff = max(double(nQ), 1);
     for a = 1:A

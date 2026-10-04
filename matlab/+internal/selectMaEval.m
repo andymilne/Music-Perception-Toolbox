@@ -97,8 +97,8 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     A       = double(dens.nAttrs);
     rVec    = double(dens.r(:).');
     kVec    = double(dens.K(:).');
-    isRel   = logical(dens.isRel(:).');
-    isPer   = logical(dens.isPer(:).');
+    isRel   = logical(dens.rel(:).');
+    isPer   = logical(dens.per(:).');
     sigmaG  = double(dens.sigma(:).');
     periodG = double(dens.period(:).');
 
@@ -167,7 +167,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         % Centres is the only route; guard against OOM (no cheaper
         % all-image fallback here).
         jointWs = internal.estimateMaJointWorkingSetBytes( ...
-            rVec, kVec, isRel, logical(dens.isExch(:).'));
+            rVec, kVec, isRel, logical(dens.exch(:).'));
         if jointWs > internal.dispatchMemBudget()
             error('mpt:dispatch:singleImageInfeasible', ...
                 ['evalMaet requires the single-image centres route ' ...
@@ -239,8 +239,8 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         % The near-tie safety factor insures against the centres path's
         % memory blow-up, so it applies only where that blow-up is
         % possible: a joint working set above the soft budget.
-        if isfield(dens, 'isExch') && ~isempty(dens.isExch)
-            exchArg = logical(dens.isExch(:).');
+        if isfield(dens, 'exch') && ~isempty(dens.exch)
+            exchArg = logical(dens.exch(:).');
         else
             exchArg = [];
         end

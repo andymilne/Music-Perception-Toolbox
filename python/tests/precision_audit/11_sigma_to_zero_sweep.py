@@ -42,13 +42,13 @@ A = 1
 SEEDS = 5
 
 
-def err_and_cosine(p1, w1, p2, w2, sigma, P, r, is_rel, is_per):
+def err_and_cosine(p1, w1, p2, w2, sigma, P, r, rel, per):
     """Returns (rel_err, pairwise_cosine, orbit_cosine_or_nan)."""
     sigmas = [sigma]
     rs = [r]
     groups = [0]
-    is_rels = [is_rel]
-    is_pers = [is_per]
+    is_rels = [rel]
+    is_pers = [per]
     periods = [P]
     d1 = build_maet(
         [p1], [w1], sigmas, rs, is_rels, is_pers, periods, verbose=False,
@@ -84,14 +84,14 @@ def main():
     )
     print(header)
     print("-" * len(header))
-    for mode_name, is_rel, is_per in MODES:
+    for mode_name, rel, per in MODES:
         for r in R_VALUES:
             for dk in DELTA_K_VALUES:
                 K = r + dk
                 for sp in SIGMA_OVER_P_VALUES:
                     sigma = sp * P
                     # Skip rel modes at extreme σ — orbit grid infeasible
-                    if is_rel and sp < 1e-3:
+                    if rel and sp < 1e-3:
                         print(
                             f"{mode_name:<11} {r:>2} {K:>3} {sp:>8.0e} | "
                             f"{'(orbit grid infeasible — skipped)':>40}"
@@ -120,7 +120,7 @@ def main():
                             try:
                                 e, cp, co = err_and_cosine(
                                     p1, w1, p2, w2, sigma, P, r,
-                                    is_rel, is_per,
+                                    rel, per,
                                 )
                             except Exception:
                                 e, cp, co = float('nan'), float('nan'), float('nan')

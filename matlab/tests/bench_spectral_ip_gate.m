@@ -38,9 +38,9 @@
 %
 %  WHAT IT PRINTS
 %  --------------
-%  One CSV row per (r, K, sigma/period, isPer) cell:
+%  One CSV row per (r, K, sigma/period, per) cell:
 %
-%      r, K, N, sigmaOverP, isPer, gridSize, msSpectral, msGrid, ratio
+%      r, K, N, sigmaOverP, per, gridSize, msSpectral, msGrid, ratio
 %
 %  ratio = msGrid / msSpectral. The branch is worth taking where
 %  ratio > 1. The spectral arm is timed with the cost gate bypassed
@@ -74,7 +74,7 @@ bsg_isPers = [true, false];
 bsg_reps   = 5;
 
 fprintf('CSV_BEGIN\n');
-fprintf('r,K,N,sigmaOverP,isPer,gridSize,msSpectral,msGrid,ratio\n');
+fprintf('r,K,N,sigmaOverP,per,gridSize,msSpectral,msGrid,ratio\n');
 
 for bsg_isPer = bsg_isPers
     for bsg_r = bsg_rs

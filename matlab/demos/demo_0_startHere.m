@@ -5,7 +5,7 @@
 %  where to begin, how the demos fit together, and which demos cover
 %  each topic. Each demo opens with a header saying what it shows, and
 %  most end their sections with pointers to the demos that go further.
-%  The User Guide (USER_GUIDE.md, section 15) describes every demo in
+%  The User Guide (USER_GUIDE.md, section 13) describes every demo in
 %  more detail. Every MATLAB demo has a Python twin in python/demos/,
 %  with the same computations and the same printed numbers.
 %
@@ -108,8 +108,8 @@
 %    JMM 1.1-1.4 (Bach), 2.1-2.3 (Coltrane)
 %
 %  Building and reading MAETs
-%    demo_overview          the four parameters (r, isRel, isPer,
-%                           isExch), drawn
+%    demo_overview          the four parameters (r, rel, per,
+%                           exch), drawn
 %    demo_maetPlots         every combination of the four parameters,
 %                           drawn by each plotMaet method
 %    demo_softeningEquivalences

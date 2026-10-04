@@ -35,13 +35,13 @@ function v = singleMultisetView(dens)
     v.w      = dens.w{1}(:);
     v.sigma  = dens.sigma(1);
     v.r      = dens.r(1);
-    v.isRel  = dens.isRel(1);
-    v.isPer  = dens.isPer(1);
+    v.rel  = dens.rel(1);
+    v.per  = dens.per(1);
     v.period = dens.period(1);
-    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
-        v.isExch = dens.isExch(1);
+    if isfield(dens, 'exch') && ~isempty(dens.exch)
+        v.exch = dens.exch(1);
     else
-        v.isExch = true;
+        v.exch = true;
     end
     if isfield(dens, 'dimPerAttr') && ~isempty(dens.dimPerAttr)
         v.dim = dens.dimPerAttr(1);

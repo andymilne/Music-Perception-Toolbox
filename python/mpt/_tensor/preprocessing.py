@@ -466,25 +466,25 @@ def _bcast_names(name, A):
     return names
 
 
-def flat_specs(p_attr, *, r=1, rel=False, exch=True, name=None,
-               sigma=None, is_per=None, period=None):
+def flat_specs(p_attr, *, r=1, rel=False, exch=True, names=None,
+               sigma=None, per=None, period=None):
     """Build a list of flat (one-level) specs for bare attributes.
 
     Convenience constructor for the canonical attribute specifications:
     wraps a list of per-attribute value matrices in flat spec dicts
-    ``{r, rel, exch, name?, sigma?, is_per?, period?}``, broadcasting
+    ``{r, rel, exch, name?, sigma?, per?, period?}``, broadcasting
     scalar geometry across attributes. This is the trivial flat-specs
     synthesis at the entry of a pre-MAET chain (raw attributes carry no
     level structure yet) and an ergonomic alternative to hand-writing
     flat dicts for ``build_maet(..., specs=...)``.
 
     The kernel parameters are optional here and compulsory at the tensor
-    (§7.4.3). Given them, the specs are a complete pre-MAET geometry and
+    (User Guide §6.3). Given them, the specs are a complete pre-MAET geometry and
     nothing further need be supplied at the build::
 
         pm = pack_pre_maet(p_attr, w_attr, flat_specs(
             p_attr, r=[2, 1], sigma=[0.5, 0.25],
-            is_per=[True, False], period=[12.0, 0.0]))
+            per=[True, False], period=[12.0, 0.0]))
         dens = build_maet(pm)
 
     Omitted, they are simply absent from the specs, and `build_maet`
@@ -501,12 +501,12 @@ def flat_specs(p_attr, *, r=1, rel=False, exch=True, name=None,
         Per-attribute tuple size (default 1).
     rel, exch : bool or length-A, keyword-only
         Per-attribute ``[rel]`` / ``[exch]`` (defaults ``False`` / ``True``).
-    name : None, str, or length-A, keyword-only
+    names : None, str, or length-A, keyword-only
         Optional per-attribute names.
     sigma : None, scalar, or length-A, keyword-only
         Optional per-attribute kernel width. A per-attribute entry may
         be a matrix-valued kernel covariance.
-    is_per : None, bool, or length-A, keyword-only
+    per : None, bool, or length-A, keyword-only
         Optional per-attribute periodicity.
     period : None, scalar, or length-A, keyword-only
         Optional per-attribute period (inert where not periodic).
@@ -525,13 +525,13 @@ def flat_specs(p_attr, *, r=1, rel=False, exch=True, name=None,
     r_v = _bcast_geom(r, A, "r", cast=int)
     rel_v = _bcast_geom(rel, A, "rel", cast=bool)
     exch_v = _bcast_geom(exch, A, "exch", cast=bool)
-    name_v = _bcast_names(name, A)
+    name_v = _bcast_names(names, A)
     specs = []
     for a in range(A):
         s = {"r": r_v[a], "rel": rel_v[a], "exch": exch_v[a]}
         if name_v[a] is not None:
             s["name"] = name_v[a]
-        for key, val in (("sigma", sigma), ("is_per", is_per),
+        for key, val in (("sigma", sigma), ("per", per),
                          ("period", period)):
             if val is None:
                 continue
@@ -632,7 +632,7 @@ def bind_events(
     r_outer=None,
     exch_outer=False,
     rel_outer=False,
-    name=None,
+    names=None,
     level_names=None,
     group_by=None,
     group_atol: float = 0.0,
@@ -751,7 +751,7 @@ def bind_events(
         defaults to ``L_a`` (the whole window).
     exch_outer, rel_outer : bool / scalar / length-A, keyword-only
         Outer-level ``[exch]`` and ``[rel]``. Default ``0``/``0``.
-    name : None, str, or length-A, keyword-only
+    names : None, str, or length-A, keyword-only
         Optional per-attribute name(s). Overrides any ``name`` carried
         on the incoming spec; otherwise the incoming name is preserved.
     level_names : None or length-2 list, keyword-only
@@ -811,7 +811,7 @@ def bind_events(
     if group_by is not None:
         return _bind_events_run_length(
             p_attr, w, K, A, n_events, group_by, group_atol, specs,
-            r_outer, exch_outer, rel_outer, name, level_names,
+            r_outer, exch_outer, rel_outer, names, level_names,
             bind_orders, circular, step,
         )
 
@@ -855,7 +855,7 @@ def bind_events(
         r_out = _bcast_geom(r_outer, A, "r_outer", cast=int)
     exch_out = _bcast_geom(exch_outer, A, "exch_outer", cast=bool)
     rel_out = _bcast_geom(rel_outer, A, "rel_outer", cast=bool)
-    names_attr = _bcast_names(name, A)
+    names_attr = _bcast_names(names, A)
     if level_names is not None and len(level_names) != 2:
         raise ValueError(
             "level_names must be a length-2 [inner, outer] list (two-level "
@@ -949,11 +949,9 @@ def bind_events(
                 spec["names"] = list(level_names)
         # Binding regroups values; it does not touch them, so the
         # attribute's kernel geometry crosses to the nested spec intact.
-        for key in ("sigma", "is_per", "period"):
+        for key in ("sigma", "per", "period"):
             if key in s_in:
                 spec[key] = s_in[key]
-            elif key == "is_per" and "isPer" in s_in:
-                spec[key] = s_in["isPer"]
         if nm is not None:
             spec["name"] = nm
         specs_out.append(spec)
@@ -1115,11 +1113,9 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
             spec["names"] = list(level_names)
         # Binding regroups values; it does not touch them, so the
         # attribute's kernel geometry crosses to the nested spec intact.
-        for key in ("sigma", "is_per", "period"):
+        for key in ("sigma", "per", "period"):
             if key in s_in:
                 spec[key] = s_in[key]
-            elif key == "is_per" and "isPer" in s_in:
-                spec[key] = s_in["isPer"]
         nm = names_attr[a] if names_attr[a] is not None else s_in.get("name")
         if nm is not None:
             spec["name"] = nm
@@ -1262,7 +1258,7 @@ def weight_events(
     decay_rate_start=None,
     decay_rate_end=None,
     alpha=0.5,
-    is_per=False,
+    per=False,
     period=0.0,
     locate="centroid",
     edges=None,
@@ -1336,7 +1332,7 @@ def weight_events(
       ``edges='closed'``.
 
     The window is peak-normalised so :math:`h(0) = 1`. For a periodic
-    input group (``is_per=True``), the difference
+    input group (``per=True``), the difference
     :math:`\delta = v - \text{centre}` is wrapped to
     :math:`[-P/2, P/2]` before applying :math:`h`; the stored values
     in ``p_attr`` are not modified.
@@ -1378,7 +1374,7 @@ def weight_events(
         attribute's entry. ``weight_events`` does not otherwise consult
         the specs; the window is computed from the input attribute's
         values, ``centre``, ``shape``, ``sd``/``width``, and (for a
-        periodic input) ``is_per``/``period``.
+        periodic input) ``per``/``period``.
     input_attr : int
         Index of the attribute supplying the window's values. Must
         satisfy ``0 <= input_attr < A``. Where an event holds several
@@ -1395,13 +1391,13 @@ def weight_events(
         Shape parameter :math:`\gamma \in [0, 1]`. ``0`` is pure
         Gaussian; ``1`` is pure rectangle; intermediate values
         interpolate via the fixed-variance convolution family.
-    is_per : bool, keyword-only, default False
+    per : bool, keyword-only, default False
         Whether the input attribute is periodic. If ``True``,
         :math:`\delta = v - \text{centre}` is wrapped to
         :math:`[-P/2, P/2]` before evaluating :math:`h`.
     period : float, keyword-only, default 0.0
         Period of the input attribute. Used only when
-        ``is_per=True`` (must then be ``> 0``); ignored otherwise.
+        ``per=True`` (must then be ``> 0``); ignored otherwise.
     sd : float, keyword-only
         Window standard deviation, ``> 0``, in the input attribute's
         units. Exactly one of ``sd`` or ``width`` must be supplied.
@@ -1557,7 +1553,7 @@ def weight_events(
             f"drop_input_attr=False, or choose a different target_attr."
         )
 
-    # --- Validate centre, the profile and its scale, is_per, period ---
+    # --- Validate centre, the profile and its scale, per, period ---
     centre_f = (float("nan") if centre is None
                 else _scalarize(centre, "centre", dtype=float))
     profile = _resolve_profile(
@@ -1565,7 +1561,7 @@ def weight_events(
         decay_rate_start=decay_rate_start, decay_rate_end=decay_rate_end,
         alpha=alpha)
     closed = _resolve_edges(edges, profile)
-    is_per_b = _scalarize(is_per, "is_per", dtype=bool)
+    is_per_b = _scalarize(per, "per", dtype=bool)
     period_f = _scalarize(period, "period", dtype=float)
 
     if profile.kind == "anchored":
@@ -1578,14 +1574,14 @@ def weight_events(
         raise ValueError(f"centre must be finite; got {centre_f}.")
     if is_per_b and period_f <= 0:
         raise ValueError(
-            f"period must be > 0 when is_per is True; got {period_f}."
+            f"period must be > 0 when per is True; got {period_f}."
         )
 
     # --- Compute factor h(delta) from the input attribute's values ---
     # Each event is represented by one value: its only value, or, where it
     # holds several (a bound super-event's onsets), the one `locate` picks.
     val_row = _locate_row(p_attr[input_attr_int], locate)  # (1, N)
-    factor = _weight_factor(val_row, centre_f, profile, is_per=is_per_b,
+    factor = _weight_factor(val_row, centre_f, profile, per=is_per_b,
                             period=period_f, closed=closed)
 
     # --- Normalise w to length-A list; multiply factor into target entry ---
@@ -1808,7 +1804,7 @@ def _locate_row(M, locate):
         f"got {locate!r}")
 
 
-def _weight_factor(val_row, reference, profile, *, is_per=False,
+def _weight_factor(val_row, reference, profile, *, per=False,
                    period=0.0, closed=False):
     """The per-event factor ``h(value - reference)``, shape ``(1, N)``, of
     a resolved :class:`_Profile`: the one implementation of event
@@ -1822,7 +1818,7 @@ def _weight_factor(val_row, reference, profile, *, is_per=False,
     val_row = np.asarray(val_row, dtype=np.float64)
     anchored = profile.kind == "anchored"
     delta = val_row if anchored else val_row - reference
-    if is_per:
+    if per:
         delta = delta - period * np.floor(delta / period + 0.5)
     factor = np.array(_evaluate_weight_profile(
         val_row, delta, profile.sd, profile.shape, profile.opts),
@@ -2054,7 +2050,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     :func:`~mpt.sweep_sim_maet` (densities), which compute every offset
     in one pass rather than building a copy per offset.
 
-    **Relative attributes.** ``is_rel`` is read per-attribute from
+    **Relative attributes.** ``rel`` is read per-attribute from
     ``specs`` (no separate argument). A *uniform* shift cancels in every
     within-tuple difference, so on an attribute whose **outermost level
     is relative** a uniform finite offset is a structural no-op: that
@@ -2062,7 +2058,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     :class:`TranslateAttributesNoOpWarning` is emitted per call. A
     *non-uniform* (per-value) offset is **not** a no-op even on a relative
     attribute --- it shifts the within-tuple differences --- so it
-    applies. ``is_per``/``period`` are not consulted here (translation
+    applies. ``per``/``period`` are not consulted here (translation
     emits unwrapped values; the periodic kernel in
     :func:`build_maet` wraps downstream), and stay separate scalar
     geometry passed to build.
@@ -2084,7 +2080,7 @@ def translate_attributes(p_attr, w_attr=None, offsets=None, *,
     offsets : length-A list
         Per-attribute offsets; see the layouts above.
     specs : None or length-A list, keyword-only
-        Attribute specifications supplying per-attribute ``is_rel`` (outermost
+        Attribute specifications supplying per-attribute ``rel`` (outermost
         level) and value structure. ``None`` synthesises flat specs.
 
     Returns
@@ -2406,7 +2402,7 @@ def select_pre_maet(p_attr, w_attr=None, attributes=None, events=None, *,
 
 
 def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
-                    r=None, exch=None, sigma=None, rel=None, is_per=None,
+                    r=None, exch=None, sigma=None, rel=None, per=None,
                     period=None, specs=None):
     """Gather several attributes into one whose tuple holds them all.
 
@@ -2443,7 +2439,7 @@ def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
         Whether the bound values are exchangeable. Required, and
         normally ``False``, the point of binding being that position
         signifies.
-    sigma, rel, is_per, period : optional
+    sigma, rel, per, period : optional
         The bound attribute's kernel parameters. Each is inherited where
         every input agrees on it and required where they differ, since
         there is no reading of a periodic value bound to a non-periodic
@@ -2502,7 +2498,7 @@ def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
                                      for W in w_attr]
     spec = dict(name=name, r=int(r), exch=bool(exch))
     for field, given in (("sigma", sigma), ("rel", rel),
-                         ("is_per", is_per), ("period", period)):
+                         ("per", per), ("period", period)):
         if given is not None:
             spec[field] = given
             continue
@@ -2516,9 +2512,9 @@ def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
                 f"The bound attributes disagree on {field} ({values}), so "
                 "the bound one has no value to inherit; give it in the "
                 "call.")
-    if spec.get("is_per") and spec.get("period") in (None, 0.0):
+    if spec.get("per") and spec.get("period") in (None, 0.0):
         raise ValueError(
-            f"{name!r}: is_per is set, so it needs a period.")
+            f"{name!r}: per is set, so it needs a period.")
 
     bound_p = np.vstack([p_attr[a] for a in idx])
     bound_w = None if w is None else np.vstack([w[a] for a in idx])
@@ -2542,12 +2538,12 @@ def bind_attributes(p_attr, w_attr=None, attributes=None, *, name=None,
 
 def separate_attributes(p_attr, w_attr=None, attribute=None, *, names=None,
                         specs=None):
-    """Split one attribute into one attribute per slot.
+    """Split one attribute into one attribute per position.
 
     The inverse of :func:`bind_attributes`, and the operation by which
     the conversion's two structural roles differ: under
-    ``'ordered_multiset'`` slot *k* is level *k*, so splitting that
-    attribute slot by slot gives what the ``'separate_attributes'`` role
+    ``'ordered_multiset'`` position *k* is level *k*, so splitting that
+    attribute position by position gives what the ``'separate_attributes'`` role
     builds from the table directly.
 
     Each output attribute holds one row of the input and carries its
@@ -2564,15 +2560,15 @@ def separate_attributes(p_attr, w_attr=None, attribute=None, *, names=None,
     attribute : int or str
         The attribute to split, as an index or a name.
     names : sequence of str, optional
-        Names for the parts, one per slot. The default suffixes the
-        source's name with the 1-based slot position.
+        Names for the parts, one per position. The default suffixes the
+        source's name with the 1-based position.
     specs : list of dict, optional
         The attribute specifications; ``None`` synthesises flat ones.
 
     Returns
     -------
     dict
-        The pre-MAET, with the parts in slot order in place of their
+        The pre-MAET, with the parts in position order in place of their
         source.
 
     See Also
@@ -2607,7 +2603,7 @@ def separate_attributes(p_attr, w_attr=None, attribute=None, *, names=None,
     names = list(names)
     if len(names) != K:
         raise ValueError(
-            f"names must have one entry per slot ({K}); got {len(names)}.")
+            f"names must have one entry per position ({K}); got {len(names)}.")
 
     w = None if w_attr is None else [np.asarray(W, dtype=np.float64)
                                      for W in w_attr]
@@ -2616,7 +2612,7 @@ def separate_attributes(p_attr, w_attr=None, attribute=None, *, names=None,
         parts.append(p_attr[at][k:k + 1, :])
         if w is not None:
             part_w.append(w[at][k:k + 1, :])
-        spec = {f: source[f] for f in ("sigma", "rel", "is_per", "period")
+        spec = {f: source[f] for f in ("sigma", "rel", "per", "period")
                 if f in source}
         spec.update(name=names[k], r=1, exch=True)
         part_specs.append(spec)

@@ -53,7 +53,7 @@ def density_set():
 
 @pytest.fixture
 def query_grid():
-    """A 2-D query (matching dim = r - is_rel = 2) at points near the
+    """A 2-D query (matching dim = r - rel = 2) at points near the
     chord pitches so density values are non-trivial.
     """
     pa = np.array([0.0, 100.0, 300.0, 400.0, 500.0, 700.0, 800.0, 1000.0])
@@ -284,7 +284,7 @@ class TestRawMAScalar:
     def test_basic_call(self):
         """Raw MA via unified entry matches building-then-evaluating."""
         p_attr = [np.array([[0.0, 400.0, 700.0]]).T]   # (3, 1) — 3 events, 1 attr-dim
-        # Density has dim_per_attr = [r - is_rel] = [2]; query is (2, nQ).
+        # Density has dim_per_attr = [r - rel] = [2]; query is (2, nQ).
         x = np.array([
             [0.0, 100.0, 400.0, 700.0, 800.0],
             [400.0, 700.0, 700.0, 0.0, 300.0],
@@ -335,3 +335,14 @@ class TestErrors:
             eval_maet(
                 density_set["major"], query_grid, precision=4, verbose=False,
             )
+
+
+def test_a_one_dimensional_density_takes_a_list_of_query_points():
+    """A 1-D density takes a 1-D array of query points (UG §10.9), and a
+    flat list of numbers is the same array, not one entry per attribute."""
+    dia = build_maet([0, 2, 4, 5, 7, 9, 11], None, 0.1, 2, True, True, 12,
+                     verbose=False)
+    want = eval_maet(dia, np.array([5.0, 6.0, 7.0]), verbose=False)
+    np.testing.assert_allclose(eval_maet(dia, [5, 6, 7], verbose=False), want)
+    np.testing.assert_allclose(eval_maet(dia, (5, 6, 7), verbose=False), want)
+    np.testing.assert_allclose(want, [6.0, 2.0, 6.0], atol=1e-9)

@@ -33,7 +33,7 @@ function bundle = closedFormAttrCentres(dens, a)
 %     Centres   (d x nJ)  tuple-centres (d = r_a - 1 rel, r_a abs)
 %     wJ        (1 x nJ)  per-tuple weights
 %     eventOfJ  (1 x nJ)  event index per tuple
-%     isPer, period, r, isRel, sigma, N — attribute parameters.
+%     per, period, r, rel, sigma, N — attribute parameters.
 %     innerBlockSize
 %               co-transposition block size s_u for an inner /
 %               intermediate [rel] unit, 0 otherwise (the twin of the
@@ -53,8 +53,8 @@ function bundle = closedFormAttrCentres(dens, a)
     Wa = dens.w{a};
     sigma_a = dens.sigma(a);
     r_a = dens.r(a);
-    isRel_a = logical(dens.isRel(a));
-    isPer_a = logical(dens.isPer(a));
+    isRel_a = logical(dens.rel(a));
+    isPer_a = logical(dens.per(a));
     period_a = dens.period(a);
 
     % The attribute's own [exch] flag rides through the rebuild, as it
@@ -62,16 +62,16 @@ function bundle = closedFormAttrCentres(dens, a)
     % An ordered attribute must not be symmetrised by the rebuild: its
     % perm side is its comb side, and the comb-side restriction below
     % detects that structurally (nJ == nK, not r_a! * nK) and declines.
-    % Densities built before isExch existed default to the symmetric
+    % Densities built before exch existed default to the symmetric
     % reading, unchanged.
     isExch_a = true;
-    if isfield(dens, 'isExch') && numel(dens.isExch) >= a
-        isExch_a = logical(dens.isExch(a));
+    if isfield(dens, 'exch') && numel(dens.exch) >= a
+        isExch_a = logical(dens.exch(a));
     end
 
     % Nested attribute: forward the stored (already normalised) spec.
     % Its per-level [r] / [exch] / tags carry the geometry, and the
-    % attribute-level isRel must be passed false --- exactly as the
+    % attribute-level rel must be passed false --- exactly as the
     % original build received it --- so that the spec's own [rel]
     % selector derives it and the build's vacuous-level collapse
     % behaves identically to the original build. (Passing true would
@@ -95,18 +95,18 @@ function bundle = closedFormAttrCentres(dens, a)
     bundle.Centres  = da.Centres{1};
     bundle.wJ       = da.wJ;
     bundle.eventOfJ = da.eventOfJ;
-    bundle.isPer    = isPer_a;
+    bundle.per      = isPer_a;
     bundle.period   = period_a;
     % Read back from the rebuild rather than from the caller's density:
     % where the build collapsed a vacuous nesting level to a flat
-    % attribute, the rebuild's r / isRel are the ones the materialised
+    % attribute, the rebuild's r / rel are the ones the materialised
     % centres are actually in.
     bundle.r        = double(da.r(1));
-    bundle.isRel    = logical(da.isRel(1));
+    bundle.rel      = logical(da.rel(1));
     bundle.sigma    = sigma_a;
     bundle.N        = da.N;
     bundle.innerBlockSize = localInnerBlockSize(da);
-    bundle.comb     = localCombRestriction(da, bundle.r, bundle.isRel);
+    bundle.comb     = localCombRestriction(da, bundle.r, bundle.rel);
 end
 
 
@@ -188,7 +188,7 @@ function comb = localCombRestriction(da, r_a, isRel_a)
 %
 %     - r_a < 2 for a flat attribute, or |G| < 2 for a nested one
 %       (every level ordered): there is no orbit;
-%     - an ordered flat attribute (isExch = false): the build sets the
+%     - an ordered flat attribute (exch = false): the build sets the
 %       perm side equal to the comb side, so scaling by r_a! would be
 %       wrong;
 %     - any density whose materialised sides do not satisfy

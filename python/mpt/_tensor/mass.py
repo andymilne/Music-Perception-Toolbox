@@ -90,7 +90,7 @@ def _density_mass(dens):
     P = [np.asarray(p, dtype=np.float64) for p in dens.p_attr]
     W = [np.asarray(w, dtype=np.float64) for w in dens.w]
     r_vec = [int(v) for v in np.atleast_1d(dens.r)]
-    is_exch = [bool(v) for v in np.atleast_1d(dens.is_exch)]
+    exch = [bool(v) for v in np.atleast_1d(dens.exch)]
     nested = dens.nested
 
     # Per-attribute tuple-index structure over the ever-valid values, as
@@ -113,7 +113,7 @@ def _density_mass(dens):
             pm = np.empty((r_vec[a], 0), dtype=np.intp)
         else:
             pm, _, _, _ = _enum_flat_attr(
-                np.zeros(P[a].shape[0]), ever_valid, r_vec[a], is_exch[a],
+                np.zeros(P[a].shape[0]), ever_valid, r_vec[a], exch[a],
                 np.ones(P[a].shape[0]))
         perm.append(np.asarray(pm, dtype=np.intp))
 

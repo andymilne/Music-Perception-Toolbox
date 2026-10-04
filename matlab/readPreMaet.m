@@ -10,8 +10,8 @@ function pm = readPreMaet(source, varargin)
 %   The cells use the notation of the article and of showPreMaet: braces
 %   for an unordered multiset, parentheses for an ordered one, brackets
 %   within brackets for a nested attribute, 60^(0.6) for a weighted
-%   value, and _ for an empty slot of an ordered attribute, so (_, 65)
-%   puts 65 in the second slot. writePreMaet is the inverse, so a pre-MAET survives a round
+%   value, and _ for an ordered attribute's position with no value, so (_, 65)
+%   puts 65 in the second position. writePreMaet is the inverse, so a pre-MAET survives a round
 %   trip through a spreadsheet unchanged.
 %
 %   The header is fixed: name, sigma, r, rel, per, P, exch followed by one
@@ -28,7 +28,7 @@ function pm = readPreMaet(source, varargin)
 %
 %   Returns the pre-MAET: its wAttr is [] where no cell carried a weight,
 %   and each spec holds r, rel, exch, name and, where the file gives them,
-%   sigma, isPer and period. A nested attribute also carries its tags,
+%   sigma, per and period. A nested attribute also carries its tags,
 %   reconstructed from the bracket structure of its cells.
 %
 %   See also WRITEPREMAET, SHOWPREMAET, BUILDMAET.
@@ -110,7 +110,7 @@ for a = 1:A
     end
     per = internal.preMaetParam(row{5});
     if ~isempty(per)
-        if isnan(per); spec.isPer = NaN; else; spec.isPer = logical(per); end
+        if isnan(per); spec.per = NaN; else; spec.per = logical(per); end
     end
     period = internal.preMaetParam(row{6});
     if ~isempty(period); spec.period = period; end

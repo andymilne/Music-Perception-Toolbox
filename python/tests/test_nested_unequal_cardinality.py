@@ -81,23 +81,23 @@ def _bf_cos(X, Y, r_in, r_out, exch_in, exch_out, sigma):
 #  Density builders
 # ----------------------------------------------------------------------
 def _nested_density(chords, r_in, r_out, exch_in, exch_out, *, rel_out,
-                    is_per, period, sigma):
+                    per, period, sigma):
     counts = [len(c) for c in chords]
     tags = np.concatenate([np.full(counts[k], k) for k in range(len(chords))])
     pitches = np.array([v for c in chords for v in c], float).reshape(-1, 1)
     spec = {"tags": tags, "r": [r_in, r_out],
             "exch": [exch_in, exch_out], "rel": [0, rel_out]}
     return build_maet([pitches], None, specs=[spec], sigma=[sigma],
-                          is_per=[is_per], period=[period], verbose=False)
+                          per=[per], period=[period], verbose=False)
 
 
 def _cos(chords_x, chords_y, *, r_in, r_out, exch_in, exch_out, rel_out,
-         is_per, period, sigma, method="contract"):
+         per, period, sigma, method="contract"):
     dx = _nested_density(chords_x, r_in, r_out, exch_in, exch_out,
-                         rel_out=rel_out, is_per=is_per, period=period,
+                         rel_out=rel_out, per=per, period=period,
                          sigma=sigma)
     dy = _nested_density(chords_y, r_in, r_out, exch_in, exch_out,
-                         rel_out=rel_out, is_per=is_per, period=period,
+                         rel_out=rel_out, per=per, period=period,
                          sigma=sigma)
     return sim_maet(dx, dy, method=method, verbose=False)
 
@@ -130,7 +130,7 @@ def test_absolute_contraction_matches_bruteforce(
         label, X, Y, r_in, r_out, exch_in, exch_out):
     sigma = 0.5
     got = _cos(X, Y, r_in=r_in, r_out=r_out, exch_in=exch_in, exch_out=exch_out,
-               rel_out=0, is_per=False, period=1e9, sigma=sigma)
+               rel_out=0, per=False, period=1e9, sigma=sigma)
     want = _bf_cos(X, Y, r_in, r_out, exch_in, exch_out, sigma)
     assert got == pytest.approx(want, abs=1e-10)
 
@@ -146,7 +146,7 @@ def test_unequal_cardinality_r2_relperiodic_nonzero_symmetric():
     proto = [[0., 4., 7., 0.], [7., 11., 2., 7.], [0., 4., 7., 0.]]
     window = [c + c for c in proto]           # each chord doubled -> 8 pitches
     kw = dict(r_in=2, r_out=3, exch_in=True, exch_out=False, rel_out=1,
-              is_per=True, period=P, sigma=sigma)
+              per=True, period=P, sigma=sigma)
     xy = _cos(proto, window, **kw)
     yx = _cos(window, proto, **kw)
     assert xy > 1e-3                          # was ~0
@@ -161,7 +161,7 @@ def test_equal_cardinality_r2_unchanged():
     a = [[0., 4., 7., 0.], [7., 11., 2., 7.], [0., 4., 7., 0.]]
     b = [[0., 3., 7., 0.], [7., 11., 2., 7.], [0., 3., 7., 0.]]
     kw = dict(r_in=2, r_out=3, exch_in=True, exch_out=False, rel_out=1,
-              is_per=True, period=P, sigma=sigma)
+              per=True, period=P, sigma=sigma)
     assert _cos(a, a, **kw) == pytest.approx(1.0, abs=1e-12)
     assert _cos(a, b, **kw) == pytest.approx(_cos(b, a, **kw), abs=1e-12)
 
@@ -186,7 +186,7 @@ def test_relperiodic_unequal_contract_matches_enumeration(
     # Small sigma/period keeps the transposition-average surrogate exact, so
     # it agrees with the bulger enumeration to numerical precision.
     kw = dict(r_in=r_in, r_out=r_out, exch_in=True, exch_out=False, rel_out=1,
-              is_per=True, period=12.0, sigma=0.2)
+              per=True, period=12.0, sigma=0.2)
     contract = _cos(X, Y, method="contract", **kw)
     bulger = _cos(X, Y, method="bulger", **kw)
     assert contract == pytest.approx(bulger, abs=1e-9)
@@ -203,8 +203,8 @@ def test_absolute_nonperiodic_finite_period_does_not_wrap():
     # A small finite period that *would* alias if periodicity were (wrongly)
     # inferred from period rather than the [per] flag.
     got_small = _cos(X, Y, r_in=2, r_out=2, exch_in=True, exch_out=False,
-                     rel_out=0, is_per=False, period=2.0, sigma=sigma)
+                     rel_out=0, per=False, period=2.0, sigma=sigma)
     got_huge = _cos(X, Y, r_in=2, r_out=2, exch_in=True, exch_out=False,
-                    rel_out=0, is_per=False, period=1e9, sigma=sigma)
+                    rel_out=0, per=False, period=1e9, sigma=sigma)
     assert got_small == pytest.approx(want, abs=1e-10)
     assert got_small == pytest.approx(got_huge, abs=1e-10)

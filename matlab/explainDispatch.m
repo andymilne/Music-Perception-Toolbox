@@ -80,8 +80,8 @@ function [sop, limit, setBy] = localPeriodicity(dens, truncationSigmas)
     sop = [];
     sig = double(dens.sigma(:).');
     per = double(dens.period(:).');
-    isRel = logical(dens.isRel(:).');
-    isPer = logical(dens.isPer(:).');
+    isRel = logical(dens.rel(:).');
+    isPer = logical(dens.per(:).');
     for a = 1:numel(sig)
         if a <= numel(per) && per(a) > 0 && isPer(a) && isRel(a)
             sop = max([sop, sig(a) / per(a)]);
@@ -385,8 +385,8 @@ function adm = localNestedAdmissible(dens, a, ts)
 %   three lines and stating it twice is cheaper than widening that file's
 %   interface for a diagnostic. TESTS/TEST_NESTED_COST_MODEL checks the
 %   two agree.
-    isRel = logical(dens.isRel(a));
-    isPer = logical(dens.isPer(a));
+    isRel = logical(dens.rel(a));
+    isPer = logical(dens.per(a));
     if ~isRel
         adm = {'contract'};
         return;
@@ -420,7 +420,7 @@ function tf = localNestedEnumOk(dens, ts)
     tf = true;
     limit = internal.relPerSigmaOverPThreshold(ts);
     for a = 1:double(dens.nAttrs)
-        if ~(logical(dens.isRel(a)) && logical(dens.isPer(a)))
+        if ~(logical(dens.rel(a)) && logical(dens.per(a)))
             continue;
         end
         if isfield(dens, 'wrap') && iscell(dens.wrap) ...
@@ -440,8 +440,8 @@ end
 function s = localShape(dens)
     rVec = double(dens.r(:).');
     kVec = double(dens.K(:).');
-    isRel = logical(dens.isRel(:).');
-    isPer = logical(dens.isPer(:).');
+    isRel = logical(dens.rel(:).');
+    isPer = logical(dens.per(:).');
     parts = cell(1, numel(rVec));
     for a = 1:numel(rVec)
         if isRel(a), rel = 'rel'; else, rel = 'abs'; end

@@ -79,8 +79,8 @@ fprintf('Loading BWV 347 and extracting cadence tonics...\n');
 % are the sweep's, which buildMaet overrides per call.
 pm = preMaetFromAttrTable( ...
     gridAttrTable(jmm.bwv347Notes(), jmm.gridStepQn()), ...
-    'attributes', {struct('column', 'pitch', 'sigma', SIGMA_PITCH, ...
-                          'r', 1, 'exch', true, 'isPer', true, ...
+    'specs', {struct('column', 'pitch', 'sigma', SIGMA_PITCH, ...
+                          'r', 1, 'exch', true, 'per', true, ...
                           'period', PERIOD), ...
                    struct('column', 'onset', 'sigma', 1.0)}, ...
     'time', 'beats', 'weights', 'ones');
@@ -114,9 +114,9 @@ axW = (0.99 - 0.065) / 6.5;
 axH = (0.80 - 0.085) / 2.1;
 axesPos = cell(2, 6);
 for row = 1:2
-    isRel = modeRows{row, 1};
+    rel = modeRows{row, 1};
     for half = 1:2
-        isPer = halves(half);
+        per = halves(half);
         for ri = 1:numel(R_VALUES)
             r = R_VALUES(ri);
             col = (half - 1) * 3 + ri;
@@ -124,7 +124,7 @@ for row = 1:2
                       [0.065 + (col - 1) * 1.1 * axW, ...
                        0.085 + (2 - row) * 1.1 * axH, axW, axH]);
             axesPos{row, col} = ax;
-            if isRel && r == 1                      % degenerate: omit
+            if rel && r == 1                      % degenerate: omit
                 axis(ax, 'off');
                 continue;
             end
@@ -136,8 +136,8 @@ for row = 1:2
             for c = 1:4
                 dens{c} = buildMaet(selectPreMaet(pm, ...
                     'attributes', {'pitch'}, 'events', tonicEvents(c)), ...
-                    'sigma', SIGMA_PITCH, 'r', r, 'rel', isRel, ...
-                    'isPer', isPer, 'period', PERIOD, 'verbose', false);
+                    'sigma', SIGMA_PITCH, 'r', r, 'rel', rel, ...
+                    'per', per, 'period', PERIOD, 'verbose', false);
             end
             M = zeros(4, 4);
             for i = 1:4
@@ -163,7 +163,7 @@ for row = 1:2
             if xEdge, set(ax, 'XTickLabel', CADENCE_NAMES);
             else,     set(ax, 'XTickLabel', {}); end
             % y labels on each row's leftmost visible cell
-            if isRel, leftCol = 2; else, leftCol = 1; end
+            if rel, leftCol = 2; else, leftCol = 1; end
             if col == leftCol, set(ax, 'YTickLabel', CADENCE_NAMES);
             else,              set(ax, 'YTickLabel', {}); end
             if row == 1

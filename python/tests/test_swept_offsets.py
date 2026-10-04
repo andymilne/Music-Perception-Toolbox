@@ -1,10 +1,10 @@
 """Tests for what the sweep values of ``swept_similarity`` apply to
 (``align``): the window, the query, both together, or each independently.
 
-Each role is pinned to the composition it stands for, written out with
+Each alignment is pinned to the composition it stands for, written out with
 ``weight_events`` / ``translate_attributes`` / ``sim_maet``; the one-pass
 route through ``sweep_sim_maet`` is pinned to the per-value comparison it
-replaces; and every refusal names the role the caller probably meant.
+replaces; and every refusal names the alignment the caller probably meant.
 """
 
 import numpy as np
@@ -45,7 +45,7 @@ def _by_hand(ctx, qry, window_at, query_to, q_ref, sd):
     pc, wc = ctx, None
     if window_at is not None:
         pc, wc, _ = unpack_pre_maet(weight_events(
-            ctx, None, 1, 0, float(window_at), 0.0, sd=sd, is_per=False,
+            ctx, None, 1, 0, float(window_at), 0.0, sd=sd, per=False,
             period=0.0, drop_input_attr=False))
     pq, wq, _ = unpack_pre_maet(translate_attributes(
         qry, None, [None, np.array([[query_to - q_ref]])]))
@@ -267,7 +267,7 @@ def test_bare_attribute_takes_default_sweep_values(melody):
                              window={1: {'shape': 'rect', 'width': 8.0}},
                              return_offsets=True, verbose=False)
     np.testing.assert_allclose(mb[1], mu[1], atol=1e-9)
-    # a windowed role that does not translate the query steps the
+    # a windowed alignment that does not translate the query steps the
     # context's extent at half the window's sd (a Gaussian of the width of
     # a rectangle of width 8 has sd 8 / (2 sqrt 3))
     s_w, sv_w = swept_similarity(ctx, None, qry, None, *GEOM, sweep=1,

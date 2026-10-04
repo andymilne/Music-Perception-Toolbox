@@ -30,7 +30,7 @@ rng(0, 'twister');
 % absolute and relative, small-to-moderate K. Large-K cells omit the
 % centres timing (it is infeasible there -- exactly why the model must
 % pick Möbius; feasibility is covered by the cost-model test).
-%   {label, sigma, r, isRel, isPer, period, K}
+%   {label, sigma, r, rel, per, period, K}
 grid = {
   {'A1 r2 K6',   30,      2,     false,         false,         0,       6}
   {'A1 r2 K10',  30,      2,     false,         false,         0,       10}

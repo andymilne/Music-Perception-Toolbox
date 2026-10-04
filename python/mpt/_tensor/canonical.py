@@ -107,11 +107,11 @@ def _cyclic_canonical(
 def _canonicalize_set(
     p: np.ndarray,
     w: np.ndarray | None,
-    is_rel: bool,
-    is_per: bool,
+    rel: bool,
+    per: bool,
     period: float,
 ) -> tuple[tuple, tuple | None]:
-    """Canonical form of a pitch/weight set under isPer/isRel.
+    """Canonical form of a pitch/weight set under per/rel.
 
     Returns hashable tuples suitable for use as dict keys.
     """
@@ -124,7 +124,7 @@ def _canonicalize_set(
         w = w[si]
 
     # Reduce modulo period
-    if is_per:
+    if per:
         p = np.mod(p, period)
         si = np.argsort(p)
         p = p[si]
@@ -132,8 +132,8 @@ def _canonicalize_set(
             w = w[si]
 
     # Remove transposition
-    if is_rel:
-        if is_per:
+    if rel:
+        if per:
             # Cyclic canonical form: the lex-smallest rotation captures
             # all transposition-modulo-period equivalences.
             ca_p, ca_w, _ = _cyclic_canonical(p, w, period)
@@ -156,8 +156,8 @@ def _chord_canonical_key(
     *,
     sigma: float,
     r: int,
-    is_rel: bool,
-    is_per: bool,
+    rel: bool,
+    per: bool,
     period: float,
     precision: int | None = None,
 ):
@@ -165,7 +165,7 @@ def _chord_canonical_key(
 
     Two chords ``(p1, w1)`` and ``(p2, w2)`` produce the same key iff
     their resulting density object is structurally identical (same
-    ``(p, w, sigma, r, is_rel, is_per, period)``-determined density),
+    ``(p, w, sigma, r, rel, per, period)``-determined density),
     regardless of input-side permutation or, in relative modes,
     in-batch translation. Used by the consumer-level deduplication in
     :func:`sim_maet` and the
@@ -178,7 +178,7 @@ def _chord_canonical_key(
         responsibility — pass NaN-stripped arrays).
     w : array-like or None
         Weights, same length as ``p``. None means uniform weights.
-    sigma, r, is_rel, is_per, period :
+    sigma, r, rel, per, period :
         Density-determining parameters. Baked into the returned key
         so different parameter settings produce different keys.
     precision : int, optional
@@ -198,14 +198,14 @@ def _chord_canonical_key(
     p_arr = np.asarray(p, dtype=np.float64)
     w_arr = np.asarray(w, dtype=np.float64) if w is not None else None
 
-    ca_p, ca_w = _canonicalize_set(p_arr, w_arr, is_rel, is_per, period)
+    ca_p, ca_w = _canonicalize_set(p_arr, w_arr, rel, per, period)
 
     if precision is not None:
         ca_p = tuple(round(x, precision) for x in ca_p)
         if ca_w is not None:
             ca_w = tuple(round(x, precision) for x in ca_w)
 
-    key = (ca_p, ca_w, sigma, r, is_rel, is_per, period)
+    key = (ca_p, ca_w, sigma, r, rel, per, period)
 
     p_canon = np.array(ca_p, dtype=np.float64)
     w_canon = np.array(ca_w, dtype=np.float64) if ca_w is not None else None
@@ -222,8 +222,8 @@ def _pair_canonical_key(
     *,
     sigma: float,
     r: int,
-    is_rel: bool,
-    is_per: bool,
+    rel: bool,
+    per: bool,
     period: float,
     precision: int | None = None,
 ):
@@ -237,16 +237,16 @@ def _pair_canonical_key(
 
     The exploited symmetries depend on the mode:
 
-    - **Relative** (``is_rel=True``): independent transposition of
+    - **Relative** (``rel=True``): independent transposition of
       each set. Each side is canonicalised separately via
       :func:`_canonicalize_set`.
-    - **Absolute** (``is_rel=False``): joint co-transposition.
+    - **Absolute** (``rel=False``): joint co-transposition.
       ``sim_maet(A + c, B + c) == sim_maet(A, B)``,
       so A's canonical form determines a shift, and the same shift
-      is applied to B. For ``is_per=True``, A is reduced to its
+      is applied to B. For ``per=True``, A is reduced to its
       cyclic canonical form (the lex-smallest rotation), and B is
       shifted by the corresponding amount mod period; for
-      ``is_per=False``, A is translated so its minimum is at 0, and
+      ``per=False``, A is translated so its minimum is at 0, and
       B is shifted by the same amount.
 
     Parameters
@@ -255,7 +255,7 @@ def _pair_canonical_key(
         Pitch values for A and B (NaN-stripped).
     w_a, w_b : array-like or None
         Weights for A and B, or None for uniform.
-    sigma, r, is_rel, is_per, period :
+    sigma, r, rel, per, period :
         Density-determining parameters. Baked into both returned keys.
     precision : int, optional
         Post-canonicalisation rounding. Default: no rounding.
@@ -278,17 +278,17 @@ def _pair_canonical_key(
     wa_arr = np.asarray(w_a, dtype=np.float64) if w_a is not None else None
     wb_arr = np.asarray(w_b, dtype=np.float64) if w_b is not None else None
 
-    if is_rel:
+    if rel:
         # Independent canonicalisation per side.
-        ca_p, ca_w = _canonicalize_set(pa_arr, wa_arr, is_rel, is_per, period)
-        cb_p, cb_w = _canonicalize_set(pb_arr, wb_arr, is_rel, is_per, period)
+        ca_p, ca_w = _canonicalize_set(pa_arr, wa_arr, rel, per, period)
+        cb_p, cb_w = _canonicalize_set(pb_arr, wb_arr, rel, per, period)
     else:
         # Joint co-transposition: A determines the shift, B inherits it.
         si_a = np.argsort(pa_arr)
         pa_s = pa_arr[si_a]
         wa_s = wa_arr[si_a] if wa_arr is not None else None
 
-        if is_per:
+        if per:
             pa_s = np.mod(pa_s, period)
             si = np.argsort(pa_s)
             pa_s = pa_s[si]
@@ -306,7 +306,7 @@ def _pair_canonical_key(
         pb_s = pb_arr[si_b]
         wb_s = wb_arr[si_b] if wb_arr is not None else None
 
-        if is_per:
+        if per:
             pb_shifted = np.mod(pb_s - shift, period)
             si = np.argsort(pb_shifted)
             cb_p = tuple(pb_shifted[si])
@@ -323,8 +323,8 @@ def _pair_canonical_key(
         if cb_w is not None:
             cb_w = tuple(round(x, precision) for x in cb_w)
 
-    key_a = (ca_p, ca_w, sigma, r, is_rel, is_per, period)
-    key_b = (cb_p, cb_w, sigma, r, is_rel, is_per, period)
+    key_a = (ca_p, ca_w, sigma, r, rel, per, period)
+    key_b = (cb_p, cb_w, sigma, r, rel, per, period)
 
     p_a_canon = np.array(ca_p, dtype=np.float64)
     p_b_canon = np.array(cb_p, dtype=np.float64)

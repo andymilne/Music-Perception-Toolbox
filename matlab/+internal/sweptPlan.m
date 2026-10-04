@@ -7,7 +7,7 @@ function plan = sweptPlan(pContext, pQuery, specs, isRel, nv, fname, geom)
 %   reads nv.sweep, nv.start, nv.stop, nv.step, nv.align, nv.window,
 %   nv.drop, nv.queryRef, and nv.locate. pQuery is [] for
 %   sweptEntropy, whose sweep values always align the window. geom
-%   (optional) is a struct with fields sigma, isPer, period, and r, from
+%   (optional) is a struct with fields sigma, per, period, and r, from
 %   which a translation sweep takes its default range and step. nv.sweep may be a
 %   bare attribute index, or a vector of them, for default sweep values.
 %
@@ -27,7 +27,7 @@ function plan = sweptPlan(pContext, pQuery, specs, isRel, nv, fname, geom)
 %   plan.win, plan.hasWin, plan.withQuery
 %                  - 1 x A: the context window on each attribute where a
 %                    window is aligned (a struct with fields prof, closed,
-%                    isPer, and period, evaluated by internal.windowFactor),
+%                    per, and period, evaluated by internal.windowFactor),
 %                    and whether the query is translated with it.
 %   plan.qRef, plan.hasQRef
 %                  - 1 x A: queryRef where the query is translated.
@@ -55,7 +55,7 @@ swept = unique([swA, stA, spA, sA]);
 if hasQuery
     [mA, mV] = localMap(nv.align, A, 'align', fname);
     [rA, rV] = localMap(nv.queryRef, A, 'queryRef', fname);
-    % Attribute translation over the whole context is the default role.
+    % Attribute translation over the whole context is the default alignment.
     extra = setdiff(swept, mA);
     mA = [mA, extra];
     mV = [mV, repmat({'query'}, 1, numel(extra))];
@@ -158,7 +158,7 @@ for k = 1:numel(mA)
         % weightEvents wraps it.
         [perW, pdW] = localPeriod(geom, a);
         if perW && pdW > 0
-            win.isPer = true; win.period = pdW;
+            win.per = true; win.period = pdW;
         end
     end
     % --- what may be translated, given the attribute's geometry ---
@@ -352,7 +352,7 @@ end
 
 function win = localWindow(spec, a, name, fname, defaultWidth)
 %LOCALWINDOW  The window on attribute a, a struct with fields prof
-%   (internal.resolveProfile), closed, isPer, and period, from
+%   (internal.resolveProfile), closed, per, and period, from
 %   {shape, name, value, ...} (names 'width', 'sd', 'decayRate', 'edges',
 %   and 'ref'), struct('shape', .., 'width' | 'sd' | 'decayRate', ..,
 %   'edges', .., 'ref', ..), or a function handle of the displacement. The scale is
@@ -434,7 +434,7 @@ function win = localWindow(spec, a, name, fname, defaultWidth)
     end
     closed = internal.resolveEdges(edges, prof, [fname ':window']);
     shift = localWindowShift(ref, prof, defaulted, a, name, fname);
-    win = struct('prof', prof, 'closed', closed, 'isPer', false, ...
+    win = struct('prof', prof, 'closed', closed, 'per', false, ...
         'period', 0, 'shift', shift);
 end
 
@@ -625,7 +625,7 @@ function c = localRectPieces(pContext, a, locate, win, lo, hi)
     loc = internal.locateRow(pContext{a}, internal.axisLocate(locate, a));
     loc = double(loc(:)); loc = loc(isfinite(loc));
     b = [loc - hw; loc + hw] - localShift(win);
-    if win.isPer && win.period > 0
+    if win.per && win.period > 0
         P = win.period;
         kLo = floor((lo - max(b)) / P) - 1;
         kHi = ceil((hi - min(b)) / P) + 1;
@@ -782,7 +782,7 @@ function [per, pd] = localPeriod(geom, a)
 %LOCALPERIOD  Whether attribute a is periodic, and its period.
     per = false; pd = 0;
     if ~isempty(geom)
-        if isfield(geom, 'isPer'), x = localPick(geom.isPer, a); per = ~isempty(x) && logical(x); end
+        if isfield(geom, 'per'), x = localPick(geom.per, a); per = ~isempty(x) && logical(x); end
         if isfield(geom, 'period'), x = localPick(geom.period, a); if ~isempty(x), pd = double(x); end; end
     end
 end

@@ -10,9 +10,9 @@ content most and least concentrated? A cadence resolves onto a triad
 whose partials cohere, so the spectral pitch density there is peaked and
 its differential entropy low; passing sonorities between cadences spread
 the density and raise the entropy. Read at every grid point and grouped
-by metric class, the profile tests the article's prediction that
+by metric class, the profile bears on the article's prediction that
 spectral entropy (a model for dissonance) is on average higher at times
-of lower metrical weight.
+of lower metrical weight, which a permutation test then tests directly.
 
 How it is computed. The chorale is gridded (``grid_attr_table``) and
 converted to a two-attribute pre-MAET (pitch, time) in one call
@@ -34,6 +34,15 @@ note. The metric-class panels give each class's mean over its grid
 points; their error bars are cluster-robust standard errors with the
 sonority as the cluster, so that the grid points of a chord held across
 several of them are not treated as independent observations.
+
+The test. The prediction is tested on the rectangular-window profile,
+one observation per sonority: its entropy and the metric class of its
+onset, ranked downbeat > medium > weak > offbeat. The repeat of bars 1-4
+is omitted, so that it does not count twice. The statistic is Kendall's
+tau-b between rank and entropy, which the prediction makes negative; its
+one-sided p-value comes from permuting the entropies among the
+sonorities of each phrase (the stretches closed by the score's
+fermatas), which leaves any difference between phrases intact.
 
 Data: ``jmm_data.bwv347_notes`` (the bundled MusicXML read with
 ``read_score``, repeats expanded). Toolbox: ``grid_attr_table``,
@@ -97,7 +106,7 @@ print('Loading BWV 347 and enriching it spectrally...')
 grid = mpt.grid_attr_table(bwv347_notes(), GRID_STEP_QN)
 pm = mpt.pre_maet_from_attr_table(
     grid,
-    attributes=(dict(column='pitch', sigma=SIGMA_PITCH, r=1, exch=True),
+    specs=(dict(column='pitch', sigma=SIGMA_PITCH, r=1, exch=True),
                 dict(column='onset', name='time', sigma=1.0)),
     time='beats', pitch='midi', weights='ones')
 # Each grid point's chord (its pitches sorted), read before enrichment: a
@@ -200,6 +209,59 @@ for wi, window in enumerate(WINDOWS):
         stats[wi, cls] = class_stats(H[wi], classes_per_event == cls)
         m, se, n = stats[wi, cls]
         print(f'    {cls:9s} {m:.4f} +/- {se:.4f} ({n})')
+
+
+# ---------------------------------------------------------------------------
+# Test of the prediction
+# ---------------------------------------------------------------------------
+# One observation per sonority, from the rectangular-window profile: its
+# entropy (the same at every grid point it holds) and the metric class of
+# its onset, ranked downbeat 4 > medium 3 > weak 2 > offbeat 1. The grid
+# points from 16 to 32 QN repeat those from 0 to 16 QN (bars 1-4 and
+# their upbeat), so they are omitted rather than counted twice.
+REPEAT_SPAN = (16.0, 32.0)      # QN: the expanded repeat of bars 1-4
+N_PERM = 20000
+CLASS_RANK = {'downbeat': 4, 'medium': 3, 'weak': 2, 'offbeat': 1}
+
+# Phrases: each closes with the last grid point of a fermata.
+fermata_pts = np.zeros(N, dtype=bool)
+fermata_pts[grid.loc[grid['fermata'].fillna(False).astype(bool),
+                     'grid_index'].unique()] = True
+phrase = np.concatenate([[0], np.cumsum(fermata_pts[:-1] & ~fermata_pts[1:])])
+
+first = np.concatenate([[True], sonority[1:] != sonority[:-1]])
+in_repeat = (times >= REPEAT_SPAN[0]) & (times < REPEAT_SPAN[1])
+obs = np.flatnonzero(first & ~in_repeat)
+rank = np.array([CLASS_RANK[c] for c in classes_per_event[obs]], dtype=float)
+h_obs = H[0][obs]
+phrase_obs = phrase[obs]
+
+# Kendall's tau-b from the pairwise sign matrices. Permuting the
+# entropies changes only the numerator: the tie counts, and so the
+# denominator, stay fixed.
+n_obs = obs.size
+s_rank = np.sign(rank[:, None] - rank[None, :])
+s_h = np.sign(h_obs[:, None] - h_obs[None, :])
+n_pairs = n_obs * (n_obs - 1) / 2
+untied_rank = n_pairs - (np.count_nonzero(s_rank == 0) - n_obs) / 2
+untied_h = n_pairs - (np.count_nonzero(s_h == 0) - n_obs) / 2
+concord = np.sum(s_rank * s_h) / 2
+tau_b = concord / np.sqrt(untied_rank * untied_h)
+
+# One-sided p-value: entropies permuted among the sonorities of each
+# phrase, so that differences between phrases cannot produce the result.
+rng = np.random.default_rng(347)
+members = [np.flatnonzero(phrase_obs == k) for k in np.unique(phrase_obs)]
+n_as_low = 0
+for _ in range(N_PERM):
+    perm = np.arange(n_obs)
+    for m in members:
+        perm[m] = m[rng.permutation(m.size)]
+    n_as_low += np.sum(s_rank * s_h[np.ix_(perm, perm)]) / 2 <= concord
+p_perm = (1 + n_as_low) / (1 + N_PERM)
+print(f'Test (rectangular window, {n_obs} sonorities, repeat omitted): '
+      f'Kendall tau-b = {tau_b:.3f}, one-sided permutation p = {p_perm:.2g} '
+      f'({N_PERM} permutations within {len(members)} phrases)')
 
 
 if plt is None:

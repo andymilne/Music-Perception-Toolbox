@@ -21,8 +21,8 @@ PE = [[[60, 64, 67], 62, 64, 65], [0, 1, 1.5, 2]]
 MX = [np.array([[60, 62, 64, 65], [64, NAN, NAN, NAN],
                 [67, NAN, NAN, NAN]]),
       np.array([[0, 1, 1.5, 2]])]
-GEOM = dict(sigma=[0.5, 0.25], r=[1, 1], is_rel=[False, False],
-            is_per=[True, False], period=[12, 0])
+GEOM = dict(sigma=[0.5, 0.25], r=[1, 1], rel=[False, False],
+            per=[True, False], period=[12, 0])
 
 
 def _same(a, b):
@@ -31,7 +31,7 @@ def _same(a, b):
 
 def _build(p, w=None):
     g = GEOM
-    return build_maet(p, w, g["sigma"], g["r"], g["is_rel"], g["is_per"],
+    return build_maet(p, w, g["sigma"], g["r"], g["rel"], g["per"],
                       g["period"], verbose=False)
 
 
@@ -61,7 +61,7 @@ def test_per_event_weights_scalar_and_vector():
 
 
 def test_per_value_flat_weights_keep_their_reading():
-    # Length K (3) differs from N (4): one weight per value slot.
+    # Length K (3) differs from N (4): one weight per value position.
     pm = pack_pre_maet(PE, [[1, 0.5, 0.25], None])
     _same(np.asarray(pm["w_attr"][0]).ravel(), [1, 0.5, 0.25])
 
@@ -81,7 +81,7 @@ def test_build_eval_and_entropy_match_matrix():
 
 def test_raw_eval_maet_matches_matrix():
     g = GEOM
-    tail = (g["sigma"], g["r"], g["is_rel"], g["is_per"], g["period"])
+    tail = (g["sigma"], g["r"], g["rel"], g["per"], g["period"])
     X = [np.array([[61.0]]), np.array([[1.0]])]
     assert eval_maet(PE, None, *tail, X, verbose=False) == pytest.approx(
         eval_maet(MX, None, *tail, X, verbose=False), abs=1e-12)
@@ -92,7 +92,7 @@ def test_raw_sim_maet_matches_matrix():
     q_m = [np.array([[60, 62, 64, 65], [63, NAN, 67, NAN]]),
            np.array([[0, 1, 1.5, 2]])]
     g = GEOM
-    tail = (g["sigma"], g["r"], g["is_rel"], g["is_per"], g["period"])
+    tail = (g["sigma"], g["r"], g["rel"], g["per"], g["period"])
     s_e = sim_maet(PE, None, q_e, None, *tail)
     s_m = sim_maet(MX, None, q_m, None, *tail)
     assert s_e == pytest.approx(s_m, abs=1e-12)

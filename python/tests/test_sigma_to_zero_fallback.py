@@ -41,7 +41,7 @@ N = 2
 SEED = 0
 
 
-def _make_pair(r, K, sigma, is_per, share_half=True, seed=SEED):
+def _make_pair(r, K, sigma, per, share_half=True, seed=SEED):
     rng = np.random.default_rng(seed)
     if share_half:
         shared = rng.uniform(0, P, (K // 2, N))
@@ -54,11 +54,11 @@ def _make_pair(r, K, sigma, is_per, share_half=True, seed=SEED):
     w2 = rng.uniform(0.1, 1.0, (K, N))
     d1 = build_maet(
         [p1], [w1], [sigma], [r], 
-        [False], [is_per], [P], verbose=False,
+        [False], [per], [P], verbose=False,
     )
     d2 = build_maet(
         [p2], [w2], [sigma], [r], 
-        [False], [is_per], [P], verbose=False,
+        [False], [per], [P], verbose=False,
     )
     return d1, d2
 
@@ -68,13 +68,13 @@ def _make_pair(r, K, sigma, is_per, share_half=True, seed=SEED):
 # -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("is_per", [False, True])
+@pytest.mark.parametrize("per", [False, True])
 @pytest.mark.parametrize("sigma_over_P", [1e-3, 1e-4, 1e-5, 1e-7])
-def test_sigma_to_zero_auto_matches_pairwise(is_per, sigma_over_P):
+def test_sigma_to_zero_auto_matches_pairwise(per, sigma_over_P):
     """At σ→0 with r=4 K=6 the Möbius route returns an impossible
     value; ``method='auto'`` must fall back to Bulger's method."""
     sigma = sigma_over_P * P
-    d1, d2 = _make_pair(r=4, K=6, sigma=sigma, is_per=is_per)
+    d1, d2 = _make_pair(r=4, K=6, sigma=sigma, per=per)
     c_auto = sim_maet(d1, d2, method="auto", verbose=False)
     c_pw = sim_maet(d1, d2, method="bulger", verbose=False)
     assert np.isfinite(c_auto)
@@ -130,9 +130,9 @@ def test_single_multiset_sigma_to_zero_auto_matches_pairwise():
 # -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("is_per", [False, True])
+@pytest.mark.parametrize("per", [False, True])
 @pytest.mark.parametrize("seed", range(10))
-def test_per_cell_cancellation_regime_orbit_actually_clean(is_per, seed):
+def test_per_cell_cancellation_regime_orbit_actually_clean(per, seed):
     """At r=4 K=6 σ/P=0.01 the per-attribute Möbius computation has
     near-zero per-(n,m) cancellation ratios: the alternating sum has
     lost most of its digits at the cell level. The per-cell ratio is
@@ -146,7 +146,7 @@ def test_per_cell_cancellation_regime_orbit_actually_clean(is_per, seed):
     divert here, and does not need to.
     """
     sigma = 0.01 * P
-    d1, d2 = _make_pair(r=4, K=6, sigma=sigma, is_per=is_per,
+    d1, d2 = _make_pair(r=4, K=6, sigma=sigma, per=per,
                         share_half=False, seed=seed)
     c_orbit = sim_maet(d1, d2, method="mobius", verbose=False)
     c_pw = sim_maet(d1, d2, method="bulger", verbose=False)
@@ -162,7 +162,7 @@ def test_orbit_returns_3tuple():
     while never catching a value that was actually wrong. See the
     CHANGELOG.
     """
-    d1, d2 = _make_pair(r=3, K=8, sigma=50.0, is_per=False)
+    d1, d2 = _make_pair(r=3, K=8, sigma=50.0, per=False)
     result = _sim_maet_ma_orbit(d1, d2)
     assert len(result) == 3
     xy, xx, yy = result
@@ -174,7 +174,7 @@ def test_orbit_clean_regime_agrees_with_pairwise():
     """In a clean regime (moderate σ, large K-r margin) the orbit and
     pairwise paths must agree to FP precision."""
     sigma = 50.0
-    d1, d2 = _make_pair(r=2, K=8, sigma=sigma, is_per=True)
+    d1, d2 = _make_pair(r=2, K=8, sigma=sigma, per=True)
     c_orbit = sim_maet(d1, d2, method="mobius", verbose=False)
     c_pw = sim_maet(d1, d2, method="bulger", verbose=False)
     assert abs(c_orbit - c_pw) <= 1e-13 + 1e-13 * abs(c_pw)

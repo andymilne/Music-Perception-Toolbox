@@ -56,14 +56,14 @@ for ci = 1:numel(cases)
 
     specs = flatSpecs({SCALE(:)}, 'r', r, 'rel', isRel, 'exch', true);
     dens  = buildMaet({SCALE(:)}, [], 'specs', specs, 'sigma', SIGMA, ...
-                      'isPer', false, 'period', PERIOD, 'verbose', false);
+                      'per', false, 'period', PERIOD, 'verbose', false);
     Cc = maetCentres(dens);
     C  = Cc{1};
     wJ = linspace(0.5, 1.5, size(C, 2)).';
 
     X = localProbePoints(C, KSIGMA * SIGMA);
     got = internal.gaussianKernelSum(C, wJ, X, SIGMA, ...
-                                     'isRel', isRel, 'r', r, ...
+                                     'rel', isRel, 'r', r, ...
                                      'truncationSigmas', KSIGMA);
     want = localDirectSum(C, wJ, X, SIGMA, KSIGMA, isRel, r);
 
@@ -106,7 +106,7 @@ results{end,2}   = all(got(:) == 0);
 
 specs = flatSpecs({SCALE(:)}, 'r', 2, 'rel', false, 'exch', true);
 dens  = buildMaet({SCALE(:)}, [], 'specs', specs, 'sigma', SIGMA, ...
-                  'isPer', false, 'period', PERIOD, 'verbose', false);
+                  'per', false, 'period', PERIOD, 'verbose', false);
 g = linspace(-2400, 3600, 200);
 [ga, gb] = meshgrid(g, g);
 pts = [ga(:).'; gb(:).'];

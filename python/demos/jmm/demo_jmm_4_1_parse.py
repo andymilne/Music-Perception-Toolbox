@@ -160,8 +160,8 @@ def encode_paths(table, *, level_scale=None, decay=None, truncate=None):
         beyond = np.maximum(level - REDUCTION_LEVEL, 0.0)
         weights = [decay ** beyond] + [np.ones_like(level)] * len(inner)
     pm = pack_pre_maet(values, weights,
-                       flat_specs(values, sigma=SIGMA_LABEL, is_per=False,
-                                  period=0.0, name=inner + ['chord']))
+                       flat_specs(values, sigma=SIGMA_LABEL, per=False,
+                                  period=0.0, names=inner + ['chord']))
     pm = bind_attributes(pm, attributes=inner, name='label', r=len(inner),
                          exch=False)
     pm = bind_events(pm, group_by='chord', r_outer=R_OUTER)
@@ -275,9 +275,9 @@ def encode_unrolled(table, weights=None):
         w = ([np.asarray(weights, dtype=float)[None, :]]
              + [np.ones((1, len(table)))] * (len(values) - 1))
     pm = pack_pre_maet(values, w,
-                       flat_specs(values, sigma=SIGMA_LABEL, is_per=False,
+                       flat_specs(values, sigma=SIGMA_LABEL, per=False,
                                   period=0.0,
-                                  name=names_label + names_quality))
+                                  names=names_label + names_quality))
     pm = bind_attributes(pm, attributes=names_label, name='label',
                          r=len(names_label), exch=False)
     return bind_attributes(pm, attributes=names_quality, name='quality',

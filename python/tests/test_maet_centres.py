@@ -20,18 +20,18 @@ P = 1200.0
 TRIAD = [0.0, 400.0, 700.0]
 
 
-def _dens(r=2, is_rel=False, is_per=False):
-    return build_maet(TRIAD, None, 10.0, r, is_rel, is_per, P,
+def _dens(r=2, rel=False, per=False):
+    return build_maet(TRIAD, None, 10.0, r, rel, per, P,
                       verbose=False)
 
 
-def _dens_exch(r=2, is_rel=False, exch=True):
+def _dens_exch(r=2, rel=False, exch=True):
     """The same density by the specs route, which is where ``exch``
     lives."""
     p_attr = [np.asarray(TRIAD).reshape(-1, 1)]
-    specs = mpt.flat_specs(p_attr, r=r, rel=is_rel, exch=exch)
+    specs = mpt.flat_specs(p_attr, r=r, rel=rel, exch=exch)
     return mpt.build_maet(p_attr, None, specs=specs, sigma=[10.0],
-                          is_per=[False], period=[P], verbose=False)
+                          per=[False], period=[P], verbose=False)
 
 
 class TestShapeAndContent:
@@ -53,7 +53,7 @@ class TestShapeAndContent:
     def test_relative_centres_lose_a_dimension(self):
         """A relative attribute is one coordinate shorter than its
         tuple size, the translation having been quotiented out."""
-        C = mpt.maet_centres(_dens(r=2, is_rel=True))[0]
+        C = mpt.maet_centres(_dens(r=2, rel=True))[0]
         assert C.shape[0] == 1
 
     def test_ordered_tuples_are_the_index_increasing_subsequences(self):

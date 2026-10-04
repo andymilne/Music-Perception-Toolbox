@@ -245,11 +245,11 @@ def _attr_tuple_counts(dens, a):
         return float(mp), float(mc)
     r_a = int(dens.r[a])
     K = int(np.asarray(dens.p_attr[a]).shape[0])
-    is_exch = bool(np.asarray(
-        getattr(dens, "is_exch", np.ones(int(dens.n_attrs), dtype=bool))
+    exch = bool(np.asarray(
+        getattr(dens, "exch", np.ones(int(dens.n_attrs), dtype=bool))
     ).ravel()[a])
     c = _comb(K, r_a)
-    return (c * (_fact(r_a) if (is_exch and r_a > 1) else 1.0), c)
+    return (c * (_fact(r_a) if (exch and r_a > 1) else 1.0), c)
 
 
 def _centres_restricted(dens, a, m_perm, m_comb):
@@ -271,10 +271,10 @@ def _centres_restricted(dens, a, m_perm, m_comb):
                                         np.asarray(spec["exch"]).ravel()))
     else:
         r_a = int(dens.r[a])
-        is_exch = bool(np.asarray(
-            getattr(dens, "is_exch", np.ones(int(dens.n_attrs), dtype=bool))
+        exch = bool(np.asarray(
+            getattr(dens, "exch", np.ones(int(dens.n_attrs), dtype=bool))
         ).ravel()[a])
-        mult = _fact(r_a) if (is_exch and r_a > 1) else 1.0
+        mult = _fact(r_a) if (exch and r_a > 1) else 1.0
     ok = (mult >= 2.0 and m_comb > 0.0
           and abs(m_perm - mult * m_comb) < 0.5)
     return ok, mult
@@ -311,8 +311,8 @@ def nested_attr_terms(dens_x, dens_y, a, *, skip_xx=False, skip_yy=False,
         auto_taus_line)
     from .._defaults import truncation_floor
 
-    is_rel = bool(dens_x.is_rel[a])
-    is_per = bool(dens_x.is_per[a])
+    rel = bool(dens_x.rel[a])
+    per = bool(dens_x.per[a])
     sigma = float(dens_x.sigma[a])
     period = float(dens_x.period[a])
     N_x = int(dens_x.n)
@@ -332,16 +332,16 @@ def nested_attr_terms(dens_x, dens_y, a, *, skip_xx=False, skip_yy=False,
             works[side] = float(recipe_work(build_recipe(
                 np.asarray(spec["r"]).ravel(),
                 np.asarray(spec["exch"]).ravel(),
-                np.asarray(spec["tags"]), is_rel, is_per)))
+                np.asarray(spec["tags"]), rel, per)))
         else:
             works[side] = mp[side] * mc[side]
 
     ts = truncation_sigmas
-    if is_rel and is_per:
+    if rel and per:
         n_tau = float(auto_ntau_default(period, sigma, ts))
     else:
         n_tau = 1.0
-    if is_rel and not is_per:
+    if rel and not per:
         tol = truncation_floor(ts)
         px = np.asarray(dens_x.p_attr[a], dtype=np.float64)
         py = np.asarray(dens_y.p_attr[a], dtype=np.float64)
@@ -381,9 +381,9 @@ def nested_centres_working_set_bytes(dens_x, dens_y, a):
     (:func:`~mpt._tensor.dispatch._select_ma_inner_product_method`), so the
     two guards read the same quantity in the same units.
     """
-    is_rel = bool(dens_x.is_rel[a])
+    rel = bool(dens_x.rel[a])
     R = int(dens_x.r[a])
-    dim = max(1, R - (1 if is_rel else 0))
+    dim = max(1, R - (1 if rel else 0))
     n_j_x = float(dens_x.n) * _attr_tuple_counts(dens_x, a)[0]
     n_j_y = float(dens_y.n) * _attr_tuple_counts(dens_y, a)[0]
     return max(n_j_x, n_j_y) * (2.0 * dim) * 8.0
@@ -484,11 +484,11 @@ def _flat_companion_cost_ms(dens_x, dens_y, flat_a, ordered_a, *,
                           for a in flat_a], dtype=np.intp)
         k_vec_y = np.array([int(np.asarray(dens_y.p_attr[a]).shape[0])
                             for a in flat_a], dtype=np.intp)
-        rel_vec = np.array([bool(dens_x.is_rel[a]) for a in flat_a])
+        rel_vec = np.array([bool(dens_x.rel[a]) for a in flat_a])
         nu_vec = np.ones(len(flat_a))
         sop = 0.0
         for i, a in enumerate(flat_a):
-            if rel_vec[i] and bool(dens_x.is_per[a]):
+            if rel_vec[i] and bool(dens_x.per[a]):
                 nu_vec[i] = auto_ntau_default(float(dens_x.period[a]),
                                               float(dens_x.sigma[a]), ts)
                 sop = max(sop, float(dens_x.sigma[a])
@@ -545,7 +545,7 @@ def select_nested_method(dens_x, dens_y, *, admissible_by_attr,
     A = int(dens_x.n_attrs)
     nested_a = set(admissible_by_attr)
     is_exch_x = np.asarray(
-        getattr(dens_x, "is_exch", np.ones(A, dtype=bool))).ravel()
+        getattr(dens_x, "exch", np.ones(A, dtype=bool))).ravel()
     flat_a, ordered_a = [], []
     for a in range(A):
         if a in nested_a:

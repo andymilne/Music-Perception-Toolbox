@@ -55,9 +55,9 @@ fprintf('=== 1. One pre-MAET, four renderings ===\n\n');
 pAttr = { {[62 65 69 72], [55 59 62 65], [60 64 67]}, ...
           [0 1 2] };
 specs = { struct('name', 'pitch', 'r', 2, 'rel', false, 'exch', true, ...
-                 'sigma', 0.15, 'isPer', true, 'period', 12), ...
+                 'sigma', 0.15, 'per', true, 'period', 12), ...
           struct('name', 'onset', 'r', 1, 'rel', false, 'exch', true, ...
-                 'sigma', 0.1, 'isPer', false, 'period', 0) };
+                 'sigma', 0.1, 'per', false, 'period', 0) };
 
 % packPreMaet holds the three parts in one variable, which every function
 % below then takes whole. The specs carry the kernel geometry, so nothing
@@ -106,7 +106,7 @@ dens = buildMaet(pmBack, 'verbose', false);
 fprintf('  buildMaet(pm)                    ->  dim %d\n', dens.dim);
 fprintf('  self-similarity                     ->  %.4f\n', ...
     simMaet(dens, dens, 'verbose', false));
-fprintf('  No sigma, isPer or period passed: the file carried them.\n\n');
+fprintf('  No sigma, per or period passed: the file carried them.\n\n');
 
 %% ===================================================================
 %  4. Overriding what the pre-MAET carries
@@ -118,7 +118,7 @@ fprintf('=== 4. Overriding what the pre-MAET carries ===\n\n');
 % attribute and without comment: holding a baseline in the pre-MAET and
 % sweeping a width past it is the ordinary idiom, so a disagreement is
 % intent rather than error. All six per-attribute parameters resolve this
-% way -- sigma, isPer and period, and r, rel and exch -- so a sweep over
+% way -- sigma, per and period, and r, rel and exch -- so a sweep over
 % any of them is one call per value.
 %
 % showPreMaet reads the override too, so the table states what the build
@@ -229,9 +229,9 @@ if exist(score, 'file')
     % Each attribute names its column and the parameters under which it
     % is read: the pitch of a bound chord as a periodic class taken two
     % at a time, and the chord's onset singly.
-    pmS = preMaetFromAttrTable(readScore(score), 'attributes', { ...
+    pmS = preMaetFromAttrTable(readScore(score), 'specs', { ...
         struct('column', 'pitch', 'sigma', 0.5, 'r', 2, 'exch', true, ...
-               'isPer', true, 'period', 12), ...
+               'per', true, 'period', 12), ...
         struct('column', 'onset', 'sigma', 0.25)}, ...
         'chords', 'bind');
     showPreMaet(pmS, 'maxEvents', 5, 'maxElements', 4);

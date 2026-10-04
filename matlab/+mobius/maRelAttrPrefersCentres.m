@@ -38,7 +38,7 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
 %   alone, for the reasons recorded below at gOp.
 %
 %   Cost-model constants match the Python calibration exactly so that
-%   both languages route the same (K_x, K_y, r, sigma, span, isPer)
+%   both languages route the same (K_x, K_y, r, sigma, span, per)
 %   cells to the same path (route parity across the two
 %   implementations). See Python _mobius_inner._CENTRES_NS_BASE etc.
 %   for the calibration notes; the fit was measured on a 168-cell

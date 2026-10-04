@@ -38,10 +38,10 @@ def _counting(ip_xy, ip_xx, ip_yy):
     return out
 
 
-def probe(r, K, sigma, is_rel, is_per, seed):
+def probe(r, K, sigma, rel, per, seed):
     """Return (fired, orbit cosine, enumerated cosine)."""
     rng = np.random.default_rng(seed)
-    geom = ([sigma], [r], [is_rel], [is_per], [P])
+    geom = ([sigma], [r], [rel], [per], [P])
     px = np.sort(rng.uniform(0, P, (K, 1)))
     py = np.sort(rng.uniform(0, P, (K, 1)))
     w = np.ones((K, 1))
@@ -71,7 +71,7 @@ def main():
     print(header)
     print("-" * len(header))
     total = fired_n = 0
-    for name, is_rel, is_per in modes:
+    for name, rel, per in modes:
         for r in (3, 5):
             for K in (r, r + 2):
                 for sigma in sigmas:
@@ -79,7 +79,7 @@ def main():
                         total += 1
                         try:
                             f, co, cp = probe(
-                                r, K, sigma, is_rel, is_per, seed)
+                                r, K, sigma, rel, per, seed)
                         except Exception as exc:
                             print(f"{name:<11} {r:>2} {K:>2} {sigma:>8.0e} | "
                                   f"{'ERR':>5} {type(exc).__name__}")

@@ -33,14 +33,14 @@ PARITY = 1e-12
 # -------------------------------------------------------------------
 
 
-def _densities(p_x, p_y, sigma, r, is_rel=None, is_per=None, period=None,
-               is_exch=None):
+def _densities(p_x, p_y, sigma, r, rel=None, per=None, period=None,
+               exch=None):
     A = len(p_x)
-    is_rel = [0] * A if is_rel is None else is_rel
-    is_per = [0] * A if is_per is None else is_per
+    rel = [0] * A if rel is None else rel
+    per = [0] * A if per is None else per
     period = [None] * A if period is None else period
-    is_exch = [1] * A if is_exch is None else is_exch
-    args = ([sigma] * A, [r] * A, is_rel, is_per, period, is_exch)
+    exch = [1] * A if exch is None else exch
+    args = ([sigma] * A, [r] * A, rel, per, period, exch)
     return (build_maet(p_x, None, *args, verbose=False),
             build_maet(p_y, None, *args, verbose=False),
             args)
@@ -108,13 +108,13 @@ SHAPES = [(1, 1), (3, 3), (4, 4), (3, 2), (4, 2), (5, 3)]
 
 
 @pytest.mark.parametrize("K,r", SHAPES)
-@pytest.mark.parametrize("is_exch", [0, 1])
+@pytest.mark.parametrize("exch", [0, 1])
 @pytest.mark.parametrize("A", [1, 2])
-def test_sweep_matches_per_offset(K, r, is_exch, A):
+def test_sweep_matches_per_offset(K, r, exch, A):
     """The reduction reproduces the per-offset sweep at the parity floor."""
     p_x, p_y = _random_case(K, 6, 3, A, seed=100 + K * 10 + r)
     off = _offsets(A, swept=tuple(range(A)))
-    dx, dy, args = _densities(p_x, p_y, 0.9, r, is_exch=[is_exch] * A)
+    dx, dy, args = _densities(p_x, p_y, 0.9, r, exch=[exch] * A)
     got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
@@ -160,13 +160,13 @@ def test_unordered_attribute_uses_the_unnormalised_permutation_sum():
     p_y = [np.array([[0.0], [4.0], [7.0]])]
     p_x = [p_y[0][[2, 0, 1], :]]           # same values, positions permuted
     off = np.zeros((1, 1))
-    for is_exch in (0, 1):
-        dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_exch=[is_exch])
+    for exch in (0, 1):
+        dx, dy, args = _densities(p_x, p_y, 0.9, 3, exch=[exch])
         got = sweep_sim_maet(dx, dy, off, method="mixture",
                                      truncation_sigmas=np.inf, verbose=False)
         ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
         assert abs(got[0] - ref[0]) <= PARITY
-    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_exch=[1])
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, exch=[1])
     assert sweep_sim_maet(dx, dy, off, method="mixture",
                                   truncation_sigmas=np.inf,
                                   verbose=False)[0] == pytest.approx(1.0,
@@ -195,7 +195,7 @@ def test_unswept_relative_attribute():
     """A relative attribute contributes an offset-independent factor."""
     p_x, p_y = _random_case(3, 6, 3, 2, seed=31)
     off = _offsets(2, swept=(0,))
-    dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_rel=[0, 1])
+    dx, dy, args = _densities(p_x, p_y, 0.9, 3, rel=[0, 1])
     got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
@@ -206,7 +206,7 @@ def test_unswept_absolute_periodic_attribute():
     """A periodic attribute is supported so long as it is not swept."""
     p_x, p_y = _random_case(3, 6, 3, 2, seed=41)
     off = _offsets(2, swept=(0,))
-    dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_per=[0, 1],
+    dx, dy, args = _densities(p_x, p_y, 0.9, 3, per=[0, 1],
                               period=[None, 12.0])
     got = sweep_sim_maet(dx, dy, off, method="mixture",
                                  truncation_sigmas=np.inf, verbose=False)
@@ -233,7 +233,7 @@ def test_no_attribute_swept_is_constant():
 
 def test_swept_relative_attribute_is_refused():
     p_x, p_y = _random_case(3, 4, 2, 1, seed=61)
-    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_rel=[1])
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, rel=[1])
     with pytest.raises(ValueError, match="relative and swept"):
         sweep_sim_maet(dx, dy, np.array([[0.0, 1.5]]), verbose=False)
 
@@ -245,7 +245,7 @@ def test_swept_periodic_attribute_is_refused_by_the_mixture():
     reaches it --- the refusal is specific to the mixture.
     """
     p_x, p_y = _random_case(3, 4, 2, 1, seed=62)
-    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_per=[1], period=[12.0])
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, per=[1], period=[12.0])
     with pytest.raises(ValueError, match="periodic and swept"):
         sweep_sim_maet(dx, dy, np.array([[0.0, 1.5]]),
                                method="mixture", verbose=False)
@@ -261,7 +261,7 @@ def test_relative_periodic_above_the_limit_is_refused_by_the_mixture():
     reaches for the same inputs.
     """
     p_x, p_y = _random_case(2, 4, 2, 2, seed=63)
-    dx, dy, _ = _densities(p_x, p_y, 0.9, 2, is_rel=[0, 1], is_per=[0, 1],
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 2, rel=[0, 1], per=[0, 1],
                            period=[None, 12.0])
     off = np.zeros((2, 2))
     off[0] = [0.0, 1.5]
@@ -275,8 +275,8 @@ def test_relative_periodic_above_the_limit_is_refused_by_the_mixture():
 def test_relative_periodic_below_the_limit_is_accepted_by_the_mixture():
     """Below the limit the two measures agree inside the accuracy floor."""
     p_x, p_y = _random_case(2, 4, 2, 2, seed=64)
-    dx, dy, args = _densities(p_x, p_y, 0.2, 2, is_rel=[0, 1],
-                              is_per=[0, 1], period=[None, 12.0])
+    dx, dy, args = _densities(p_x, p_y, 0.2, 2, rel=[0, 1],
+                              per=[0, 1], period=[None, 12.0])
     off = np.zeros((2, 3))
     off[0] = [0.0, 1.5, -2.0]
     got = sweep_sim_maet(dx, dy, off, method="mixture",
@@ -292,7 +292,7 @@ def test_relative_periodic_below_the_limit_is_accepted_by_the_mixture():
 
 def test_eligibility_reports_reasons_without_raising():
     p_x, p_y = _random_case(3, 4, 2, 1, seed=64)
-    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_per=[1], period=[12.0])
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, per=[1], period=[12.0])
     ok, reason = sweep_eligibility(dx, dy, np.array([[0.0, 1.5]]))
     assert not ok and "periodic" in reason
     ok, reason = sweep_eligibility(dx, dy, np.zeros((1, 2)))
@@ -409,7 +409,7 @@ def test_orbit_route_carries_a_swept_periodic_attribute():
 def test_orbit_route_refuses_a_swept_relative_attribute():
     """Untranslated relative attributes ride this route; swept ones cannot."""
     p_x, p_y = _random_case(3, 4, 2, 1, seed=230)
-    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, is_rel=[1])
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3, rel=[1])
     with pytest.raises(ValueError, match="orbit route does not support"):
         sweep_sim_maet(dx, dy, np.array([[0.0, 1.5]]),
                                method="orbit", verbose=False)
@@ -635,19 +635,19 @@ def test_accuracy_holds_far_from_the_origin(origin):
 # -------------------------------------------------------------------
 
 
-def _difference_form_Q(U, V, block, is_rel):
+def _difference_form_Q(U, V, block, rel):
     from mpt._tensor.dispatch import _compute_Q, _compute_Q_inner_blocks
     D = U[:, :, None] - V[:, None, :]
     if block > 0 and block < U.shape[0]:
         return np.asarray(_compute_Q_inner_blocks(D, block, False, 0.0,
                                                   reduced=False))
-    return np.asarray(_compute_Q(D, U.shape[0], is_rel, False, 0.0))
+    return np.asarray(_compute_Q(D, U.shape[0], rel, False, 0.0))
 
 
 @pytest.mark.parametrize("magnitude", [0.0, 1e3, 1e6, 1e9])
-@pytest.mark.parametrize("block,is_rel", [(0, False), (4, True), (2, False)])
+@pytest.mark.parametrize("block,rel", [(0, False), (4, True), (2, False)])
 def test_gram_quadratic_form_matches_the_difference_form(magnitude, block,
-                                                         is_rel):
+                                                         rel):
     """One gemm in place of an (r, nJ, nK) difference array.
 
     The shared shift is what makes this hold far from the origin: the
@@ -660,7 +660,7 @@ def test_gram_quadratic_form_matches_the_difference_form(magnitude, block,
     U = rng.normal(0.0, 5.0, size=(4, 120)) + magnitude
     V = rng.normal(0.0, 5.0, size=(4, 80)) + magnitude
     got = _gram_quadratic_form(U, V, block)
-    ref = _difference_form_Q(U, V, block, is_rel)
+    ref = _difference_form_Q(U, V, block, rel)
     # Q is consumed as Q / (4 sigma^2), so judge it on its own scale.
     assert np.max(np.abs(got - ref)) <= 1e-12 * max(float(np.max(ref)), 1.0)
 
@@ -684,9 +684,9 @@ def test_gram_is_declined_when_it_would_cost_accuracy():
     assert _gram_is_accurate_enough(U, V, 10.0, np.inf)
 
 
-@pytest.mark.parametrize("is_rel", [False, True])
+@pytest.mark.parametrize("rel", [False, True])
 @pytest.mark.parametrize("A", [1, 2])
-def test_ma_log_kernel_is_unchanged_by_the_gram_route(is_rel, A):
+def test_ma_log_kernel_is_unchanged_by_the_gram_route(rel, A):
     """The routed and unrouted forms agree on the log-kernel itself."""
     from mpt._tensor.cosine import _ma_log_kernel
 
@@ -694,7 +694,7 @@ def test_ma_log_kernel_is_unchanged_by_the_gram_route(is_rel, A):
     r, n_j, n_k = 3, 200, 150
     u = [rng.normal(0.0, 5.0, size=(r, n_j)) for _ in range(A)]
     v = [rng.normal(0.0, 5.0, size=(r, n_k)) for _ in range(A)]
-    args = ([r] * A, [5.0] * A, [is_rel] * A, [False] * A, [0.0] * A)
+    args = ([r] * A, [5.0] * A, [rel] * A, [False] * A, [0.0] * A)
     fast = _ma_log_kernel(u, v, n_j, n_k, A, *args, truncation_sigmas=6.0)
     exact = _ma_log_kernel(u, v, n_j, n_k, A, *args,
                            truncation_sigmas=np.inf)
@@ -749,7 +749,7 @@ def test_orbit_route_declines_ordered_attributes():
 
     p_x, p_y = _random_case(5, 6, 3, 2, seed=830)
     off = _offsets(2, swept=(0, 1))
-    dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_exch=[0, 0])
+    dx, dy, args = _densities(p_x, p_y, 0.9, 3, exch=[0, 0])
     dxp, dyp = dx.pruned(), dy.pruned()
     assert not orbit_sweep_supported(dxp, dyp, off, np.inf)
     with pytest.raises(ValueError, match="orbit route does not support"):
@@ -762,12 +762,12 @@ def test_orbit_route_declines_ordered_attributes():
     assert _rel_dev(got, ref) <= PARITY
 
 
-@pytest.mark.parametrize("is_exch", [0, 1])
-def test_auto_is_exact_for_both_symmetry_settings(is_exch):
+@pytest.mark.parametrize("exch", [0, 1])
+def test_auto_is_exact_for_both_symmetry_settings(exch):
     """Whichever route ``'auto'`` picks, the answer is the same one."""
-    p_x, p_y = _random_case(4, 6, 3, 2, seed=840 + is_exch)
+    p_x, p_y = _random_case(4, 6, 3, 2, seed=840 + exch)
     off = _offsets(2, swept=(0, 1))
-    dx, dy, args = _densities(p_x, p_y, 0.9, 2, is_exch=[is_exch] * 2)
+    dx, dy, args = _densities(p_x, p_y, 0.9, 2, exch=[exch] * 2)
     got = sweep_sim_maet(dx, dy, off, truncation_sigmas=np.inf,
                                  verbose=False)
     ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
@@ -810,7 +810,7 @@ def test_orbit_declines_absolute_nested_attribute():
         translate_attributes, unpack_pre_maet
     from mpt._tensor.sweep import orbit_sweep_supported
     p = np.array([[56.0, 59.0, 56.0, 61.0, 58.0, 61.0, 58.0, 63.0]])
-    pm = pack_pre_maet([p], None, flat_specs([p], sigma=0.15, is_per=False,
+    pm = pack_pre_maet([p], None, flat_specs([p], sigma=0.15, per=False,
                                              period=0.0))
     pm = add_spectra(pm, 'harmonic', 12, 'powerlaw', 0.67, attribute=0,
                      units=12.0)
@@ -838,7 +838,7 @@ def test_orbit_declines_absolute_nested_attribute():
 # -------------------------------------------------------------------
 
 
-def _spectral_pair(is_per=False, orders=(4, 1), exch=False, onset_shift=0.0,
+def _spectral_pair(per=False, orders=(4, 1), exch=False, onset_shift=0.0,
                  transpose=0.0):
     """A bound, spectrally enriched pitch attribute (nested) with an onset
     attribute; the query is events 2..5 of the context, transposed and
@@ -846,13 +846,13 @@ def _spectral_pair(is_per=False, orders=(4, 1), exch=False, onset_shift=0.0,
     from mpt import (add_spectra, bind_events, flat_specs, pack_pre_maet)
     pitch = np.array([[60.0, 62.0, 64.0, 67.0, 64.0, 62.0, 60.0, 59.0, 57.0]])
     onset = np.array([[0.0, 0.5, 1.5, 2.0, 3.0, 3.5, 4.0, 5.5, 6.0]])
-    per = dict(is_per=True, period=12.0) if is_per else dict(is_per=False,
+    per_kw = dict(per=True, period=12.0) if per else dict(per=False,
                                                              period=0.0)
 
     def pm(p, t):
         sp = flat_specs([p, t], sigma=[0.15, 0.125],
-                        is_per=[per['is_per'], False],
-                        period=[per['period'], 0.0])
+                        per=[per_kw['per'], False],
+                        period=[per_kw['period'], 0.0])
         x = pack_pre_maet([p, t], None, sp)
         x = add_spectra(x, 'harmonic', 6, 'powerlaw', 0.67, attribute=0,
                         units=12.0)
@@ -884,15 +884,15 @@ def _dens(pm):
 
 
 @pytest.mark.parametrize("normalize", ["oneSidedDenom", "cosine"])
-@pytest.mark.parametrize("is_per", [False, True])
+@pytest.mark.parametrize("per", [False, True])
 @pytest.mark.parametrize("exch", [False, True])
-def test_contract_route_sweeps_a_nested_attribute(normalize, is_per, exch):
+def test_contract_route_sweeps_a_nested_attribute(normalize, per, exch):
     """Translating the nested pitch attribute: the contraction route agrees
     with translate-and-compare, ordered or exchangeable, periodic or not,
     with the onset attribute compared alongside."""
     from mpt._tensor.sweep import contract_sweep_supported
     orders = (3, 1) if exch else (4, 1)
-    ctx, qry = _spectral_pair(is_per, orders, exch, transpose=-2.0)
+    ctx, qry = _spectral_pair(per, orders, exch, transpose=-2.0)
     dx, dy = _dens(ctx), _dens(qry)
     mu = np.arange(-4.0, 6.01, 0.25)
     off = np.vstack([mu, np.zeros_like(mu)])

@@ -37,7 +37,7 @@ R        = 3;           % tuple size
 SIGMA    = 30.0;        % Gaussian uncertainty (cents)
 N_REPEATS = 3;          % repetitions per timing measurement
 RNG_SEED  = 0;
-PERIOD    = 1200.0;     % nominal range (unused for isPer = false)
+PERIOD    = 1200.0;     % nominal range (unused for per = false)
 
 %% Setup
 rng(RNG_SEED);
@@ -317,7 +317,7 @@ function pm = localNestedMelody(nNotes, nPartials, nBound)
 %   each super-event an ordered group of notes, each note a multiset of
 %   partials.
     p = round((5400 + 1800 * rand(1, nNotes)) / 100) * 100;
-    specs = flatSpecs({p}, 'sigma', 15, 'isPer', false, 'period', 0);
+    specs = flatSpecs({p}, 'sigma', 15, 'per', false, 'period', 0);
     pm = packPreMaet({p}, [], specs);
     pm = addSpectra(pm, 'harmonic', nPartials, 'powerlaw', 1, ...
                     'attribute', 1, 'units', 1200);

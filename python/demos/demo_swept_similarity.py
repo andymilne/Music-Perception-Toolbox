@@ -91,8 +91,8 @@ onset = np.array([t for _, t in notes], dtype=float)
 # beats) is absolute with sigma = 0.1 beats.
 SIGMA = [0.2, 0.1]
 p_ctx = [midi[None, :], onset[None, :]]
-specs = mpt.flat_specs(p_ctx, name=['pitch', 'onset'], sigma=SIGMA,
-                       is_per=[True, False], period=[12.0, 0.0])
+specs = mpt.flat_specs(p_ctx, names=['pitch', 'onset'], sigma=SIGMA,
+                       per=[True, False], period=[12.0, 0.0])
 melody = mpt.pack_pre_maet(p_ctx, None, specs)
 query = mpt.pack_pre_maet([np.array(QUERY_MIDI, dtype=float)[None, :],
                            np.array(RHYTHM)[None, :]], None, specs)
@@ -290,8 +290,8 @@ print("=== 7. align='window', onset relative (bound onsets) ===")
 # super-events (bind_events) with the outer level relative (rel_outer):
 # each super-event is then compared by its onsets measured from its first,
 # its rhythm. Pitch is left out here, to ask about rhythm alone.
-t_specs = mpt.flat_specs([onset[None, :]], name=['onset'], sigma=[0.1],
-                         is_per=[False], period=[0.0])
+t_specs = mpt.flat_specs([onset[None, :]], names=['onset'], sigma=[0.1],
+                         per=[False], period=[0.0])
 bound_mel = mpt.bind_events(mpt.pack_pre_maet([onset[None, :]], None,
                                               t_specs), 4, rel_outer=True)
 bound_qry = mpt.bind_events(mpt.pack_pre_maet([np.array(RHYTHM)[None, :]],
@@ -303,7 +303,7 @@ mpt.show_pre_maet(bound_qry)
 # pre-MAET holds (its four onsets reduced to one, their mean, the default
 # of `locate`), before the density is built; the comparison then uses
 # only the spacing. Translation would change nothing on a relative
-# attribute, so 'window' is the role.
+# attribute, so 'window' is the alignment.
 S7 = mpt.swept_similarity(bound_mel, bound_qry, sweep={0: bar_centres},
                           align={0: 'window'},
                           window={0: {'shape': 'rect', 'width': 4.0}})

@@ -310,11 +310,11 @@ class TestCanonicalKeyFloatingPointBug:
             chain_pg = np.mod(np.arange(n) * (period - g), period)
             k_g, _, _  = _chord_canonical_key(
                 chain_g,  None, sigma=sigma, r=2,
-                is_rel=True, is_per=True, period=period,
+                rel=True, per=True, period=period,
             )
             k_pg, _, _ = _chord_canonical_key(
                 chain_pg, None, sigma=sigma, r=2,
-                is_rel=True, is_per=True, period=period,
+                rel=True, per=True, period=period,
             )
             assert k_g == k_pg, (
                 f"gen={g} and gen={period - g} should share canonical key "
@@ -335,7 +335,7 @@ class TestCanonicalKeyFloatingPointBug:
             chain = np.mod(np.arange(n) * g, period)
             k, _, _ = _chord_canonical_key(
                 chain, None, sigma=sigma, r=2,
-                is_rel=True, is_per=True, period=period,
+                rel=True, per=True, period=period,
             )
             keys.add(k)
         # Each gen and period-gen pair collapse to one key, except

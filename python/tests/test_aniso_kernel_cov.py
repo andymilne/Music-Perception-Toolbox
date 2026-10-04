@@ -9,7 +9,7 @@ the analytical cross-checks agreed for the release:
 - reduction to the scalar-``sigma`` behaviour at ``Sigma = sigma**2 I``;
 - whitened-machinery equality with a direct numpy evaluation of the
   anisotropic density and inner product;
-- convergence of the ``sd_shift`` ridge to the exact ``is_rel=True``
+- convergence of the ``sd_shift`` ridge to the exact ``rel=True``
   cosine as ``sd_shift`` grows;
 - the ``D D^T`` construction against Monte Carlo propagation of
   position noise through differencing;
@@ -95,7 +95,7 @@ class TestKernelCov:
             kernel_cov(0, sd_interval=1.0, differenced=True)
         with pytest.raises(ValueError, match="non-negative"):
             kernel_cov(3, sd_interval=-1.0, differenced=True)
-        with pytest.raises(ValueError, match="is_rel=True"):
+        with pytest.raises(ValueError, match="rel=True"):
             kernel_cov(3, sd_shift=np.inf, differenced=True)
         with pytest.raises(ValueError, match="singular"):
             kernel_cov(3, sd_shift=1.0, differenced=True)  # rank one alone
@@ -413,7 +413,7 @@ class TestSweptSimilarity:
         prof = mpt.swept_similarity(
             p_context, w_context, p_query, w_query,
             [Sigma, 0.25], [r, 1], [False, False], [False, False],
-            [0.0, 0.0], is_exch=[False, True],
+            [0.0, 0.0], exch=[False, True],
             sweep={1: onsets.ravel()}, align={1: "window"}, drop=[1],
             window={1: {"shape": "rect", "width": 0.5}},
             normalize="oneSidedDenom", verbose=False)
@@ -437,22 +437,22 @@ class TestConstraints:
     P = np.array([0.0, 1.0, 2.0])
     W = np.ones(3)
 
-    def _build(self, sigma, r=3, is_rel=False, is_per=False, period=0.0,
-               is_exch=False):
-        return mpt.build_maet(self.P, self.W, sigma, r, is_rel,
-                                  is_per, period, is_exch, verbose=False)
+    def _build(self, sigma, r=3, rel=False, per=False, period=0.0,
+               exch=False):
+        return mpt.build_maet(self.P, self.W, sigma, r, rel,
+                                  per, period, exch, verbose=False)
 
     def test_rejects_exch(self):
         with pytest.raises(ValueError, match="ordered multiset"):
-            self._build(np.eye(3), is_exch=True)
+            self._build(np.eye(3), exch=True)
 
     def test_rejects_rel(self):
-        with pytest.raises(ValueError, match="is_rel=False"):
-            self._build(np.eye(3), is_rel=True)
+        with pytest.raises(ValueError, match="rel=False"):
+            self._build(np.eye(3), rel=True)
 
     def test_rejects_per(self):
-        with pytest.raises(ValueError, match="is_per=False"):
-            self._build(np.eye(3), is_per=True, period=12.0)
+        with pytest.raises(ValueError, match="per=False"):
+            self._build(np.eye(3), per=True, period=12.0)
 
     def test_rejects_r_lt_K(self):
         with pytest.raises(ValueError, match="r == K"):
@@ -551,7 +551,7 @@ class TestDegenerateNestedFlattening:
         N = P.shape[1]
         return mpt.build_maet(
             [P], [np.ones((3, N))], specs=[spec], sigma=[sigma],
-            is_per=[False], period=[0.0], verbose=False)
+            per=[False], period=[0.0], verbose=False)
 
     def test_bound_equals_flat_eval_matrix_sigma(self):
         P, nested, flat, rng = self._triples()
@@ -583,7 +583,7 @@ class TestDegenerateNestedFlattening:
     def test_windowed_bound_specs_equals_flat_is_exch(self):
         # The demo pipeline: difference -> log -> bind, swept with
         # swept_similarity via specs=, against the manually stacked
-        # flat surface via is_exch=.
+        # flat surface via exch=.
         onsets = np.array([0.0, 0.5, 0.75, 1.0, 2.0, 2.5, 2.75, 3.0,
                            4.0, 4.4, 4.6, 4.8])
         p_d, w_d, sp_d = mpt.unpack_pre_maet(mpt.difference_events([onsets[None, :]],
@@ -610,7 +610,7 @@ class TestDegenerateNestedFlattening:
         b = mpt.swept_similarity(
             [tri_manual, tri_times[None, :]], w_ctx, p_q, w_q,
             [self.SIG, 0.25], [3, 1], [False, False], [False, False],
-            [0.0, 0.0], is_exch=[False, True], **kw)
+            [0.0, 0.0], exch=[False, True], **kw)
         np.testing.assert_allclose(np.asarray(a), np.asarray(b),
                                    rtol=1e-12, atol=1e-15)
 
@@ -633,7 +633,7 @@ class TestDegenerateNestedFlattening:
         with pytest.raises(ValueError, match="not[ ]?degenerate"):
             mpt.build_maet(
                 [pb2[0]], None, specs=[sp2[0]],
-                sigma=[np.eye(6) * 0.01], is_per=[False],
+                sigma=[np.eye(6) * 0.01], per=[False],
                 period=[0.0], verbose=False)
 
     def test_outer_exch_rejected_canonically(self):
@@ -647,7 +647,7 @@ class TestDegenerateNestedFlattening:
         rng = np.random.default_rng(4)
         pb, _, sp = mpt.unpack_pre_maet(mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
                                     rel_outer=True))
-        with pytest.raises(ValueError, match="is_rel=False"):
+        with pytest.raises(ValueError, match="rel=False"):
             self._build(pb[0], sp[0], np.eye(3) * 0.01)
 
 
@@ -674,7 +674,7 @@ class TestTruncationParity:
         n = len(copies)
         return mpt.pack_pre_maet(p, None, mpt.flat_specs(
             p, r=len(v), rel=rel, exch=[False] * n, sigma=sig,
-            is_per=[False] * n, period=[0.0] * n))
+            per=[False] * n, period=[0.0] * n))
 
     def _pair(self, s, ts, v_x):
         """(paired isotropic, kernel_cov) similarity of Q and v_x."""
@@ -932,7 +932,7 @@ class TestBareInnerProductScale:
         def run(sig, drop):
             return mpt.swept_similarity(
                 pc, wc, pq, wq, [sig, 0.25], [r, 1], [False, False],
-                [False, False], [0.0, 0.0], is_exch=[False, True],
+                [False, False], [0.0, 0.0], exch=[False, True],
                 sweep={1: onsets.ravel()},
                 align={1: "window" if drop else "both"},
                 drop=[1] if drop else None, window={1: {"shape": "rect", "width": 0.5}},

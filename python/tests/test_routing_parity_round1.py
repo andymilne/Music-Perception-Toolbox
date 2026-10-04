@@ -53,24 +53,24 @@ _VX = np.sort(_RNG.uniform(0.0, P, 9))
 _VY = np.sort(_RNG.uniform(0.0, P, 9))
 
 
-def _nested(values, sigma, *, is_rel=True, is_per=True, wrap='full-image',
+def _nested(values, sigma, *, rel=True, per=True, wrap='full-image',
             chord=3):
     """One nested attribute: two levels of r = 2, symmetric, chord tags."""
     v = np.asarray(values, float).reshape(-1, 1)
     tags = np.repeat(np.arange(v.shape[0] // chord), chord)
     spec = dict(r=[2, 2], exch=[True, True], tags=tags,
-                rel=([0, 1] if is_rel else None))
+                rel=([0, 1] if rel else None))
     return build_maet([v], None, specs=[spec], sigma=[sigma],
-                          is_per=[is_per], period=[P if is_per else 0.0],
+                          per=[per], period=[P if per else 0.0],
                           wrap=[wrap], verbose=False)
 
 
-def _flat(seed, sigma, r=2, *, is_rel=False, is_per=True, wrap='full-image',
+def _flat(seed, sigma, r=2, *, rel=False, per=True, wrap='full-image',
           K=5, N=2):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
-    return build_maet([p], None, [sigma], [r], [is_rel], [is_per],
-                          [P if is_per else 0.0], wrap=[wrap], verbose=False)
+    return build_maet([p], None, [sigma], [r], [rel], [per],
+                          [P if per else 0.0], wrap=[wrap], verbose=False)
 
 
 # --------------------------------------------------------------- A-1 / B-1
@@ -95,13 +95,13 @@ def test_nested_measure_rule_reads_the_per_call_width():
     assert np.isfinite(v)
 
 
-@pytest.mark.parametrize("is_per", [False, True])
-def test_nested_contraction_truncates_at_the_per_call_width(is_per):
+@pytest.mark.parametrize("per", [False, True])
+def test_nested_contraction_truncates_at_the_per_call_width(per):
     """A coarse per-call width changes the contraction's number and is
     what the self-inner-product memo is keyed on."""
-    sigma = 1.0 if is_per else 0.4
-    dx = _nested(_VX, sigma, is_rel=False, is_per=is_per)
-    dy = _nested(_VY, sigma, is_rel=False, is_per=is_per)
+    sigma = 1.0 if per else 0.4
+    dx = _nested(_VX, sigma, rel=False, per=per)
+    dy = _nested(_VY, sigma, rel=False, per=per)
     ref = sim_maet(dx, dy, method="contract", verbose=False)
     dx._self_ip_cache.clear()
     dy._self_ip_cache.clear()
@@ -122,7 +122,7 @@ def test_nested_ma_contraction_truncates_at_the_per_call_width():
         spec = dict(r=[2, 2], exch=[True, True], tags=tags, rel=None)
         return build_maet([v, ex], None,
                               specs=[spec, dict(r=1, rel=False, exch=True)],
-                              sigma=[0.4, 1.0], is_per=[False, False],
+                              sigma=[0.4, 1.0], per=[False, False],
                               period=[0.0, 0.0], verbose=False)
     dx, dy = _d(_VX), _d(_VY)
     ref = sim_maet(dx, dy, method="contract", verbose=False)
@@ -139,8 +139,8 @@ def test_nested_ma_contraction_truncates_at_the_per_call_width():
 
 
 def test_nested_route_skips_xx_under_one_sided_denominator():
-    dx = _nested(_VX, 0.4, is_rel=False, is_per=False)
-    dy = _nested(_VY, 0.4, is_rel=False, is_per=False)
+    dx = _nested(_VX, 0.4, rel=False, per=False)
+    dy = _nested(_VY, 0.4, rel=False, per=False)
     v = sim_maet(dx, dy, method="contract",
                          normalize="oneSidedDenom", verbose=False)
     assert np.isfinite(v)
@@ -235,7 +235,7 @@ def test_non_finite_mobius_output_falls_back_to_centres(monkeypatch, A):
 
 @pytest.mark.parametrize("method", ["centres", "mobius"])
 def test_eval_single_precision_is_honoured_on_both_routes(method):
-    d = _flat(5, 0.6, r=2, is_per=False, K=8, N=3)
+    d = _flat(5, 0.6, r=2, per=False, K=8, N=3)
     xq = np.random.default_rng(3).uniform(0.0, P, size=(2, 64))
     double = eval_maet(d, xq, method=method, verbose=False)
     single = eval_maet(d, xq, method=method, kernel_precision="single",
@@ -247,7 +247,7 @@ def test_eval_single_precision_is_honoured_on_both_routes(method):
 def test_entropy_list_form_forwards_the_width():
     """A relative density reaches the grid evaluator, where the width
     matters; the list form must give the scalar form's number."""
-    d = _flat(4, 0.5, r=2, is_rel=True, is_per=False, K=5, N=2)
+    d = _flat(4, 0.5, r=2, rel=True, per=False, K=5, N=2)
     kw = dict(method="shannon", n_points_per_dim=64, x_min=-6.0, x_max=6.0,
               verbose=False)
     scalar = entropy_maet(d, truncation_sigmas=1.5, **kw)
@@ -287,7 +287,7 @@ def test_factored_eval_route_honours_the_wrap(monkeypatch):
 
 
 def test_eval_rejects_an_unknown_normalize():
-    d = _flat(1, 0.5, is_per=False)
+    d = _flat(1, 0.5, per=False)
     with pytest.raises(ValueError, match="normalize must be one of"):
         eval_maet(d, np.zeros((2, 3)), "gaussianish", verbose=False)
 

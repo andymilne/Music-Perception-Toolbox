@@ -96,7 +96,7 @@ class TestRenyi2ZeroMassNaN:
         ))
         dens = mpt.build_maet(
             pa, wa, specs=sp, sigma=[1.0, 1.0],
-            is_per=[False, False], period=[0., 0.], verbose=False,
+            per=[False, False], period=[0., 0.], verbose=False,
         )
         v = mpt.entropy_maet(dens, method="renyi2", verbose=False)
         assert np.isnan(v)

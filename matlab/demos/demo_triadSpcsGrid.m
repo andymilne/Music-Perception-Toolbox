@@ -39,8 +39,8 @@ rho    = 1;       % power-law rolloff exponent (1/n)
 % Expectation tensor parameters
 sigma  = 10;      % Gaussian smoothing width in cents
 r      = 1;       % monad expectation tensor
-isRel  = 0;       % absolute (not transposition-invariant)
-isPer  = 1;       % periodic (pitch-class equivalence)
+rel  = 0;       % absolute (not transposition-invariant)
+per  = 1;       % periodic (pitch-class equivalence)
 period = 1200;    % one octave in cents
 
 % Display options
@@ -69,7 +69,7 @@ pMatB = [rootGrid(:), thirdGrid(:), rootGrid(:) + 700];
 fprintf('Computing spectral pitch class similarities for %s reference (N=%d, rho=%.2f)...\n', ...
     refName, nHarm, rho);
 simVector = simMaet(refPitches, [], pMatB, [], ...
-    sigma, r, isRel, isPer, period, ...
+    sigma, r, rel, per, period, ...
     'spectrum', {'harmonic', nHarm, 'powerlaw', rho}, ...
     'verbose', false);
 

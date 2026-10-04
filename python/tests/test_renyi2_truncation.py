@@ -105,7 +105,7 @@ class TestRenyi2Truncation:
                                    _h(ds, truncation_sigmas=3.0),
                                    rtol=1e-12)
 
-    @pytest.mark.filterwarnings("ignore:is_rel = True combined with r_a = 1")
+    @pytest.mark.filterwarnings("ignore:rel = True combined with r_a = 1")
     def test_sub_density_branch(self):
         # A relative r = 1 attribute routes through the rebuilt
         # sub-density; the width must reach that call too.

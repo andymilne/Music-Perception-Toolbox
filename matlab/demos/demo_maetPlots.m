@@ -8,20 +8,20 @@
 %  The `configs` table below sets out the combinations. What each
 %  parameter does, and where it shows in the pictures:
 %
-%    r       raises the dimensionality, since dim = r - isRel. Going
+%    r       raises the dimensionality, since dim = r - rel. Going
 %            from r = 2 to r = 3 turns a plane into a cube. The
 %            density places one kernel per r-tuple, so the number of
 %            blobs goes as the number of tuples.
-%    isRel   absolute against relative. An absolute density lives at
+%    rel   absolute against relative. An absolute density lives at
 %            the pitches themselves; a relative one lives at the
 %            intervals between them, is transposition-invariant, and
 %            costs a dimension. Its kernels are elongated along the
 %            all-ones diagonal, which the 'kernels' method shows
 %            directly.
-%    isPer   whether the space wraps. A periodic density is drawn over
+%    per   whether the space wraps. A periodic density is drawn over
 %            one period, and a kernel crossing a face reappears on the
 %            other side; a non-periodic one runs off into silence.
-%    isExch  unordered against ordered. An ordered density counts each
+%    exch  unordered against ordered. An ordered density counts each
 %            arrangement of a tuple separately and is unsymmetric in
 %            its arguments; the unordered one is its symmetrization
 %            and so is mirror-symmetric about the diagonal. Each
@@ -62,18 +62,18 @@ sigma = 15;
 period = 1200;
 
 % === Plot configurations ===
-% One row per plot: [r, isRel, isPer, isExch], with isRel, isPer, and
-% isExch as 0 or 1. What each does is set out in the header; the table
+% One row per plot: [r, rel, per, exch], with rel, per, and
+% exch as 0 or 1. What each does is set out in the header; the table
 % is ordered so that the differences are adjacent.
 %
-% Only one to three drawn dimensions can be drawn, dim = r - isRel, so
+% Only one to three drawn dimensions can be drawn, dim = r - rel, so
 % r runs to 3 absolute and 4 relative. A four-dimensional density has
 % no honest picture: any set of two-dimensional slices shows arbitrary
 % cuts rather than the density.
 %
 % Each configuration appears twice, unordered then ordered, so that
 % the symmetrization is a difference between neighbouring tabs. r = 1
-% is included both ways although it has one slot and so nothing to
+% is included both ways although it has one position and so nothing to
 % order: the two come out identical. Exchangeability is a statement
 % about the arrangement of a tuple's elements, and a tuple of one has
 % only the one.
@@ -219,7 +219,7 @@ for ci = 1:nConfigs
         continue;
     end
     if isRelR && r < 2
-        fprintf('Config %d: r = %d with isRel = true skipped (requires r >= 2).\n', ...
+        fprintf('Config %d: r = %d with rel = true skipped (requires r >= 2).\n', ...
             ci, r);
         continue;
     end

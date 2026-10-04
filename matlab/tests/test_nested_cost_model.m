@@ -356,7 +356,7 @@ function d = ncmDens(v, sigma, chord, isRel, isPer, P, wrap)
     else
         period = 0.0;
     end
-    args = {{v}, {[]}, 'specs', {spec}, 'sigma', sigma, 'isPer', isPer, ...
+    args = {{v}, {[]}, 'specs', {spec}, 'sigma', sigma, 'per', isPer, ...
             'period', period, 'verbose', false};
     if ~isempty(wrap)
         args = [args, {'wrap', {wrap}}];
@@ -374,7 +374,7 @@ function d = ncmDensMA(v, extra, sigma, P)
     spec = struct('tags', tags, 'r', [2 2], 'exch', [true true], 'rel', [0 1]);
     specs = {spec, struct('r', 2, 'rel', false, 'exch', true)};
     d = buildMaet({v, extra}, {[], []}, 'specs', specs, ...
-                     'sigma', [sigma, 1.0], 'isPer', [true, false], ...
+                     'sigma', [sigma, 1.0], 'per', [true, false], ...
                      'period', [P, 0.0], 'verbose', false);
 end
 

@@ -9,19 +9,19 @@ offers for drawing it.
 The ``configs`` table below sets out the combinations. What each
 parameter does, and where it shows in the pictures:
 
-  r        raises the dimensionality, since dim = r - is_rel. Going
+  r        raises the dimensionality, since dim = r - rel. Going
            from r = 2 to r = 3 turns a plane into a cube. The density
            places one kernel per r-tuple, so the number of blobs goes
            as the number of tuples.
-  is_rel   absolute against relative. An absolute density lives at the
+  rel   absolute against relative. An absolute density lives at the
            pitches themselves; a relative one lives at the intervals
            between them, is transposition-invariant, and costs a
            dimension. Its kernels are elongated along the all-ones
            diagonal, which the 'kernels' method shows directly.
-  is_per   whether the space wraps. A periodic density is drawn over
+  per   whether the space wraps. A periodic density is drawn over
            one period, and a kernel crossing a face reappears on the
            other side; a non-periodic one runs off into silence.
-  is_exch  unordered against ordered. An ordered density counts each
+  exch  unordered against ordered. An ordered density counts each
            arrangement of a tuple separately and is unsymmetric in its
            arguments; the unordered one is its symmetrization and so is
            mirror-symmetric about the diagonal. Each configuration is
@@ -77,16 +77,16 @@ SIGMA = 15.0
 # The period for the periodic configurations, in the same units as P.
 PERIOD = 1200.0
 
-# One row per plot: (r, is_rel, is_per, is_exch). What each does is set
+# One row per plot: (r, rel, per, exch). What each does is set
 # out in the header; the table is ordered so that the differences are
 # adjacent.
 #
-# Only one to three drawn dimensions can be drawn, dim = r - is_rel, so
+# Only one to three drawn dimensions can be drawn, dim = r - rel, so
 # r runs to 3 absolute and 4 relative.
 #
 # Each configuration appears twice, unordered then ordered, so that the
 # symmetrization is a difference between neighbouring figures. r = 1 is
-# included both ways although it has one slot and so nothing to order:
+# included both ways although it has one position and so nothing to order:
 # the two come out identical. Exchangeability is a statement about the
 # arrangement of a tuple's elements, and a tuple of one has only the
 # one.
@@ -391,25 +391,25 @@ def main():
     figures = Figures(TAB_FIGURES)
 
     print('\n--- Plot summary ---')
-    for ci, (r, is_rel, is_per, is_exch) in enumerate(CONFIGS, start=1):
-        dim = r - int(is_rel)
-        if r > len(P) or (is_rel and r < 2) or dim > 3:
+    for ci, (r, rel, per, exch) in enumerate(CONFIGS, start=1):
+        dim = r - int(rel)
+        if r > len(P) or (rel and r < 2) or dim > 3:
             print(f'  Config {ci}: r={r}, dim={dim} -- not drawn')
             continue
 
-        lims = ((0.0, PERIOD) if is_per
+        lims = ((0.0, PERIOD) if per
                 else (AX_MIN_NONPER, AX_MAX_NONPER))
         method = method_for(dim)
         relief = RELIEF_2D and dim == 2 and method == 'density'
         args, nodes = grid_args(dim, lims, relief)
-        mode_str, ax_label = labels[bool(is_rel)]
-        per_str = 'periodic' if is_per else 'non-periodic'
-        ord_str = 'unordered' if is_exch else 'ordered'
+        mode_str, ax_label = labels[bool(rel)]
+        per_str = 'periodic' if per else 'non-periodic'
+        ord_str = 'unordered' if exch else 'ordered'
         print(f'  Config {ci}: r={r}, {mode_str}, {per_str}, {ord_str}, '
               f'dim={dim}, nodes={nodes}, method={method}')
 
-        dens = mpt.build_maet(P, W, SIGMA, r, is_rel, is_per, PERIOD,
-                              is_exch, verbose=False)
+        dens = mpt.build_maet(P, W, SIGMA, r, rel, per, PERIOD,
+                              exch, verbose=False)
 
         fig, ax = figures.new(f'{ci}: r={r} dim={dim}',
                               three_d=(dim == 3 or relief))

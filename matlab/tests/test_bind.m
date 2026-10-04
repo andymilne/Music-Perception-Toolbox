@@ -84,7 +84,7 @@ results{end,2}   = isequal(sS0{1}.exch, [true false]) ...
 diffs = [2 -1 3 0 -2 1 4];
 n = 3;
 [pb, wb, specs] = unpackPreMaet(bindEvents({diffs}, [], n, 'circular', true));
-dNew = buildMaet(pb, wb, 'specs', specs, 'sigma', 10, 'isPer', true, ...
+dNew = buildMaet(pb, wb, 'specs', specs, 'sigma', 10, 'per', true, ...
                     'period', 12, 'verbose', false);
 pOld = cell(1, n);
 for ell = 0:(n - 1)
@@ -196,8 +196,8 @@ results{end,2}   = throwsError(@() bindEvents(pW, [], 2, 'specs', spNested));
 
 % --- name from kwarg and inherited from incoming spec ---
 [~, ~, spNm] = unpackPreMaet(bindEvents(pW, [], 2, ...
-                          'name', 'steps', 'levelNames', {'step', 'ngram'}));
-[~, ~, spInh] = unpackPreMaet(bindEvents(pW, [], 2, 'specs', flatSpecs(pW, 'name', 'pitch')));
+                          'names', 'steps', 'levelNames', {'step', 'ngram'}));
+[~, ~, spInh] = unpackPreMaet(bindEvents(pW, [], 2, 'specs', flatSpecs(pW, 'names', 'pitch')));
 results{end+1,1} = 'bind: name from kwarg and inherited';
 results{end,2}   = strcmp(spNm{1}.name, 'steps') ...
                    && isequal(spNm{1}.names, {'step', 'ngram'}) ...

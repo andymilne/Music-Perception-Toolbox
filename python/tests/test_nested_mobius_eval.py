@@ -37,7 +37,7 @@ def _density(tags, r, exch, rel, per, K, seed, *, sigma=0.7, N=2,
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     spec = {"tags": tags, "r": r, "exch": exch, "rel": rel}
     return build_maet([p], None, specs=[spec], sigma=[sigma],
-                          is_per=[per], period=[P], wrap=[wrap],
+                          per=[per], period=[P], wrap=[wrap],
                           verbose=False)
 
 
@@ -46,7 +46,7 @@ def _queries(d, seed, n_far=3, n_near=3):
     X = rng.uniform(-2.0, 14.0, size=(d.dim, n_far + n_near))
     if d.dim and n_near:
         # Near queries sit on actual tuple centres (all attributes stacked,
-        # in slot order), so the density carries mass there; a query
+        # in position order), so the density carries mass there; a query
         # assembled from independently drawn coordinates lands at ~1e-14
         # of the peak, where both routes are at their noise floor.
         c = np.vstack(d.centres)
@@ -119,7 +119,7 @@ def test_ragged_events_with_nan_padding():
     p[5, 0] = np.nan                    # event 0 has one value fewer
     p[4:, 2] = np.nan                   # event 2 has two fewer
     spec = {"tags": T2, "r": [1, 2], "exch": [True, True], "rel": [0, 0]}
-    d = build_maet([p], None, specs=[spec], sigma=[0.7], is_per=[False],
+    d = build_maet([p], None, specs=[spec], sigma=[0.7], per=[False],
                        period=[0.0], verbose=False)
     X = _queries(d, seed=4)
     _assert_routes_agree(d, X, 1e-10)
@@ -134,7 +134,7 @@ def test_nested_tensored_with_flat_attributes():
              {"r": 2, "exch": True, "rel": False},
              {"r": 1, "exch": True, "rel": False}]
     d = build_maet([p0, p1, p2], None, specs=specs,
-                       sigma=[0.5, 0.8, 1.0], is_per=[True, False, False],
+                       sigma=[0.5, 0.8, 1.0], per=[True, False, False],
                        period=[P, 0.0, 0.0], verbose=False)
     X = _queries(d, seed=5)
     _assert_routes_agree(d, X, 1e-7)
@@ -206,7 +206,7 @@ def test_ordered_flat_attribute_still_refuses_mobius():
     rng = np.random.default_rng(7)
     p = np.sort(rng.uniform(0.0, P, size=(4, 2)), axis=0)
     d = build_maet([p], None, specs=[{"r": 2, "exch": False, "rel": False}],
-                       sigma=[0.5], is_per=[False], period=[0.0], verbose=False)
+                       sigma=[0.5], per=[False], period=[0.0], verbose=False)
     with pytest.raises(ValueError, match="ordered"):
         eval_maet(d, np.zeros((d.dim, 2)), method="mobius", verbose=False)
 
@@ -230,7 +230,7 @@ def test_per_level_evaluator_reference_values():
         v, [0.884583285039345, 1.76658427991777,
             8.14454249730343e-08, 5.86413326215107e-15], rtol=1e-9)
     v = eval_nested_attr_orbit(p, w, tags, [2, 2], [False, True], 1, 0.7,
-                               x[:3], is_per=True, period=12.0,
+                               x[:3], per=True, period=12.0,
                                truncation_sigmas=math.inf)
     np.testing.assert_allclose(
         v, [1.44730864634257e-05, 0.00179025660699691,
@@ -254,7 +254,7 @@ def test_per_level_evaluator_is_much_cheaper_than_the_centres_route():
     tags = np.repeat(np.arange(4), 3)
     p = np.sort(rng.uniform(0.0, P, size=(12, 4)), axis=0)
     spec = {"tags": tags, "r": [3, 3], "exch": [True, True], "rel": [0, 0]}
-    d = build_maet([p], None, specs=[spec], sigma=[0.7], is_per=[False],
+    d = build_maet([p], None, specs=[spec], sigma=[0.7], per=[False],
                        period=[0.0], verbose=False)
     X = rng.uniform(0.0, P, size=(d.dim, 50))
     c_ms, m_ms = _nested_eval_costs_ms(d, X.shape[1])

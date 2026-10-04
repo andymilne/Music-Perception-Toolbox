@@ -27,11 +27,11 @@
 %  transpositions of a chord type collapse to one computation, and the
 %  144 chord rows to 4. SPCS depends on where the chord lies against its
 %  scale, so its key is the (scale, chord) pair, up to transposing both
-%  together, under the analysis parameters (sigma, r, isRel, isPer,
-%  period). Here, with isPer = 1, pitch is read as pitch class, so the
+%  together, under the analysis parameters (sigma, r, rel, per,
+%  period). Here, with per = 1, pitch is read as pitch class, so the
 %  augmented triad's transpositions by a major third, which give one
 %  pitch-class set, collapse, and the 144 pairs cost 120 computations;
-%  under isRel = 1 (which needs r >= 2) every transposition of a chord
+%  under rel = 1 (which needs r >= 2) every transposition of a chord
 %  would collapse, a relative density being transposition-invariant.
 %  The analyst changes the flags and the saving follows, with no change
 %  to the calling code. The one feature without a batched form,
@@ -69,8 +69,8 @@ spec   = {'harmonic', nHarm, 'powerlaw', rho};
 % Expectation tensor parameters
 sigma  = 10;      % Gaussian smoothing width (cents)
 r      = 1;       % monad expectation tensor
-isRel  = 0;       % absolute (not transposition-invariant)
-isPer  = 1;       % periodic (pitch-class equivalence)
+rel  = 0;       % absolute (not transposition-invariant)
+per  = 1;       % periodic (pitch-class equivalence)
 period = 1200;    % one octave
 
 % Reference pitch for roughness (Hz)
@@ -132,7 +132,7 @@ fprintf('Dataset: %d trials (%d scales × %d chord types × %d roots).\n\n', ...
 fprintf('=== Workflow 1: SPCS via batched simMaet ===\n\n');
 
 spcs = simMaet(pMatA, [], pMatB, [], ...
-    sigma, r, isRel, isPer, period, ...
+    sigma, r, rel, per, period, ...
     'spectrum', spec);
 
 spcs = round(spcs, 3);
@@ -266,8 +266,8 @@ items = cell(1, numel(itemPcs));
 for k = 1:numel(itemPcs)
     pk = {itemPcs{k}, itemOnsets{k}};
     items{k} = packPreMaet(pk, [], flatSpecs(pk, ...
-        'name', {'pitch class', 'onset'}, 'sigma', [35 0.25], ...
-        'isPer', [true false], 'period', [1200 0]));
+        'names', {'pitch class', 'onset'}, 'sigma', [35 0.25], ...
+        'per', [true false], 'period', [1200 0]));
 end
 reference = items{1};
 

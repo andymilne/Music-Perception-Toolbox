@@ -37,7 +37,7 @@ def test_fourier_worker_matches_direct_r2_to_r5():
                 va = np.asarray(_eval_orbit_rel_fourier(
                     p, w, sigma, r, x, per, P, ts)).ravel()
                 vd = np.asarray(eval_orbit_rel(
-                    p, w, sigma, r, x, is_per=per, period=P,
+                    p, w, sigma, r, x, per=per, period=P,
                     truncation_sigmas=ts, factored=False)).ravel()
                 peak = float(np.max(np.abs(vd)))
                 assert np.max(np.abs(va - vd)) <= 10.0 * _floor(ts) * peak
@@ -69,7 +69,7 @@ def test_fourier_gate_exclusions():
     p = np.sort(rng.uniform(0, 1200, 20))
     w = np.ones(20)
     x = rng.uniform(-100, 100, (2, 50))
-    kw = dict(is_per=False, period=0.0, truncation_sigmas=6.0)
+    kw = dict(per=False, period=0.0, truncation_sigmas=6.0)
     orig = M._eval_orbit_rel_fourier
     hits = {"n": 0}
 
@@ -85,7 +85,7 @@ def test_fourier_gate_exclusions():
                        return_cancellation_ratio=True, **kw)
         eval_orbit_rel(np.sort(rng.uniform(0, 240, 15)), np.ones(15),
                        30.0, 2, rng.uniform(-40, 40, (1, 30)),
-                       is_per=True, period=240.0, truncation_sigmas=6.0)
+                       per=True, period=240.0, truncation_sigmas=6.0)
     finally:
         M._eval_orbit_rel_fourier = orig
     assert hits["n"] == 0

@@ -1,7 +1,7 @@
 %% demo_edoApprox.m
 %  Pitch class similarity (PCS) of equal divisions of the octave
 %  (n-EDOs) to a just intonation reference chord, using relative dyad
-%  expectation tensors (r = 2, isRel = 1, dim = 1).
+%  expectation tensors (r = 2, rel = 1, dim = 1).
 %
 %  An example of this type of plot appears as Example 6.3 / Figure 4 in:
 %    Milne, A. J., Sethares, W. A., Laney, R., & Sharp, D. B. (2011).
@@ -16,7 +16,7 @@
 %  An n-EDO is a one-dimensional tuning: every interval is a multiple of a
 %  single generator (1200/n cents). This is why the paper calls these
 %  "one-dimensional approximations". Separately, because r = 2 and
-%  isRel = 1, the expectation tensor itself is a one-dimensional density
+%  rel = 1, the expectation tensor itself is a one-dimensional density
 %  over intervals (dim = 1).
 %
 %  Uses: simMaet (batched-raw, broadcast form)
@@ -45,8 +45,8 @@ nMax = 102;
 % Expectation tensor parameters
 sigma  = 6;       % Gaussian smoothing width (cents)
 r      = 2;       % dyad expectation tensor
-isRel  = 1;       % relative (transposition-invariant)
-isPer  = 1;       % periodic (pitch-class equivalence)
+rel  = 1;       % relative (transposition-invariant)
+per  = 1;       % periodic (pitch-class equivalence)
 period = 1200;    % one octave in cents
 
 %% === Build pitch matrices ===
@@ -68,7 +68,7 @@ end
 
 fprintf('Computing PCS of %d EDOs against %s...\n', nEDOs, refName);
 s = simMaet(refPitches, refWeights, pMatB, [], ...
-    sigma, r, isRel, isPer, period, ...
+    sigma, r, rel, per, period, ...
     'verbose', true);
 fprintf('Done.\n');
 
@@ -83,8 +83,8 @@ stem(edoRange, s, 'filled', 'MarkerSize', 4, 'LineWidth', 0.8, ...
 xlabel('n-EDO');
 ylabel('Pitch class similarity');
 title(sprintf(['PCS of n-EDOs with %s\n' ...
-    '(r = %d, isRel = %d, \\sigma = %d cents)'], ...
-    refName, r, isRel, sigma));
+    '(r = %d, rel = %d, \\sigma = %d cents)'], ...
+    refName, r, rel, sigma));
 xlim([nMin - 1, nMax + 1]);
 
 % Label the top peaks

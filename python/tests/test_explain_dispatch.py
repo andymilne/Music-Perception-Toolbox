@@ -21,25 +21,25 @@ from mpt._tensor.dispatch import (
 PERIOD = 1200.0
 
 
-def _dens(K=12, r=3, sigma=60.0, is_rel=True, is_per=True, seed=0):
+def _dens(K=12, r=3, sigma=60.0, rel=True, per=True, seed=0):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, PERIOD, K))
     return mpt.build_maet(
-        p, None, sigma, r, is_rel, is_per,
-        PERIOD if is_per else 0.0, verbose=False,
+        p, None, sigma, r, rel, per,
+        PERIOD if per else 0.0, verbose=False,
     )
 
 
 class TestAgreesWithTheDispatch:
-    @pytest.mark.parametrize("r,K,is_rel,is_per,sigma", [
+    @pytest.mark.parametrize("r,K,rel,per,sigma", [
         (2, 12, False, False, 15.0),
         (3, 12, True, True, 60.0),
         (3, 24, True, False, 15.0),
         (4, 12, False, True, 15.0),
     ])
-    def test_reported_route_is_the_selected_route(self, r, K, is_rel,
-                                                  is_per, sigma):
-        d = _dens(K=K, r=r, sigma=sigma, is_rel=is_rel, is_per=is_per)
+    def test_reported_route_is_the_selected_route(self, r, K, rel,
+                                                  per, sigma):
+        d = _dens(K=K, r=r, sigma=sigma, rel=rel, per=per)
         chosen, _ = _select_ma_eval(d, 200, method="auto")
         assert mpt.explain_dispatch(d, n_q=200).chosen == chosen
 
@@ -71,11 +71,11 @@ class TestReportsTheQuantities:
 
     def test_sigma_over_p_is_none_when_not_relative_periodic(self):
         assert mpt.explain_dispatch(
-            _dens(is_rel=False, is_per=False), n_q=200).sigma_over_p is None
+            _dens(rel=False, per=False), n_q=200).sigma_over_p is None
 
     def test_both_routes_are_priced_when_the_cost_model_decides(self):
         # Non-periodic, so no measure rule pre-empts the cost estimation.
-        e = mpt.explain_dispatch(_dens(is_per=False, sigma=15.0), n_q=200)
+        e = mpt.explain_dispatch(_dens(per=False, sigma=15.0), n_q=200)
         assert all(r.predicted_ms is not None and r.predicted_ms > 0
                    for r in e.routes)
 
@@ -126,7 +126,7 @@ def test_explain_dispatch_ordered_r9_does_not_raise():
     p_b, w_b, sp_b = unpack_pre_maet(bind_events([x[None, :], x[None, :]], None, 9,
                                  rel_outer=[False, True]))
     dens = build_maet(p_b, w_b, specs=sp_b, sigma=[0.3, 0.3],
-                          is_per=[False] * 2, period=[None] * 2,
+                          per=[False] * 2, period=[None] * 2,
                           verbose=False)
     report = explain_dispatch(dens, dens)
     assert report is not None

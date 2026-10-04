@@ -68,7 +68,7 @@ function benchNestedEval(outFile)
                             spec = struct('tags', tags, 'r', rLevels, 'exch', exch, 'rel', rel);
                             sigma = 0.6;
                             d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
-                                             'isPer', per, 'period', P, 'verbose', false);
+                                             'per', per, 'period', P, 'verbose', false);
                             if d.dim == 0
                                 continue;
                             end

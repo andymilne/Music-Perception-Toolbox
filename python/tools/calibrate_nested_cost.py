@@ -150,28 +150,28 @@ def _time_ms(setup, run):
 # --------------------------------------------------------------- densities
 
 
-def _nested_spec(r_levels, exch, chord, ngroup, is_rel):
+def _nested_spec(r_levels, exch, chord, ngroup, rel):
     tags = np.repeat(np.arange(ngroup), chord)
     return dict(r=list(r_levels), exch=[bool(s) for s in exch], tags=tags,
-                rel=([0] * (len(r_levels) - 1) + [1] if is_rel else None))
+                rel=([0] * (len(r_levels) - 1) + [1] if rel else None))
 
 
 def _build(cell, rng, jitter):
     """One density for ``cell``; ``jitter`` separates the X and Y sides."""
     r_levels, exch = cell["r_levels"], cell["exch"]
     chord, ngroup, N = cell["chord"], cell["ngroup"], cell["N"]
-    is_rel, is_per = cell["rel"], cell["per"]
+    rel, per = cell["rel"], cell["per"]
     K = chord * ngroup
-    hi = PERIOD if is_per else SPAN
+    hi = PERIOD if per else SPAN
     v = np.sort(rng.uniform(0.0, hi, (K, N)), axis=0) + jitter
-    if is_per:
+    if per:
         v = np.mod(v, PERIOD)
         v = np.sort(v, axis=0)
     p = [v]
-    specs = [_nested_spec(r_levels, exch, chord, ngroup, is_rel)]
+    specs = [_nested_spec(r_levels, exch, chord, ngroup, rel)]
     sigma = [cell["sigma"]]
-    per = [is_per]
-    period = [PERIOD if is_per else 0.0]
+    per_list = [per]
+    period = [PERIOD if per else 0.0]
     wraps = [cell["wrap"]]
     flat_r = cell["flat_r"]
     if flat_r:
@@ -179,10 +179,10 @@ def _build(cell, rng, jitter):
         p.append(rng.uniform(0.0, 5.0, (flat_K, N)) + jitter)
         specs.append(dict(r=flat_r, rel=False, exch=True))
         sigma.append(0.5)
-        per.append(False)
+        per_list.append(False)
         period.append(0.0)
         wraps.append('full-image')
-    return build_maet(p, None, specs=specs, sigma=sigma, is_per=per,
+    return build_maet(p, None, specs=specs, sigma=sigma, per=per_list,
                           period=period, wrap=wraps, verbose=False)
 
 

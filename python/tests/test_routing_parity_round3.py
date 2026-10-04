@@ -50,13 +50,13 @@ def _quiet():
 P = 12.0
 
 
-def _flat(seed, sigma, r=2, *, is_rel=False, is_per=False,
-          wrap='full-image', K=5, N=2, is_exch=True, weight=None):
+def _flat(seed, sigma, r=2, *, rel=False, per=False,
+          wrap='full-image', K=5, N=2, exch=True, weight=None):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     w = None if weight is None else [np.full((K, N), float(weight))]
-    return build_maet([p], w, [sigma], [r], [is_rel], [is_per],
-                          [P if is_per else 0.0], [is_exch], wrap=[wrap],
+    return build_maet([p], w, [sigma], [r], [rel], [per],
+                          [P if per else 0.0], [exch], wrap=[wrap],
                           verbose=False)
 
 
@@ -90,8 +90,8 @@ def test_explain_follows_the_wrap_rule_above_the_threshold(
     """r = 3, K = 4 vs 5, rel-per at sigma/P = 0.5: above the threshold
     the declared wrap decides without cost estimation. The report used to omit
     the wrap vector and so named the cost model's pick."""
-    x = _flat(1, 0.5 * P, r=3, is_rel=True, is_per=True, K=4, wrap=wrap)
-    y = _flat(2, 0.5 * P, r=3, is_rel=True, is_per=True, K=5, wrap=wrap)
+    x = _flat(1, 0.5 * P, r=3, rel=True, per=True, K=4, wrap=wrap)
+    y = _flat(2, 0.5 * P, r=3, rel=True, per=True, K=5, wrap=wrap)
     exp = explain_dispatch(x, y)
     assert exp.chosen == expected
     assert exp.decided_by == "structural rule"
@@ -107,8 +107,8 @@ def test_explain_applies_the_ordered_attribute_rule(monkeypatch, method):
     """An ordered ([exch]=0) attribute at r > 1 has no orbit: the call
     takes Bulger's method whatever ``method`` asked for, and so does the
     report."""
-    x = _flat(3, 1.0, r=2, is_exch=False, K=5)
-    y = _flat(4, 1.0, r=2, is_exch=False, K=6)
+    x = _flat(3, 1.0, r=2, exch=False, K=5)
+    y = _flat(4, 1.0, r=2, exch=False, K=6)
     exp = explain_dispatch(x, y, method=method)
     assert exp.chosen == "bulger"
     assert "ordered" in exp.decided_by
@@ -121,8 +121,8 @@ def test_explain_uses_the_memo_flags_the_call_uses():
     """After a call has memoised both self inner products, the report
     estimates the cross matrix alone, as the call does: its Bulger estimated cost
     drops below the cold report's."""
-    x = _flat(5, 1.0, r=3, is_rel=True, is_per=False, K=6, N=3)
-    y = _flat(6, 1.0, r=3, is_rel=True, is_per=False, K=6, N=3)
+    x = _flat(5, 1.0, r=3, rel=True, per=False, K=6, N=3)
+    y = _flat(6, 1.0, r=3, rel=True, per=False, K=6, N=3)
     cold = explain_dispatch(x, y)
     sim_maet(x, y, method="bulger", verbose=False)
     warm = explain_dispatch(x, y)
@@ -146,9 +146,9 @@ def test_selector_inputs_are_shared_with_the_call():
     """The report and the call build the selector's inputs by one
     function, so they cannot drift: its wrap vector, node counts and
     memo flags are those of the densities."""
-    x = _flat(9, 0.5 * P, r=3, is_rel=True, is_per=True, K=4,
+    x = _flat(9, 0.5 * P, r=3, rel=True, per=True, K=4,
               wrap="single-image")
-    y = _flat(10, 0.5 * P, r=3, is_rel=True, is_per=True, K=5,
+    y = _flat(10, 0.5 * P, r=3, rel=True, per=True, K=5,
               wrap="single-image")
     kw, ordered_any, nested_any = _cos._flat_selector_inputs(
         x.pruned(), y.pruned(), normalize="cosine", truncation_sigmas=None)
@@ -172,8 +172,8 @@ def test_eval_cost_model_has_no_mode_grid_decline():
     is the K-free per-mode slope, so it does not grow with K as the
     node path's tabulation term does)."""
     sigma = 0.004 * P          # a mode grid that the old decline refused
-    small = _flat(11, sigma, r=4, is_rel=True, is_per=True, K=16, N=1)
-    large = _flat(12, sigma, r=4, is_rel=True, is_per=True, K=48, N=1)
+    small = _flat(11, sigma, r=4, rel=True, per=True, K=16, N=1)
+    large = _flat(12, sigma, r=4, rel=True, per=True, K=48, N=1)
     n_q = 256
     _c1, m_small = _disp._ma_eval_costs_ms(small, n_q)
     _c2, m_large = _disp._ma_eval_costs_ms(large, n_q)
@@ -228,7 +228,7 @@ def test_closed_form_refuses_an_inner_unit_bundle():
     """A bundle whose inner block size is >= 2 cannot reach the closed
     form from any shipped plan; handed one directly, it refuses rather
     than computing a flat quadratic form over a block-diagonal metric."""
-    x = _flat(14, 1.0, r=2, is_rel=True, K=4, N=1)
+    x = _flat(14, 1.0, r=2, rel=True, K=4, N=1)
     from mpt._tensor._mobius_inner import _closed_form_attr_centres
     cx = list(_closed_form_attr_centres(x.pruned(), 0))
     ok = _closed_form_attr_matrix_from(tuple(cx), tuple(cx))

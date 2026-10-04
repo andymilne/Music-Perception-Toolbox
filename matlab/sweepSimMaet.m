@@ -325,7 +325,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
         innerR(a) = localInnerBlock(densX, a);
     end
     for a = 1:A
-        if densX.isRel(a) && densX.isPer(a)
+        if densX.rel(a) && densX.per(a)
             % A relative-periodic attribute contributes an
             % offset-independent factor, computed here through the
             % pairwise wrapped-difference form. That form is one of two
@@ -361,7 +361,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
                 end
             end
         end
-        if swept(a) && densX.isPer(a)
+        if swept(a) && densX.per(a)
             error('sweepSimMaet:periodicAttribute', ...
                   ['Attribute %d is periodic and swept; the wrapped ' ...
                    'kernel does not admit the placement/shape split, ' ...
@@ -378,7 +378,7 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
                    '(the attribute is supported when it is not ' ...
                    'translated).'], a);
         end
-        if swept(a) && densX.isRel(a)
+        if swept(a) && densX.rel(a)
             error('sweepSimMaet:sweptRelative', ...
                   ['Attribute %d is relative and swept; a uniform ' ...
                    'translation cancels in every within-tuple ' ...
@@ -551,8 +551,8 @@ function ok = localOrbitSupported(densX, densY, off, A, tsRaw)
     % On an ordered attribute that is a different quantity, not an
     % approximation of the right one --- measured departures up to 0.22
     % --- so the route declines rather than silently symmetrising.
-    if isfield(densX, 'isExch') && ~isempty(densX.isExch) ...
-            && ~all(logical(densX.isExch))
+    if isfield(densX, 'exch') && ~isempty(densX.exch) ...
+            && ~all(logical(densX.exch))
         ok = false; return;
     end
     % A nested attribute of any kind is declined. localInnerBlock flags
@@ -570,10 +570,10 @@ function ok = localOrbitSupported(densX, densY, off, A, tsRaw)
         if localInnerBlock(densX, a) > 0
             ok = false; return;                % nested: no orbit form here
         end
-        if densX.isRel(a) && swept(a)
+        if densX.rel(a) && swept(a)
             ok = false; return;                % nothing to sweep
         end
-        if densX.isRel(a) && densX.isPer(a)
+        if densX.rel(a) && densX.per(a)
             P_a = densX.period(a);
             if isfinite(P_a) && P_a > 0
                 sop = densX.sigma(a) / P_a;
@@ -623,7 +623,7 @@ function ok = localContractSupported(densX, densY, off, A)
         if ~swept(a)
             continue;
         end
-        if densX.isRel(a) || nestX(a) ~= nestY(a)
+        if densX.rel(a) || nestX(a) ~= nestY(a)
             return;
         end
         if nestX(a) && (localInnerBlock(densX, a) > 0 ...
@@ -792,7 +792,7 @@ function ipXY = localOrbitSweep(densX, densY, off, A, tsResolved)
     for a = 1:A
         sigma = densX.sigma(a);
         r_a = densX.r(a);
-        isPer = densX.isPer(a);
+        isPer = densX.per(a);
         period = densX.period(a);
         if ~isfinite(period), period = 0; end
         wrapA = 'full-image';
@@ -803,7 +803,7 @@ function ipXY = localOrbitSweep(densX, densY, off, A, tsResolved)
         if ~any(off(a, :) ~= 0)
             block = mobius.maPerAttrInnerMatrix( ...
                 densX.pAttr{a}, densX.w{a}, densY.pAttr{a}, densY.w{a}, ...
-                sigma, r_a, densX.isRel(a), isPer, period, ...
+                sigma, r_a, densX.rel(a), isPer, period, ...
                 'truncationSigmas', tsResolved, 'wrap', wrapA);
             P = P .* block;
         else
@@ -837,7 +837,7 @@ function val = localOrbitSelfIp(dens, A, tsResolved)
         end
         P = P .* mobius.maPerAttrInnerMatrix( ...
             dens.pAttr{a}, dens.w{a}, dens.pAttr{a}, dens.w{a}, ...
-            dens.sigma(a), dens.r(a), dens.isRel(a), dens.isPer(a), ...
+            dens.sigma(a), dens.r(a), dens.rel(a), dens.per(a), ...
             period, 'truncationSigmas', tsResolved, 'wrap', wrapA);
     end
     val = sum(P(:));
@@ -946,7 +946,7 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
     % form keeps the tuple's own mean: absolute, and not block-quotiented.
     hasPlacement = false(1, A);
     for a = 1:A
-        hasPlacement(a) = ~densX.isRel(a) && ~densX.isPer(a) ...
+        hasPlacement(a) = ~densX.rel(a) && ~densX.per(a) ...
                           && blockOf(a) == 0;
     end
     sweptIdx = [];
@@ -970,7 +970,7 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
     meanU = cell(1, A);  meanV = cell(1, A);
     cenU  = cell(1, A);  cenV  = cell(1, A);
     for a = 1:A
-        if densX.isPer(a)
+        if densX.per(a)
             continue;      % handled by the wrapped kernel, not the split
         end
         % Everything below depends on the two operands only through
@@ -1018,7 +1018,7 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
         cenBlk   = zeros(nJ, nKc, max(S, 1));
 
         for a = 1:A
-            if densX.isPer(a)
+            if densX.per(a)
                 % Not splittable, and (by the eligibility check) never
                 % swept: an offset-independent factor, computed by the
                 % same kernel the per-offset path applies. Which kernel
@@ -1031,7 +1031,7 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
                 D = reshape(densX.U_perm{a}, size(densX.U_perm{a}, 1), nJ, 1) ...
                   - reshape(densY.V_comb{a}(:, idx), ...
                             size(densY.V_comb{a}, 1), 1, nKc);
-                if densX.isRel(a)
+                if densX.rel(a)
                     % Relative and periodic: the pairwise-wrap form,
                     % Q = sum_{i<j} wrap(d_i - d_j)^2 / r. Wrapping each
                     % pairwise delta rather than each component is what

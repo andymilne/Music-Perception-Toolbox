@@ -36,7 +36,7 @@ diat      = [0, 2, 4, 5, 7, 9, 11];                  % 12-EDO steps
 diatCents = [0, 200, 400, 500, 700, 900, 1100];
 clave     = [0, 3, 6, 10, 12];                       % 16-step cycle
 
-%% === 1. Expectation tensors of a single multiset (User Guide §3.1, §8, §13.1) ===
+%% === 1. Expectation tensors of a single multiset (User Guide §3.1, §8) ===
 
 % An expectation tensor replaces each element of a multiset with a
 % Gaussian of width sigma and sums them, over r-tuples of elements. 1a
@@ -93,7 +93,7 @@ chord_mat = [0, 400, 700;     % Major
 chordNames = {'Major', 'Minor', 'Dim'};
 
 % SPCS compares such densities with pitch periodic at the octave
-% (isPer = true, period 1200), so each spectrum is folded onto one
+% (per = true, period 1200), so each spectrum is folded onto one
 % octave of pitch classes before the comparison.
 %
 % Batched call: the scale (a single row vector) is broadcast against
@@ -169,9 +169,9 @@ end
 
 % The same diatonic scale drawn four ways. The tuple size r sets how many
 % elements each point of the density describes, and relative mode
-% (isRel) reads a tuple's intervals rather than its pitches, which makes
+% (rel) reads a tuple's intervals rather than its pitches, which makes
 % the density transposition-invariant and removes one dimension:
-% dim = r - isRel. All four are periodic at the octave.
+% dim = r - rel. All four are periodic at the octave.
 %
 %   r = 1, absolute   the pitch classes themselves
 %   r = 2, absolute   pairs of pitch classes
@@ -181,18 +181,18 @@ end
 %   r = 3, relative   trichords, each drawn as the two intervals above
 %                     one of its notes
 fprintf('\n=== 1e. Tensor parameters (figure) ===\n');
-configs = [1 0; 2 0; 2 1; 3 1];               % [r, isRel] per panel
+configs = [1 0; 2 0; 2 1; 3 1];               % [r, rel] per panel
 figure('Name', 'The diatonic scale as four expectation tensors', ...
        'Position', [100 100 900 800]);
 for k = 1:size(configs, 1)
     r     = configs(k, 1);
-    isRel = logical(configs(k, 2));
-    dens  = buildMaet(diatCents, [], 15, r, isRel, true, 1200, ...
+    rel = logical(configs(k, 2));
+    dens  = buildMaet(diatCents, [], 15, r, rel, true, 1200, ...
                       'verbose', false);
     ax = subplot(2, 2, k);
     plotMaet(dens, 'method', 'density', 'axes', ax);
-    dim = r - isRel;
-    if isRel
+    dim = r - rel;
+    if rel
         label = 'interval';   modeStr = 'relative';
     else
         label = 'pitch class'; modeStr = 'absolute';
@@ -209,8 +209,8 @@ end
 fprintf('  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.\n');
 
 % See also:
-%   demo_maetPlots            every combination of r, isRel, isPer, and
-%                             isExch, drawn by each of plotMaet's methods
+%   demo_maetPlots            every combination of r, rel, per, and
+%                             exch, drawn by each of plotMaet's methods
 %   demo_triadSpcsGrid        SPCS of every triad containing a fifth
 %   demo_edoApprox            how well each n-EDO approximates a JI chord
 %   demo_genChainPcs          the same, over generator-chain tunings
@@ -218,7 +218,7 @@ fprintf('  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.\n');
 %   demo_dispatchAndKernelControls
 %                             speed controls, and Renyi-2 entropy
 
-%% === 2. Multi-attribute expectation tensors (User Guide §3.3, §6-§8, §13.2) ===
+%% === 2. Multi-attribute expectation tensors (User Guide §3.3, §6-§8) ===
 
 % A MAET takes a sequence of events, each carrying several attributes
 % -- here pitch and onset -- and builds one density over all of them
@@ -250,8 +250,8 @@ pitch  = transformAttributes(midi, [], {'midi', 'cents'});
 %   demo_repetitionHandling   a non-linear rescaling (log step size)
 
 pAttr = {pitch, onsets};                        % one row per attribute
-specs = flatSpecs(pAttr, 'name', {'pitch', 'onset'}, ...
-                  'sigma', [20 0.5], 'isPer', [true false], ...
+specs = flatSpecs(pAttr, 'names', {'pitch', 'onset'}, ...
+                  'sigma', [20 0.5], 'per', [true false], ...
                   'period', [1200 0]);
 melody = packPreMaet(pAttr, [], specs);
 showPreMaet(melody, 'maxEvents', []);

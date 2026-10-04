@@ -4,7 +4,7 @@ Parallel to ``test_lazy_density.py`` for the single-multiset path. Verifies:
 
 1. ``build_maet`` returns a lazy MA density.
 2. Reading any of the eager fields (``p_attr``, ``w``, ``sigma``,
-   ``r``, ``k``, ``is_rel``, ``is_per``, ``period``,
+   ``r``, ``k``, ``rel``, ``per``, ``period``,
    ``n_attrs``,
    ``n``, ``dim``, ``dim_per_attr``, ``tag``) does not materialise.
 3. Reading any of the lazy fields (``n_j``, ``n_k``, ``centres``,
@@ -16,9 +16,9 @@ Parallel to ``test_lazy_density.py`` for the single-multiset path. Verifies:
 6. Lazy build produces numerically identical output to the eager
    v2.0 path (regression check via cosine self-similarity = 1 and
    orbit-vs-pairwise agreement).
-7. Eager input-validation errors (insufficient non-NaN values,
-   wrong-shaped vectors) still fire at the ``build_maet`` call
-   rather than being deferred.
+7. Eager input validation (too few positions, an error; too few values,
+   a warning; wrong-shaped vectors) still fires at the ``build_maet``
+   call rather than being deferred.
 """
 import numpy as np
 import pytest
@@ -61,7 +61,7 @@ def test_ma_build_returns_lazy_density():
 
 @pytest.mark.parametrize(
     "field",
-    ["p_attr", "w", "sigma", "r", "k", "is_rel", "is_per", "period",
+    ["p_attr", "w", "sigma", "r", "k", "rel", "per", "period",
      "n_attrs", "n",
      "dim", "dim_per_attr", "tag"],
 )
@@ -130,7 +130,7 @@ def test_ma_renyi2_does_not_materialise():
 def test_ma_eval_materialises():
     rng = np.random.default_rng(42)
     T = _make_ma()
-    # Query dim = sum of dim_per_attr = (r_a or r_a-1 by isRel per a)
+    # Query dim = sum of dim_per_attr = (r_a or r_a-1 by rel per a)
     dim = int(T.dim)
     x = np.empty((dim, 5))
     x[0, :] = rng.uniform(0, P, 5)
@@ -179,14 +179,19 @@ def test_ma_orbit_vs_pairwise_agree():
 # -------------------------------------------------------------------
 
 
-def test_ma_insufficient_slots_eager_error():
-    """The K_na < r_a check is eager: it fires at the build call,
-    not deferred to first lazy-field access. Users reasonably expect
-    malformed inputs to fail fast."""
+def test_ma_insufficient_positions_eager_error():
+    """The positions check is eager: it fires at the build call, not
+    deferred to first lazy-field access, as does the warning for an
+    event holding too few values."""
     pitch = np.array([[0.0, 0.0], [4.0, np.nan], [np.nan, np.nan]])
-    with pytest.raises(ValueError, match="non-NaN value"):
+    with pytest.raises(ValueError, match="position"):
         build_maet(
-            [pitch], None, [10.0], [2], 
+            [pitch], None, [10.0], [4],
+            [False], [True], [1200.0], verbose=False,
+        )
+    with pytest.warns(UserWarning, match="too few non-NaN"):
+        build_maet(
+            [pitch], None, [10.0], [2],
             [False], [True], [1200.0], verbose=False,
         )
 

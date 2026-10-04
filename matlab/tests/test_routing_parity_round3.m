@@ -38,7 +38,7 @@ end
 
 rp3_P = 12.0;
 rp3_absWarn = warning('off', 'buildMaet:absPerSingleImage');
-rp3_relWarn = warning('off', 'buildMaet:isRelDegenerate');
+rp3_relWarn = warning('off', 'buildMaet:relDegenerate');
 rp3_warnCleanup = onCleanup(@() cellfun(@warning, ...
     {rp3_absWarn, rp3_relWarn})); %#ok<NASGU>
 

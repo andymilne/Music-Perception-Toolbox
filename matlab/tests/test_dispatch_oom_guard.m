@@ -133,7 +133,7 @@ try
     x11 = (0:10);
     [pB11, wB11, spB11] = unpackPreMaet(bindEvents({x11}, [], 11));
     d11 = buildMaet(pB11, wB11, 'specs', spB11, 'sigma', 0.3, ...
-        'isPer', false, 'period', 0, 'verbose', false);
+        'per', false, 'period', 0, 'verbose', false);
     v11 = evalMaet(d11, x11(:), 'verbose', false);
     ok = all(isfinite(v11)) && max(v11) > 0;
 catch
@@ -178,6 +178,6 @@ function d = localOrderedBound9(vals, sigC)
     [pB, wB, spB] = unpackPreMaet(bindEvents(vals, [], L, ...
         'relOuter', [false, true, false]));
     d = buildMaet(pB, wB, 'specs', spB, 'sigma', sigC, ...
-        'isPer', [false, false, false], 'period', [0, 0, 0], ...
+        'per', [false, false, false], 'period', [0, 0, 0], ...
         'verbose', false);
 end

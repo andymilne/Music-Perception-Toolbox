@@ -6,12 +6,12 @@ function vals = evalMaet(varargin)
 %   built by buildMaet; then the raw positional multi-attribute,
 %   list, and batched forms.
 %
-%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, X):
-%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, X, normalize):
-%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, X, ..., 'verbose', false):
-%   vals = evalMaet(p, w, sigma, r, isRel, isPer, period, isExch, X, ...):
+%   vals = evalMaet(p, w, sigma, r, rel, per, period, X):
+%   vals = evalMaet(p, w, sigma, r, rel, per, period, X, normalize):
+%   vals = evalMaet(p, w, sigma, r, rel, per, period, X, ..., 'verbose', false):
+%   vals = evalMaet(p, w, sigma, r, rel, per, period, exch, X, ...):
 %   Evaluates the density from raw arguments (builds tuples internally).
-%   The optional isExch sits between period and X in every raw form.
+%   The optional exch sits between period and X in every raw form.
 %
 %   vals = evalMaet(pm, X):
 %   Pre-MAET mode. A pre-MAET (packPreMaet) holds everything buildMaet
@@ -23,14 +23,14 @@ function vals = evalMaet(varargin)
 %   vals = evalMaet(dens, X, ..., 'verbose', false):
 %   Evaluates the density using a precomputed struct from buildMaet.
 %
-%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X):
-%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, normalize):
-%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X, ..., 'verbose', false):
-%   vals = evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, isExch, X, ...):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, rel, per, periods, X):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, rel, per, periods, X, normalize):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, rel, per, periods, X, ..., 'verbose', false):
+%   vals = evalMaet(pAttr, wAttr, sigma, r, rel, per, periods, exch, X, ...):
 %   Raw multi-attribute mode. pAttr is a 1-by-A cell of K_a-by-N
 %   attribute matrices and wAttr the matching per-attribute weights
 %   (the same shapes one would pass to buildMaet);
-%   sigma, r, isRel, isPer, periods are per-attribute vectors.
+%   sigma, r, rel, per, periods are per-attribute vectors.
 %   the per-attribute group assignment ([], length-A index vector, or
 %   1-by-G cell of index lists). Builds a MaetDensity internally and
 %   returns vals as a length-nQ row vector.
@@ -45,8 +45,8 @@ function vals = evalMaet(varargin)
 %   entry. Option II shape rule: a length-1 list returns a length-1
 %   cell.
 %
-%   vals = evalMaet(P, W, sigma, r, isRel, isPer, period, X [, normalize]):
-%   vals = evalMaet(P, W, sigma, r, isRel, isPer, period, isExch, X [, normalize]):
+%   vals = evalMaet(P, W, sigma, r, rel, per, period, X [, normalize]):
+%   vals = evalMaet(P, W, sigma, r, rel, per, period, exch, X [, normalize]):
 %   Batched-raw mode. P is an nRows-by-K matrix of pitches (rows
 %   = multisets); X is shared across all rows. Returns an nRows-by-nQ
 %   matrix of values. Detection is by P having both dimensions > 1.
@@ -81,11 +81,11 @@ function vals = evalMaet(varargin)
 %   the centre for the j-th tuple, and M is the appropriate quadratic form.
 %
 %   Dimensionality and the relative case:
-%     When isRel == false (absolute), the query points are r-dimensional
+%     When rel == false (absolute), the query points are r-dimensional
 %     pitch or position vectors, the tuple centres are r-tuples of
 %     values from p, and M = I.
 %
-%     When isRel == true (relative / transposition-invariant), the density
+%     When rel == true (relative / transposition-invariant), the density
 %     is constant along the all-ones direction in R^r, so the effective
 %     dimensionality is r - 1. The function works entirely in this reduced
 %     space:
@@ -97,12 +97,12 @@ function vals = evalMaet(varargin)
 %           Q = sum(delta.^2) - sum(delta)^2 / r
 %         where delta = x - c_j. Note the denominator is r (not r-1).
 %
-%     In summary, X should have dim rows, where dim = r - isRel.
+%     In summary, X should have dim rows, where dim = r - rel.
 %
 %   Inputs:
 %     dens      — Precomputed density struct from buildMaet. Pass
 %                 this in lieu of the raw arguments below; the struct
-%                 carries its own sigma, r, isRel, isPer, period (or
+%                 carries its own sigma, r, rel, per, period (or
 %                 their per-group vectors for MA).
 %     p / P / pAttr
 %               — Pitch or position values for the raw forms. Pick the
@@ -118,27 +118,27 @@ function vals = evalMaet(varargin)
 %                 container (MA raw). Pass [] for uniform weights.
 %     sigma     — Gaussian bandwidth. Scalar for single multiset raw and BATCHED-RAW;
 %                 length-G vector (one per group) for MA raw.
-%     r         — Tuple size (positive integer; r >= 2 if isRel == true).
+%     r         — Tuple size (positive integer; r >= 2 if rel == true).
 %                 Scalar for single multiset / BATCHED-RAW; length-G vector for MA.
-%     isRel     — Logical: true for relative (transposition-invariant).
+%     rel     — Logical: true for relative (transposition-invariant).
 %                 Scalar for single multiset / BATCHED-RAW; length-G vector for MA.
-%     isPer     — Logical: true for periodic domain. Scalar for single multiset /
+%     per     — Logical: true for periodic domain. Scalar for single multiset /
 %                 BATCHED-RAW; length-G vector for MA.
 %     period    — Period of the domain. Scalar for single multiset / BATCHED-RAW;
 %                 length-G vector for MA (one per group; ignored where
-%                 isPer == false).
-%     isExch    — Optional logical (default: true): true for an
+%                 per == false).
+%     exch    — Optional logical (default: true): true for an
 %                 exchangeable (unordered) multiset, whose density is
 %                 invariant under permuting a tuple's coordinates; false
 %                 for an ordered one, where position in the tuple
 %                 carries identity. Scalar for single multiset /
 %                 BATCHED-RAW; length-A vector for MA. Given, it sits
 %                 between period and X.
-%     X         — Query points: dim x nQ matrix, where dim = r - isRel.
+%     X         — Query points: dim x nQ matrix, where dim = r - rel.
 %                 Each column is a point at which to evaluate the density.
-%                 For isRel == false: r-dimensional pitch or position
+%                 For rel == false: r-dimensional pitch or position
 %                 vectors.
-%                 For isRel == true:  (r-1)-dimensional interval vectors.
+%                 For rel == true:  (r-1)-dimensional interval vectors.
 %                 For MA: a 1-by-A cell of per-attribute query matrices
 %                 is also accepted.
 %     normalize — Optional string controlling normalization (default: 'none'):
@@ -303,11 +303,11 @@ end
 
 % Optional [exch] geometry flag for the raw forms. The raw layouts carry
 % one shared geometry (..., period) followed by the query X as the final
-% positional. isExch joins the geometry, sitting between period and X:
-%   p, w, sigma, r, isRel, isPer, period, isExch, X
+% positional. exch joins the geometry, sitting between period and X:
+%   p, w, sigma, r, rel, per, period, exch, X
 % Pop it here (position 8) so the existing raw dispatch -- which expects
 % X as the 8th positional -- is unchanged; forward it to buildMaet
-% via exchArgs. The two-density and list forms (nArgs == 2) read isExch
+% via exchArgs. The two-density and list forms (nArgs == 2) read exch
 % from the precomputed structs and never reach this.
 exchArgs = {};
 isExchRaw = [];
@@ -341,8 +341,8 @@ firstArg = varargin{1};
 % ==================================================================
 
 USAGE_MSG = ['Usage: evalMaet(dens, X [, normalize]) or ' ...
-    'evalMaet(p, w, sigma, r, isRel, isPer, period, X [, normalize]) or ' ...
-    'evalMaet(pAttr, wAttr, sigma, r, isRel, isPer, periods, X [, normalize]).\n' ...
+    'evalMaet(p, w, sigma, r, rel, per, period, X [, normalize]) or ' ...
+    'evalMaet(pAttr, wAttr, sigma, r, rel, per, periods, X [, normalize]).\n' ...
     'normalize must be ''none'', ''gaussian'', or ''pdf''.'];
 
 % --- 1. Struct first operand: precomputed density ---
@@ -505,7 +505,7 @@ end
 
 if size(X, 1) ~= dens.dim
     error(['X must have %d rows (each column is a %d-dimensional ' ...
-        'query point). For isRel = true, dim = r - 1 = %d.'], ...
+        'query point). For rel = true, dim = r - 1 = %d.'], ...
         dens.dim, dens.dim, dens.dim);
 end
 
@@ -605,7 +605,7 @@ if ~ranOrbit
     % estimate_comp_time. Gated on verbose so it adds nothing to the
     % forced-centres tight loops (which run with verbose = false).
     if verbose
-        if dens.isRel
+        if dens.rel
             dimEst = max(double(dens.r) - 1, 1);
         else
             dimEst = double(dens.r);
@@ -650,7 +650,7 @@ if ~strcmp(normalize, 'none')
     sigma = dens.sigma;
     r     = dens.r;
     dim   = dens.dim;
-    isRel = dens.isRel;
+    isRel = dens.rel;
 
     % --- Gaussian normalization ---
     % Single source of the reduced-space determinant and the mass
@@ -715,8 +715,8 @@ function vals = localEvalSingleMultisetOrbit(dens, X, verbose, ...
     w      = dens.w;
     sigma  = dens.sigma;
     r      = dens.r;
-    isRel  = dens.isRel;
-    isPer  = dens.isPer;
+    isRel  = dens.rel;
+    isPer  = dens.per;
     period = dens.period;
     nQ     = size(X, 2);
 
@@ -795,8 +795,8 @@ function vals = localEvalSingleMultisetCentres(dens, X, nQ, verbose, ...
     sigma   = dens.sigma;
     r       = dens.r;
     dim     = dens.dim;
-    isRel   = dens.isRel;
-    isPer   = dens.isPer;
+    isRel   = dens.rel;
+    isPer   = dens.per;
     J       = dens.period;
 
     % --- Auto-prune zero-weight joint perm-side tuples ---
@@ -821,10 +821,10 @@ function vals = localEvalSingleMultisetCentres(dens, X, nQ, verbose, ...
     % consults mptDefaults.
     kw = {};
     if isRel
-        kw = [kw, {'isRel', true, 'r', r}];
+        kw = [kw, {'rel', true, 'r', r}];
     end
     if isPer
-        kw = [kw, {'isPer', true, 'period', J}];
+        kw = [kw, {'per', true, 'period', J}];
         % The density's declared wrap goes with it, as on the Möbius and
         % factored routes: without it a 'single-image' abs-per density
         % was evaluated full-image on this route. Relative-periodic
@@ -881,8 +881,8 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     dimPerAttr = dens.dimPerAttr;
     r_         = dens.r;
     sigmaG     = dens.sigma;
-    isRelG     = dens.isRel;
-    isPerG     = dens.isPer;
+    isRelG     = dens.rel;
+    isPerG     = dens.per;
     periodG    = dens.period;
     Centres    = dens.Centres;
     wJ         = dens.wJ;
@@ -1201,7 +1201,7 @@ function innerR = localComputeInnerR(dens, A)
 %LOCALCOMPUTEINNERR  Per-attribute co-transposition block size s_u =
 %   prod(r(1:u)) where attribute a is a nested attribute resolved to an
 %   inner or intermediate [rel] unit u (1-based), 0 otherwise (flat,
-%   absolute, and the whole-tuple outer unit ride the ordinary isRel
+%   absolute, and the whole-tuple outer unit ride the ordinary rel
 %   path). Switches on the block-diagonal metric. Shared by localEvalMA,
 %   localMaSkinnyDispatch, and localFactoredSumW.
     innerR = zeros(1, A);
@@ -1372,7 +1372,7 @@ function sumW = localFactoredSumW(dens, innerR)
     rVec   = dens.r(:).';
     P      = dens.pAttr;
     W      = dens.w;
-    isExchV = dens.isExch(:).';
+    isExchV = dens.exch(:).';
 
     permCell = cell(1, A);
     for a = 1:A
@@ -1433,7 +1433,7 @@ function vals = localMaNormaliseSkinny(vals, dens, normalize, ...
         return;
     end
     r_     = dens.r;
-    isRelG = dens.isRel;
+    isRelG = dens.rel;
     sigmaG = dens.sigma;
     gaussConst = 1;
     for a = 1:A
@@ -1494,11 +1494,11 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
 
     P       = dens.pAttr;
     W       = dens.w;
-    isRelV  = dens.isRel(:).';
-    isPerV  = dens.isPer(:).';
+    isRelV  = dens.rel(:).';
+    isPerV  = dens.per(:).';
     periodV = dens.period(:).';
     sigmaV  = dens.sigma(:).';
-    isExchV  = dens.isExch(:).';
+    isExchV  = dens.exch(:).';
 
     % Per-attribute tuple-index structure, enumerated once over the
     % ever-valid indices (non-NaN in at least one event). The index pattern
@@ -1569,10 +1569,10 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
                 end
                 kw = {};
                 if isRelV(a)
-                    kw = [kw, {'isRel', true, 'r', rVec(a)}];
+                    kw = [kw, {'rel', true, 'r', rVec(a)}];
                 end
                 if isPerV(a)
-                    kw = [kw, {'isPer', true, 'period', periodV(a)}];
+                    kw = [kw, {'per', true, 'period', periodV(a)}];
                     % The attribute's declared wrap goes with it, as on
                     % the single-multiset and joint centres routes:
                     % without it a 'single-image' abs-per attribute was
@@ -1724,7 +1724,7 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isE
 
     % The per-row dedup keys rows by a multiset canonical form, which
     % collapses rows that share a multiset but differ in order. That is
-    % correct only for the symmetric reading: under isExch = false the
+    % correct only for the symmetric reading: under exch = false the
     % order is significant, so the dedup would silently merge distinct
     % ordered densities. Reject rather than return a wrong answer
     % (parity with the Python batched path). Order-aware batched dedup is
@@ -1732,7 +1732,7 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isE
     if nargin >= 9 && ~isempty(isExch) && ~all(logical(isExch(:))) && r > 1
         error('evalMaet:batchedOrderedUnsupported', ...
               ['evalMaet batched (2-D) input does not yet support ' ...
-               'isExch = false (ordered) densities at r > 1: the batched ' ...
+               'exch = false (ordered) densities at r > 1: the batched ' ...
                'dedup canonicalises each row''s multiset and would merge ' ...
                'order-distinct rows. Evaluate ordered densities one row ' ...
                'at a time (vector input).']);
@@ -1741,7 +1741,7 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isE
     nRows = size(P, 1);
     nQ = size(X, 2);
 
-    % Pre-allocate. (We do not know nQ when isRel = true and X is dim x nQ
+    % Pre-allocate. (We do not know nQ when rel = true and X is dim x nQ
     % until we look at X's shape; size(X, 2) is correct in both cases.)
     vals = zeros(nRows, nQ);
 
@@ -1802,7 +1802,7 @@ function vals = localMaNormalise(vals, dens, normalize, ...
         return;
     end
     r_    = dens.r;
-    isRelG = dens.isRel;
+    isRelG = dens.rel;
     gaussConst = 1;
     for a = 1:A
         da = dimPerAttr(a);

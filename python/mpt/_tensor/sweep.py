@@ -113,19 +113,19 @@ def sweep_eligibility(dens_x, dens_y, offsets, truncation_sigmas=None):
             # computes and is honoured; the default full-image reading
             # is refused, and the per-offset path decides it by
             # ``method``.
-            if bool(dens_x.is_rel[a]) and bool(dens_x.is_per[a]):
+            if bool(dens_x.rel[a]) and bool(dens_x.per[a]):
                 ok, why = _rel_per_measure_admissible(
                     dens_x, a, truncation_sigmas)
                 if not ok:
                     return False, why
             continue
-        if bool(dens_x.is_rel[a]):
+        if bool(dens_x.rel[a]):
             return False, (
                 f"attribute {a} is relative and swept; a uniform "
                 f"translation cancels in every within-tuple difference, "
                 f"so there is nothing to sweep"
             )
-        if bool(dens_x.is_per[a]):
+        if bool(dens_x.per[a]):
             return False, (
                 f"attribute {a} is periodic and swept; the wrapped kernel "
                 f"does not admit the placement/shape split, and the "
@@ -236,7 +236,7 @@ def _splittable(dens, inner_r, a):
     Handling both here keeps the generic log-kernel out of everything
     but the periodic and nested cases.
     """
-    if bool(dens.is_per[a]):
+    if bool(dens.per[a]):
         return False
     kc = getattr(dens, "kernel_cov", None)
     return kc is None or kc[a] is None
@@ -271,7 +271,7 @@ def _build_mixture(dens_x, dens_y, swept, *, truncation_sigmas):
               for a in split_idx}
     # An attribute carries a placement term only where its quadratic
     # form keeps the tuple's own mean: absolute, and not block-quotiented.
-    has_placement = {a: (not bool(dens_x.is_rel[a])) and blocks[a] == 0
+    has_placement = {a: (not bool(dens_x.rel[a])) and blocks[a] == 0
                      for a in split_idx}
     swept_idx = [a for a in split_idx if swept[a] and has_placement[a]]
     fixed_idx = [a for a in range(A) if a not in split_idx]
@@ -366,8 +366,8 @@ def _build_mixture(dens_x, dens_y, swept, *, truncation_sigmas):
                 n_j, c1 - c0, len(fixed_idx),
                 [r_vec[a] for a in fixed_idx],
                 [sigma[a] for a in fixed_idx],
-                [dens_x.is_rel[a] for a in fixed_idx],
-                [dens_x.is_per[a] for a in fixed_idx],
+                [dens_x.rel[a] for a in fixed_idx],
+                [dens_x.per[a] for a in fixed_idx],
                 [dens_x.period[a] for a in fixed_idx],
                 inner_r=inner_r_fixed, wrap=wrap_fixed,
                 truncation_sigmas=truncation_sigmas,
@@ -567,8 +567,8 @@ def orbit_sweep_supported(dens_x, dens_y, offsets=None,
     # quantity, not an approximation of the right one --- measured
     # departures up to 0.22 --- so the route declines rather than
     # silently symmetrising.
-    is_exch = getattr(dens_x, "is_exch", None)
-    if is_exch is not None and not all(bool(v) for v in np.atleast_1d(is_exch)):
+    exch = getattr(dens_x, "exch", None)
+    if exch is not None and not all(bool(v) for v in np.atleast_1d(exch)):
         return False
     # A nested attribute of any kind is declined. ``inner_r`` flags only
     # one relative at an inner or intermediate level; a nested attribute
@@ -583,11 +583,11 @@ def orbit_sweep_supported(dens_x, dens_y, offsets=None,
             return False
         if inner_r is not None and int(inner_r[a]) > 0:
             return False
-        if bool(dens_x.is_rel[a]) and swept[a]:
+        if bool(dens_x.rel[a]) and swept[a]:
             # A uniform translation cancels in every within-tuple
             # difference; there is nothing to sweep.
             return False
-        if bool(dens_x.is_rel[a]) and bool(dens_x.is_per[a]):
+        if bool(dens_x.rel[a]) and bool(dens_x.per[a]):
             period = (float(dens_x.period[a])
                       if dens_x.period[a] is not None else 0.0)
             if period > 0.0:
@@ -605,7 +605,7 @@ def orbit_sweep_supported(dens_x, dens_y, offsets=None,
     return True
 
 
-def _orbit_attr_matrix_sweep(Px, Wx, Py, Wy, sigma, r, mus, is_per, period,
+def _orbit_attr_matrix_sweep(Px, Wx, Py, Wy, sigma, r, mus, per, period,
                              wrap, truncation_sigmas):
     """Per-attribute inner-product matrices at every offset.
 
@@ -632,7 +632,7 @@ def _orbit_attr_matrix_sweep(Px, Wx, Py, Wy, sigma, r, mus, is_per, period,
     use_orbit = int(r) >= 2      # r = 1 has no orbit decomposition
     out = np.empty((N_x, N_y, M), dtype=np.float64)
 
-    full_image = bool(is_per) and str(wrap) == "full-image"
+    full_image = bool(per) and str(wrap) == "full-image"
     if full_image:
         trunc_eff = float(get_default("truncation_sigmas")
                           if truncation_sigmas is None
@@ -658,7 +658,7 @@ def _orbit_attr_matrix_sweep(Px, Wx, Py, Wy, sigma, r, mus, is_per, period,
                 diffs, sigma, period, trunc_eff, exponent_denominator=4,
             )
         else:
-            if is_per:
+            if per:
                 diffs = diffs - period * np.floor(diffs / period + 0.5)
             K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
         # -> (N_x, N_y, mc, K_x, K_y), then flatten the batch axis.
@@ -701,7 +701,7 @@ def _orbit_sweep(dens_x, dens_y, off, truncation_sigmas):
     for a in range(A):
         sigma = float(dens_x.sigma[a])
         r_a = int(dens_x.r[a])
-        is_per = bool(dens_x.is_per[a])
+        per = bool(dens_x.per[a])
         period = float(dens_x.period[a]) if dens_x.period[a] is not None else 0.0
         wrap_a = (str(dens_x.wrap[a])
                   if getattr(dens_x, "wrap", None) is not None
@@ -710,14 +710,14 @@ def _orbit_sweep(dens_x, dens_y, off, truncation_sigmas):
         Py, Wy = dens_y.p_attr[a], dens_y.w[a]
         if not np.any(off[a] != 0.0):
             block = _ma_per_attr_inner_matrix(
-                Px, Wx, Py, Wy, sigma, r_a, bool(dens_x.is_rel[a]),
-                is_per, period,
+                Px, Wx, Py, Wy, sigma, r_a, bool(dens_x.rel[a]),
+                per, period,
                 truncation_sigmas=truncation_sigmas, wrap=wrap_a,
             )
             P *= block[:, :, None]
         else:
             P *= _orbit_attr_matrix_sweep(
-                Px, Wx, Py, Wy, sigma, r_a, off[a], is_per, period,
+                Px, Wx, Py, Wy, sigma, r_a, off[a], per, period,
                 wrap_a, truncation_sigmas,
             )
     return P.sum(axis=(0, 1))
@@ -748,7 +748,7 @@ def _orbit_self_ip(dens, truncation_sigmas):
         P *= _ma_per_attr_inner_matrix(
             dens.p_attr[a], dens.w[a], dens.p_attr[a], dens.w[a],
             float(dens.sigma[a]), int(dens.r[a]),
-            bool(dens.is_rel[a]), bool(dens.is_per[a]), period,
+            bool(dens.rel[a]), bool(dens.per[a]), period,
             truncation_sigmas=truncation_sigmas, wrap=wrap_a,
         )
     return float(P.sum())
@@ -879,7 +879,7 @@ def contract_sweep_supported(dens_x, dens_y, offsets=None):
     for a in range(A):
         if not swept[a]:
             continue
-        if bool(dens_x.is_rel[a]):
+        if bool(dens_x.rel[a]):
             return False
         if (nx[a] is None) != (ny[a] is None):
             return False
@@ -902,15 +902,25 @@ def _contract_sweep(dx, dy, off, *, normalize, truncation_sigmas):
     attribute contributes an ``(N_x, N_y, M)`` stack --- a nested one from
     :func:`~._nested_contraction.nested_attr_matrix_sweep`, a flat one from
     its per-attribute matrix at the translated values.
+
+    The cross term's nested routes are priced for the cross term alone, so
+    they may differ from the routes the self inner products took. Every
+    nested matrix is therefore put on the common scale
+    (:func:`~.cosine._nested_attr_matrix_common`, and the same factor for a
+    swept nested stack), on which the ordinary contraction also returns
+    its self inner products; the routes then agree to the truncation
+    floor, and their constants no longer enter the ratio.
     """
     from . import cosine as C
     from ._nested_contraction import build_recipe, nested_attr_matrix_sweep
 
     ts = truncation_sigmas
     try:
+        # Self inner products only: the cross term is formed below, at
+        # every offset, so the ordinary contraction's own would be wasted.
         trip = C._try_nested_contract(dx, dy, normalize=normalize,
                                       verbose=False, force=True,
-                                      truncation_sigmas=ts)
+                                      truncation_sigmas=ts, self_only=True)
     except ValueError:
         return None
     if trip is None:
@@ -920,7 +930,7 @@ def _contract_sweep(dx, dy, off, *, normalize, truncation_sigmas):
     M = int(off.shape[1])
     nx = getattr(dx, "nested", None) or [None] * A
     ny = getattr(dy, "nested", None) or [None] * A
-    exch = np.asarray(getattr(dx, "is_exch", np.ones(A, dtype=bool))).ravel()
+    exch = np.asarray(getattr(dx, "exch", np.ones(A, dtype=bool))).ravel()
     swept = np.any(off != 0.0, axis=1)
     Nx, Ny = int(dx.n), int(dy.n)
 
@@ -938,7 +948,7 @@ def _contract_sweep(dx, dy, off, *, normalize, truncation_sigmas):
         return C._ma_per_attr_inner_matrix(
             dx.p_attr[a], dx.w[a], np.asarray(dy.p_attr[a]) + shift,
             dy.w[a], float(dx.sigma[a]), int(dx.r[a]),
-            bool(dx.is_rel[a]), bool(dx.is_per[a]), float(dx.period[a]),
+            bool(dx.rel[a]), bool(dx.per[a]), float(dx.period[a]),
             truncation_sigmas=ts, wrap=wrap_a)
 
     F = np.ones((Nx, Ny), dtype=np.float64)
@@ -946,9 +956,12 @@ def _contract_sweep(dx, dy, off, *, normalize, truncation_sigmas):
         if swept[a]:
             continue
         if nx[a] is not None:
-            route, taus = C._nested_attr_plan(dx, dy, a, ts=ts)
-            F *= C._nested_attr_matrix(dx, dy, a, route, taus,
-                                       truncation_sigmas=ts)
+            # Priced for the cross term alone: the self inner products are
+            # already in hand, from whichever route their own plan chose.
+            route, taus = C._nested_attr_plan(dx, dy, a, skip_xx=True,
+                                              skip_yy=True, ts=ts)
+            F *= C._nested_attr_matrix_common(dx, dy, a, route, taus,
+                                              truncation_sigmas=ts)
         else:
             F *= flat_matrix(a, 0.0)
     G = np.repeat(F[:, :, None], M, axis=2)
@@ -960,14 +973,17 @@ def _contract_sweep(dx, dy, off, *, normalize, truncation_sigmas):
             r_lv = np.asarray(sx["r"]).ravel()
             e_lv = np.asarray(sx["exch"]).ravel()
             tx, ty = np.asarray(sx["tags"]), np.asarray(sy["tags"])
-            is_per = bool(dx.is_per[a])
-            rx = build_recipe(r_lv, e_lv, tx, False, is_per)
+            per = bool(dx.per[a])
+            rx = build_recipe(r_lv, e_lv, tx, False, per)
             same = tx.shape == ty.shape and bool(np.array_equal(tx, ty))
-            ry = rx if same else build_recipe(r_lv, e_lv, ty, False, is_per)
+            ry = rx if same else build_recipe(r_lv, e_lv, ty, False, per)
+            # An absolute nested attribute: the contraction's scale, taken
+            # to the common one.
             G *= nested_attr_matrix_sweep(
                 rx, ry, dx.p_attr[a], dy.p_attr[a], dx.w[a], dy.w[a],
-                float(dx.sigma[a]), is_per, float(dx.period[a]), ts, off[a],
-                wrap_a=C._declared_wrap(dx, dy, a))
+                float(dx.sigma[a]), per, float(dx.period[a]), ts, off[a],
+                wrap_a=C._declared_wrap(dx, dy, a)) * C._nested_common_factor(
+                    dx, a, "contract")
         else:
             for m in range(M):
                 G[:, :, m] *= flat_matrix(a, float(off[a, m]))

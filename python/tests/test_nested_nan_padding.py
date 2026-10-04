@@ -23,15 +23,15 @@ def _bound(chords, *, r_inner, rel_outer, per, flag=None):
     specs = flat_specs([P], r=r_inner, rel=False, exch=True)
     pb, wb, sb = unpack_pre_maet(bind_events([P], [W], L, rel_outer=rel_outer, specs=specs))
     attrs, ws, sp = [pb[0]], [wb[0]], [sb[0]]
-    sigma, is_per, period = [0.15], [per], [12.0]
+    sigma, per_list, period = [0.15], [per], [12.0]
     if flag is not None:
         attrs.append(np.array([[float(flag)]]))
         ws.append(np.array([[1.0]]))
         sp.extend(flat_specs([attrs[-1]], r=1, rel=False, exch=False))
         sigma.append(0.1)
-        is_per.append(False)
+        per_list.append(False)
         period.append(0.0)
-    return build_maet(attrs, ws, specs=sp, sigma=sigma, is_per=is_per,
+    return build_maet(attrs, ws, specs=sp, sigma=sigma, per=per_list,
                           period=period, verbose=False)
 
 

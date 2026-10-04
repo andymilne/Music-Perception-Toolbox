@@ -16,7 +16,7 @@ selector (a per-level vector or the depth-proof strings ``'innermost'`` /
   sub-tuples into one shared lower-dimensional space.
 * The §6.3 inner/outer ``[rel]`` projection-rank dims (4/2/3/2 for two
   dyads). The **outer / whole-tuple** unit is implemented here: it is the
-  flat ``is_rel`` reduction on the whole tuple (dim 4 -> 3) and is exactly
+  flat ``rel`` reduction on the whole tuple (dim 4 -> 3) and is exactly
   global-transposition-invariant. (The inner unit is a later step.)
 * ``[rel]`` validation: scalar/bool rejected for nested; a user
   ``is_rel_vec`` entry on a nested attribute is rejected (set via spec);
@@ -167,7 +167,7 @@ def test_inner_rel_dim_and_per_event_invariance():
 
 def test_inner_equals_tensor_join_of_is_rel_dyads():
     """For one outer combination, the inner unit equals the tensor join of
-    per-event is_rel dyad densities (§6.3: within-event intervals,
+    per-event rel dyad densities (§6.3: within-event intervals,
     tensor-joined). Checked through both eval and cosine."""
     d_in = _nest([0.0, 4.0, 7.0, 11.0],
                  dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
@@ -219,8 +219,8 @@ def test_explicit_all_none_nested_equals_default():
 
 def test_outer_rebuild_roundtrip_no_false_guard():
     """A reconstruction forwards the normalised spec (carrying 'proj') with
-    the derived is_rel=True; this must round-trip without tripping the
-    user-is_rel guard. Regression for the rebuild path."""
+    the derived rel=True; this must round-trip without tripping the
+    user-rel guard. Regression for the rebuild path."""
     fresh = _nest([0.0, 4.0, 7.0, 11.0],
                   dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],
                        rel="outermost"))

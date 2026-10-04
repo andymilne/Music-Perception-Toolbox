@@ -4,7 +4,7 @@
 §6.4): a per-attribute list of dicts. A flat attribute is a one-level spec
 ``{r, rel?, exch?, name?}`` (scalar r, bool rel/exch); a nested attribute
 carries ``tags`` plus per-level vectors ``{tags, r, exch, rel, name?,
-names?}``. Scalar geometry not structured by nesting (sigma, is_per,
+names?}``. Scalar geometry not structured by nesting (sigma, per,
 period) stays outside the spec, supplied as keywords. The old positional
 form is retained unchanged as a shim.
 """
@@ -29,7 +29,7 @@ def test_flat_specs_match_old_positional():
                            [False, False], [0.0, 0.0], verbose=False)
     specs = [dict(r=2, rel=True, exch=True), dict(r=1, rel=False)]
     d_spec = build_maet(P2, None, specs=specs, sigma=[50.0, 30.0],
-                            is_per=[False, False], period=[0.0, 0.0],
+                            per=[False, False], period=[0.0, 0.0],
                             verbose=False)
     assert d_old.dim == d_spec.dim
     for x in ([5.0, 100.0], [7.0, 140.0], [3.0, 120.0]):
@@ -39,15 +39,15 @@ def test_flat_specs_match_old_positional():
 def test_flat_spec_defaults():
     """Flat-spec defaults: rel=False, exch=True."""
     d_min = build_maet(P2, None, specs=[dict(r=2), dict(r=1)],
-                           sigma=[50.0, 30.0], is_per=[False, False],
+                           sigma=[50.0, 30.0], per=[False, False],
                            period=[0.0, 0.0], verbose=False)
     d_exp = build_maet(P2, None,
                            specs=[dict(r=2, rel=False, exch=True),
                                   dict(r=1, rel=False, exch=True)],
-                           sigma=[50.0, 30.0], is_per=[False, False],
+                           sigma=[50.0, 30.0], per=[False, False],
                            period=[0.0, 0.0], verbose=False)
     assert d_min.dim == d_exp.dim
-    assert bool(d_min.is_rel[0]) is False and bool(d_min.is_exch[0]) is True
+    assert bool(d_min.rel[0]) is False and bool(d_min.exch[0]) is True
 
 
 def test_nested_spec_matches_nested_kwarg():
@@ -57,7 +57,7 @@ def test_nested_spec_matches_nested_kwarg():
     d_kw = build_maet(pv, None, [50.0], [1], [False], [False], [0.0],
                           nested=[dict(nsp)], verbose=False)
     d_spec = build_maet(pv, None, specs=[dict(nsp)], sigma=[50.0],
-                            is_per=[False], period=[0.0], verbose=False)
+                            per=[False], period=[0.0], verbose=False)
     assert d_kw.dim == d_spec.dim == 3
     assert float(sim_maet(d_kw, d_spec, verbose=False)) == pytest.approx(1.0, abs=1e-9)
 
@@ -66,7 +66,7 @@ def test_attribute_names_stored_and_prune_invariant():
     """Attribute names are stored and survive pruning."""
     specs = [dict(r=2, rel=True, name="pitch"), dict(r=1, name="time")]
     d = build_maet(P2, None, specs=specs, sigma=[50.0, 30.0],
-                       is_per=[False, False], period=[0.0, 0.0], verbose=False)
+                       per=[False, False], period=[0.0, 0.0], verbose=False)
     assert d.names == ["pitch", "time"]
     assert d.pruned().names == ["pitch", "time"]
 
@@ -76,7 +76,7 @@ def test_level_names_carried_in_nested_spec():
     nsp = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False], rel="innermost",
                name="chordprog", names=["note", "chord"])
     d = build_maet([np.array([[0.0], [4.0], [7.0], [11.0]])], None,
-                       specs=[nsp], sigma=[50.0], is_per=[False], period=[0.0],
+                       specs=[nsp], sigma=[50.0], per=[False], period=[0.0],
                        verbose=False)
     assert d.names == ["chordprog"]
     assert d.nested[0].get("names") == ["note", "chord"]
@@ -84,7 +84,7 @@ def test_level_names_carried_in_nested_spec():
 
 def test_unnamed_attributes_default_to_none():
     d = build_maet(P2, None, specs=[dict(r=2), dict(r=1)],
-                       sigma=[50.0, 30.0], is_per=[False, False],
+                       sigma=[50.0, 30.0], per=[False, False],
                        period=[0.0, 0.0], verbose=False)
     assert d.names == [None, None]
 
@@ -94,10 +94,10 @@ def test_specs_guards():
     # specs with positional geometry
     with pytest.raises(ValueError):
         build_maet(P2, None, [50.0, 30.0], specs=specs, sigma=[1.0, 1.0],
-                       is_per=[False, False], period=[0.0, 0.0], verbose=False)
+                       per=[False, False], period=[0.0, 0.0], verbose=False)
     # specs missing scalar geometry
     with pytest.raises(ValueError):
-        build_maet(P2, None, specs=specs, is_per=[False, False],
+        build_maet(P2, None, specs=specs, per=[False, False],
                        period=[0.0, 0.0], verbose=False)
     # scalar-geometry keywords without specs
     with pytest.raises(ValueError):
@@ -107,11 +107,11 @@ def test_specs_guards():
     # wrong specs length
     with pytest.raises(ValueError):
         build_maet(P2, None, specs=[dict(r=2)], sigma=[1.0, 1.0],
-                       is_per=[False, False], period=[0.0, 0.0], verbose=False)
+                       per=[False, False], period=[0.0, 0.0], verbose=False)
     # flat spec missing r
     with pytest.raises(ValueError):
         build_maet(P2, None, specs=[dict(rel=True), dict(r=1)],
-                       sigma=[1.0, 1.0], is_per=[False, False],
+                       sigma=[1.0, 1.0], per=[False, False],
                        period=[0.0, 0.0], verbose=False)
 
 
@@ -119,7 +119,7 @@ def test_specs_rejected_for_single_attribute():
     """specs= is multi-attribute only."""
     with pytest.raises(ValueError):
         build_maet([0.0, 4.0, 7.0], None, specs=[dict(r=2)],
-                       sigma=[50.0], is_per=[False], period=[0.0],
+                       sigma=[50.0], per=[False], period=[0.0],
                        verbose=False)
 
 
@@ -132,13 +132,13 @@ from mpt import flat_specs
 
 def test_flat_specs_constructor_matches_positional():
     """flat_specs(...) builds specs equal to the old positional build."""
-    s = flat_specs(P2, r=[2, 1], rel=[True, False], name=["pitch", "time"])
+    s = flat_specs(P2, r=[2, 1], rel=[True, False], names=["pitch", "time"])
     assert s == [
         {"r": 2, "rel": True, "exch": True, "name": "pitch"},
         {"r": 1, "rel": False, "exch": True, "name": "time"},
     ]
     d_fs = build_maet(P2, None, specs=s, sigma=[50.0, 30.0],
-                          is_per=[False, False], period=[0.0, 0.0],
+                          per=[False, False], period=[0.0, 0.0],
                           verbose=False)
     d_pos = build_maet(P2, None, [50.0, 30.0], [2, 1], [True, False],
                            [False, False], [0.0, 0.0], verbose=False)
@@ -157,9 +157,9 @@ def test_nested_spec_omitted_exch_defaults_true():
     full = dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, True], rel="innermost")
     partial = dict(tags=[0, 0, 1, 1], r=[2, 2], rel="innermost")  # no exch
     d_full = build_maet(pv, None, specs=[full], sigma=[50.0],
-                            is_per=[False], period=[0.0], verbose=False)
+                            per=[False], period=[0.0], verbose=False)
     d_part = build_maet(pv, None, specs=[partial], sigma=[50.0],
-                            is_per=[False], period=[0.0], verbose=False)
+                            per=[False], period=[0.0], verbose=False)
     assert float(sim_maet(d_full, d_part, verbose=False)) == pytest.approx(1.0, abs=1e-9)
 
 
@@ -168,7 +168,7 @@ def test_nested_spec_carries_unknown_fields():
     pv = [np.array([[0.0], [4.0], [7.0], [11.0]])]
     edited = dict(tags=[0, 0, 1, 1], r=[2, 2], rel="outermost", name="cp",
                   names=["n", "c"], my_note="hand-edit")
-    d = build_maet(pv, None, specs=[edited], sigma=[50.0], is_per=[False],
+    d = build_maet(pv, None, specs=[edited], sigma=[50.0], per=[False],
                        period=[0.0], verbose=False)
     assert d.names == ["cp"]
     assert d.nested[0].get("names") == ["n", "c"]
@@ -180,7 +180,7 @@ def test_nested_structural_fields_required():
     pv = [np.array([[0.0], [4.0], [7.0], [11.0]])]
     with pytest.raises(ValueError):  # missing r
         build_maet(pv, None, specs=[dict(tags=[0, 0, 1, 1], exch=[True, False])],
-                       sigma=[50.0], is_per=[False], period=[0.0], verbose=False)
+                       sigma=[50.0], per=[False], period=[0.0], verbose=False)
     with pytest.raises(ValueError):  # vector r but missing tags
         build_maet(pv, None, specs=[dict(r=[2, 2], exch=[True, False])],
-                       sigma=[50.0], is_per=[False], period=[0.0], verbose=False)
+                       sigma=[50.0], per=[False], period=[0.0], verbose=False)

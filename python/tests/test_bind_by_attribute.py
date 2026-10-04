@@ -46,7 +46,7 @@ def test_r_outer_defaults_to_min_group_size():
 
 def test_self_similarity_is_one():
     pb, wb, sp = _density(1, [3, 2, 1, 4])      # r_outer = min = 1
-    d = build_maet(pb, wb, sigma=[40.0, 0.01], is_per=[False, False],
+    d = build_maet(pb, wb, sigma=[40.0, 0.01], per=[False, False],
                        period=[0.0, 0.0], specs=sp, verbose=False)
     assert abs(sim_maet(d, d, method="auto", verbose=False) - 1.0) < 1e-12
 
@@ -55,7 +55,7 @@ def test_ragged_orbit_matches_enumeration():
     """The orbit reduction and enumeration agree on a ragged outer level."""
     def build(seed):
         pb, wb, sp = _density(seed, [4, 3, 5], r_outer=3, exch_outer=True)
-        return build_maet(pb, wb, sigma=[30.0, 0.02], is_per=[False, False],
+        return build_maet(pb, wb, sigma=[30.0, 0.02], per=[False, False],
                               period=[0.0, 0.0], specs=sp, verbose=False)
     X, Y = build(10), build(20)
     orig = nc._orbit_eligible
@@ -73,7 +73,7 @@ def test_high_arity_ragged_runs_via_orbit():
     """At an outer tuple size where enumeration is infeasible, auto still completes
     (the orbit path carries the ragged density)."""
     pb, wb, sp = _density(3, [7, 6, 8], r_outer=6, exch_outer=True)
-    d = build_maet(pb, wb, sigma=[30.0, 0.01], is_per=[False, False],
+    d = build_maet(pb, wb, sigma=[30.0, 0.01], per=[False, False],
                        period=[0.0, 0.0], specs=sp, verbose=False)
     assert abs(sim_maet(d, d, method="auto", verbose=False) - 1.0) < 1e-9
 
@@ -98,12 +98,14 @@ def test_validation():
         bind_events([pitch, onset], None, None, group_by=1, circular=True)
 
 
-def test_r_outer_exceeding_smallest_group_errors():
-    """A group smaller than r_outer admits no r_outer-tuple -> build errors."""
+def test_r_outer_exceeding_smallest_group_warns():
+    """A group smaller than r_outer admits no r_outer-tuple: its NaN
+    positions are values of weight 0, so it contributes nothing, and the
+    build warns."""
     pb, wb, sp = _density(5, [4, 3, 5], r_outer=4)   # size-3 group < 4
-    with pytest.raises(Exception):
-        build_maet(pb, wb, sigma=[30.0, 0.02], is_per=[False, False],
-                       period=[0.0, 0.0], specs=sp, verbose=False)
+    with pytest.warns(UserWarning, match="1 event\\(s\\) on attribute 0 hold too few"):
+        build_maet(pb, wb, sigma=[30.0, 0.02], per=[False, False],
+                   period=[0.0, 0.0], specs=sp, verbose=False)
 
 
 def test_group_by_name_and_carried_spec_fields():
@@ -116,8 +118,8 @@ def test_group_by_name_and_carried_spec_fields():
     """
     pitch = np.array([[60, 64, 67, 62, 65]], float)
     chord = np.array([[0, 0, 0, 1, 1]], float)
-    specs = flat_specs([pitch, chord], sigma=[0.5, 0.25], is_per=[True, False],
-                       period=[12.0, 0.0], name=['pitch', 'chord'])
+    specs = flat_specs([pitch, chord], sigma=[0.5, 0.25], per=[True, False],
+                       period=[12.0, 0.0], names=['pitch', 'chord'])
     by_name = unpack_pre_maet(bind_events([pitch, chord], None, None,
                                           group_by='chord', specs=specs,
                                           r_outer=2))
@@ -126,7 +128,7 @@ def test_group_by_name_and_carried_spec_fields():
                                            r_outer=2))
     assert np.allclose(by_name[0][0], by_index[0][0], equal_nan=True)
     assert by_name[2][0]['sigma'] == 0.5
-    assert by_name[2][0]['is_per'] is True
+    assert by_name[2][0]['per'] is True
     assert by_name[2][0]['period'] == 12.0
     assert by_name[2][1]['sigma'] == 0.25
     # The spec carries its own sigma, so the density builds without one.
@@ -150,5 +152,5 @@ def test_group_by_weights_have_one_row_per_value():
     # values carrying that event's weight.
     assert np.allclose(wb[0][:2, :], np.array([[1.0, 2.0], [1.0, 2.0]]))
     assert np.allclose(wb[0][2:4, :], np.array([[0.5, 0.25], [0.5, 0.25]]))
-    build_maet(pb, wb, sigma=[1.0, 1.0], is_per=[False, False],
+    build_maet(pb, wb, sigma=[1.0, 1.0], per=[False, False],
                period=[0.0, 0.0], specs=sp, verbose=False)

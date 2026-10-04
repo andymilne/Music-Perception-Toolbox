@@ -100,8 +100,8 @@ def _shape_of(dens):
     n = 1 if n is None else int(n)
     mode = []
     for a in range(len(r)):
-        rel = bool(np.asarray(dens.is_rel).ravel()[a])
-        per = bool(np.asarray(dens.is_per).ravel()[a])
+        rel = bool(np.asarray(dens.rel).ravel()[a])
+        per = bool(np.asarray(dens.per).ravel()[a])
         mode.append(f"{'rel' if rel else 'abs'}{'per' if per else 'np'}")
     parts = [f"r={int(r[a])} K={int(k[a])} {mode[a]}" for a in range(len(r))]
     return f"{len(r)} attribute(s), {n} event(s); " + "; ".join(parts)
@@ -110,11 +110,11 @@ def _shape_of(dens):
 def _sigma_over_p(dens):
     """Largest sigma/period over the relative-periodic attributes."""
     sig = np.asarray(dens.sigma, dtype=float).ravel()
-    per = np.asarray(dens.period, dtype=float).ravel()
-    is_rel = np.asarray(dens.is_rel).ravel()
-    is_per = np.asarray(dens.is_per).ravel()
-    vals = [sig[a] / per[a] for a in range(len(sig))
-            if a < len(per) and per[a] > 0 and is_per[a] and is_rel[a]]
+    periods = np.asarray(dens.period, dtype=float).ravel()
+    rel = np.asarray(dens.rel).ravel()
+    per = np.asarray(dens.per).ravel()
+    vals = [sig[a] / periods[a] for a in range(len(sig))
+            if a < len(periods) and periods[a] > 0 and per[a] and rel[a]]
     return max(vals) if vals else None
 
 

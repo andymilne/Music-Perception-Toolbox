@@ -327,21 +327,21 @@ s0 = simMaet([0, 400, 700], [], B_diat, [], ...
     10, 2, true, false, 1200, 'verbose', false);
 s1 = simMaet([100, 500, 800], [], B_diat, [], ...
     10, 2, true, false, 1200, 'verbose', false);
-results{end+1,1} = 'simMaet: isRel transposition (non-periodic)';
+results{end+1,1} = 'simMaet: rel transposition (non-periodic)';
 results{end,2}   = abs(s0 - s1) < 1e-14;
 
 s0 = simMaet([0, 400, 700], [], B_diat, [], ...
     10, 2, true, true, 1200, 'verbose', false);
 s1 = simMaet([100, 500, 800], [], B_diat, [], ...
     10, 2, true, true, 1200, 'verbose', false);
-results{end+1,1} = 'simMaet: isRel transposition (periodic)';
+results{end+1,1} = 'simMaet: rel transposition (periodic)';
 results{end,2}   = abs(s0 - s1) < 1e-14;
 
 s0 = simMaet([0, 400, 700], [], B_diat, [], ...
     10, 3, true, true, 1200, 'verbose', false);
 s1 = simMaet([500, 900, 1200], [], B_diat, [], ...
     10, 3, true, true, 1200, 'verbose', false);
-results{end+1,1} = 'simMaet: isRel transposition (periodic, r=3)';
+results{end+1,1} = 'simMaet: rel transposition (periodic, r=3)';
 results{end,2}   = abs(s0 - s1) < 1e-14;
 
 shifts = [100, 300, 500, 700, 1100];
@@ -355,14 +355,14 @@ for c = shifts
         allMatch = false;
     end
 end
-results{end+1,1} = 'simMaet: isRel all shifts (periodic)';
+results{end+1,1} = 'simMaet: rel all shifts (periodic)';
 results{end,2}   = allMatch;
 
 s0 = simMaet([0, 400, 700], [], B_diat, [], ...
     10, 1, false, true, 1200, 'verbose', false);
 s1 = simMaet([1200, 1600, 1900], [], B_diat, [], ...
     10, 1, false, true, 1200, 'verbose', false);
-results{end+1,1} = 'simMaet: isPer octave equivalence';
+results{end+1,1} = 'simMaet: per octave equivalence';
 results{end,2}   = abs(s0 - s1) < 1e-14;
 
 w = [1.0, 0.8, 0.6];
@@ -370,7 +370,7 @@ s0 = simMaet([0, 400, 700], w, B_diat, [], ...
     10, 2, true, true, 1200, 'verbose', false);
 s1 = simMaet([100, 500, 800], w, B_diat, [], ...
     10, 2, true, true, 1200, 'verbose', false);
-results{end+1,1} = 'simMaet: isRel+isPer with weights';
+results{end+1,1} = 'simMaet: rel+per with weights';
 results{end,2}   = abs(s0 - s1) < 1e-14;
 
 A3 = [0, 400, 700; 1200, 1600, 1900; 0, 400, 700];

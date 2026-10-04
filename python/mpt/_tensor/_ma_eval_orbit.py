@@ -58,8 +58,8 @@ def eval_ma_orbit(
     dims = [int(v) for v in np.atleast_1d(dens.dim_per_attr)]
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
     r_vec = [int(v) for v in np.atleast_1d(dens.r)]
-    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
-    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    rel = [bool(v) for v in np.atleast_1d(dens.rel)]
+    per = [bool(v) for v in np.atleast_1d(dens.per)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
     x = np.asarray(x, dtype=np.float64)
@@ -117,7 +117,7 @@ def eval_ma_orbit(
                 f_a = eval_nested_attr_orbit(
                     p_an, w_an, tags, spec["r"], spec["exch"],
                     spec.get("rel_unit"), sigma[a], x_blocks[a],
-                    is_per=is_per[a], period=period[a],
+                    per=per[a], period=period[a],
                     wrap=(str(wrap_dens[a]) if wrap_dens is not None
                           else 'full-image'),
                     truncation_sigmas=ts,
@@ -125,9 +125,9 @@ def eval_ma_orbit(
                 prod *= np.asarray(f_a, dtype=np.float64).ravel()
                 continue
 
-            evaluator = eval_orbit_rel if is_rel[a] else eval_orbit_abs
+            evaluator = eval_orbit_rel if rel[a] else eval_orbit_abs
             kw = dict(
-                is_per=is_per[a],
+                per=per[a],
                 period=period[a],
                 truncation_sigmas=ts,
                 kernel_precision=kernel_precision,
@@ -135,7 +135,7 @@ def eval_ma_orbit(
             # For abs-per attributes only, honour the density's wrap
             # opt-in. eval_orbit_rel does not take wrap (relative-mode
             # is always full-image after v3).
-            if not is_rel[a] and hasattr(dens, 'wrap') and dens.wrap is not None:
+            if not rel[a] and hasattr(dens, 'wrap') and dens.wrap is not None:
                 kw['wrap'] = str(dens.wrap[a])
             if return_cancellation_ratio:
                 f_a, r_a = evaluator(

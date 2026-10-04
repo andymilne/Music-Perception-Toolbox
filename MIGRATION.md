@@ -17,6 +17,7 @@ v3.0.0 is a major release relative to the last public line (2.0.x). At the v2.0 
 - `nTupleEntropy` at `sigma > 0` reads `sigma` as positional uncertainty (`sigmaSpace = 'position'`) by default;
 - a periodic attribute's kernel sums every periodic image (`wrap='full-image'`), where v2.0 wrapped each difference to one image, and the discrete entropies integrate each grid cell's mass rather than sampling its centre;
 - kernel truncation defaults to `truncation_sigmas = 6`, so default-configured output is a ~6-significant-figure approximation of the v2.0 untruncated value (`Inf` restores it to within $10^{-12}$);
+- the density's flags, and the Python keywords that name them, are `rel` and `per`, where v2.0 had `isRel` / `is_rel` and `isPer` / `is_per`;
 - `evalMaet` in periodic-relative mode uses the corrected pairwise-wrap quadratic form.
 
 Everything else — multi-attribute expectation tensors, the pre-MAET preprocessing primitives, unified dispatch and batching, the Möbius method and its dispatcher, the kernel-evaluation controls, Rényi-2 and differential entropy, anisotropic kernels, and translation sweeps — is new surface that v2.0 code does not touch.
@@ -181,11 +182,11 @@ mpt.set_default(truncation_sigmas=math.inf)
 
 - v2.0 default routing chose Bulger's method implicitly. v3 default routing chooses `method='auto'`, which selects Bulger's method for the regimes where it dominates and the Möbius method elsewhere. In regimes where both methods are valid (the IP case), they agree to floating-point precision. User-visible cosine / entropy / eval values match v2.0 at default settings to floating-point reduction order — the dispatcher does not change the answer, only the route — with the exceptions noted below and the default kernel truncation described above. The `kernelChunkBytes` factory default (`'auto'`) produces chunk sizes that depend on the machine's available memory rather than v2.0's fixed budget, which alters reduction order and so introduces relative differences below $\sim 10^{-13}$ at otherwise-identical inputs. For bit-identity across machines or sessions, set `kernelChunkBytes` (or `kernel_chunk_bytes`) to an explicit integer.
 
-- **`evalMaet` periodic-relative numerical change.** The centres-path quadratic form $Q$ in `evalMaet` for the `isRel = true, isPer = true` case is corrected to the pairwise-wrap form of Eq 6, matching `simMaet` (the same fix that was applied to `simMaet` in v2.0.1). At typical perceptual $\sigma/P \le 0.03$ the corrected and prior forms agree as $O((\sigma/P)^{\infty})$, so most existing rel+per callers will see numerical output indistinguishable from v2.0 at default settings; above the threshold the difference becomes measurable. Non-periodic eval, absolute eval, and all `simMaet` / `entropyMaet` modes are unchanged. See `CHANGELOG.md` under *Fixed* for the technical detail.
+- **`evalMaet` periodic-relative numerical change.** The centres-path quadratic form $Q$ in `evalMaet` for the `rel = true, per = true` case is corrected to the pairwise-wrap form of Eq 6, matching `simMaet` (the same fix that was applied to `simMaet` in v2.0.1). At typical perceptual $\sigma/P \le 0.03$ the corrected and prior forms agree as $O((\sigma/P)^{\infty})$, so most existing rel+per callers will see numerical output indistinguishable from v2.0 at default settings; above the threshold the difference becomes measurable. Non-periodic eval, absolute eval, and all `simMaet` / `entropyMaet` modes are unchanged. See `CHANGELOG.md` under *Fixed* for the technical detail.
 
 - **Cell-mass integration in discrete entropy.** `method='shannon'` and `method='normalized'` integrate an absolute-mode density over each grid cell (per-axis erf differences) where v2.0 point-sampled it at the cell centres. The two converge as the grid is refined but differ at coarse-to-moderate resolution (about $10^{-2}$ at 2.6 samples per σ, $10^{-5}$ at 12).
 
-- A configuration v2.0 rejected is accepted: `buildMaet` with `r=1, isRel=true` now emits a warning (id `buildMaet:isRelDegenerate`) instead of raising. The configuration is well-defined under v3's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
+- A configuration v2.0 rejected is accepted: `buildMaet` with `r=1, rel=true` now emits a warning (id `buildMaet:relDegenerate`) instead of raising. The configuration is well-defined under v3's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
 
 ### Demo migrations
 
@@ -276,29 +277,29 @@ All forms produce byte-identical results to v2.0 for the v2.0 calling convention
 
 ```matlab
 % v2.0 — still works in v3
-s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
+s = simMaet(p1, w1, p2, w2, sigma, r, rel, per, period);
 
 % v3 — list mode (single context against many candidates)
-densCtx = buildMaet(pCtx, wCtx, sigma, r, isRel, isPer, period);
-densCands = arrayfun(@(i) buildMaet(pCands{i}, wCands{i}, sigma, r, isRel, isPer, period), ...
+densCtx = buildMaet(pCtx, wCtx, sigma, r, rel, per, period);
+densCands = arrayfun(@(i) buildMaet(pCands{i}, wCands{i}, sigma, r, rel, per, period), ...
                      1:nCands, 'UniformOutput', false);
 sims = simMaet(densCtx, densCands);   % 1-by-nCands cell
 
 % v3 — batched-raw mode (paired multisets row-by-row)
-sims = simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period);   % length-nRows vector
+sims = simMaet(P1, W1, P2, W2, sigma, r, rel, per, period);   % length-nRows vector
 ```
 
 ```python
 # v2.0 — still works in v3
-s = mpt.sim_maet(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)
+s = mpt.sim_maet(p1, w1, p2, w2, sigma, r, rel, per, period)
 
 # v3 — list mode
-dens_ctx = mpt.build_maet(p_ctx, w_ctx, sigma, r, is_rel, is_per, period)
-dens_cands = [mpt.build_maet(p, w, sigma, r, is_rel, is_per, period) for p, w in cands]
+dens_ctx = mpt.build_maet(p_ctx, w_ctx, sigma, r, rel, per, period)
+dens_cands = [mpt.build_maet(p, w, sigma, r, rel, per, period) for p, w in cands]
 sims = mpt.sim_maet(dens_ctx, dens_cands)   # length-n_cands ndarray
 
 # v3 — batched-raw mode
-sims = mpt.sim_maet(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
+sims = mpt.sim_maet(P1, W1, P2, W2, sigma, r, rel, per, period)
 ```
 
 The batched-raw mode also supports broadcasting: when one of `P1` / `P2` is an `M`-by-`K` matrix and the other is a length-`K` vector, the vector is broadcast across the matrix's rows. Eliminates the `repmat(refPitches, M, 1)` / `np.tile(ref_pitches, (M, 1))` idiom for the common "compare one reference against many candidates" use case.
@@ -323,7 +324,7 @@ Signatures, arguments, and returned values are unchanged, so the migration is th
 dens = buildExpTens(p, w, sigma, r, isRel, isPer, period);   % v2.0
 s    = cosSimExpTens(densX, densY);
 
-dens = buildMaet(p, w, sigma, r, isRel, isPer, period);      % v3
+dens = buildMaet(p, w, sigma, r, rel, per, period);      % v3
 s    = simMaet(densX, densY);
 ```
 
@@ -331,11 +332,23 @@ s    = simMaet(densX, densY);
 dens = mpt.build_exp_tens(p, w, sigma, r, is_rel, is_per, period)   # v2.0
 s = mpt.cos_sim_exp_tens(dens_x, dens_y)
 
-dens = mpt.build_maet(p, w, sigma, r, is_rel, is_per, period)       # v3
+dens = mpt.build_maet(p, w, sigma, r, rel, per, period)       # v3
 s = mpt.sim_maet(dens_x, dens_y)
 ```
 
 There are no deprecation shims: the old names are gone, and a call to one raises an unrecognized-name error. One thing beyond the names moves with them — the error and warning identifiers, so a `try` / `catch` matching `cosSimExpTens:badMethod` needs `simMaet:badMethod`, and likewise for the other four. The density struct's `MaetDensity` tag is unchanged, as are the already-deprecated `batchCosSimExpTens` and the `_raw` entry points.
+
+### The flags are named `rel`, `per`, and `exch` (breaking)
+
+The three flags take the names of the article's [rel], [per], and [exch] everywhere they are named: in the density's fields, in the specs, and in every name-value argument and keyword. v2.0 named two of them `isRel` / `is_rel` and `isPer` / `is_per`.
+
+| v2.0 | v3 |
+|:---|:---|
+| `dens.isRel`, `dens.isPer` (MATLAB) | `dens.rel`, `dens.per` |
+| `dens.is_rel`, `dens.is_per` (Python) | `dens.rel`, `dens.per` |
+| `is_rel=`, `is_per=` (Python keywords) | `rel=`, `per=` |
+
+Calls that pass the flags by position, as the documented forms do, are unaffected: `buildMaet(p, w, sigma, r, true, true, 1200)` is the same call in both versions. Code that reads the flags from a density, or passes them by keyword in Python, needs the new names.
 
 ### `batchCosSimExpTens`, `cos_sim_exp_tens_raw`, and `eval_exp_tens_raw` are removed (breaking)
 
@@ -343,7 +356,7 @@ These v2.0 names are gone in v3. Each call they served is a mode of the unified 
 
 | Removed (v2.0) | v3 replacement | Migration |
 |:---|:---|:---|
-| `batchCosSimExpTens` (MATLAB) | `simMaet` batched-raw mode | Move the weights from name-value pairs to the position after each pitch matrix: `simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period)`. |
+| `batchCosSimExpTens` (MATLAB) | `simMaet` batched-raw mode | Move the weights from name-value pairs to the position after each pitch matrix: `simMaet(P1, W1, P2, W2, sigma, r, rel, per, period)`. |
 | `batch_cos_sim_exp_tens` (Python) | `sim_maet` batched-raw mode | Same, with `weights_a` / `weights_b` becoming positional. |
 | `cos_sim_exp_tens_raw` (Python) | `sim_maet` | Drop the `_raw` suffix; the signature is unchanged. |
 | `eval_exp_tens_raw` (Python) | `eval_maet` | Drop the `_raw` suffix; the signature is unchanged. |
@@ -421,15 +434,15 @@ v2 also eliminates the v1 dependency on the [Sparse Array Toolbox](https://githu
 
 ```matlab
 % v1 (still works in v2)
-s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
+s = simMaet(p1, w1, p2, w2, sigma, r, rel, per, period);
 ```
 
 The new preferred calling convention precomputes the density objects, which is faster when comparing a fixed reference against many sets:
 
 ```matlab
 % v2 (preferred for repeated comparisons)
-dens_ref = buildMaet(p1, w1, sigma, r, isRel, isPer, period);
-dens_cmp = buildMaet(p2, w2, sigma, r, isRel, isPer, period);
+dens_ref = buildMaet(p1, w1, sigma, r, rel, per, period);
+dens_cmp = buildMaet(p2, w2, sigma, r, rel, per, period);
 s = simMaet(dens_ref, dens_cmp);
 ```
 
@@ -446,7 +459,7 @@ T = expectationTensor(p, w, sigma, r, isRel, isPer, period, nPoints);
 
 ```matlab
 % v2 equivalent
-dens = buildMaet(p, w, sigma, r, isRel, isPer, period);
+dens = buildMaet(p, w, sigma, r, rel, per, period);
 x = linspace(0, period, nPoints + 1);
 x = x(1:end-1);  % exclude duplicate endpoint for periodic case
 vals = evalMaet(dens, x);
@@ -467,7 +480,7 @@ s = cosSim(T_x, T_y);
 
 ```matlab
 % v2 equivalent
-s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
+s = simMaet(p1, w1, p2, w2, sigma, r, rel, per, period);
 ```
 
 ### spectralize → addSpectra
@@ -572,7 +585,7 @@ If your v1 code looped over trials calling `simMaet` on each:
 for i = 1:nTrials
     [pA, wA] = spectralize(A(i,:), [], nHarm, rho);
     [pB, wB] = spectralize(B(i,:), [], nHarm, rho);
-    s(i) = simMaet(pA, wA, pB, wB, sigma, r, isRel, isPer, period);
+    s(i) = simMaet(pA, wA, pB, wB, sigma, r, rel, per, period);
 end
 ```
 

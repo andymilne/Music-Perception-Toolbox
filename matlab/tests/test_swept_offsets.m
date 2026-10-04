@@ -2,10 +2,10 @@
 %
 %  The window, the query, both together, or each independently
 %  ('align').
-%  Each role is pinned to the composition it stands for, written out with
+%  Each alignment is pinned to the composition it stands for, written out with
 %  weightEvents / translateAttributes / simMaet; the one-pass route through
 %  sweepSimMaet is pinned to the composition; and every refusal names the
-%  role the caller probably meant. Mirror of Python's
+%  alignment the caller probably meant. Mirror of Python's
 %  tests/test_swept_offsets.py.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.

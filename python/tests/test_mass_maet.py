@@ -67,7 +67,7 @@ def test_nested_is_sum_of_weight_products():
     on = np.arange(5.0)[None, :]
     pb, wb, sb = unpack_pre_maet(bind_events([pit, on], None, [2, 1],
                                              step=1))
-    d = build_maet(pb, wb, sigma=[0.5, 0.2], is_per=[False, False],
+    d = build_maet(pb, wb, sigma=[0.5, 0.2], per=[False, False],
                    period=[0.0, 0.0], specs=sb, verbose=False)
     assert mass_maet(d) == pytest.approx(float(np.sum(d.w_j)), rel=1e-14)
 
@@ -81,7 +81,7 @@ def test_kernel_covariance_attribute():
 
 def test_pre_maet_and_list_inputs():
     pm = pack_pre_maet(P1, W1, mpt.flat_specs(P1, sigma=[1.0],
-                                               is_per=[False],
+                                               per=[False],
                                                period=[0.0]))
     d = build_maet(pm, verbose=False)
     assert mass_maet(pm) == mass_maet(d)
@@ -123,7 +123,7 @@ def _melody():
     on = np.arange(12.0)[None, :]
     return pack_pre_maet([pit, on], None,
                          mpt.flat_specs([pit, on], sigma=[0.5, 0.1],
-                                        is_per=[False, False],
+                                        per=[False, False],
                                         period=[0.0, 0.0]))
 
 

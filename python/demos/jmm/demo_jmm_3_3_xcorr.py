@@ -76,7 +76,7 @@ query_pattr = [q_pitch, q_time]   # its specs are the context's, below
 # --- context: Piano 2 -------------------------------------------------------
 context = mpt.pre_maet_from_attr_table(
     pe.voice_table(2),
-    attributes=(dict(column='pitch', sigma=SIGMA_PITCH),
+    specs=(dict(column='pitch', sigma=SIGMA_PITCH),
                 dict(column='onset', name='time', sigma=SIGMA_TIME)),
     time='seconds', chords='separate', weights='ones')
 

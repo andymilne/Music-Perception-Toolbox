@@ -55,7 +55,7 @@ def _pts(seed):
 
 def _dens(p, sigma):
     return build_maet([p], None, specs=[dict(SPEC)], sigma=[sigma],
-                          is_per=[True], period=[P], verbose=False)
+                          per=[True], period=[P], verbose=False)
 
 
 def _tuples(col):
@@ -120,7 +120,7 @@ def test_reference_nested_ip_matches_the_batched_matrix():
     sigma = 0.2 * P
     x, y = _dens(_pts(1), sigma), _dens(_pts(2), sigma)
     rec = build_recipe(np.asarray(SPEC["r"]), np.asarray(SPEC["exch"]),
-                       TAGS, is_rel=True, is_per=True)
+                       TAGS, rel=True, per=True)
     PX = np.asarray(x.p_attr[0], float)
     PY = np.asarray(y.p_attr[0], float)
     taus = np.linspace(0.0, P, auto_ntau_default(P, sigma), endpoint=False)

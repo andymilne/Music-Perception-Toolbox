@@ -61,7 +61,7 @@ results{end+1, 1} = 'kernel: exact matches reference (abs)';
 results{end, 2} = max(abs(v - ref_abs)) < 1e-12 * max(abs(ref_abs));
 
 v = internal.gaussianKernelSum(kt_C, kt_wJ, kt_X, kt_sigma, ...
-    'isRel', true, 'r', 3);
+    'rel', true, 'r', 3);
 results{end+1, 1} = 'kernel: exact matches reference (rel, r=3)';
 results{end, 2} = max(abs(v - ref_rel)) < 1e-12 * max(abs(ref_rel));
 
@@ -78,7 +78,7 @@ for k = [4, 5, 6, 8]
     results{end, 2} = rel < bound;
 
     v_trunc = internal.gaussianKernelSum(kt_C, kt_wJ, kt_X, kt_sigma, ...
-        'isRel', true, 'r', 3, 'truncationSigmas', k);
+        'rel', true, 'r', 3, 'truncationSigmas', k);
     rel = max(abs(v_trunc - ref_rel) ./ max(abs(ref_rel), 1e-30));
     results{end+1, 1} = sprintf('kernel: truncated rel within bound k=%d', k);
     results{end, 2} = rel < bound;
@@ -103,12 +103,12 @@ kt_sigp = 30.0;
 ref = local_ref_kernel_sum(kt_Cp, kt_wp, kt_Xp, kt_sigp, false, 0, true, 1200);
 peak = max(abs(ref));
 v6 = internal.gaussianKernelSum(kt_Cp, kt_wp, kt_Xp, kt_sigp, ...
-    'truncationSigmas', 6, 'isPer', true, 'period', 1200);
+    'truncationSigmas', 6, 'per', true, 'period', 1200);
 err6 = max(abs(v6 - ref));
 results{end+1, 1} = 'kernel: periodic 1-D truncates on the circle at 6 sigma';
 results{end, 2} = err6 > 1e-11 * peak && err6 < 1e-6 * peak;
 vInf = internal.gaussianKernelSum(kt_Cp, kt_wp, kt_Xp, kt_sigp, ...
-    'truncationSigmas', Inf, 'isPer', true, 'period', 1200);
+    'truncationSigmas', Inf, 'per', true, 'period', 1200);
 errInf = max(abs(vInf - ref));
 results{end+1, 1} = 'kernel: periodic 1-D at Inf is effectively exact';
 results{end, 2} = errInf < 1e-11 * peak;
@@ -163,7 +163,7 @@ results{end, 2} = ok_err;
 
 ok_err = false;
 try
-    internal.gaussianKernelSum(kt_C, kt_wJ, kt_X, kt_sigma, 'isRel', true);
+    internal.gaussianKernelSum(kt_C, kt_wJ, kt_X, kt_sigma, 'rel', true);
 catch
     ok_err = true;
 end

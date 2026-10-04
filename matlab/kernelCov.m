@@ -44,7 +44,7 @@ function Sigma = kernelCov(r, nvArgs)
 %   the all-ones vector, which P removes). The ridge tolerates a common
 %   shift of every value: a transposition of pitches, a displacement of
 %   onsets. As sdShift grows the kernel's precision tends to the
-%   relative-mode projector, so isRel = true is the exact
+%   relative-mode projector, so rel = true is the exact
 %   (infinite-sdShift) limit and the ridge its graded counterpart.
 %
 %   Differenced values (r consecutive differences of r + 1 values). Value
@@ -84,9 +84,9 @@ function Sigma = kernelCov(r, nvArgs)
 %     Sigma        — r x r symmetric positive-definite covariance, ready
 %                    to be passed as the sigma argument of buildMaet,
 %                    evalMaet, simMaet, entropyMaet, sweptSimilarity,
-%                    or sweptEntropy for an ordered (isExch = false),
-%                    absolute (isRel = false), non-periodic
-%                    (isPer = false) attribute with r == K.
+%                    or sweptEntropy for an ordered (exch = false),
+%                    absolute (rel = false), non-periodic
+%                    (per = false) attribute with r == K.
 %
 %   Errors if r < 2, any width is negative or non-finite, or the result is
 %   not positive-definite. On undifferenced values that needs sdValue > 0,
@@ -139,7 +139,7 @@ function Sigma = kernelCov(r, nvArgs)
             error('mpt:kernelCov:badSd', ...
                 ['kernelCov: %s must be a finite non-negative ' ...
                  'standard deviation; got %g. For exact common-shift ' ...
-                 'invariance use isRel = true rather than an infinite ' ...
+                 'invariance use rel = true rather than an infinite ' ...
                  'sdShift.'], names{i}, sds{i});
         end
     end

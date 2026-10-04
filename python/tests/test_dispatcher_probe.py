@@ -15,7 +15,7 @@ from mpt import add_spectra, build_maet, eval_maet
 # -----------------------------------------------------------------------
 
 
-def _make_dens(K=12, r=3, is_rel=True, is_per=False, sigma=12.0):
+def _make_dens(K=12, r=3, rel=True, per=False, sigma=12.0):
     """Build a small single-multiset density."""
     if K <= 3:
         p = np.linspace(0, 1200, K, endpoint=False)
@@ -27,12 +27,12 @@ def _make_dens(K=12, r=3, is_rel=True, is_per=False, sigma=12.0):
         )
         p, w = tp, tw
         return build_maet(
-            p, w, sigma, r, is_rel, is_per,
-            1200.0 if is_per else 0.0,
+            p, w, sigma, r, rel, per,
+            1200.0 if per else 0.0,
         )
     return build_maet(
-        p, np.ones(K), sigma, r, is_rel, is_per,
-        1200.0 if is_per else 0.0,
+        p, np.ones(K), sigma, r, rel, per,
+        1200.0 if per else 0.0,
     )
 
 
@@ -58,7 +58,7 @@ class TestVerboseDispatchMessage:
     def test_message_appears_when_tiny(self, capsys):
         """Tiny workload: the dispatch message still fires (path only,
         no time estimate)."""
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         x = np.random.uniform(0, 1200, (2, 50))
         mpt.reset_defaults()
         eval_maet(dens, x, verbose=True)
@@ -76,7 +76,7 @@ class TestVerboseDispatchMessage:
         path ran, not why. Across top-level calls, each call re-announces
         (see :meth:`test_message_re_announces_across_top_level_calls`).
         """
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         # Many internal eval_maet decisions inside one top-level
         # call via a 2-D query in a single invocation. (Repeated
         # top-level calls would each re-announce; here we exercise
@@ -92,7 +92,7 @@ class TestVerboseDispatchMessage:
         """Each top-level user call resets the dispatch seen-set, so
         repeated identical top-level calls each emit a fresh message.
         """
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         x = np.random.uniform(0, 1200, (2, 50))
         mpt.reset_defaults()
         eval_maet(dens, x, verbose=True)
@@ -102,7 +102,7 @@ class TestVerboseDispatchMessage:
 
     def test_message_reappears_after_reset(self, capsys):
         """mpt.reset_defaults() clears the throttle."""
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         x = np.random.uniform(0, 1200, (2, 50))
         mpt.reset_defaults()
         eval_maet(dens, x, verbose=True)
@@ -117,7 +117,7 @@ class TestVerboseDispatchMessage:
         gated by mpt.get_default('show_hints'), not by verbose. This
         ensures users see the routing decision even when called from
         internal code paths that defensively pass verbose=False."""
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         x = np.random.uniform(0, 1200, (2, 500))
         mpt.reset_defaults()
         eval_maet(dens, x, truncation_sigmas=6.0, verbose=False)
@@ -126,7 +126,7 @@ class TestVerboseDispatchMessage:
 
     def test_silenced_by_show_hints_false(self, capsys):
         """Dispatch messages are silenced by show_hints=False."""
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         x = np.random.uniform(0, 1200, (2, 500))
         mpt.reset_defaults()
         mpt.set_default(show_hints=False)
@@ -144,7 +144,7 @@ class TestVerboseDispatchMessage:
 class TestDispatcherDoesNotMutateAnswer:
 
     def test_auto_matches_centres_for_rel(self):
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         rng = np.random.default_rng(0)
         x = rng.uniform(0, 1200, (2, 300))
         mpt.reset_defaults()
@@ -153,7 +153,7 @@ class TestDispatcherDoesNotMutateAnswer:
         np.testing.assert_allclose(v_auto, v_centres, rtol=0, atol=0)
 
     def test_auto_with_truncation_matches_centres(self):
-        dens = _make_dens(K=12, r=3, is_rel=True)
+        dens = _make_dens(K=12, r=3, rel=True)
         rng = np.random.default_rng(1)
         x = rng.uniform(0, 1200, (2, 300))
         mpt.reset_defaults()

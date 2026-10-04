@@ -83,8 +83,8 @@ print('Loading BWV 347 and extracting cadence tonics...')
 # periodicity are the sweep's, which build_maet overrides per call.
 pm = mpt.pre_maet_from_attr_table(
     mpt.grid_attr_table(bwv347_notes(), GRID_STEP_QN),
-    attributes=(dict(column='pitch', sigma=SIGMA_PITCH, r=1, exch=True,
-                     is_per=True, period=PERIOD),
+    specs=(dict(column='pitch', sigma=SIGMA_PITCH, r=1, exch=True,
+                     per=True, period=PERIOD),
                 dict(column='onset', sigma=1.0)),
     time='beats', weights='ones')
 p_attr, _, specs = mpt.unpack_pre_maet(pm)
@@ -109,12 +109,12 @@ if plt is None:
     raise SystemExit(0)
 
 fig, axes = plt.subplots(2, 6, figsize=(12.9, 5.4))
-for row, (is_rel, row_lab) in enumerate(mode_rows):
-    for half, is_per in enumerate(halves):
+for row, (rel, row_lab) in enumerate(mode_rows):
+    for half, per in enumerate(halves):
         for ri, r in enumerate(R_VALUES):
             col = half * 3 + ri
             ax = axes[row, col]
-            if is_rel and r == 1:               # degenerate: omit
+            if rel and r == 1:               # degenerate: omit
                 ax.axis('off')
                 continue
             # All pairwise tonic similarities: each tonic is a
@@ -126,8 +126,8 @@ for row, (is_rel, row_lab) in enumerate(mode_rows):
                 dens = [build_maet(
                     mpt.select_pre_maet(pm, attributes=['pitch'],
                                         events=[tonic_events[c]]),
-                    sigma=[SIGMA_PITCH], r=[r], rel=[is_rel],
-                    is_per=[is_per], period=[PERIOD], verbose=False)
+                    sigma=[SIGMA_PITCH], r=[r], rel=[rel],
+                    per=[per], period=[PERIOD], verbose=False)
                     for c in sorted(tonic_events)]
             M = sim_maet(dens, dens, mode='cartesian', verbose=False)
             ax.imshow(M, cmap='viridis', vmin=0, vmax=1, aspect='equal')
@@ -143,7 +143,7 @@ for row, (is_rel, row_lab) in enumerate(mode_rows):
             x_edge = (row == 1) or (col in (0, 3))
             ax.set_xticklabels(CADENCE_NAMES if x_edge else [], fontsize=12)
             # y labels on each row's leftmost visible cell
-            left_col = 1 if is_rel else 0
+            left_col = 1 if rel else 0
             ax.set_yticklabels(CADENCE_NAMES if col == left_col else [],
                                fontsize=12)
             if row == 0:

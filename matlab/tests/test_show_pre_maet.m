@@ -25,7 +25,7 @@ pFrag = {[69 69 69 71 67 66 64], [1 2 3 4 5 6 7]};
 metre = [1 0.5 0.75 0.5 1 0.5 0.75];
 wFrag = {metre, metre};
 KW = {'names', {'pitch', 'time'}, 'sigma', [0.5 0.25], ...
-      'isPer', [true false], 'period', [12 0], 'verbose', false};
+      'per', [true false], 'period', [12 0], 'verbose', false};
 
 % ---- Markdown ----
 
@@ -97,7 +97,7 @@ results{end,2}   = isempty(strfind(o, '{69}')); %#ok<STREMP>
 Pn = [36 43; 55 55; 60 59; 64 62];
 [pb, wb, sb] = unpackPreMaet(bindEvents({Pn}, [], 2));
 o = showPreMaet(pb, wb, sb, 'names', {'pitch'}, 'sigma', 0.15, ...
-                'isPer', true, 'period', 12, 'verbose', false);
+                'per', true, 'period', 12, 'verbose', false);
 results{end+1,1} = 'showPreMaet: nested brackets outermost first'; %#ok<SAGROW>
 results{end,2}   = ~isempty(strfind(o, ...
     '({36, 55, 60, 64}, {43, 55, 59, 62})')); %#ok<STREMP>
@@ -175,7 +175,7 @@ results{end,2}   = strcmp(oDens, showPreMaet(pFrag, wFrag, [], KW{:}));
 % ---- LaTeX ----
 
 o = showPreMaet({P}, [], {struct('r',2,'rel',false,'exch',true)}, ...
-                'names', {'pitch'}, 'sigma', 0.15, 'isPer', true, ...
+                'names', {'pitch'}, 'sigma', 0.15, 'per', true, ...
                 'period', 12, 'format', 'latex', 'caption', 'A caption.', ...
                 'label', 'tab:x', 'verbose', false);
 expectedTex = [ ...

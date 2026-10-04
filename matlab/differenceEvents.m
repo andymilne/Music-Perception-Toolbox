@@ -46,7 +46,7 @@ function pm = differenceEvents(varargin)
 %   kernel width: sigma on an attribute of order k_a is scaled by
 %   sqrt(nchoosek(2*k_a, k_a)) (sqrt(2) for a first difference), the width
 %   of a difference of independent values, and the scaling is announced
-%   while showHints is on (User Guide 7.4.3). The level structure (tags, r, exch, rel) passes
+%   while showHints is on (User Guide §6.3). The level structure (tags, r, exch, rel) passes
 %   through unchanged. Output values are raw; periodic wrapping is the
 %   kernel's job in buildMaet.
 %

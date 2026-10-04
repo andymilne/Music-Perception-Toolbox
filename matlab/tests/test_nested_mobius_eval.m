@@ -82,7 +82,7 @@ p = sort(nme_P * rand(6, 3), 1);
 p(6, 1) = NaN;
 p(5:6, 3) = NaN;
 spec = struct('tags', nme_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 0]);
-d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'isPer', false, ...
+d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'per', false, ...
                  'period', 0, 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: ragged events with NaN padding';
 results{end, 2} = nmeRoutesAgree(d, nmeQueries(d, 4), 1e-10);
@@ -96,7 +96,7 @@ specs = { struct('tags', nme_T2, 'r', [1 2], 'exch', [true true], 'rel', [0 1]),
           struct('r', 2, 'exch', true, 'rel', false), ...
           struct('r', 1, 'exch', true, 'rel', false) };
 d = buildMaet({p0, p1, p2}, {[], [], []}, 'specs', specs, ...
-                 'sigma', [0.5 0.8 1.0], 'isPer', [true false false], ...
+                 'sigma', [0.5 0.8 1.0], 'per', [true false false], ...
                  'period', [nme_P 0 0], 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: nested tensored with flat attributes';
 results{end, 2} = nmeRoutesAgree(d, nmeQueries(d, 5), 1e-7);
@@ -151,7 +151,7 @@ results{end, 2} = dm.nJ == internal.nestedTupleCount(nme_T3, [2 3], [true true])
 rng(7, 'twister');
 p = sort(nme_P * rand(4, 2), 1);
 d = buildMaet({p}, {[]}, 'specs', {struct('r', 2, 'exch', false, 'rel', false)}, ...
-                 'sigma', 0.5, 'isPer', false, 'period', 0, 'verbose', false);
+                 'sigma', 0.5, 'per', false, 'period', 0, 'verbose', false);
 results{end+1, 1} = 'nested mobius eval: ordered flat attribute still refuses mobius';
 results{end, 2} = throwsErrorWithId(@() evalMaet(d, zeros(d.dim, 2), 'method', 'mobius', 'verbose', false), ...
                                     'mpt:evalMaet:orderedMobius');
@@ -185,7 +185,7 @@ rng(8, 'twister');
 tags = repelem(0:3, 3);
 p = sort(nme_P * rand(12, 4), 1);
 spec = struct('tags', tags, 'r', [3 3], 'exch', [true true], 'rel', [0 0]);
-d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'isPer', false, ...
+d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', 0.7, 'per', false, ...
                  'period', 0, 'verbose', false);
 X = nme_P * rand(d.dim, 50);
 [nme_c, nme_m] = internal.nestedEvalCostsMs(d, size(X, 2));
@@ -219,7 +219,7 @@ function d = nmeDensity(tags, r, exch, rel, per, K, seed, sigma, wrap, P)
     rng(seed, 'twister');
     p = sort(P * rand(K, 2), 1);
     spec = struct('tags', tags, 'r', r, 'exch', exch, 'rel', rel);
-    d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', sigma, 'isPer', per, ...
+    d = buildMaet({p}, {[]}, 'specs', {spec}, 'sigma', sigma, 'per', per, ...
                      'period', P, 'wrap', {wrap}, 'verbose', false);
 end
 
@@ -227,7 +227,7 @@ end
 function X = nmeQueries(d, seed)
     rng(seed + 100, 'twister');
     % Three queries far from the data and three on actual tuple centres
-    % (all attributes stacked, in slot order), so the density carries
+    % (all attributes stacked, in position order), so the density carries
     % mass at the near queries. A query assembled from independently
     % drawn coordinates lands at ~1e-14 of the peak, where both routes
     % are at their noise floor and the relative comparison is meaningless.

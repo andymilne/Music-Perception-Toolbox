@@ -146,7 +146,7 @@ warmPer = buildMaet(periodP * rand(8, 1), 0.2 + 0.8 * rand(8, 1), ...
     sigmaRef, 3, true, true, periodP, 'verbose', false);
 evalMaet(warmPer, periodP * rand(2, 50), 'method', 'mobius',  'verbose', false);
 
-% ---- Grid: (isRel, isPer) x r x K x nQ, single attribute. ----
+% ---- Grid: (rel, per) x r x K x nQ, single attribute. ----
 relPer = {[false false], [true false], [false true], [true true]};
 rVals  = [2 3 4];
 KVals  = [6 12 24 48];

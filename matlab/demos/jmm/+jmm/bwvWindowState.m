@@ -5,7 +5,7 @@ function S = bwvWindowState()
 %
 %   Beat aggregates, nested context and query builders, and pitch-derived
 %   flags for Analysis 1.3 (cadence localization in BWV 347) live in the
-%   jmm package: jmm.boundContext, jmm.query, jmm.asCompared,
+%   jmm package: jmm.boundContext, jmm.query,
 %   jmm.dyadQuery, jmm.sonAt, jmm.isRootPosition,
 %   jmm.isSixFour, and jmm.b2bar. This function computes, once, the
 %   module-level state they share and returns it as a struct.
@@ -34,14 +34,20 @@ function S = bwvWindowState()
 %     level alone ([rel] = (0, 1)) and periodic (P = 12, sigma = 0.15). The
 %     optional inversion flag is a second, simplex-coded attribute
 %     (+/-0.5, sigmaFlag = 0.1) carried by query and context alike.
+%   * Each bound window also carries one time, that of its last beat (its
+%     resolution), as an absolute, non-periodic attribute with
+%     sigmaTime = 0.1 beat: narrow enough that a window a beat away is out
+%     of reach when the query is translated along it.
 %
 %   Every step is a toolbox call: readScore, gridAttrTable twice (the
 %   second regridding the first), and preMaetFromAttrTable here;
-%   flatSpecs, bindEvents, and selectPreMaet in the helpers built on this
-%   state; the demo then compares with sweptSimilarity.
+%   flatSpecs and bindEvents in the helpers built on this state; the demo
+%   then translates each query along the time attribute with
+%   sweptSimilarity.
 %
 %   Fields
 %     .sigmaPitch (0.15 semitones), .period (12), .sigmaFlag (0.1),
+%     .sigmaTime (0.1 beats),
 %     .rootYes (+0.5: predicate holds), .rootNo (-0.5: predicate fails)
 %                    - the article's kernel parameters.
 %     .eighth (0.5)  - the eighth-note event grain, QN.
@@ -78,6 +84,7 @@ function S = localBuild()
     S.sigmaPitch = 0.15;      % semitones
     S.period     = 12.0;      % octave (MIDI semitones)
     S.sigmaFlag  = 0.1;       % simplex-coded two-level flag
+    S.sigmaTime  = 0.1;       % beats; windows a beat apart do not overlap
     S.rootYes    = +0.5;      % flag level: predicate holds
     S.rootNo     = -0.5;      % flag level: predicate fails
 
@@ -108,10 +115,10 @@ function S = localBuild()
                      .* metric / (S.beatWeightNorm / 2);
     beatTable = gridAttrTable(eighths, 1.0);
 
-    S.beatsPm = preMaetFromAttrTable(beatTable, 'attributes', { ...
+    S.beatsPm = preMaetFromAttrTable(beatTable, 'specs', { ...
         struct('column', 'pitch', 'sigma', S.sigmaPitch, 'r', 1, ...
-               'exch', true, 'isPer', true, 'period', S.period), ...
-        struct('column', 'onset', 'sigma', 1.0)}, ...
+               'exch', true, 'per', true, 'period', S.period), ...
+        struct('column', 'onset', 'sigma', S.sigmaTime)}, ...
         'time', 'beats', 'weights', 'weight');
 
     % --- the pitch-derived inversion predicates, one value per beat ---------

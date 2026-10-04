@@ -31,8 +31,8 @@ function pm = boundContext(L, rInner, flag)
         pAttr{end + 1} = values;
         wAttr{end + 1} = ones(size(values));
         fs = flatSpecs({values}, 'r', 1, 'rel', false, 'exch', false, ...
-                       'name', 'flag', 'sigma', S.sigmaFlag, ...
-                       'isPer', false, 'period', 0.0);
+                       'names', 'flag', 'sigma', S.sigmaFlag, ...
+                       'per', false, 'period', 0.0);
         specs{end + 1} = fs{1};
         orders(end + 1) = 1;
     end

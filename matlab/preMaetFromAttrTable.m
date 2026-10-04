@@ -9,11 +9,11 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %   pre-MAET preprocessors consume.
 %
 %   Name-value pairs
-%       'attributes'     - required: a cell of one entry per attribute, in
+%       'specs'          - required: a cell of one entry per attribute, in
 %                          order. An entry is a struct carrying its column
 %                          in a 'column' field together with the
 %                          attribute's own parameters: 'name', 'sigma',
-%                          'r', 'exch', 'rel', 'isPer', 'period'. The ten
+%                          'r', 'exch', 'rel', 'per', 'period'. The ten
 %                          names 'pitch', 'onset', 'duration',
 %                          'soundingDuration', 'velocity', 'weight',
 %                          'noteNumber', 'part', 'measure', and 'fermata'
@@ -28,9 +28,9 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %                          different parameters, which is how pitch class
 %                          and pitch height are taken from one pitch column.
 %
-%                            preMaetFromAttrTable(T, 'attributes', { ...
+%                            preMaetFromAttrTable(T, 'specs', { ...
 %                              struct('column','pitch','name','pitchClass', ...
-%                                     'sigma',0.5,'isPer',true,'period',12), ...
+%                                     'sigma',0.5,'per',true,'period',12), ...
 %                              struct('column','pitch','name','pitchHeight', ...
 %                                     'sigma',8), ...
 %                              struct('column','onset','sigma',0.5)}, ...
@@ -77,7 +77,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %                          supplied too: under 'orderedMultiset' the
 %                          supplied value is taken and a warning names what
 %                          the role implies, the role having only arranged
-%                          existing values into slots; under 'simplex' it
+%                          existing values into positions; under 'simplex' it
 %                          is refused, the role having replaced the level
 %                          with coordinates that denote a vertex only read
 %                          whole and in order.
@@ -86,7 +86,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %                          realized as which attribute you are in, or as
 %                          which position, so the binding of value to
 %                          level is carried by the layout. They gather an
-%                          event's rows into one event holding one slot
+%                          event's rows into one event holding one position
 %                          per level, which needs 'chords', 'bind' and an
 %                          event that holds exactly one row per level;
 %                          events that do not are dropped, with a warning
@@ -108,7 +108,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %                          its own event, so it needs 'chords',
 %                          'separate' -- unless a structural category is
 %                          also given, in which case the simplex is tagged
-%                          within each of its slots.
+%                          within each of its positions.
 %
 %                          A caution about the no-role reading. With
 %                          'chords', 'bind' and no role, an event holds the
@@ -134,12 +134,11 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %                          sharing a value, so a bar number that comes
 %                          round again after a repeat gives two events
 %                          rather than one.
-%       'names'          - name the specs after the attributes (default true).
 %
 %   Output
 %       pm - Pre-MAET: pAttr is a 1 x A cell of K_a x N value matrices;
 %            wAttr a 1 x A cell of K_a x N weight matrices (NaN-padded
-%            slots carry weight 0), or [] under 'ones'; specs a 1 x A cell
+%            positions carry weight 0), or [] under 'ones'; specs a 1 x A cell
 %            of flat specs, named after the attributes.
 %
 %            The pre-MAET is complete: every attribute carries the
@@ -147,7 +146,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 %            without anything being set on the specs afterwards. The
 %            conversion fills in only what follows from the data or from
 %            another argument -- the values, r and exch under a structural
-%            role, and reading a value as written for rel and isPer -- and
+%            role, and reading a value as written for rel and per -- and
 %            asks for the rest: sigma always, and r and exch where an
 %            attribute holds more than one value at an event and no role
 %            has fixed them.
@@ -157,7 +156,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
 
     arguments
         T table
-        nvArgs.attributes = {}
+        nvArgs.specs = {}
         nvArgs.pitch (1,:) char = 'midi'
         nvArgs.time (1,:) char = 'seconds'
         nvArgs.weights (1,:) char = 'velocity'
@@ -166,17 +165,16 @@ function pm = preMaetFromAttrTable(T, nvArgs)
         nvArgs.chordTolerance (1,1) double = 0
         nvArgs.roles = struct()
         nvArgs.groupBy = ''
-        nvArgs.names (1,1) logical = true
     end
 
     notes = T;
-    if isempty(nvArgs.attributes)
-        error('preMaetFromAttrTable:noAttributes', ...
-              ['''attributes'' is required: a pre-MAET is its attributes, ' ...
+    if isempty(nvArgs.specs)
+        error('preMaetFromAttrTable:noSpecs', ...
+              ['''specs'' is required: a pre-MAET is its attributes, ' ...
                'and each carries parameters a score cannot supply. Write ' ...
                '{struct(''column'', ''pitch'', ''sigma'', 0.5), ...}.']);
     end
-    [attributes, suppliedSpecs] = localEntries(nvArgs.attributes, 'attributes');
+    [attributes, suppliedSpecs] = localEntries(nvArgs.specs, 'specs');
     known = {'pitch', 'onset', 'duration', 'soundingDuration', 'velocity', ...
              'weight', 'noteNumber', 'part', 'measure', 'fermata'};
     % The ten known names get the score-specific treatment -- the pitch
@@ -264,7 +262,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
                    'of them give an attribute set that can never be fully ' ...
                    'populated. Either keep ''%s'' structural and give ' ...
                    '''%s'' the ''simplex'' role, which tags it within each ' ...
-                   'slot, or give ''%s'' the ''simplex'' role too, which ' ...
+                   'position, or give ''%s'' the ''simplex'' role too, which ' ...
                    'yields one event per note and additive partial credit ' ...
                    'across levels.'], column, structuralColumn, ...
                   structuralColumn, column, structuralColumn);
@@ -342,7 +340,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
     end
     % On a gridded table the event is the grid point, so its onset is the
     % grid's, not the onset of whichever note happens to be in the first
-    % slot. The note's own onset stays in the table for selection.
+    % position. The note's own onset stays in the table for selection.
     onsetName = ['onset', unit];
     if any(strcmp(vars, ['gridOnset', unit]))
         onsetName = ['gridOnset', unit];
@@ -436,18 +434,18 @@ function pm = preMaetFromAttrTable(T, nvArgs)
         end
     end
 
-    % A structural category puts one of its levels in each slot of every
+    % A structural category puts one of its levels in each position of every
     % event, so an event must hold exactly one row per level. One that
     % does not is dropped, with a count: an analyst may well accept
     % losing a few events to use the encoding.
-    slots = [];
+    positions = [];
     levels = {};
     if ~isempty(structuralColumn)
         levels = categories(notes.(structuralColumn)).';
         codes = double(notes.(structuralColumn));
         codes = codes(keep);
         nLevels = numel(levels);
-        slots = zeros(numel(groups), nLevels);
+        positions = zeros(numel(groups), nLevels);
         keptGroups = cell(1, numel(groups));
         nKept = 0;
         lost = 0;
@@ -468,10 +466,10 @@ function pm = preMaetFromAttrTable(T, nvArgs)
                 continue;
             end
             nKept = nKept + 1;
-            slots(nKept, :) = row;
+            positions(nKept, :) = row;
             keptGroups{nKept} = g;
         end
-        slots = slots(1:nKept, :);
+        positions = positions(1:nKept, :);
         groups = keptGroups(1:nKept);
         if lost > 0
             if strcmp(keyColumn, 'gridIndex')
@@ -482,7 +480,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
             warning('preMaetFromAttrTable:incompleteEvents', ...
                     ['%d of %d events do not hold exactly one %s per level, ' ...
                      'so they are dropped%s. A structural category fills ' ...
-                     'every slot of every event.'], ...
+                     'every position of every event.'], ...
                     lost, lost + nKept, structuralColumn, gridded);
         end
     end
@@ -543,7 +541,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
         elseif isEventLevel
             M = nan(1, N);
             for n = 1:N
-                M(1, n) = vals(slots(n, 1));
+                M(1, n) = vals(positions(n, 1));
             end
             [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
                 pAttr, wList, specR, specExch, specNames, M, ones(1, N), ...
@@ -554,8 +552,8 @@ function pm = preMaetFromAttrTable(T, nvArgs)
                 M = nan(1, N);
                 W = ones(1, N);
                 for n = 1:N
-                    M(1, n) = vals(slots(n, v));
-                    if ~isempty(wNote); W(1, n) = wNote(slots(n, v)); end
+                    M(1, n) = vals(positions(n, v));
+                    if ~isempty(wNote); W(1, n) = wNote(positions(n, v)); end
                 end
                 [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
                     pAttr, wList, specR, specExch, specNames, M, W, 1, true, ...
@@ -568,8 +566,8 @@ function pm = preMaetFromAttrTable(T, nvArgs)
             W = ones(V, N);
             for n = 1:N
                 for v = 1:V
-                    M(v, n) = vals(slots(n, v));
-                    if ~isempty(wNote); W(v, n) = wNote(slots(n, v)); end
+                    M(v, n) = vals(positions(n, v));
+                    if ~isempty(wNote); W(v, n) = wNote(positions(n, v)); end
                 end
             end
             [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
@@ -605,7 +603,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
             for v = 1:numel(levels)
                 M = nan(d, N);
                 for n = 1:N
-                    c = codesS(slots(n, v));
+                    c = codesS(positions(n, v));
                     if ~isnan(c); M(:, n) = vertices(c, :).'; end
                 end
                 [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
@@ -622,12 +620,7 @@ function pm = preMaetFromAttrTable(T, nvArgs)
     else
         w = wList;
     end
-    if nvArgs.names
-        specs = flatSpecs(pAttr, 'r', specR, 'exch', specExch, ...
-                          'name', specNames);
-    else
-        specs = flatSpecs(pAttr, 'r', specR, 'exch', specExch);
-    end
+    specs = flatSpecs(pAttr, 'r', specR, 'exch', specExch, 'names', specNames);
     for a = 1:numel(specs)
         specs{a} = localMergeSpec(specs{a}, specSupplied{a}, ...
                                   specFixed{a}, size(pAttr{a}, 1));
@@ -650,21 +643,21 @@ end
 
 
 function [subjects, supplied] = localEntries(entries, what)
-    % Split each 'attributes' or 'roles' entry into its subject and the
+    % Split each 'specs' or 'roles' entry into its subject and the
     % per-attribute parameters it carries. A plain name is the subject
     % with no parameters, which is the form that predates the
     % spec-carrying one.
-    fields = {'name', 'sigma', 'r', 'exch', 'rel', 'isPer', 'period'};
+    fields = {'name', 'sigma', 'r', 'exch', 'rel', 'per', 'period'};
     if ~iscell(entries); entries = cellstr(entries); end
     subjects = cell(1, numel(entries));
     supplied = cell(1, numel(entries));
-    if strcmp(what, 'attributes'); key = 'column'; else; key = 'role'; end
+    if strcmp(what, 'specs'); key = 'column'; else; key = 'role'; end
     for i = 1:numel(entries)
         e = entries{i};
         if ischar(e) || isstring(e)
-            if strcmp(what, 'attributes')
+            if strcmp(what, 'specs')
                 error('preMaetFromAttrTable:badEntry', ...
-                      ['attributes.%s: an attribute is given as a struct ' ...
+                      ['specs.%s: an attribute is given as a struct ' ...
                        'of its column and its parameters, not as a bare ' ...
                        'name, since a name carries no sigma. Write ' ...
                        'struct(''column'', ''%s'', ''sigma'', ...).'], ...
@@ -693,9 +686,9 @@ function [subjects, supplied] = localEntries(entries, what)
                   what, subjects{i}, strjoin(unknown, ', '), ...
                   strjoin(fields, ', '));
         end
-        if isfield(e, 'isPer') && e.isPer && ~isfield(e, 'period')
+        if isfield(e, 'per') && e.per && ~isfield(e, 'period')
             error('preMaetFromAttrTable:badEntry', ...
-                  '%s.%s: isPer is set, so it needs a period.', ...
+                  '%s.%s: per is set, so it needs a period.', ...
                   what, subjects{i});
         end
         supplied{i} = e;
@@ -709,7 +702,7 @@ function spec = localMergeSpec(spec, supplied, fixed, K)
     %
     % A role fixes r and exch for the attributes it governs. Under
     % 'orderedMultiset' the role only arranges existing values into
-    % slots, so how many are drawn from them and whether their order
+    % positions, so how many are drawn from them and whether their order
     % counts remain the analyst's questions and a supplied value wins,
     % with a warning. Under 'simplex' the role replaces the level with
     % the coordinates of a simplex vertex, which denote a vertex only
@@ -743,9 +736,9 @@ function spec = localMergeSpec(spec, supplied, fixed, K)
       case 'orderedMultiset'
         if hasR && double(supplied.r) ~= roleR
             warning('preMaetFromAttrTable:tupleSizeOverride', ...
-                    ['%s: the ''orderedMultiset'' role fills %d slots, so ' ...
+                    ['%s: the ''orderedMultiset'' role fills %d positions, so ' ...
                      'it implies r = %d; taking the supplied r = %d, which ' ...
-                     'reads tuples of %d of those slots.'], ...
+                     'reads tuples of %d of those positions.'], ...
                     spec.name, roleR, roleR, double(supplied.r), ...
                     double(supplied.r));
             spec.r = double(supplied.r);
@@ -753,8 +746,8 @@ function spec = localMergeSpec(spec, supplied, fixed, K)
         if hasExch && logical(supplied.exch) ~= roleExch
             warning('preMaetFromAttrTable:orderOverride', ...
                     ['%s: the ''orderedMultiset'' role binds each value to ' ...
-                     'its slot, so it implies exch = false; taking the ' ...
-                     'supplied exch = true, which reads the slots as an ' ...
+                     'its position, so it implies exch = false; taking the ' ...
+                     'supplied exch = true, which reads the positions as an ' ...
                      'unordered multiset and leaves nothing downstream ' ...
                      'reading the binding.'], spec.name);
             spec.exch = logical(supplied.exch);
@@ -765,14 +758,14 @@ function spec = localMergeSpec(spec, supplied, fixed, K)
     end
 
     % A score reads its values as they are written -- absolute, on an
-    % unbounded axis -- so rel and isPer are false unless the analyst
+    % unbounded axis -- so rel and per are false unless the analyst
     % says otherwise; octave equivalence is an equivalence imposed, not
     % one the score states.
     if isfield(supplied, 'rel'); spec.rel = logical(supplied.rel); end
-    if isfield(supplied, 'isPer')
-        spec.isPer = logical(supplied.isPer);
+    if isfield(supplied, 'per')
+        spec.per = logical(supplied.per);
     else
-        spec.isPer = false;
+        spec.per = false;
     end
     if isfield(supplied, 'period')
         spec.period = double(supplied.period);
@@ -811,7 +804,7 @@ end
 
 function [pAttr, wList, specR, specExch, specNames] = localAddAttr( ...
         pAttr, wList, specR, specExch, specNames, M, W, r, exch, name)
-    % A slot with no value carries no weight, whether it is padding or an
+    % A position with no value carries no weight, whether it is padding or an
     % empty grid point whose weight column is itself missing.
     W(isnan(M)) = 0;
     pAttr{end + 1} = M;

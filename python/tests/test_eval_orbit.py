@@ -78,7 +78,7 @@ def test_mobius_signs_alternate_with_block_count():
 # -------------------------------------------------------------------
 
 
-def _direct_enum_abs(p, w, sigma, r, x, is_per, period):
+def _direct_enum_abs(p, w, sigma, r, x, per, period):
     """Slowest correct path — sum over distinct r-tuples."""
     n_q = x.shape[1]
     total = np.zeros(n_q)
@@ -86,7 +86,7 @@ def _direct_enum_abs(p, w, sigma, r, x, is_per, period):
         val = np.ones(n_q)
         for k, ik in enumerate(tup):
             d = x[k, :] - p[ik]
-            if is_per:
+            if per:
                 d = d - period * np.floor(d / period + 0.5)
             val *= w[ik] * np.exp(-d ** 2 / (2 * sigma ** 2))
         total += val
@@ -94,21 +94,21 @@ def _direct_enum_abs(p, w, sigma, r, x, is_per, period):
 
 
 @pytest.mark.parametrize(
-    "r, K, is_per",
+    "r, K, per",
     [
         (2, 5, False), (2, 5, True),
         (3, 6, False), (3, 6, True),
         (4, 7, False), (4, 7, True),
     ],
 )
-def test_eval_orbit_abs_matches_centres_on_clean_cells(r, K, is_per):
+def test_eval_orbit_abs_matches_centres_on_clean_cells(r, K, per):
     """Orbit and centres agree on cells with healthy cancellation
     ratio. The "ground truth" here is direct distinct-tuple
     enumeration (which both paths approximate)."""
     rng = np.random.default_rng(0)
     P = 1200.0
     sigma = 50.0
-    if is_per:
+    if per:
         p = rng.uniform(0, P, K)
         x = rng.uniform(0, P, (r, 30))
         period = P
@@ -118,17 +118,17 @@ def test_eval_orbit_abs_matches_centres_on_clean_cells(r, K, is_per):
         period = 0.0
     w = rng.uniform(0.5, 1.5, K)
 
-    T = build_maet(p, w, sigma, r, False, is_per, period, verbose=False)
+    T = build_maet(p, w, sigma, r, False, per, period, verbose=False)
     # eval_maet now has a method dispatcher (v3 wiring). Force
     # centres explicitly so the variable name matches what the call
     # returns.
     v_centres = eval_maet(T, x, method='centres', verbose=False)
     v_orbit, ratios = eval_orbit_abs(
         p, w, sigma, r, x,
-        is_per=is_per, period=period,
+        per=per, period=period,
         return_cancellation_ratio=True,
     )
-    v_direct = _direct_enum_abs(p, w, sigma, r, x, is_per, period)
+    v_direct = _direct_enum_abs(p, w, sigma, r, x, per, period)
 
     # Both centres and orbit should agree with direct on clean cells.
     clean = ratios > 1e-10
@@ -178,7 +178,7 @@ def test_eval_orbit_abs_r1_matches_direct():
     p = rng.uniform(0, 1200, 8)
     w = rng.uniform(0.5, 1.5, 8)
     x = rng.uniform(0, 1200, (1, 50))
-    v_orbit = eval_orbit_abs(p, w, sigma, 1, x, is_per=False)
+    v_orbit = eval_orbit_abs(p, w, sigma, 1, x, per=False)
     v_direct = (w[:, None] * np.exp(-(x[0, :][None, :] - p[:, None]) ** 2
                                      / (2 * sigma ** 2))).sum(axis=0)
     assert np.allclose(v_orbit, v_direct, atol=0, rtol=TOL_FP)
@@ -195,7 +195,7 @@ def test_eval_orbit_abs_cancellation_ratio_signals_corruption():
     w = rng.uniform(0.5, 1.5, K)
     x = rng.uniform(0, P, (r, 100))
     _, ratios = eval_orbit_abs(
-        p, w, sigma, r, x, is_per=True, period=P,
+        p, w, sigma, r, x, per=True, period=P,
         return_cancellation_ratio=True,
     )
     # Across 100 random queries, expect at least a few to dip below
@@ -217,21 +217,21 @@ def test_eval_orbit_abs_cancellation_ratio_signals_corruption():
 
 
 @pytest.mark.parametrize(
-    "r, K, is_per",
+    "r, K, per",
     [
         (2, 5, False), (2, 5, True),
         (3, 6, False), (3, 6, True),
         (4, 7, False), (4, 7, True),
     ],
 )
-def test_eval_orbit_rel_matches_centres(r, K, is_per):
+def test_eval_orbit_rel_matches_centres(r, K, per):
     """For rel modes the u-grid integration averages over abs evals,
     smoothing out cancellation. Expect FP-level agreement with the
     centre-array path."""
     rng = np.random.default_rng(0)
     P = 1200.0
     sigma = 50.0
-    if is_per:
+    if per:
         p = rng.uniform(0, P, K)
         x_rel = rng.uniform(0, P, (r - 1, 30))
         period = P
@@ -241,11 +241,11 @@ def test_eval_orbit_rel_matches_centres(r, K, is_per):
         period = 0.0
     w = rng.uniform(0.5, 1.5, K)
 
-    T = build_maet(p, w, sigma, r, True, is_per, period, verbose=False)
+    T = build_maet(p, w, sigma, r, True, per, period, verbose=False)
     v_centres = eval_maet(T, x_rel, method='centres', verbose=False)
     v_orbit = eval_orbit_rel(
         p, w, sigma, r, x_rel,
-        is_per=is_per, period=period,
+        per=per, period=period,
     )
     rel_err = np.abs(v_orbit - v_centres) / (np.abs(v_centres) + 1e-300)
     assert rel_err.max() < 1e-9, (
@@ -260,7 +260,7 @@ def test_eval_orbit_rel_r1_returns_constant():
     p = rng.uniform(0, 1200, 5)
     w = rng.uniform(0.5, 1.5, 5)
     x_rel = np.zeros((0, 7))  # r-1 = 0 rows
-    v = eval_orbit_rel(p, w, 50.0, 1, x_rel, is_per=False)
+    v = eval_orbit_rel(p, w, 50.0, 1, x_rel, per=False)
     assert v.shape == (7,)
     assert np.allclose(v, w.sum())
 
@@ -276,7 +276,7 @@ def test_eval_orbit_rel_returns_cancellation_ratio_shape():
     x_rel = rng.uniform(0, P, (2, 25))
     vals, ratios = eval_orbit_rel(
         p, w, 50.0, 3, x_rel,
-        is_per=True, period=P,
+        per=True, period=P,
         return_cancellation_ratio=True,
     )
     assert vals.shape == (25,)
@@ -304,7 +304,7 @@ def test_eval_orbit_abs_handles_high_r_K_where_centres_struggles():
     T = build_maet(p, w, sigma, r, False, True, P, verbose=False)
     v_centres = eval_maet(T, x, method='centres', verbose=False)
     v_orbit, ratios = eval_orbit_abs(
-        p, w, sigma, r, x, is_per=True, period=P,
+        p, w, sigma, r, x, per=True, period=P,
         return_cancellation_ratio=True,
     )
 

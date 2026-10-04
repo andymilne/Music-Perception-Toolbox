@@ -19,12 +19,12 @@ from mpt._tensor import cosine as C
 RNG = np.random.default_rng(7)
 
 
-def _r1_density(pitches, times, sigma=(0.25, 0.08), is_per=(False, False),
+def _r1_density(pitches, times, sigma=(0.25, 0.08), per=(False, False),
                 period=(0.0, 0.0)):
     return mpt.build_maet(
         [np.asarray(pitches, dtype=float).reshape(1, -1),
          np.asarray(times, dtype=float).reshape(1, -1)],
-        None, list(sigma), [1, 1], [False, False], list(is_per),
+        None, list(sigma), [1, 1], [False, False], list(per),
         list(period), verbose=False,
     )
 
@@ -97,25 +97,25 @@ def test_broadcast_matches_fresh_scalars_mobius(norm):
 #  r = 1 direct route == generic MA path, all abs mode combinations
 # ------------------------------------------------------------------
 
-@pytest.mark.parametrize("is_per,period", [
+@pytest.mark.parametrize("per,period", [
     ((False, False), (0.0, 0.0)),
     ((True, False), (12.0, 0.0)),
     ((True, True), (12.0, 4.0)),
 ])
-def test_r1_direct_matches_generic(is_per, period):
+def test_r1_direct_matches_generic(per, period):
     d1 = _r1_density(RNG.uniform(0, 24, 31), RNG.uniform(0, 8, 31),
-                     sigma=(0.4, 0.1), is_per=is_per, period=period)
+                     sigma=(0.4, 0.1), per=per, period=period)
     d2 = _r1_density(RNG.uniform(0, 24, 17), RNG.uniform(0, 8, 17),
-                     sigma=(0.4, 0.1), is_per=is_per, period=period)
+                     sigma=(0.4, 0.1), per=per, period=period)
     ts = resolve_truncation_sigmas(None)
     fast = C._ip_r1_direct(
         d1.u_perm, d1.w_j, d1.n_j, d2.v_comb, d2.wv_comb, d2.n_k,
-        2, d1.sigma, d1.is_rel, d1.is_per, d1.period,
+        2, d1.sigma, d1.rel, d1.per, d1.period,
         truncation_sigmas=ts, wrap=list(d1.wrap),
     )
     slow = C._ip_full_ma(
         d1.u_perm, d1.w_j, d1.n_j, d2.v_comb, d2.wv_comb, d2.n_k,
-        2, d1.r, d1.sigma, d1.is_rel, d1.is_per, d1.period,
+        2, d1.r, d1.sigma, d1.rel, d1.per, d1.period,
         truncation_sigmas=ts, inner_r=None, wrap=list(d1.wrap),
     )
     assert fast == pytest.approx(slow, rel=1e-14, abs=0.0)
@@ -150,7 +150,7 @@ def test_cached_self_ip_is_reused_and_keyed():
     assert key in dX._self_ip_cache and key in dY._self_ip_cache
     cached = dX._self_ip_cache[key]
     # Second call reuses the cached value (identity of the float, and
-    # the triple slot equals it exactly).
+    # the triple entry equals it exactly).
     trip = C._sim_maet_ma_pairwise(dX, dY, verbose=False)
     assert trip[1] == cached
     # A different truncation budget is a different key: no leak.
@@ -172,12 +172,12 @@ def test_pruned_is_memoised():
 
 @pytest.mark.parametrize("norm", ["cosine", "oneSidedDenom"])
 @pytest.mark.parametrize("shared_is_x", [True, False])
-@pytest.mark.parametrize("is_per,period", [
+@pytest.mark.parametrize("per,period", [
     ((False, False), (0.0, 0.0)),
     ((True, False), (12.0, 0.0)),
     ((True, True), (12.0, 4.0)),
 ])
-def test_r1_broadcast_batched_matches_loop(norm, shared_is_x, is_per,
+def test_r1_broadcast_batched_matches_loop(norm, shared_is_x, per,
                                            period):
     P = RNG.uniform(40, 90, 120)
     T = np.sort(RNG.uniform(0, 40, 120))
@@ -185,7 +185,7 @@ def test_r1_broadcast_batched_matches_loop(norm, shared_is_x, is_per,
     qT = np.array([0.0, 1.0, 3.0])
 
     def mk(pp, tt):
-        return _r1_density(pp, tt, sigma=(0.25, 0.08), is_per=is_per,
+        return _r1_density(pp, tt, sigma=(0.25, 0.08), per=per,
                            period=period)
 
     dS = mk(P, T)

@@ -130,7 +130,7 @@ def main():
     # exch are the analyst's and the conversion asks for them. It fills
     # in only what follows from the data or from another argument here:
     # r and exch under a structural role, and 'read as written' for rel
-    # and is_per.
+    # and per.
     #
     # A categorical column reaches the pre-MAET only through a role,
     # which determines how its levels are represented; a column with no
@@ -138,7 +138,7 @@ def main():
     # a role. There are three roles:
     #   'ordered_multiset'    structural: the level becomes a position
     #                         within one attribute, so the four voices
-    #                         occupy four slots and matching is voice by
+    #                         occupy four positions and matching is voice by
     #                         voice. Used here, and it sets r = 4 and
     #                         exch = False, which is why neither is given.
     #   'separate_attributes' structural: the level becomes an attribute
@@ -155,9 +155,9 @@ def main():
     # time="beats" puts the onset attribute's values in quarter notes
     # rather than in the default seconds, matching the unit the grid of
     # step 3 was built over.
-    pm = mpt.pre_maet_from_attr_table(grid, attributes=(
+    pm = mpt.pre_maet_from_attr_table(grid, specs=(
         dict(column="pitch", name="pitchClass",
-             sigma=0.5, is_per=True, period=12.0),
+             sigma=0.5, per=True, period=12.0),
         dict(column="pitch", name="pitchHeight", sigma=8.0),
         dict(column="onset", sigma=0.5)),
         time="beats", roles={"part": "ordered_multiset"})
@@ -170,7 +170,7 @@ def main():
     # other. The question below is about two chords, compared on their
     # pitches, so each chord becomes a one-event pre-MAET on the two
     # pitch attributes; onset located them and is not compared on. The
-    # four values are in S, A, T, B order, the slots the ordered_multiset
+    # four values are in S, A, T, B order, the positions the ordered_multiset
     # role gave them.
     #
     # The two chords are the final chords of the first two cadences,

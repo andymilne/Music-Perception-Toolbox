@@ -58,8 +58,8 @@ function dens = prunedMaet(dens)
                 end
                 p1 = dens.pAttr{1};
                 exchArg = {};
-                if isfield(dens, 'isExch') && ~isempty(dens.isExch)
-                    exchArg = {dens.isExch(1)};
+                if isfield(dens, 'exch') && ~isempty(dens.exch)
+                    exchArg = {dens.exch(1)};
                 end
                 wrapArg = {};
                 if isfield(dens, 'wrap') && ~isempty(dens.wrap)
@@ -67,7 +67,7 @@ function dens = prunedMaet(dens)
                 end
                 dens = buildMaet( ...
                     p1(live), w1(live), dens.sigma(1), dens.r(1), ...
-                    dens.isRel(1), dens.isPer(1), dens.period(1), ...
+                    dens.rel(1), dens.per(1), dens.period(1), ...
                     exchArg{:}, wrapArg{:}, 'lazy', true, 'verbose', false);
                 return;
             end
@@ -90,10 +90,10 @@ function dens = prunedMaet(dens)
             out.w            = cellfun(@(W) W(:, live), dens.w, ...
                                        'UniformOutput', false);
             out.sigma        = dens.sigma;
-            out.isRel        = dens.isRel;
-            out.isPer        = dens.isPer;
+            out.rel        = dens.rel;
+            out.per        = dens.per;
             out.period       = dens.period;
-            if isfield(dens, 'isExch'); out.isExch = dens.isExch; end
+            if isfield(dens, 'exch'); out.exch = dens.exch; end
             out.dim          = dens.dim;
             out.dimPerAttr   = dens.dimPerAttr;
             % Per-value nesting spec (representation B): tags are

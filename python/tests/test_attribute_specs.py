@@ -32,18 +32,18 @@ def _specs(pm):
 def test_a_bare_name_is_not_an_attribute(chorale):
     """A name carries no sigma, so it cannot describe an attribute."""
     with pytest.raises(TypeError, match="not as a bare name"):
-        pre_maet_from_attr_table(chorale, attributes=("pitch",), time="beats")
+        pre_maet_from_attr_table(chorale, specs=("pitch",), time="beats")
 
 
-def test_the_attributes_are_required(chorale):
-    with pytest.raises(TypeError, match="attributes"):
+def test_the_specs_are_required(chorale):
+    with pytest.raises(TypeError, match="specs"):
         pre_maet_from_attr_table(chorale, time="beats")
 
 
 def test_every_attribute_needs_a_width(chorale):
     with pytest.raises(ValueError, match="no sigma"):
         pre_maet_from_attr_table(
-            chorale, attributes=(dict(column="onset"),), time="beats")
+            chorale, specs=(dict(column="onset"),), time="beats")
 
 
 def test_several_values_at_an_event_need_r_and_exch(chorale):
@@ -52,26 +52,26 @@ def test_several_values_at_an_event_need_r_and_exch(chorale):
     their order signifies."""
     with pytest.raises(ValueError, match="needs r and exch"):
         pre_maet_from_attr_table(
-            chorale, attributes=(dict(column="pitch", sigma=0.5),),
+            chorale, specs=(dict(column="pitch", sigma=0.5),),
             time="beats")
     # One value per event determines both, so neither is asked for.
     specs = _specs(pre_maet_from_attr_table(
-        chorale, attributes=(dict(column="pitch", sigma=0.5),),
+        chorale, specs=(dict(column="pitch", sigma=0.5),),
         time="beats", chords="separate"))
     assert specs[0]["r"] == 1
 
 
 def test_an_entry_carries_the_attribute_s_parameters(chorale):
-    specs = _specs(pre_maet_from_attr_table(chorale, time="beats", attributes=(
+    specs = _specs(pre_maet_from_attr_table(chorale, time="beats", specs=(
         dict(column="pitch", name="pitchClass", sigma=0.5, r=4, exch=False,
-             is_per=True, period=12.0),
+             per=True, period=12.0),
         dict(column="pitch", name="pitchHeight", sigma=8.0, r=4, exch=False,
              rel=True),
         dict(column="onset", sigma=0.5))))
     assert [s["name"] for s in specs] == \
         ["pitchClass", "pitchHeight", "onset"]
     assert [s["sigma"] for s in specs] == [0.5, 8.0, 0.5]
-    assert [s["is_per"] for s in specs] == [True, False, False]
+    assert [s["per"] for s in specs] == [True, False, False]
     assert [s["period"] for s in specs] == [12.0, 0.0, 0.0]
     assert [s["rel"] for s in specs] == [False, True, False]
 
@@ -81,36 +81,36 @@ def test_the_parameters_do_not_touch_the_values(chorale):
     same values, which is what makes pitch class and pitch height
     readable from one pitch column."""
     p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
-        chorale, time="beats", chords="separate", attributes=(
+        chorale, time="beats", chords="separate", specs=(
             dict(column="pitch", name="pitchClass", sigma=0.5,
-                 is_per=True, period=12.0),
+                 per=True, period=12.0),
             dict(column="pitch", name="pitchHeight", sigma=8.0))))
     np.testing.assert_array_equal(p[0], p[1])
-    assert specs[0]["is_per"] is True and specs[1]["is_per"] is False
+    assert specs[0]["per"] is True and specs[1]["per"] is False
 
 
 def test_a_mapping_needs_its_column(chorale):
     with pytest.raises(ValueError, match="needs a 'column' key"):
-        pre_maet_from_attr_table(chorale, attributes=(dict(sigma=0.5),))
+        pre_maet_from_attr_table(chorale, specs=(dict(sigma=0.5),))
 
 
 def test_an_unknown_parameter_is_refused(chorale):
     with pytest.raises(ValueError, match="unknown parameter"):
         pre_maet_from_attr_table(chorale,
-                            attributes=(dict(column="pitch", width=0.5),))
+                            specs=(dict(column="pitch", width=0.5),))
 
 
 def test_periodicity_needs_a_period(chorale):
     with pytest.raises(ValueError, match="needs a period"):
         pre_maet_from_attr_table(
-            chorale, attributes=(dict(column="pitch", is_per=True),))
+            chorale, specs=(dict(column="pitch", per=True),))
 
 
 def test_a_role_may_carry_its_attribute_s_parameters(chorale):
     """The simplex role creates an attribute of its own, so its width
     has nowhere else to come from."""
     specs = _specs(pre_maet_from_attr_table(
-        chorale, attributes=(dict(column="pitch", sigma=0.5),),
+        chorale, specs=(dict(column="pitch", sigma=0.5),),
         time="beats", chords="separate",
         roles={"part": dict(role="simplex", sigma=0.2, name="voice")}))
     assert [s["name"] for s in specs] == ["pitch", "voice"]
@@ -119,11 +119,11 @@ def test_a_role_may_carry_its_attribute_s_parameters(chorale):
 
 
 def test_ordered_multiset_yields_the_tuple_size_with_a_warning(chorale):
-    """The role fills the slots; how many are drawn from them is the
+    """The role fills the positions; how many are drawn from them is the
     analyst's question, and the article reads this shape at r = 2."""
     with pytest.warns(UserWarning, match="implies r = 4"):
         pm = pre_maet_from_attr_table(
-            chorale, attributes=(dict(column="pitch", sigma=0.5, r=2),),
+            chorale, specs=(dict(column="pitch", sigma=0.5, r=2),),
             time="beats", roles={"part": "ordered_multiset"})
     assert _specs(pm)[0]["r"] == 2
 
@@ -131,7 +131,7 @@ def test_ordered_multiset_yields_the_tuple_size_with_a_warning(chorale):
 def test_ordered_multiset_yields_the_order_with_a_warning(chorale):
     with pytest.warns(UserWarning, match="implies exch = False"):
         pm = pre_maet_from_attr_table(
-            chorale, attributes=(dict(column="pitch", sigma=0.5, exch=True),),
+            chorale, specs=(dict(column="pitch", sigma=0.5, exch=True),),
             time="beats", roles={"part": "ordered_multiset"})
     assert _specs(pm)[0]["exch"] is True
 
@@ -142,7 +142,7 @@ def test_ordered_multiset_is_silent_where_the_values_agree(chorale):
         warnings.simplefilter("error")
         pre_maet_from_attr_table(
             chorale,
-            attributes=(dict(column="pitch", sigma=0.5, r=4, exch=False),),
+            specs=(dict(column="pitch", sigma=0.5, r=4, exch=False),),
             time="beats", roles={"part": "ordered_multiset"})
 
 
@@ -151,7 +151,7 @@ def test_simplex_refuses_another_tuple_size(chorale):
     message names the nesting route to the supplement's outer r."""
     with pytest.raises(ValueError, match="bind_attributes then bind_events"):
         pre_maet_from_attr_table(
-            chorale, attributes=(dict(column="pitch", sigma=0.5),),
+            chorale, specs=(dict(column="pitch", sigma=0.5),),
             time="beats", chords="separate",
             roles={"part": dict(role="simplex", sigma=0.2, r=2)})
 
@@ -159,7 +159,7 @@ def test_simplex_refuses_another_tuple_size(chorale):
 def test_simplex_refuses_an_unordered_reading(chorale):
     with pytest.raises(ValueError, match="read in order"):
         pre_maet_from_attr_table(
-            chorale, attributes=(dict(column="pitch", sigma=0.5),),
+            chorale, specs=(dict(column="pitch", sigma=0.5),),
             time="beats", chords="separate",
             roles={"part": dict(role="simplex", sigma=0.2, exch=True)})
 
@@ -167,12 +167,12 @@ def test_simplex_refuses_an_unordered_reading(chorale):
 def test_separate_attributes_carries_the_parameters_to_every_level(chorale):
     specs = _specs(pre_maet_from_attr_table(
         chorale, time="beats",
-        attributes=(dict(column="pitch", name="p", sigma=0.5,
-                         is_per=True, period=12.0),),
+        specs=(dict(column="pitch", name="p", sigma=0.5,
+                         per=True, period=12.0),),
         roles={"part": "separate_attributes"}))
     assert [s["name"] for s in specs] == \
         ["p_Soprano", "p_Alto", "p_Tenor", "p_Bass"]
-    assert all(s["sigma"] == 0.5 and s["is_per"] for s in specs)
+    assert all(s["sigma"] == 0.5 and s["per"] for s in specs)
 
 
 # --- columns the score reader never wrote --------------------------------
@@ -192,7 +192,7 @@ def spatial():
 
 def test_any_column_may_be_an_attribute(spatial):
     p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
-        spatial, time="beats", chords="separate", attributes=(
+        spatial, time="beats", chords="separate", specs=(
             dict(column="x", sigma=0.5), dict(column="y", sigma=0.5),
             dict(column="z", sigma=0.5))))
     assert [s["name"] for s in specs] == ["x", "y", "z"]
@@ -204,7 +204,7 @@ def test_arbitrary_columns_bind_into_one_position(spatial):
     describe one position become one attribute read whole."""
     from mpt import bind_attributes
     pm = pre_maet_from_attr_table(
-        spatial, time="beats", chords="separate", attributes=(
+        spatial, time="beats", chords="separate", specs=(
             dict(column="x", sigma=0.5), dict(column="y", sigma=0.5),
             dict(column="z", sigma=0.5)))
     p, _, specs = unpack_pre_maet(bind_attributes(
@@ -217,7 +217,7 @@ def test_arbitrary_columns_bind_into_one_position(spatial):
 def test_an_absent_column_is_not_an_attribute(spatial):
     with pytest.raises(ValueError, match="nor a column of the table"):
         pre_maet_from_attr_table(
-            spatial, time="beats", attributes=(dict(column="w", sigma=0.5),))
+            spatial, time="beats", specs=(dict(column="w", sigma=0.5),))
 
 
 def test_a_categorical_column_is_sent_to_the_roles(spatial):
@@ -226,12 +226,12 @@ def test_a_categorical_column_is_sent_to_the_roles(spatial):
     t["rule"] = pd.Categorical(["V_I", "Repeat", "V_I"])
     with pytest.raises(TypeError, match="Give it to 'roles' instead"):
         pre_maet_from_attr_table(
-            t, time="beats", attributes=(dict(column="rule", sigma=0.5),))
+            t, time="beats", specs=(dict(column="rule", sigma=0.5),))
     # Which is where it belongs: the supplement's unrolled grammar
     # encoding is a label attribute on its own simplex.
     _, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
         t, time="beats", chords="separate",
-        attributes=(dict(column="x", sigma=0.5),),
+        specs=(dict(column="x", sigma=0.5),),
         roles={"rule": dict(role="simplex", sigma=0.1)}))
     assert [s["name"] for s in specs] == ["x", "rule"]
     assert specs[1]["sigma"] == 0.1
@@ -244,7 +244,7 @@ def test_a_table_with_no_score_columns_converts():
     import pandas as pd
     bare = pd.DataFrame(dict(x=[1.0, 2.0, 3.0]))
     p, w, specs = unpack_pre_maet(pre_maet_from_attr_table(
-        bare, weights="ones", attributes=(dict(column="x", sigma=0.5),)))
+        bare, weights="ones", specs=(dict(column="x", sigma=0.5),)))
     np.testing.assert_array_equal(p[0], [[1.0, 2.0, 3.0]])
     assert w is None and specs[0]["name"] == "x"
 
@@ -252,7 +252,7 @@ def test_a_table_with_no_score_columns_converts():
                                  chord=[1, 2, 3]))
     p, _, specs = unpack_pre_maet(pre_maet_from_attr_table(
         labelled, weights="ones", chords="separate",
-        attributes=(dict(column="chord", sigma=1.0),),
+        specs=(dict(column="chord", sigma=1.0),),
         roles={"label": dict(role="simplex", sigma=0.2)}))
     assert [s["name"] for s in specs] == ["chord", "label"]
     assert p[0].shape == (1, 3) and p[1].shape == (1, 3)
@@ -262,11 +262,11 @@ def test_a_table_with_no_score_columns_converts():
     # where they are named.
     p, _, _ = unpack_pre_maet(pre_maet_from_attr_table(
         labelled, weights="ones", group_by="label",
-        attributes=(dict(column="chord", sigma=1.0, r=1, exch=True),)))
+        specs=(dict(column="chord", sigma=1.0, r=1, exch=True),)))
     assert p[0].shape[1] == 3
     for name in ("onset", "pitch"):
         with pytest.raises(ValueError, match="cannot be an attribute"):
             pre_maet_from_attr_table(
-                bare, weights="ones", attributes=(
+                bare, weights="ones", specs=(
                     dict(column="x", sigma=0.5),
                     dict(column=name, sigma=0.5)))

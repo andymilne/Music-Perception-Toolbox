@@ -6,8 +6,8 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   built by buildMaet; then the raw positional multi-attribute,
 %   batched, and list forms.
 %
-%   s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period):
-%   s = simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period, isExch):
+%   s = simMaet(p1, w1, p2, w2, sigma, r, rel, per, period):
+%   s = simMaet(p1, w1, p2, w2, sigma, r, rel, per, period, exch):
 %   s = simMaet(..., 'verbose', false):
 %   Cosine similarity from raw arguments (builds density structs
 %   internally via buildMaet).
@@ -50,7 +50,7 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   there.
 %
 %   s = simMaet(pAttr1, wAttr1, pAttr2, wAttr2, sigma, r, ...
-%                     isRel, isPer, periods[, isExch]):
+%                     rel, per, periods[, exch]):
 %   Raw multi-attribute mode. pAttr1 and pAttr2 are each a 1-by-A
 %   cell of K_a-by-N value matrices, and wAttr1 and wAttr2 the
 %   matching per-attribute weights (the same shapes one would pass
@@ -61,7 +61,7 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   of another -- is sweepSimMaet (densities) or sweptSimilarity
 %   (pre-MAETs), which compute every offset in one pass.
 %
-%   s = simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period[, isExch]):
+%   s = simMaet(P1, W1, P2, W2, sigma, r, rel, per, period[, exch]):
 %   Batched-raw mode. At least one of P1, P2 is an M-by-K
 %   matrix (both dimensions > 1); the function returns an M-by-1
 %   vector of similarities. Pass [] for W1 or W2 to use uniform
@@ -134,17 +134,17 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %   sigma. The cosine similarity is computed analytically — no grid
 %   evaluation is required.
 %
-%   Four variants are available, depending on the flags isPer and isRel:
+%   Four variants are available, depending on the flags per and rel:
 %   the inner product assumes periodic equivalence with period set by
-%   'period' if isPer == true, and assumes transpositional equivalence
-%   (relative rather than absolute pitches or positions) if isRel == true.
+%   'period' if per == true, and assumes transpositional equivalence
+%   (relative rather than absolute pitches or positions) if rel == true.
 %   See buildMaet for further information about these parameters.
 %
 %   Inputs (struct calling convention):
 %     dens_x — Precomputed density struct from buildMaet.
 %     dens_y — Precomputed density struct from buildMaet.
-%              Both structs must share the same r, sigma, isRel, isPer,
-%              isExch, and (if periodic) period.
+%              Both structs must share the same r, sigma, rel, per,
+%              exch, and (if periodic) period.
 %
 %   Inputs (single multiset raw calling convention):
 %     p1     — Pitch or position values for the first multiset (vector
@@ -156,12 +156,12 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %     w2     — Weights for the second multiset (vector of length n_2, or
 %              empty/scalar for all ones).
 %     sigma  — Standard deviation of the Gaussian kernel.
-%     r      — Tuple size (positive integer; r >= 2 if isRel == true).
-%     isRel  — If true, use transposition-invariant (relative)
+%     r      — Tuple size (positive integer; r >= 2 if rel == true).
+%     rel  — If true, use transposition-invariant (relative)
 %              quadratic form.
-%     isPer  — If true, wrap differences to periodic interval [-J/2, J/2).
+%     per  — If true, wrap differences to periodic interval [-J/2, J/2).
 %     period — Period J for periodic wrapping.
-%     isExch — Optional (default: true). If true, the multiset is
+%     exch — Optional (default: true). If true, the multiset is
 %              exchangeable (unordered): the density is invariant under
 %              permuting a tuple's coordinates. If false, it is ordered,
 %              and position in the tuple carries identity. Trailing
@@ -175,7 +175,7 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %              is broadcast against the matrix's rows.
 %     W1, W2 — Weights paired with P1, P2 (same shape, or [] for
 %              uniform). Broadcast in lockstep with their P operand.
-%     sigma, r, isRel, isPer, period, isExch — As in the single multiset raw
+%     sigma, r, rel, per, period, exch — As in the single multiset raw
 %              convention (shared across all rows).
 %
 %   Inputs (MA raw calling convention):
@@ -191,7 +191,7 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %     periodVec       — 1-by-A per-attribute period values (ignored where
 %                       isPerVec(a) == false).
 %     isExchVec       — Optional 1-by-A per-attribute exchangeability flags
-%                       (default: all true); see isExch above.
+%                       (default: all true); see exch above.
 %
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
@@ -406,11 +406,11 @@ varargin = varargin(keepMask);
 nArgs = numel(varargin);
 
 % Optional shared [exch] geometry flag. The raw forms (single multiset and MA) carry
-% one shared geometry (sigma, r, isRel, isPer, period); isExch joins it
+% one shared geometry (sigma, r, rel, per, period); exch joins it
 % as an optional trailing positional. Pop it here and normalise nArgs
 % back to 9 so the raw-form dispatch below is unchanged; forward it to
 % every buildMaet call via exchArgs. (The two-density forms at
-% nArgs == 2 read isExch from the precomputed structs and never reach
+% nArgs == 2 read exch from the precomputed structs and never reach
 % this.)
 isExchRaw = [];
 if nArgs == 10
@@ -491,11 +491,11 @@ end
 
 USAGE_MSG = ['Usage:\n' ...
     '  single multiset struct:    simMaet(dens_x, dens_y [, ''verbose'', tf])\n' ...
-    '  single multiset raw args:  simMaet(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
+    '  single multiset raw args:  simMaet(p1, w1, p2, w2, sigma, r, rel, per, period [, ''verbose'', tf])\n' ...
     '  MA struct:    simMaet(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
     '  MA raw args:  simMaet(pAttr1, wAttr1, pAttr2, wAttr2, sigmaVec, rVec, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
     '  List mode:    simMaet({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
-    '  Batched raw:  simMaet(P1, W1, P2, W2, sigma, r, isRel, isPer, period) -> vector of values\n' ...
+    '  Batched raw:  simMaet(P1, W1, P2, W2, sigma, r, rel, per, period) -> vector of values\n' ...
     '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).'];
 
 if nArgs == 2
@@ -884,7 +884,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
 %
 %   Both densities must share the full parameter structure: number of
 %   attributes, group assignment, per-attribute r, and per-group sigma,
-%   isRel, isPer, period. Weights and event/value counts may differ.
+%   rel, per, period. Weights and event/value counts may differ.
 
     if nargin < 7 || isempty(cacheX); cacheX = localSelfIpEmpty(); end
     if nargin < 8 || isempty(cacheY); cacheY = localSelfIpEmpty(); end
@@ -930,15 +930,15 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         error('simMaet:sigmaMismatch', ...
             'Both MaetDensities must have the same sigma (per attribute).');
     end
-    if ~isequal(logical(dens_x.isRel), logical(dens_y.isRel))
-        error('simMaet:isRelMismatch', ...
-            'Both MaetDensities must have the same isRel (per attribute).');
+    if ~isequal(logical(dens_x.rel), logical(dens_y.rel))
+        error('simMaet:relMismatch', ...
+            'Both MaetDensities must have the same rel (per attribute).');
     end
-    if ~isequal(logical(dens_x.isPer), logical(dens_y.isPer))
-        error('simMaet:isPerMismatch', ...
-            'Both MaetDensities must have the same isPer (per attribute).');
+    if ~isequal(logical(dens_x.per), logical(dens_y.per))
+        error('simMaet:perMismatch', ...
+            'Both MaetDensities must have the same per (per attribute).');
     end
-    perMask = logical(dens_x.isPer);
+    perMask = logical(dens_x.per);
     if any(dens_x.period(perMask) ~= dens_y.period(perMask))
         error('simMaet:periodMismatch', ...
             'Both MaetDensities must have the same period for periodic attributes.');
@@ -948,8 +948,8 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     A        = dens_x.nAttrs;
     rVec     = dens_x.r;
     sigmaG   = dens_x.sigma;
-    isRelG   = logical(dens_x.isRel);
-    isPerG   = logical(dens_x.isPer);
+    isRelG   = logical(dens_x.rel);
+    isPerG   = logical(dens_x.per);
     periodG  = dens_x.period;
 
     % --- Method dispatch (mirrors Python _select_ma_inner_product_method) ---
@@ -1000,7 +1000,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         selIn.skipXX, selIn.skipYY, selIn.exchVec, ...
         selIn.guardForcedBulger, selIn.perVec);
 
-    % Ordered (isExch = false) attributes are not symmetrised, so the
+    % Ordered (exch = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent
     % them. Force the pairwise/centres path whenever any attribute is
     % ordered at r_a > 1 (r_a = 1 is vacuous). The centres path reads the
@@ -1392,8 +1392,8 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         if ~isempty(wrapG)
             wrapA = char(wrapG{1});
         end
-        kw = {'isRel', logical(isRelG(1)), 'r', double(rVec(1)), ...
-              'isPer', logical(isPerG(1)), 'period', double(periodG(1)), ...
+        kw = {'rel', logical(isRelG(1)), 'r', double(rVec(1)), ...
+              'per', logical(isPerG(1)), 'period', double(periodG(1)), ...
               'wrap', wrapA, 'truncationSigmas', truncResolved, ...
               'nTerms', double(size(U, 2)) * double(size(V, 2))};
         if ~isempty(kernelPrecision)
@@ -1498,7 +1498,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
 
             % The outer wrap is only needed when computeQaMA does not
             % re-wrap the pairwise component differences (i.e., for
-            % isPer and not isRel: Qa = sum(D.^2), which requires
+            % per and not rel: Qa = sum(D.^2), which requires
             % wrapped D components). For rel+per, computeQaMA wraps
             % each pairwise (D(i)-D(j)) inside (Eq 6 form); that
             % inner wrap is invariant under integer-period shifts, so
@@ -1543,11 +1543,11 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
 
     function Qa = computeQaMA(D, a, r_a)
         % Per-attribute quadratic form. Matches the single multiset computeQ logic:
-        %   - is_rel && is_per: pairwise-differences formula (wraps
+        %   - rel && per: pairwise-differences formula (wraps
         %     each pairwise delta to [-P/2, P/2), restores exact
         %     transposition invariance on the circle).
-        %   - is_rel && ~is_per: sum(d.^2) - sum(d)^2 / r_a.
-        %   - ~is_rel:           sum(d.^2).
+        %   - rel && ~per: sum(d.^2) - sum(d)^2 / r_a.
+        %   - ~rel:           sum(d.^2).
         if isRelG(a)
             if isPerG(a)
                 sz = size(D);
@@ -1628,7 +1628,7 @@ if nargin < 8 || isempty(needYY), needYY = true; end
             || a > numel(dens_x.nested) || isempty(dens_x.nested{a});
         choices(a) = flatAttrA && mobius.maRelAttrPrefersCentres( ...
             dens_x.pAttr{a}, dens_y.pAttr{a}, dens_x.sigma(a), ...
-            dens_x.r(a), dens_x.isRel(a), dens_x.isPer(a), ...
+            dens_x.r(a), dens_x.rel(a), dens_x.per(a), ...
             dens_x.period(a), truncationSigmas, userForcedMobius);
     end
     tsKey = internal.accuracyFloor('resolve', truncResolved);
@@ -1653,8 +1653,8 @@ if nargin < 8 || isempty(needYY), needYY = true; end
     for a = 1:A
         r_a     = dens_x.r(a);
         sigma_g = dens_x.sigma(a);
-        isRel_g = dens_x.isRel(a);
-        isPer_g = dens_x.isPer(a);
+        isRel_g = dens_x.rel(a);
+        isPer_g = dens_x.per(a);
         period_g = dens_x.period(a);
 
         Px = dens_x.pAttr{a};   Wx = dens_x.w{a};
@@ -1969,13 +1969,13 @@ function key = localDensityPairKey(dx, dy)
 %   canonical chord forms from INTERNAL.PAIRCANONICALKEY (independent
 %   per side in a relative mode, joint co-transposition in an absolute
 %   one; no re-rounding, as the values come from built densities) with
-%   the density parameters (sigma, r, isRel, isPer, period) and the
-%   per-density declarations (wrap, isExch) of both sides baked in, so
+%   the density parameters (sigma, r, rel, per, period) and the
+%   per-density declarations (wrap, exch) of both sides baked in, so
 %   two pairs share a key only when the pair core would return the same
 %   number for both.
     px = dx.pAttr{1}(:, 1).'; wx = dx.w{1}(:, 1).';
     py = dy.pAttr{1}(:, 1).'; wy = dy.w{1}(:, 1).';
-    isRel = logical(dx.isRel(1)); isPer = logical(dx.isPer(1));
+    isRel = logical(dx.rel(1)); isPer = logical(dx.per(1));
     period = double(dx.period(1));
     [pxc, wxc, pyc, wyc] = internal.pairCanonicalKey(px, wx, py, wy, ...
                                                      isRel, isPer, period, []);
@@ -1994,11 +1994,11 @@ function key = localDensityParamKey(d)
         wrapA = char(d.wrap{1});
     end
     isExchA = true;
-    if isfield(d, 'isExch') && ~isempty(d.isExch)
-        isExchA = logical(d.isExch(1));
+    if isfield(d, 'exch') && ~isempty(d.exch)
+        isExchA = logical(d.exch(1));
     end
     key = sprintf('%.17g|%d|%d|%d|%.17g|%s|%d', double(d.sigma(1)), ...
-        double(d.r(1)), logical(d.isRel(1)), logical(d.isPer(1)), ...
+        double(d.r(1)), logical(d.rel(1)), logical(d.per(1)), ...
         double(d.period(1)), wrapA, isExchA);
 end
 
@@ -2013,7 +2013,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
 %
 %   Pipeline:
 %     1. Optional precision rounding.
-%     2. Canonicalise each row's A-set and B-set under isPer/isRel so
+%     2. Canonicalise each row's A-set and B-set under per/rel so
 %        that equivalent multisets map to the same key.
 %     3. Deduplicate individual A- and B-sets; deduplicate (A, B) pairs.
 %     4. Build one density struct per unique individual set.
@@ -2038,7 +2038,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
 
     % The batched path deduplicates rows by a multiset canonical key,
     % which collapses rows that share a multiset but differ in order.
-    % That is correct only for the symmetric reading: under isExch = false
+    % That is correct only for the symmetric reading: under exch = false
     % the order is significant, so the dedup would silently merge
     % distinct ordered densities. Reject rather than return a wrong
     % answer (parity with the Python batched path). Order-aware batched
@@ -2047,7 +2047,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     if ~isempty(exchArgsB) && ~all(logical(isExch(:))) && r > 1
         error('simMaet:batchedOrderedUnsupported', ...
               ['simMaet batched (2-D) input does not yet support ' ...
-               'isExch = false (ordered) densities at r > 1: the batched ' ...
+               'exch = false (ordered) densities at r > 1: the batched ' ...
                'dedup canonicalises each row''s multiset and would merge ' ...
                'order-distinct rows. Build densities individually ' ...
                '(scalar or density-list input) for ordered comparisons.']);
@@ -2107,7 +2107,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     end
 
     % === Phase 1: Canonicalize and build individual-set keys ===
-    % Each set is independently canonicalized under isPer/isRel so that
+    % Each set is independently canonicalized under per/rel so that
     % equivalent pitch sets (differing only by octave displacement or
     % transposition) map to the same key. Keys for A-sets and B-sets are
     % built separately to enable individual-set density struct caching.
@@ -2614,14 +2614,14 @@ function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
     else
         wrapG = repmat({'full-image'}, 1, A);
     end
-    perMask = logical(sharedP.isPer);
+    perMask = logical(sharedP.per);
     for i = 1:n
         d = entriesP{i};
         if d.nAttrs ~= A ...
                 || ~isequal(d.r, sharedP.r) ...
                 || ~isequal(d.sigma, sharedP.sigma) ...
-                || ~isequal(logical(d.isRel), logical(sharedP.isRel)) ...
-                || ~isequal(logical(d.isPer), logical(sharedP.isPer))
+                || ~isequal(logical(d.rel), logical(sharedP.rel)) ...
+                || ~isequal(logical(d.per), logical(sharedP.per))
             return;
         end
         if any(d.period(perMask) ~= sharedP.period(perMask))
@@ -2645,8 +2645,8 @@ function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
     sCell = cell(1, n);
 
     sigmaG  = sharedP.sigma;
-    isRelG  = logical(sharedP.isRel);
-    isPerG  = logical(sharedP.isPer);
+    isRelG  = logical(sharedP.rel);
+    isPerG  = logical(sharedP.per);
     periodG = sharedP.period;
     if isempty(truncationSigmas)
         truncResolved = mptDefaults('truncationSigmas');

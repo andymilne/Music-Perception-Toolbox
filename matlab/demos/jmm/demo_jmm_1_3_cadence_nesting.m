@@ -26,11 +26,13 @@
 % pitch aggregates — its two eighth-note events weighted by metrical
 % position (1 on the beat, 0.5 off it, times 1.5 under a fermata) and by
 % the fraction of the eighth each note sounds, merged and normalized by
-% the 1.5 a beat carries — and the aligned span of L consecutive beats,
-% the resolution on the last, is bound into one nested super-event
-% (bindEvents) and compared with the query under the one-sided
-% similarity (sweptSimilarity(..., 'normalize', 'oneSidedDenom')), so a
-% peak of 1 is one isolated exact match. An optional inversion flag — a
+% the 1.5 a beat carries — and each span of L consecutive beats is bound
+% into one nested super-event (bindEvents) timed at its last beat, the
+% resolution. The query is translated along that time (sweptSimilarity,
+% sigma_time = 0.1 beat, so only the span resolving at each candidate
+% moment is in reach) and compared under the one-sided similarity
+% ('normalize', 'oneSidedDenom'), so a peak of 1 is one isolated exact
+% match. An optional inversion flag — a
 % second, simplex-coded attribute at +/-0.5 with sigma_flag = 0.1 — marks
 % whether a chosen chord is a root-position triad (the dyad skeleton's
 % resolution) or a second-inversion triad (the six-four's antepenult); the
@@ -48,13 +50,13 @@
 %
 % The encodings live in the jmm package: the beat aggregates
 % (jmm.bwvWindowState), the nested context and query builders
-% (jmm.boundContext, jmm.query, jmm.windowsInPiece, jmm.asCompared,
-% jmm.dyadQuery, jmm.prototypeQuery), and the pitch-derived flags
+% (jmm.boundContext, jmm.query, jmm.windowsInPiece, jmm.dyadQuery,
+% jmm.prototypeQuery), and the pitch-derived flags
 % (jmm.isRootPosition, jmm.isSixFour). The two sweeps are local
 % functions at the foot of this file. Toolbox: gridAttrTable (twice, the
 % second regridding the first), preMaetFromAttrTable, bindEvents (with
 % per-attribute orders, so the window's time and flag stay flat),
-% sweptSimilarity, flatSpecs, selectPreMaet. Runtime: a few seconds
+% sweptSimilarity, flatSpecs. Runtime: a few seconds
 % (eight queries at three inner tuple sizes, each sweep one call).
 
 % The demo folder is located from the toolbox root, and adding it puts
@@ -130,10 +132,7 @@ for r = RS
         for qi = 1:numel(QUERIES)
             qPm = jmm.prototypeQuery(QUERIES(qi).chords, ...
                 QUERIES(qi).flagged, r);
-            % The query as the comparison receives it: the time
-            % attribute places the window and is not part of the
-            % comparison.
-            showPreMaet(jmm.asCompared(qPm), ...
+            showPreMaet(qPm, ...
                 'title', sprintf('  query: %s (rInner = %d)', ...
                 QUERY_NAMES{qi}, r));
             fprintf('\n');
@@ -269,8 +268,8 @@ function profiles = localPrototypeSweep(rInner, queries, mus, normalize)
     % One bindEvents call nests every window of three beats across the
     % whole chorale, carrying the time of the window's last beat (its
     % resolution) and the inversion flag flat alongside the nested pitch.
-    % The sweep is then one call per query: a rectangle of one beat admits
-    % exactly one window at each sweep value. The flag is pitch-derived --- a
+    % The sweep is then one call per query, translating it along the time
+    % attribute to each resolution moment. The flag is pitch-derived --- a
     % predicate on the sonority at the antepenult beat, the window's
     % first, stored at its resolution beat --- and no harmonic labels are
     % consulted.
@@ -281,15 +280,12 @@ function profiles = localPrototypeSweep(rInner, queries, mus, normalize)
     for q = 1:numel(queries)
         qd = jmm.prototypeQuery(queries(q).chords, queries(q).flagged, rInner);
         if queries(q).flagged, ctx = ctxFlag; else, ctx = ctxPlain; end
-        % A rectangle of full support one beat, aligned at each window's
-        % resolution beat, admits exactly that window and no other --- its
-        % neighbours sit exactly a beat away. The time attribute (attribute 2)
-        % is dropped from the comparison, having done its work in placing
-        % the window.
+        % The query's time is its last chord's, 2, so queryRef = 2 moves
+        % its resolution to each sweep value. With sigma_time = 0.1 beat,
+        % the windows resolving a beat either side contribute nothing.
         prof = zeros(1, numel(mus));
         raw = sweptSimilarity(ctx, qd, 'sweep', {2, at(:).'}, ...
-            'align', {2, 'window'}, 'window', {2, {'rect', 'width', 1.0}}, ...
-            'drop', 2, 'normalize', normalize, 'verbose', false);
+            'queryRef', {2, 2.0}, 'normalize', normalize, 'verbose', false);
         prof(idxs) = raw(:).';
         profiles{q} = prof;
     end
@@ -316,9 +312,10 @@ function [x, so] = localDyadSweep(rInner, useFlag, mus, normalize)
     ctx = jmm.boundContext(2, rInner, flagName);
     [idxs, at] = jmm.windowsInPiece(mus, 2);
     so = nan(1, numel(mus));
+    % As for the prototypes, translated along time: the query resolves at
+    % its second chord, 1.
     raw = sweptSimilarity(ctx, qd, 'sweep', {2, at(:).'}, ...
-        'align', {2, 'window'}, 'window', {2, {'rect', 'width', 1.0}}, ...
-        'drop', 2, 'normalize', normalize, 'verbose', false);
+        'queryRef', {2, 1.0}, 'normalize', normalize, 'verbose', false);
     so(idxs) = raw(:).';
     x = jmm.b2bar(mus);
 end

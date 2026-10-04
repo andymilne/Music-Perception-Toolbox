@@ -19,7 +19,7 @@ of any lazy field (a closure invoked at most once per
 for instance a cosine similarity routed to the Möbius method — never
 trigger the build.
 
-See USER_GUIDE §13.1 ("The density and its four modes") for the user-facing
+See USER_GUIDE §8.1 ("Building a density") for the user-facing
 description and :doc:`/ARCHITECTURE` §2 for the layering.
 """
 from __future__ import annotations
@@ -42,11 +42,6 @@ from .density import (
     _nchoosek_indices,
     _normalise_weights_ma,
 )
-
-
-#: British/camelCase spellings accepted in a spec alongside the canonical
-#: keys, so that a spec written for either language reads in both.
-_ALIASES = {"sigma": "sigma", "is_per": "isPer", "period": "period"}
 
 
 def _is_na(v):
@@ -104,7 +99,7 @@ def _resolve_kernel_param(given, from_specs, what, names, A, default=None):
 def _override_specs(specs, r, rel, exch, A):
     """Apply the r / rel / exch keyword overrides to a specs list.
 
-    The kernel parameters sigma, is_per, and period are resolved after the
+    The kernel parameters sigma, per, and period are resolved after the
     specs are read, so a keyword can override them there. The tuple size
     and the [rel] and [exch] flags are read out of the specs themselves, so
     an override has to be written into the specs first. A supplied keyword
@@ -183,7 +178,7 @@ def _normalise_specs(specs, A):
     **nested** attribute carries ``tags`` plus per-level vectors
     ``{tags, r, exch, rel, name?, names?}``. The presence of ``tags`` is the
     flat-vs-nested discriminant. Scalar per-attribute geometry that is not
-    level-structured (``sigma``, ``is_per``, ``period``) stays outside the
+    level-structured (``sigma``, ``per``, ``period``) stays outside the
     spec.
 
     Returns ``(r_vec, is_rel_vec, is_exch_vec, nested_list, names,
@@ -192,7 +187,7 @@ def _normalise_specs(specs, A):
     ``None`` where the field is absent, or NaN where it is NA. For a
     nested entry the geometry fields are placeholders: the nested machinery
     in :func:`_build_maet_ma` derives ``r`` from ``prod(level r)`` and
-    ``is_rel`` from the resolved projection, and uses the per-level ``exch``.
+    ``rel`` from the resolved projection, and uses the per-level ``exch``.
     """
     if not isinstance(specs, (list, tuple)):
         raise TypeError(
@@ -203,13 +198,13 @@ def _normalise_specs(specs, A):
             f"specs must have length {A} (one per attribute), got {len(specs)}."
         )
     r_vec, is_rel_vec, is_exch_vec, nested_list, names = [], [], [], [], []
-    kernel = {"sigma": [], "is_per": [], "period": []}
+    kernel = {"sigma": [], "per": [], "period": []}
     for a, s in enumerate(specs):
         if not isinstance(s, dict):
             raise TypeError(f"specs[{a}] must be a dict.")
         names.append(s.get("name"))
-        for key in ("sigma", "is_per", "period"):
-            kernel[key].append(s.get(key, s.get(_ALIASES[key])))
+        for key in ("sigma", "per", "period"):
+            kernel[key].append(s.get(key))
         if "tags" in s:
             nested_list.append(s)
             r_vec.append(1)            # placeholder -> prod(level r)
@@ -235,14 +230,14 @@ def _normalise_specs(specs, A):
     return r_vec, is_rel_vec, is_exch_vec, nested_list, names, kernel
 
 
-def _resolve_aniso_single_multiset(p, sigma, r, is_rel, is_per, period, is_exch):
+def _resolve_aniso_single_multiset(p, sigma, r, rel, per, period, exch):
     """Resolve a matrix-valued single-multiset sigma: validate, whiten, return
     ``(p_whitened, 1.0, Sigma, R)``."""
     from .aniso import (validate_kernel_cov, check_aniso_constraints,
                         whiten_values)
     p_arr = np.asarray(p, dtype=np.float64).ravel()
     check_aniso_constraints(
-        r=r, K=len(p_arr), is_rel=is_rel, is_per=is_per, is_exch=is_exch,
+        r=r, K=len(p_arr), rel=rel, per=per, exch=exch,
         name="sigma",
     )
     Sigma, R = validate_kernel_cov(sigma, dim=int(r), name="sigma")
@@ -295,8 +290,8 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
                         is_exch_vec, (list, tuple, np.ndarray))
                         else is_exch_vec))
         check_aniso_constraints(
-            r=r_a, K=K_a, is_rel=is_rel_a, is_per=is_per_a,
-            is_exch=is_exch_a, name=f"sigma[{a}]",
+            r=r_a, K=K_a, rel=is_rel_a, per=is_per_a,
+            exch=is_exch_a, name=f"sigma[{a}]",
         )
         Sigma, R = validate_kernel_cov(
             sigma_out[a], dim=r_a, name=f"sigma[{a}]")
@@ -307,7 +302,7 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
 
 
 def build_maet(p, w=None, *args, specs=None, sigma=None,
-                   is_per=None, period=None, r=None, rel=None,
+                   per=None, period=None, r=None, rel=None,
                    exch=None, nested=None, wrap=None,
                    verbose: bool = True) -> MaetDensity:
     """Precompute an r-ad expectation tensor density object.
@@ -328,8 +323,8 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
 
     Single-multiset signature (legacy, unchanged)::
 
-        build_maet(p, w, sigma, r, is_rel, is_per, period, *, verbose=True)
-        build_maet(p, w, sigma, r, is_rel, is_per, period, is_exch, *, ...)
+        build_maet(p, w, sigma, r, rel, per, period, *, verbose=True)
+        build_maet(p, w, sigma, r, rel, per, period, exch, *, ...)
 
     Pre-MAET signature (the canonical multi-attribute entry)::
 
@@ -345,7 +340,7 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
 
     A pre-MAET (:func:`~mpt.pack_pre_maet`) stands in place of ``p`` and
     ``w``, bringing its specs with it. Any of the six per-attribute
-    parameters --- ``sigma``, ``is_per``, ``period``, ``r``, ``rel``,
+    parameters --- ``sigma``, ``per``, ``period``, ``r``, ``rel``,
     ``exch`` --- may be given alongside, and a supplied value wins over
     the specs for every attribute, so a sweep over any of them is one
     call per value and leaves the pre-MAET untouched.
@@ -369,17 +364,17 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
     sigma : float
         Standard deviation of the Gaussian kernel.
     r : int
-        Tuple size (positive integer; ``r >= 2`` if ``is_rel`` is true).
-    is_rel : bool
+        Tuple size (positive integer; ``r >= 2`` if ``rel`` is true).
+    rel : bool
         If true, use transposition-invariant (relative) quadratic form
         (effective dim = ``r - 1``).
-    is_per : bool
+    per : bool
         If true, wrap differences to the periodic interval
         ``[-period/2, period/2)``.
     period : float
         Period for periodic wrapping (e.g., 1200 for one octave in
         cents, or the cycle length for rhythmic analyses).
-    is_exch : bool, optional (default True)
+    exch : bool, optional (default True)
         If true, the multiset is exchangeable (unordered): the density
         is invariant under permuting a tuple's coordinates. If false, it
         is ordered, and position in the tuple carries identity (a
@@ -409,12 +404,12 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
     r_vec : (A,) array-like of int
         Per-attribute tuple sizes.
     is_rel_vec, is_per_vec : (A,) array-like of bool
-        Per-attribute is_rel and is_per flags.
+        Per-attribute rel and per flags.
     period_vec : (A,) array-like of float
         Per-attribute periods (use 0 for attributes that are not
         periodic).
     is_exch_vec : (A,) array-like of bool, optional (default all True)
-        Per-attribute exchangeability flags; see ``is_exch`` above. An
+        Per-attribute exchangeability flags; see ``exch`` above. An
         ordered attribute (false) keeps the order of its values.
 
     Returns
@@ -443,7 +438,7 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
             "they are only valid alongside specs=. In the positional "
             "form pass the geometry vectors positionally.")
     # --- Canonical specs form (level-structured geometry lives in specs;
-    #     scalar sigma/is_per/period are supplied as keywords) ----------
+    #     scalar sigma/per/period are supplied as keywords) ----------
     if specs is not None:
         if not _looks_like_multi_attr(p):
             raise ValueError(
@@ -453,7 +448,7 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
         if args:
             raise ValueError(
                 "With specs=, do not pass positional geometry; supply "
-                "sigma=, is_per=, period= as keywords (level-structured "
+                "sigma=, per=, period= as keywords (level-structured "
                 "r / rel / exch live in specs)."
             )
         if nested is not None:
@@ -474,8 +469,8 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
         # error. What is refused is a value missing from both places.
         sigma = _resolve_kernel_param(sigma, spec_kernel["sigma"],
                                       "sigma", names, A)
-        is_per = _resolve_kernel_param(is_per, spec_kernel["is_per"],
-                                       "is_per", names, A)
+        per = _resolve_kernel_param(per, spec_kernel["per"],
+                                       "per", names, A)
         period = _resolve_kernel_param(period, spec_kernel["period"],
                                        "period", names, A, default=0.0)
 
@@ -493,11 +488,11 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
         wrap_vec = _normalise_wrap_ma(wrap, A)
         if has_kc:
             p, sigma, cov_list, chol_list = _resolve_aniso_ma(
-                p, sigma, r_vec, is_rel_vec, is_per, is_exch_vec,
+                p, sigma, r_vec, is_rel_vec, per, is_exch_vec,
                 nested_list,
             )
             dens = _build_maet_ma(
-                p, w, sigma, r_vec, is_rel_vec, is_per, period, is_exch_vec,
+                p, w, sigma, r_vec, is_rel_vec, per, period, is_exch_vec,
                 nested=nested_list, names=names, wrap=wrap_vec,
                 verbose=verbose,
             )
@@ -505,12 +500,12 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
             dens.kernel_chol = chol_list
             return dens
         return _build_maet_ma(
-            p, w, sigma, r_vec, is_rel_vec, is_per, period, is_exch_vec,
+            p, w, sigma, r_vec, is_rel_vec, per, period, is_exch_vec,
             nested=nested_list, names=names, wrap=wrap_vec, verbose=verbose,
         )
-    if sigma is not None or is_per is not None or period is not None:
+    if sigma is not None or per is not None or period is not None:
         raise ValueError(
-            "sigma=, is_per=, period= keywords are only for the specs= form; "
+            "sigma=, per=, period= keywords are only for the specs= form; "
             "the positional form takes them in order."
         )
 
@@ -554,26 +549,26 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
         if len(args) not in (5, 6):
             raise ValueError(
                 f"Single-multiset call expects 7 or 8 positional arguments "
-                f"(p, w, sigma, r, is_rel, is_per, period[, is_exch]); got "
+                f"(p, w, sigma, r, rel, per, period[, exch]); got "
                 f"{2 + len(args)}."
             )
-        sigma, r, is_rel, is_per, period = args[:5]
-        is_exch = args[5] if len(args) == 6 else True
+        sigma, r, rel, per, period = args[:5]
+        exch = args[5] if len(args) == 6 else True
         wrap_scalar = _normalise_wrap_scalar(wrap)
         from .aniso import is_kernel_cov
         if is_kernel_cov(sigma):
             p, sigma, Sigma, R = _resolve_aniso_single_multiset(
-                p, sigma, r, is_rel, is_per, period, is_exch,
+                p, sigma, r, rel, per, period, exch,
             )
             dens = _build_maet_single_multiset(
-                p, w, sigma, r, is_rel, is_per, period, is_exch,
+                p, w, sigma, r, rel, per, period, exch,
                 wrap=wrap_scalar, verbose=verbose,
             )
             dens.kernel_cov = Sigma
             dens.kernel_chol = R
             return dens
         return _build_maet_single_multiset(
-            p, w, sigma, r, is_rel, is_per, period, is_exch,
+            p, w, sigma, r, rel, per, period, exch,
             wrap=wrap_scalar, verbose=verbose,
         )
 
@@ -740,7 +735,7 @@ def _build_maet_ma(
     r_vec = r_vec.copy()
     # A spec that already carries the internal 'proj' field was produced by
     # a previous build (a reconstruction forwards it), not by a user; the
-    # user-is_rel guard below is skipped for those so the derived is_rel
+    # user-rel guard below is skipped for those so the derived rel
     # value round-trips cleanly.
     nested_was_norm = [False] * A
     for a in range(A):
@@ -865,9 +860,9 @@ def _build_maet_ma(
     # relative path drifts at fp level because its co-transposition
     # reduction sums in a different order on the two paths) and lets both
     # the build and -- the larger cost -- the cosine take the flat route.
-    # Periodicity rides through unchanged (is_per / period are per-
+    # Periodicity rides through unchanged (per / period are per-
     # attribute and untouched). Whole-tuple co-transposition maps onto the
-    # flat is_rel ('outer' -> relative, 'absolute' -> absolute); an
+    # flat rel ('outer' -> relative, 'absolute' -> absolute); an
     # 'inner'/'intermediate' projection reduces within sub-tuples and
     # never collapses to flat.
     #
@@ -911,13 +906,13 @@ def _build_maet_ma(
                     f"is_rel_vec entry (leave it False for nested attributes)."
                 )
             # The outer / whole-tuple co-transposition unit is exactly the
-            # flat is_rel reduction applied to the whole D_a-tuple, so map
-            # it onto the internal is_rel machinery; absolute leaves it off.
+            # flat rel reduction applied to the whole D_a-tuple, so map
+            # it onto the internal rel machinery; absolute leaves it off.
             is_rel_vec[a] = (nested[a]["proj"] == "outer")
             continue
         if is_rel_vec[a] and r_vec[a] < 2:
             warnings.warn(
-                f"is_rel = True combined with r_a = 1 for attribute {a} "
+                f"rel = True combined with r_a = 1 for attribute {a} "
                 f"produces a degenerate (constant) density. For cross-event "
                 f"translation invariance, use `difference_events` as a "
                 f"preprocessing step."
@@ -933,6 +928,9 @@ def _build_maet_ma(
     # meets the canonical A = N = 1 form (no N > 1 single-multiset case
     # to special-case anywhere else). Equal values merge in the per-event
     # r = 1 path below exactly as for a directly-built single multiset.
+    # The number of positions, values and NaNs together, per attribute,
+    # counted before the collapse below discards the NaNs.
+    n_pos = [int(p.shape[0]) for p in p_attr]
     if A == 1 and int(r_vec[0]) == 1 and N > 1 and nested[0] is None:
         P = p_attr[0]
         W = w_list[0]
@@ -942,18 +940,19 @@ def _build_maet_ma(
         N = 1
         K_a = np.array([p_attr[0].shape[0]], dtype=np.intp)
 
-    # Eager per-event / per-attribute non-NaN value count check. An
-    # event must have either enough values for its tuple size or none at
-    # all: an event with no value on an attribute -- a grid slice with
-    # nothing sounding, say -- admits no tuple there, so it contributes
-    # nothing to the density, the inner product, or any entropy taken
-    # from them, while keeping its place in the event sequence for
-    # binding and differencing. An event with some but too few values is
-    # a mistake and is refused. The
-    # heavy r-ad enumeration is deferred to first access of a lazy
-    # field, but this validation is cheap (one NaN scan per (a, n))
-    # and users reasonably expect malformed inputs to fail fast at the
-    # build call rather than later on first downstream consumer call.
+    # Eager per-event / per-attribute value count check. A NaN is a
+    # position with no value, read as a value of weight 0. An event with
+    # no value on an attribute -- a grid slice with nothing sounding, say
+    # -- admits no tuple there, so it contributes nothing to the density,
+    # the inner product, or any entropy taken from them, while keeping
+    # its place in the event sequence for binding and differencing. An
+    # event with some values but fewer than r likewise contributes
+    # nothing, and is warned of, since it may be a mistake. An attribute
+    # whose positions are too few for any event to supply an r-tuple is
+    # an error. The heavy r-ad enumeration is deferred to first access
+    # of a lazy field, but this validation is cheap (one NaN scan per
+    # (a, n)) and malformed inputs should fail fast at the build call.
+    too_few = [0] * A
     for n in range(N):
         for a in range(A):
             col = p_attr[a][:, n]
@@ -965,25 +964,41 @@ def _build_maet_ma(
                 if tags.ndim == 1:
                     tags = tags.reshape(-1, 1)
                 valid_idx = np.nonzero(valid)[0].astype(np.intp)
-                # An event with no value at all on this attribute admits
-                # no tuple and contributes nothing; only a partly filled
-                # one is an error.
-                if valid_idx.size and not _nested_feasible(
-                        valid_idx, tags, r_levels, len(r_levels) - 1):
+                L1 = len(r_levels) - 1
+                # As on a flat attribute: positions too few to admit a
+                # full nested r-tuple even with every value present are
+                # an error; an event whose non-NaN values admit none
+                # contributes nothing, and is warned of.
+                if n == 0 and not _nested_feasible(
+                        np.arange(col.size, dtype=np.intp), tags,
+                        r_levels, L1):
                     raise ValueError(
-                        f"Event {n}, nested attribute {a}: the non-NaN values "
-                        f"do not admit a full nested r-tuple for "
-                        f"r = {r_levels.tolist()} (too few groups or values at "
-                        f"some nesting level)."
-                    )
+                        f"Nested attribute {a}: its positions, values and "
+                        f"NaNs together, do not admit a full nested r-tuple "
+                        f"for r = {r_levels.tolist()} (too few groups or "
+                        f"positions at some nesting level), so no event can "
+                        f"supply one.")
+                if valid_idx.size and not _nested_feasible(
+                        valid_idx, tags, r_levels, L1):
+                    too_few[a] += 1
                 continue
             r_a = int(r_vec[a])
-            valid_count = int(np.sum(valid))
-            if 0 < valid_count < r_a:
-                raise ValueError(
-                    f"Event {n}, attribute {a} has {valid_count} non-NaN "
-                    f"value(s) but r_a = {r_a}."
-                )
+            # A position with no value (NaN) is a value of weight 0, so
+            # every tuple through it vanishes, and an event holding fewer
+            # than r values contributes nothing, as an event of weight 0
+            # does. Only an attribute with fewer than r positions, so
+            # that no event could supply an r-tuple, is an error.
+            # No positions at all is every event empty (the r = 1
+            # collapse of an all-NaN attribute, say): nothing to refuse.
+            if 0 < n_pos[a] < r_a:
+                raise ValueError(_too_few_positions_msg(a, n_pos[a], r_a))
+            if 0 < int(np.sum(valid)) < r_a:
+                too_few[a] += 1
+    if any(too_few):
+        warnings.warn(_too_few_values_msg([
+            (a, too_few[a], int(r_vec[a]) if nested[a] is None
+             else np.asarray(nested[a]["r"]).ravel().tolist())
+            for a in range(A) if too_few[a]]), UserWarning, stacklevel=3)
 
     # --- Per-attribute dim (eager; needed by callers without
     # materialisation) -------------------------------------------------
@@ -1037,10 +1052,10 @@ def _build_maet_ma(
         p_attr=p_attr,
         w=w_list,
         sigma=sigma_vec,
-        is_rel=is_rel_vec,
-        is_per=is_per_vec,
+        rel=is_rel_vec,
+        per=is_per_vec,
         period=period_vec,
-        is_exch=is_exch_vec,
+        exch=is_exch_vec,
         dim=dim,
         dim_per_attr=dim_per_attr,
         nested=nested,
@@ -1228,17 +1243,39 @@ def _canonicalise_nested_rel(rel, L, a):
     return unit, proj
 
 
-def _enum_flat_attr(val_col, valid, r_a, is_exch, w_col_orig):
+def _too_few_values_msg(counts):
+    """Warning for events dropped for holding too few values.
+
+    ``counts`` lists ``(attribute, number of events, r)``.
+    """
+    parts = "; ".join(f"{m} event(s) on attribute {a} hold too few non-NaN "
+                      f"values for a tuple of size r = {r_a}"
+                      for a, m, r_a in counts)
+    return (f"build_maet: {parts}, and so contribute nothing. A NaN is a "
+            f"position with no value, read as a value of weight 0, so every "
+            f"r-tuple through it vanishes.")
+
+
+def _too_few_positions_msg(a, k, r_a):
+    """Refusal for an attribute with fewer positions than r."""
+    return (f"Attribute {a} has {k} position(s) per event, values and NaNs "
+            f"together, fewer than its tuple size r_a = {r_a}, so no event "
+            f"can supply an r-tuple. Give the attribute at least r positions "
+            f"or use a smaller r.")
+
+
+def _enum_flat_attr(val_col, valid, r_a, exch, w_col_orig):
     """Per-(event, attribute) r-ad enumeration for one flat attribute.
 
     Returns ``(perm_mat, comb_mat, perm_w, comb_w)`` for the non-NaN
     values ``valid`` of value column ``val_col`` at tuple size ``r_a``.
     Applies the r = 1 equal-value collapse (summing weights). Shared by
     the general per-(n, a) fill loop and the A = N = 1 fast path so both
-    produce byte-identical tuples. Caller guarantees ``valid.size >=
-    r_a``, or ``valid.size == 0`` for an event with no value at all on
-    this attribute, which admits no tuple and so contributes nothing
-    (checked eagerly at build).
+    produce byte-identical tuples. ``valid.size`` may be at least
+    ``r_a``; 0, for an event with no value at all on this attribute,
+    which admits no tuple and so contributes nothing; or ``0 < valid.size < r_a``, a missing
+    value being a position of weight 0, so that the event gives no tuple
+    (warned of at build).
     """
     collapsed = False
     if r_a == 1 and valid.size > 1:
@@ -1259,7 +1296,7 @@ def _enum_flat_attr(val_col, valid, r_a, is_exch, w_col_orig):
     if comb_mat.size == 0:
         comb_mat = np.empty((r_a, 0), dtype=np.intp)
 
-    if r_a == 1 or not is_exch:
+    if r_a == 1 or not exch:
         perm_mat = comb_mat.copy()
     else:
         all_perms = np.array(
@@ -1364,11 +1401,6 @@ def _ma_build_perm_arrays(
         if N == 1:
             val_col = P[:, 0]
             valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
-            if 0 < valid.size < r_a:
-                raise ValueError(
-                    f"Event 0, attribute 0 has {valid.size} non-NaN "
-                    f"value(s) but r_a = {r_a}."
-                )
             perm_mat, comb_mat, perm_w, comb_w = _enum_flat_attr(
                 val_col, valid, r_a, is_exch_vec[0], W[:, 0])
             n_j = perm_mat.shape[1]
@@ -1414,11 +1446,6 @@ def _ma_build_perm_arrays(
                 for n in range(N):
                     val = P[:, n]
                     valid = np.nonzero(~np.isnan(val))[0].astype(np.intp)
-                    if 0 < valid.size < r_a:
-                        raise ValueError(
-                            f"Event {n}, attribute 0 has {valid.size} "
-                            f"non-NaN value(s) but r_a = {r_a}."
-                        )
                     pm, cm, pw, cw = _enum_flat_attr(
                         val, valid, r_a, is_exch_vec[0], W[:, n])
                     u_bl.append(val[pm])
@@ -1478,11 +1505,6 @@ def _ma_build_perm_arrays(
                 continue
 
             r_a = int(r_vec[a])
-            if 0 < K_na < r_a:
-                raise ValueError(
-                    f"Event {n}, attribute {a} has {K_na} non-NaN "
-                    f"value(s) but r_a = {r_a}."
-                )
 
             (perm_idx[n][a], comb_idx[n][a],
              perm_w[n][a], comb_w[n][a]) = _enum_flat_attr(
@@ -1601,10 +1623,10 @@ def _build_maet_single_multiset(
     w: np.ndarray | None,
     sigma: float,
     r: int,
-    is_rel: bool,
-    is_per: bool,
+    rel: bool,
+    per: bool,
     period: float,
-    is_exch: bool = True,
+    exch: bool = True,
     *,
     wrap: str = 'full-image',
     verbose: bool = True,
@@ -1634,7 +1656,7 @@ def _build_maet_single_multiset(
         # with no value at all on an attribute admits no tuple there
         # and so contributes nothing, while a partly filled one is
         # still an error.
-        dim = int(r) - (1 if is_rel else 0)
+        dim = int(r) - (1 if rel else 0)
         empty = {
             'n_j': 0, 'n_k': 0,
             'centres': [np.zeros((max(dim, 1), 0))],
@@ -1650,11 +1672,11 @@ def _build_maet_single_multiset(
             p_attr=[np.zeros((0, 1))],
             w=[np.zeros((0, 1))],
             sigma=np.array([float(sigma)]),
-            is_rel=np.array([bool(is_rel)]),
-            is_per=np.array([bool(is_per)]),
+            rel=np.array([bool(rel)]),
+            per=np.array([bool(per)]),
             period=np.array([float(period)]),
             dim=dim, dim_per_attr=np.array([dim]),
-            is_exch=np.array([bool(is_exch)]),
+            exch=np.array([bool(exch)]),
             _build_lazy=lambda: empty,
         )
     # Historical single-multiset validation, enforced before
@@ -1665,9 +1687,9 @@ def _build_maet_single_multiset(
         raise ValueError(
             f"r ({int(r)}) must not exceed the number of values ({K})."
         )
-    if bool(is_rel) and int(r) < 2:
+    if bool(rel) and int(r) < 2:
         raise ValueError(
-            "r must be at least 2 when is_rel is true (a single "
+            "r must be at least 2 when rel is true (a single "
             "position has no internal relative structure)."
         )
     p_attr = [p_arr.reshape(K, 1)]
@@ -1683,8 +1705,8 @@ def _build_maet_single_multiset(
     return _build_maet_ma(
         p_attr, w_attr,
         [float(sigma)], [int(r)],
-        [bool(is_rel)], [bool(is_per)], [float(period)],
-        [bool(is_exch)],
+        [bool(rel)], [bool(per)], [float(period)],
+        [bool(exch)],
         wrap=np.array([str(wrap)], dtype=object),
         verbose=verbose,
     )

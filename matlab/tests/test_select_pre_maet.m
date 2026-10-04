@@ -14,7 +14,7 @@ end
 sp_p = {[60 64 67; 72 76 79], [0 1 2]};
 sp_w = {[1 2 3; 1 1 1], ones(1, 3)};
 sp_specs = flatSpecs(sp_p, 'r', [2 1], 'exch', [false true], ...
-                     'name', {'pitch', 'onset'});
+                     'names', {'pitch', 'onset'});
 sp_pm = @() packPreMaet(sp_p, sp_w, sp_specs);
 
 [p, ~, sp] = unpackPreMaet(selectPreMaet(sp_pm(), 'attributes', {'onset'}));
@@ -54,7 +54,7 @@ results(end+1, :) = {'select: an attribute keeps its tuple size and flags', ...
 sp_vert = simplexVertices(4);
 sp_pmv = packPreMaet({[60 64], sp_vert(1:2, :).'}, [], ...
     flatSpecs({[60 64], zeros(3, 2)}, 'r', [1 3], 'exch', [true false], ...
-              'name', {'pitch', 'voice'}));
+              'names', {'pitch', 'voice'}));
 [p, ~, sp] = unpackPreMaet(selectPreMaet(sp_pmv, 'attributes', {'voice'}));
 results(end+1, :) = {'select: a multi-coordinate attribute moves whole', ...
     isequal(size(p{1}), [3 2]) && sp{1}.r == 3};
@@ -78,7 +78,7 @@ results(end+1, :) = {'select: a wrong-length mask is refused', ...
 % Allowed, and it means what it says: the event contributes nothing on
 % that attribute while keeping its place.
 sp_gap = packPreMaet({[60 NaN], [0 1]}, {[1 0], ones(1, 2)}, ...
-                 flatSpecs({[60 NaN], [0 1]}, 'name', {'pitch', 'onset'}));
+                 flatSpecs({[60 NaN], [0 1]}, 'names', {'pitch', 'onset'}));
 [p, ~, ~] = unpackPreMaet(selectPreMaet(sp_gap, 'events', 2));
 results(end+1, :) = {'select: selecting may leave an event with no value', ...
     isnan(p{1}(1, 1))};

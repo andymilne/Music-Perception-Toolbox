@@ -3,7 +3,7 @@
 Tests :func:`mpt.tensor._chord_canonical_key` and
 :func:`mpt.tensor._pair_canonical_key` in isolation. Coverage:
 
-- All four (is_rel, is_per) combinations.
+- All four (rel, per) combinations.
 - Permutation invariance of the input multiset.
 - Translation invariance per side (relative modes).
 - Joint co-transposition invariance of the pair (absolute modes).
@@ -50,36 +50,36 @@ PARAMS = dict(sigma=15.0, r=2, period=1200.0)
 class TestChordCanonicalKey:
     """Single-chord canonical key behaviour."""
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_returns_hashable_key(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_returns_hashable_key(self, rel, per):
         p = np.array([0.0, 400.0, 700.0])
         key, _, _ = _chord_canonical_key(
-            p, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p, None, rel=rel, per=per, **PARAMS,
         )
         # Hashable: usable as a dict key.
         d = {key: 1}
         assert d[key] == 1
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_permutation_invariance(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_permutation_invariance(self, rel, per):
         """Reordering pitches at input gives the same canonical key."""
         p1 = np.array([0.0, 400.0, 700.0])
         p2 = np.array([700.0, 0.0, 400.0])
         p3 = np.array([400.0, 700.0, 0.0])
-        k1, _, _ = _chord_canonical_key(p1, None, is_rel=is_rel, is_per=is_per, **PARAMS)
-        k2, _, _ = _chord_canonical_key(p2, None, is_rel=is_rel, is_per=is_per, **PARAMS)
-        k3, _, _ = _chord_canonical_key(p3, None, is_rel=is_rel, is_per=is_per, **PARAMS)
+        k1, _, _ = _chord_canonical_key(p1, None, rel=rel, per=per, **PARAMS)
+        k2, _, _ = _chord_canonical_key(p2, None, rel=rel, per=per, **PARAMS)
+        k3, _, _ = _chord_canonical_key(p3, None, rel=rel, per=per, **PARAMS)
         assert k1 == k2 == k3
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_weights_tracked(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_weights_tracked(self, rel, per):
         """Weight permutation matches pitch permutation in the canonical form."""
         p = np.array([700.0, 0.0, 400.0])
         w = np.array([3.0, 1.0, 2.0])
         # In the canonical form, pitches are sorted (or sorted-then-shifted),
         # and weights should follow the same sort.
-        k_uniform, _, _ = _chord_canonical_key(p, None, is_rel=is_rel, is_per=is_per, **PARAMS)
-        k_weighted, _, _ = _chord_canonical_key(p, w, is_rel=is_rel, is_per=is_per, **PARAMS)
+        k_uniform, _, _ = _chord_canonical_key(p, None, rel=rel, per=per, **PARAMS)
+        k_weighted, _, _ = _chord_canonical_key(p, w, rel=rel, per=per, **PARAMS)
         # Different weights => different keys (uniform-weight is None).
         assert k_uniform != k_weighted
 
@@ -88,17 +88,17 @@ class TestChordCanonicalKey:
         p1 = np.array([0.0, 400.0, 700.0])
         p2 = np.array([100.0, 500.0, 800.0])  # +100
         p3 = np.array([-50.0, 350.0, 650.0])  # -50
-        k1, _, _ = _chord_canonical_key(p1, None, is_rel=True, is_per=False, **PARAMS)
-        k2, _, _ = _chord_canonical_key(p2, None, is_rel=True, is_per=False, **PARAMS)
-        k3, _, _ = _chord_canonical_key(p3, None, is_rel=True, is_per=False, **PARAMS)
+        k1, _, _ = _chord_canonical_key(p1, None, rel=True, per=False, **PARAMS)
+        k2, _, _ = _chord_canonical_key(p2, None, rel=True, per=False, **PARAMS)
+        k3, _, _ = _chord_canonical_key(p3, None, rel=True, per=False, **PARAMS)
         assert k1 == k2 == k3
 
     def test_period_invariance_absolute_per(self):
         """In absolute periodic mode, octave-displaced inputs collapse to the same key."""
         p1 = np.array([0.0, 400.0, 700.0])
         p2 = np.array([1200.0, 1600.0, 1900.0])
-        k1, _, _ = _chord_canonical_key(p1, None, is_rel=False, is_per=True, **PARAMS)
-        k2, _, _ = _chord_canonical_key(p2, None, is_rel=False, is_per=True, **PARAMS)
+        k1, _, _ = _chord_canonical_key(p1, None, rel=False, per=True, **PARAMS)
+        k2, _, _ = _chord_canonical_key(p2, None, rel=False, per=True, **PARAMS)
         assert k1 == k2
 
     def test_cyclic_invariance_relative_per(self):
@@ -112,27 +112,27 @@ class TestChordCanonicalKey:
         # Easier test: any p2 = (p1 + c) mod 1200 should give the same key.
         c = 400.0
         p2 = np.mod(p1 + c, 1200.0)
-        k1, _, _ = _chord_canonical_key(p1, None, is_rel=True, is_per=True, **PARAMS)
-        k2, _, _ = _chord_canonical_key(p2, None, is_rel=True, is_per=True, **PARAMS)
+        k1, _, _ = _chord_canonical_key(p1, None, rel=True, per=True, **PARAMS)
+        k2, _, _ = _chord_canonical_key(p2, None, rel=True, per=True, **PARAMS)
         assert k1 == k2
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_distinct_chords_distinct_keys(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_distinct_chords_distinct_keys(self, rel, per):
         """Genuinely different chords give different keys."""
         p_major_triad = np.array([0.0, 400.0, 700.0])
         p_minor_triad = np.array([0.0, 300.0, 700.0])
-        k_maj, _, _ = _chord_canonical_key(p_major_triad, None, is_rel=is_rel, is_per=is_per, **PARAMS)
-        k_min, _, _ = _chord_canonical_key(p_minor_triad, None, is_rel=is_rel, is_per=is_per, **PARAMS)
+        k_maj, _, _ = _chord_canonical_key(p_major_triad, None, rel=rel, per=per, **PARAMS)
+        k_min, _, _ = _chord_canonical_key(p_minor_triad, None, rel=rel, per=per, **PARAMS)
         assert k_maj != k_min
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_canonical_arrays_match_key(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_canonical_arrays_match_key(self, rel, per):
         """The returned p_canon and w_canon arrays match the pitch / weight
         components of the key."""
         p = np.array([700.0, 0.0, 400.0])
         w = np.array([3.0, 1.0, 2.0])
         key, p_canon, w_canon = _chord_canonical_key(
-            p, w, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p, w, rel=rel, per=per, **PARAMS,
         )
         ca_p_in_key = key[0]  # first element is canonical pitch tuple
         ca_w_in_key = key[1]
@@ -146,10 +146,10 @@ class TestChordCanonicalKey:
         """Different sigma values produce different keys for the same chord."""
         p = np.array([0.0, 400.0, 700.0])
         k1, _, _ = _chord_canonical_key(
-            p, None, sigma=10.0, r=2, is_rel=True, is_per=True, period=1200.0,
+            p, None, sigma=10.0, r=2, rel=True, per=True, period=1200.0,
         )
         k2, _, _ = _chord_canonical_key(
-            p, None, sigma=20.0, r=2, is_rel=True, is_per=True, period=1200.0,
+            p, None, sigma=20.0, r=2, rel=True, per=True, period=1200.0,
         )
         assert k1 != k2
 
@@ -157,20 +157,20 @@ class TestChordCanonicalKey:
         """Different r values produce different keys for the same chord."""
         p = np.array([0.0, 400.0, 700.0])
         k1, _, _ = _chord_canonical_key(
-            p, None, sigma=15.0, r=2, is_rel=True, is_per=True, period=1200.0,
+            p, None, sigma=15.0, r=2, rel=True, per=True, period=1200.0,
         )
         k2, _, _ = _chord_canonical_key(
-            p, None, sigma=15.0, r=3, is_rel=True, is_per=True, period=1200.0,
+            p, None, sigma=15.0, r=3, rel=True, per=True, period=1200.0,
         )
         assert k1 != k2
 
     def test_distinct_modes_distinct_keys(self):
-        """Different (is_rel, is_per) combinations give different keys for
+        """Different (rel, per) combinations give different keys for
         the same chord — they describe structurally different densities."""
         p = np.array([0.0, 400.0, 700.0])
         keys = set()
-        for is_rel, is_per in [(False, False), (False, True), (True, False), (True, True)]:
-            k, _, _ = _chord_canonical_key(p, None, is_rel=is_rel, is_per=is_per, **PARAMS)
+        for rel, per in [(False, False), (False, True), (True, False), (True, True)]:
+            k, _, _ = _chord_canonical_key(p, None, rel=rel, per=per, **PARAMS)
             keys.add(k)
         assert len(keys) == 4
 
@@ -179,10 +179,10 @@ class TestChordCanonicalKey:
         p1 = np.array([0.0, 400.0, 700.0])
         p2 = np.array([0.0, 400.0 + 1e-10, 700.0 - 1e-10])  # FP noise
         k1, _, _ = _chord_canonical_key(
-            p1, None, is_rel=False, is_per=False, precision=4, **PARAMS,
+            p1, None, rel=False, per=False, precision=4, **PARAMS,
         )
         k2, _, _ = _chord_canonical_key(
-            p2, None, is_rel=False, is_per=False, precision=4, **PARAMS,
+            p2, None, rel=False, per=False, precision=4, **PARAMS,
         )
         assert k1 == k2
 
@@ -195,18 +195,18 @@ class TestChordCanonicalKey:
 class TestPairCanonicalKey:
     """Paired canonical-key behaviour."""
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_returns_hashable_keys(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_returns_hashable_keys(self, rel, per):
         p_a = np.array([0.0, 400.0, 700.0])
         p_b = np.array([0.0, 300.0, 700.0])
         ka, kb, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a, None, p_b, None, rel=rel, per=per, **PARAMS,
         )
         d = {(ka, kb): 1}
         assert d[(ka, kb)] == 1
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_permutation_invariance(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_permutation_invariance(self, rel, per):
         """Permuting input order on either side gives the same pair key."""
         p_a = np.array([0.0, 400.0, 700.0])
         p_a_perm = np.array([700.0, 0.0, 400.0])
@@ -214,10 +214,10 @@ class TestPairCanonicalKey:
         p_b_perm = np.array([300.0, 0.0])
 
         ka1, kb1, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a, None, p_b, None, rel=rel, per=per, **PARAMS,
         )
         ka2, kb2, *_ = _pair_canonical_key(
-            p_a_perm, None, p_b_perm, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a_perm, None, p_b_perm, None, rel=rel, per=per, **PARAMS,
         )
         assert ka1 == ka2
         assert kb1 == kb2
@@ -228,11 +228,11 @@ class TestPairCanonicalKey:
         p_b = np.array([0.0, 300.0])
 
         ka1, kb1, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=True, is_per=False, **PARAMS,
+            p_a, None, p_b, None, rel=True, per=False, **PARAMS,
         )
         # Translate A by +100, B by -50, independently.
         ka2, kb2, *_ = _pair_canonical_key(
-            p_a + 100.0, None, p_b - 50.0, None, is_rel=True, is_per=False, **PARAMS,
+            p_a + 100.0, None, p_b - 50.0, None, rel=True, per=False, **PARAMS,
         )
         assert ka1 == ka2
         assert kb1 == kb2
@@ -244,11 +244,11 @@ class TestPairCanonicalKey:
         p_b = np.array([200.0, 600.0])
 
         ka1, kb1, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=False, is_per=False, **PARAMS,
+            p_a, None, p_b, None, rel=False, per=False, **PARAMS,
         )
         c = 50.0
         ka2, kb2, *_ = _pair_canonical_key(
-            p_a + c, None, p_b + c, None, is_rel=False, is_per=False, **PARAMS,
+            p_a + c, None, p_b + c, None, rel=False, per=False, **PARAMS,
         )
         assert ka1 == ka2
         assert kb1 == kb2
@@ -260,11 +260,11 @@ class TestPairCanonicalKey:
         p_b = np.array([200.0, 600.0])
 
         ka1, kb1, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=False, is_per=False, **PARAMS,
+            p_a, None, p_b, None, rel=False, per=False, **PARAMS,
         )
         # Translate only A. In absolute mode, this changes the (A, B) relationship.
         ka2, kb2, *_ = _pair_canonical_key(
-            p_a + 50.0, None, p_b, None, is_rel=False, is_per=False, **PARAMS,
+            p_a + 50.0, None, p_b, None, rel=False, per=False, **PARAMS,
         )
         # In absolute mode, A determines the joint shift, so ka1 == ka2 always
         # (A on its own is canonicalised the same way). But kb should differ.
@@ -275,23 +275,23 @@ class TestPairCanonicalKey:
         p_a = np.array([0.0, 400.0, 700.0])
         p_b = np.array([200.0, 600.0])
         ka1, kb1, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=False, is_per=True, **PARAMS,
+            p_a, None, p_b, None, rel=False, per=True, **PARAMS,
         )
         ka2, kb2, *_ = _pair_canonical_key(
-            p_a + 1200.0, None, p_b + 1200.0, None, is_rel=False, is_per=True, **PARAMS,
+            p_a + 1200.0, None, p_b + 1200.0, None, rel=False, per=True, **PARAMS,
         )
         assert ka1 == ka2
         assert kb1 == kb2
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_canonical_arrays_match_keys(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_canonical_arrays_match_keys(self, rel, per):
         """Returned canonical numpy arrays match the corresponding key components."""
         p_a = np.array([700.0, 0.0, 400.0])
         w_a = np.array([3.0, 1.0, 2.0])
         p_b = np.array([300.0, 0.0])
 
         ka, kb, p_a_canon, w_a_canon, p_b_canon, w_b_canon = _pair_canonical_key(
-            p_a, w_a, p_b, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a, w_a, p_b, None, rel=rel, per=per, **PARAMS,
         )
         # First two key components are (canonical_pitch_tuple, canonical_weight_tuple_or_None)
         assert tuple(p_a_canon) == ka[0]
@@ -300,38 +300,38 @@ class TestPairCanonicalKey:
         assert kb[1] is None  # w_b was None
         assert w_b_canon is None
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_distinct_pairs_distinct_keys(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_distinct_pairs_distinct_keys(self, rel, per):
         """Genuinely different pairs give different (ka, kb) keys."""
         p_a = np.array([0.0, 400.0, 700.0])
         p_b1 = np.array([0.0, 300.0])
         p_b2 = np.array([0.0, 500.0])
         ka1, kb1, *_ = _pair_canonical_key(
-            p_a, None, p_b1, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a, None, p_b1, None, rel=rel, per=per, **PARAMS,
         )
         ka2, kb2, *_ = _pair_canonical_key(
-            p_a, None, p_b2, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a, None, p_b2, None, rel=rel, per=per, **PARAMS,
         )
         assert ka1 == ka2  # same A
         assert kb1 != kb2  # different B
 
-    @pytest.mark.parametrize("is_rel,is_per", MODES)
-    def test_consistency_with_chord_canonical_key_relative(self, is_rel, is_per):
+    @pytest.mark.parametrize("rel,per", MODES)
+    def test_consistency_with_chord_canonical_key_relative(self, rel, per):
         """In relative mode, _pair_canonical_key on (A, B) should produce the
         same individual keys as _chord_canonical_key on A and B independently."""
-        if not is_rel:
+        if not rel:
             pytest.skip("Independence holds only in relative mode.")
         p_a = np.array([0.0, 400.0, 700.0])
         p_b = np.array([200.0, 600.0])
 
         ka_chord, _, _ = _chord_canonical_key(
-            p_a, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a, None, rel=rel, per=per, **PARAMS,
         )
         kb_chord, _, _ = _chord_canonical_key(
-            p_b, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_b, None, rel=rel, per=per, **PARAMS,
         )
         ka_pair, kb_pair, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=is_rel, is_per=is_per, **PARAMS,
+            p_a, None, p_b, None, rel=rel, per=per, **PARAMS,
         )
         assert ka_chord == ka_pair
         assert kb_chord == kb_pair
@@ -341,11 +341,11 @@ class TestPairCanonicalKey:
         p_a = np.array([0.0, 400.0, 700.0])
         p_b = np.array([200.0, 600.0])
         ka1, kb1, *_ = _pair_canonical_key(
-            p_a, None, p_b, None, is_rel=False, is_per=False,
+            p_a, None, p_b, None, rel=False, per=False,
             precision=4, **PARAMS,
         )
         ka2, kb2, *_ = _pair_canonical_key(
-            p_a + 1e-10, None, p_b + 1e-10, None, is_rel=False, is_per=False,
+            p_a + 1e-10, None, p_b + 1e-10, None, rel=False, per=False,
             precision=4, **PARAMS,
         )
         assert ka1 == ka2

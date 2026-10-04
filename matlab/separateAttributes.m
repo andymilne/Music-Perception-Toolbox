@@ -1,12 +1,12 @@
 function pm = separateAttributes(pAttr, wAttr, attribute, nvArgs)
-%SEPARATEATTRIBUTES  Split one attribute into one attribute per slot.
+%SEPARATEATTRIBUTES  Split one attribute into one attribute per position.
 %
 %   PM = separateAttributes(PM0, attribute, ...)
 %   PM = separateAttributes(pAttr, wAttr, attribute, ...)
 %
 %   The inverse of bindAttributes, and the operation by which the
 %   conversion's two structural roles differ: under 'orderedMultiset'
-%   slot k is level k, so splitting that attribute slot by slot gives
+%   position k is level k, so splitting that attribute position by position gives
 %   what the 'separateAttributes' role builds from the table directly.
 %
 %   Each output attribute holds one row of the input and carries its
@@ -16,8 +16,8 @@ function pm = separateAttributes(pAttr, wAttr, attribute, nvArgs)
 %   attribute is the attribute to split, as an index or a name.
 %
 %   Name-value pairs
-%     'names' - names for the parts, one per slot. The default suffixes
-%               the source's name with the 1-based slot position.
+%     'names' - names for the parts, one per position. The default suffixes
+%               the source's name with the 1-based position.
 %     'specs' - the attribute specifications; [] synthesises flat ones.
 %
 %   See also BINDATTRIBUTES, SELECTPREMAET, BUILDMAET.
@@ -92,12 +92,12 @@ function pm = separateAttributes(pAttr, wAttr, attribute, nvArgs)
         partNames = cellstr(partNames);
         if numel(partNames) ~= K
             error('separateAttributes:namesLength', ...
-                  'names must have one entry per slot (%d); got %d.', ...
+                  'names must have one entry per position (%d); got %d.', ...
                   K, numel(partNames));
         end
     end
 
-    carried = {'sigma', 'rel', 'isPer', 'period'};
+    carried = {'sigma', 'rel', 'per', 'period'};
     pOut = {};
     wOut = {};
     specsOut = {};

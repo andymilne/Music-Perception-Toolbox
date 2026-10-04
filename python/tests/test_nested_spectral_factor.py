@@ -35,7 +35,7 @@ def _flat(pitches, n_partials, rho=1.0):
 def _recipe(cell_len, n_partials):
     tags = np.repeat(np.arange(cell_len), n_partials).reshape(-1, 1)
     return build_recipe(np.array([1, cell_len]), np.array([1, 0]), tags,
-                        is_rel=True, is_per=False)
+                        rel=True, per=False)
 
 
 # (X, Y, KpX, KpY, rhoX, rhoY): same/different templates, lengths, self/cross
@@ -87,7 +87,7 @@ def _cell(pitches, n_partials=12):
               np.arange(n, dtype=float).reshape(1, n)]
     w_attr = [wp.reshape(n, n_partials).T, None]
     pb, wb, sb = unpack_pre_maet(bind_events(p_attr, w_attr, [n, 1], step=1, rel_outer=True))
-    return build_maet(pb, wb, sigma=[SIG, 0.125], is_per=[False, False],
+    return build_maet(pb, wb, sigma=[SIG, 0.125], per=[False, False],
                           period=[0.0, 0.0], specs=sb, verbose=False)
 
 

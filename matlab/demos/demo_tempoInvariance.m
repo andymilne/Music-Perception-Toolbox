@@ -42,7 +42,7 @@
 %                 tuple -- on log-IOIs, a TEMPO change. One sd is a
 %                 tempo factor of exp(sdShift). As sdShift grows the
 %                 kernel's precision tends to the relative-mode
-%                 projector, so isRel = true is the exact
+%                 projector, so rel = true is the exact
 %                 (infinite-sdShift) limit: graded tempo TOLERANCE
 %                 tends to exact tempo INVARIANCE.
 %
@@ -77,7 +77,7 @@
 %                    under six kernels; the candidate table contrasts
 %                    value (timing) tolerance with tempo
 %                    tolerance, and both with exact tempo invariance.
-%    4. The limit    sdShift -> infinity converges to isRel = true.
+%    4. The limit    sdShift -> infinity converges to rel = true.
 %
 %  Similarities throughout are 'normalize' = 'oneSidedDenom', which is
 %  1 on a self-match; for these single-trigram comparisons with a
@@ -86,7 +86,7 @@
 %
 %  Two figures are drawn: the onset stream with the query and the six
 %  similarity profiles aligned beneath it, and the sdShift sweep
-%  converging to the isRel limit.
+%  converging to the rel limit.
 %
 %  The Python mirror is demo_tempo_invariance.py.
 
@@ -193,7 +193,7 @@ fprintf('  interval (the window-placing attribute).\n');
 %     tempo change in these log-IOI coordinates: a rank-one ridge
 %     (sdShift^2 added to every entry). The larger this ridge, the
 %     freer the common shift becomes, and in the limit the kernel
-%     approaches the relative-mode reading (isRel = true), which
+%     approaches the relative-mode reading (rel = true), which
 %     quotients the shift out exactly. Section 4 traces this
 %     convergence.
 % The three cases below turn on one term at a time so each contribution
@@ -346,10 +346,10 @@ wQuery = {ones(3, 1), 1};
 
 showPreMaet(pContext, wContext, {kernelSpecs{1}, spBound{2}}, ...
     'names', {'trigram', 'time'}, 'sigma', {kernelSigmas{1}, 0.25}, ...
-    'isPer', [false false], 'maxEvents', 4);
+    'per', [false false], 'maxEvents', 4);
 showPreMaet(pQuery, wQuery, {kernelSpecs{1}, spBound{2}}, ...
     'names', {'trigram', 'time'}, 'sigma', {kernelSigmas{1}, 0.25}, ...
-    'isPer', [false false]);
+    'per', [false false]);
 fprintf('\n');
 
 profiles = zeros(numel(kernelNames), nTri);
@@ -532,14 +532,14 @@ xlabel(allAx(end), 'time (s)');
 linkaxes(allAx, 'x');
 xlim(allAx(1), xLim);
 
-%% ===== 4. From tolerance to invariance: the isRel limit =====
+%% ===== 4. From tolerance to invariance: the rel limit =====
 
-fprintf('\n=== 4. sdShift -> infinity is isRel = true ===\n\n');
+fprintf('\n=== 4. sdShift -> infinity is rel = true ===\n\n');
 fprintf('  As sdShift grows, the kernel''s precision tends to the\n');
 fprintf('  relative-mode projector: the shift direction becomes free\n');
 fprintf('  while the within-shape metric is left behind. With the\n');
 fprintf('  within-shape term supplied by sdInterval = 0.08, the limit\n');
-fprintf('  is EXACTLY isRel = true at sigma = 0.08, because rel\n');
+fprintf('  is EXACTLY rel = true at sigma = 0.08, because rel\n');
 fprintf('  mode''s isotropic within-shape kernel is the limit of the\n');
 fprintf('  diagonal (sdInterval) family. (The sdValue family also\n');
 fprintf('  has a shift-invariant limit, but its within-shape metric\n');
@@ -570,7 +570,7 @@ for j = 1:2
         true, false, 0, false, ...
         'normalize', 'oneSidedDenom', 'verbose', false);
 end
-fprintf('  %-12s%15.4f%15.4f\n', 'isRel = true', row);
+fprintf('  %-12s%15.4f%15.4f\n', 'rel = true', row);
 
 % --- Limit figure: similarity vs sdShift, with the rel asymptotes ---
 ssDense = logspace(log10(0.05), log10(20.0), 60);
@@ -593,7 +593,7 @@ for j = 1:2
         'Color', cols(j, :), 'LineWidth', 1.2);
     yline(ax2, row(j), '--', 'Color', cols(j, :), 'LineWidth', 0.9);
     text(ax2, 0.055, row(j) + 0.02, ...
-        sprintf('isRel = true: %.3f', row(j)), ...
+        sprintf('rel = true: %.3f', row(j)), ...
         'Color', cols(j, :), 'FontSize', 8);
 end
 set(ax2, 'XScale', 'log');

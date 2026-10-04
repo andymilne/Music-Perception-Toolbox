@@ -9,8 +9,8 @@ function H = entropyMaet(varargin)
 %       H = -sum_k q_k log_b q_k of the density on an explicit
 %       Cartesian-product grid (one 1-D linspace per effective
 %       dimension, on each group's domain). Bin-mass integration via
-%       per-axis Phi-difference contractions for isRel=false;
-%       point-evaluation for isRel=true.
+%       per-axis Phi-difference contractions for rel=false;
+%       point-evaluation for rel=true.
 %
 %     'normalized' (alias 'normalised') --- the Pielou-style ratio
 %       H / log_b(N) in [0, 1]. Reproduces the values reported in
@@ -58,8 +58,8 @@ function H = entropyMaet(varargin)
 %   multi-attribute form.
 %
 %
-%     H = ENTROPYMAET(p, w, sigma, r, isRel, isPer, period)
-%     H = ENTROPYMAET(p, w, sigma, r, isRel, isPer, period, isExch)
+%     H = ENTROPYMAET(p, w, sigma, r, rel, per, period)
+%     H = ENTROPYMAET(p, w, sigma, r, rel, per, period, exch)
 %       Single-multiset raw form. Builds the density from the
 %       weighted multiset (p, w), where p represents pitches or
 %       positions.
@@ -90,7 +90,7 @@ function H = entropyMaet(varargin)
 %       per-density entropy values. Option II shape rule applies
 %       (length-1 input returns length-1 cell).
 %
-%     H = ENTROPYMAET(P, W, sigma, r, isRel, isPer, period[, isExch])
+%     H = ENTROPYMAET(P, W, sigma, r, rel, per, period[, exch])
 %       Batched-raw form. P is an nRows-by-K matrix (rows = multisets);
 %       returns an nRows-by-1 column vector. Detection is by P having
 %       both dimensions > 1; rows with fewer than r valid pitches
@@ -108,7 +108,7 @@ function H = entropyMaet(varargin)
 %   H = ENTROPYMAET(..., Name, Value) specifies additional options
 %   using one or more name-value arguments.
 %
-%   For periodic attributes (isPer = true), the Shannon grid spans
+%   For periodic attributes (per = true), the Shannon grid spans
 %   [0, period). For non-periodic attributes, bounds must be specified
 %   via xMin and xMax, wide enough to capture the full support of the
 %   distribution (e.g., at least 3*sigma beyond the outermost values).
@@ -138,11 +138,11 @@ function H = entropyMaet(varargin)
 %                 (In the docstring above, this is denoted W when paired
 %                 with P.)
 %       sigma   — Gaussian bandwidth.
-%       r       — Tuple size (positive integer; r >= 2 if isRel == true).
-%       isRel   — Logical: true for relative (transposition-invariant).
-%       isPer   — Logical: true for periodic domain.
+%       r       — Tuple size (positive integer; r >= 2 if rel == true).
+%       rel   — Logical: true for relative (transposition-invariant).
+%       per   — Logical: true for periodic domain.
 %       period  — Period of the domain.
-%       isExch  — Optional logical (default: true): true for an
+%       exch  — Optional logical (default: true): true for an
 %                 exchangeable (unordered) multiset, whose density is
 %                 invariant under permuting a tuple's coordinates; false
 %                 for an ordered one, where position in the tuple
@@ -159,7 +159,7 @@ function H = entropyMaet(varargin)
 %       isPerVec  - 1 x A per-attribute periodic flags.
 %       periodVec - 1 x A per-attribute periods.
 %       isExchVec - Optional 1 x A per-attribute exchangeability flags
-%                   (default: all true); see isExch above.
+%                   (default: all true); see exch above.
 %
 %   Name-Value Arguments
 %       'method'        - One of {'shannon' (default), 'normalized',
@@ -185,7 +185,7 @@ function H = entropyMaet(varargin)
 %       'gridLimit'     - Ceiling on total grid size before allocation.
 %                         Applies to MA always, and to single multiset whenever the
 %                         density's effective dimension dim > 1 (e.g.
-%                         r = 2 with isRel = false). Default: 1e8.
+%                         r = 2 with rel = false). Default: 1e8.
 %                         Errors with a suggested reduction if exceeded.
 %       'truncationSigmas' - Numeric scalar or []. Override the
 %                         toolbox-wide mptDefaults('truncationSigmas')
@@ -280,7 +280,7 @@ nvDefaults = struct( ...
     'gridLimit',         1e8, ...
     'truncationSigmas',  [], ...
     'kernelPrecision',   [], ...
-    'isExch',             [], ...
+    'exch',             [], ...
     'verbose',           true);
 
 [posArgs, nvArgs] = localParseNVPairs(varargin, nvDefaults);
@@ -293,14 +293,14 @@ end
 
 % Optional [exch] geometry flag for the raw forms. Entropy integrates
 % over the whole space, so the raw layouts are pure geometry with no
-% query: ..., period[, isExch]. A raw call therefore has 7 positional
-% args, or 8 with isExch. (Struct and list forms have a single
-% positional and never reach 8.) Pop a trailing isExch here, leaving
+% query: ..., period[, exch]. A raw call therefore has 7 positional
+% args, or 8 with exch. (Struct and list forms have a single
+% positional and never reach 8.) Pop a trailing exch here, leaving
 % posArgs at 7 so the per-method dispatch checks are unchanged, and
 % stash it on nvArgs for the build calls. The default (empty =
 % symmetric) comes from nvDefaults; an 8th positional overrides it.
 if nPos == 8
-    nvArgs.isExch = posArgs{8};
+    nvArgs.exch = posArgs{8};
     posArgs(8) = [];
     nPos = numel(posArgs);
 end
@@ -451,7 +451,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             if nPos ~= 7
                 error('entropyMaet:wrongArgCountBatched', ...
                       ['Batched-raw call expects 7 or 8 positional arguments ' ...
-                       '(P, W, sigma, r, isRel, isPer, period[, isExch]); ' ...
+                       '(P, W, sigma, r, rel, per, period[, exch]); ' ...
                        'got %d.'], nPos);
             end
             localRequireExplicitGrid(nvArgs.nPointsPerDim);
@@ -462,8 +462,8 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         if nPos ~= 7
             error('entropyMaet:wrongArgCountSingleMultiset', ...
                   ['Single-multiset raw call expects 7 or 8 positional ' ...
-                   'arguments (p, w, sigma, r, isRel, isPer, period' ...
-                   '[, isExch]); got %d.'], nPos);
+                   'arguments (p, w, sigma, r, rel, per, period' ...
+                   '[, exch]); got %d.'], nPos);
         end
         p      = posArgs{1};
         w      = posArgs{2};
@@ -513,7 +513,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
 
     T = internal.singleMultisetView(maet);
 
-    isPer  = T.isPer;
+    isPer  = T.per;
     period = T.period;
     dim    = T.dim;
 
@@ -521,7 +521,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
     if ~isPer
         if isnan(nvArgs.xMin) || isnan(nvArgs.xMax)
             error('entropyMaet:missingBounds', ...
-                  'xMin and xMax must be specified when isPer = false.');
+                  'xMin and xMax must be specified when per = false.');
         end
         if nvArgs.xMin >= nvArgs.xMax
             error('entropyMaet:invalidBounds', ...
@@ -551,15 +551,15 @@ function H = localEntropySingleMultiset(maet, nvArgs)
 
     % Evaluate density on the grid.
     %
-    % For absolute-mode densities (isRel=false) the categorical pmf is
+    % For absolute-mode densities (rel=false) the categorical pmf is
     % the genuine bin masses int_{cell} f dx, obtained analytically
     % via per-axis erf differences. This matches Python's
     % _cell_masses_ma_absolute and gives Python/MATLAB parity on this
-    % path. For relative-mode densities (isRel=true) the bin integral
+    % path. For relative-mode densities (rel=true) the bin integral
     % is a multivariate-normal box probability (off-diagonal kernel
     % covariance in the effective coordinates); pending the v2.3
     % covariance machinery we fall back to point-evaluation here too.
-    if ~logical(T.isRel)
+    if ~logical(T.rel)
         % Bin-integration cell-mass path. The resolved truncationSigmas
         % (empty resolves to the global default, Inf to the accuracy-
         % floor width) fixes the image count of a full-image periodic
@@ -614,7 +614,7 @@ function H = localEntropyMA(dens, nvArgs)
 %LOCALENTROPYMA  Shannon entropy of a MaetDensity.
 %
 %   Builds a Cartesian-product grid with one 1-D linspace per effective
-%   dimension of the density's domain (one per non-isRel coordinate for
+%   dimension of the density's domain (one per non-rel coordinate for
 %   each attribute, each on its group's domain), evaluates the density
 %   at every grid point via evalMaet, normalises to a pmf, and
 %   returns Shannon entropy.
@@ -630,11 +630,11 @@ function H = localEntropyMA(dens, nvArgs)
     A         = base_dens.nAttrs;
     dimPer    = base_dens.dimPerAttr;
     dim       = base_dens.dim;
-    isPerG    = logical(base_dens.isPer);
+    isPerG    = logical(base_dens.per);
     periodG   = base_dens.period;
 
     if dim == 0
-        % Degenerate: all attributes isRel with r = 1. Density is
+        % Degenerate: all attributes rel with r = 1. Density is
         % constant and entropy is 0.
         H = 0;
         return;
@@ -692,7 +692,7 @@ function H = localEntropyMA(dens, nvArgs)
 
     % --- Evaluate density on the grid ---
     %
-    % For absolute-mode densities (isRel=false everywhere)
+    % For absolute-mode densities (rel=false everywhere)
     % the categorical pmf is the genuine bin masses (int_{cell} f dx),
     % obtained analytically via per-axis erf differences. This matches
     % Python's _cell_masses_ma_absolute and gives Python/MATLAB parity
@@ -702,7 +702,7 @@ function H = localEntropyMA(dens, nvArgs)
     % we fall back to point-evaluation, which agrees with bin-
     % integration to ~1e-4 on the fine grids relative-mode use-cases
     % require.
-    isAbs = ~any(logical(base_dens.isRel));
+    isAbs = ~any(logical(base_dens.rel));
     if isAbs
         % Bin-integration cell-mass path (see the single multiset sibling
         % above: the resolved width fixes the full-image image count).
@@ -831,8 +831,8 @@ end
 function H = localEntropyBatchedRaw(posArgs, nvArgs)
 %LOCALENTROPYBATCHEDRAW Per-row entropy from a 2-D pitch matrix.
 %
-%   posArgs follows the single multiset-raw convention: {P, W, sigma, r, isRel,
-%   isPer, period} with P an nRows-by-K matrix. Returns an nRows-by-1
+%   posArgs follows the single multiset-raw convention: {P, W, sigma, r, rel,
+%   per, period} with P an nRows-by-K matrix. Returns an nRows-by-1
 %   vector of entropy values; rows with fewer than r valid pitches
 %   are NaN.
 
@@ -846,17 +846,17 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
 
     % The per-row dedup keys rows by a multiset canonical form, which
     % collapses rows that share a multiset but differ in order. That is
-    % correct only for the symmetric reading: under isExch = false the
+    % correct only for the symmetric reading: under exch = false the
     % order is significant, so the dedup would silently merge distinct
     % ordered densities (and hence entropies). Reject rather than return
     % a wrong answer (parity with the Python batched path). Order-aware
     % batched dedup is a tracked follow-up; compute ordered densities one
     % row at a time.
-    if isfield(nvArgs, 'isExch') && ~isempty(nvArgs.isExch) ...
-            && ~all(logical(nvArgs.isExch(:))) && r > 1
+    if isfield(nvArgs, 'exch') && ~isempty(nvArgs.exch) ...
+            && ~all(logical(nvArgs.exch(:))) && r > 1
         error('entropyMaet:batchedOrderedUnsupported', ...
               ['entropyMaet batched (2-D) input does not yet support ' ...
-               'isExch = false (ordered) densities at r > 1: the batched ' ...
+               'exch = false (ordered) densities at r > 1: the batched ' ...
                'dedup canonicalises each row''s multiset and would merge ' ...
                'order-distinct rows. Compute ordered densities one row ' ...
                'at a time (vector input).']);
@@ -984,18 +984,18 @@ function nvPairs = localPackNVPairs(nvArgs)
 %   allowed to supply. Recursive entropyMaet calls would otherwise
 %   see 'normalize' in varargin and trip the v3 migration error.
 %
-%   The 'isExch' field is likewise omitted: it is an internal-only
+%   The 'exch' field is likewise omitted: it is an internal-only
 %   carrier for the optional trailing positional flag, popped from the
 %   raw-form positional args. It is not a name-value pair, so forwarding
 %   it would be mis-parsed as a positional argument by the recursive
-%   call. The LIST path's densities already carry their own isExch, and
+%   call. The LIST path's densities already carry their own exch, and
 %   the BATCHED path builds symmetric per-row densities by default
 %   (ordered batched input is rejected before any recursion).
 
     nvPairs = {};
     fns = fieldnames(nvArgs);
     for i = 1:numel(fns)
-        if strcmp(fns{i}, 'normalize') || strcmp(fns{i}, 'isExch')
+        if strcmp(fns{i}, 'normalize') || strcmp(fns{i}, 'exch')
             continue;
         end
         nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
@@ -1015,15 +1015,15 @@ end
 % the discrete pmf entry at grid cell j is the actual probability mass
 % inside that cell, int_{cell_j} f dx, not the density sample f(x_j) * Delta.
 % For a Gaussian-mixture density with diagonal kernel covariance in the
-% effective grid coordinates --- which holds for isRel=false (every group
+% effective grid coordinates --- which holds for rel=false (every group
 % absolute) --- the cell mass factorizes into a product of per-axis erf
 % differences, summed over tuples. Mirrors the Python implementation in
 % python/mpt/entropy.py for bit-for-bit parity.
 %
 % n_tuple_entropy reaches this path by differencing events externally
 % (differenceEvents + bindEvents) and then building an absolute
-% (isRel=false) MAET, so its sigma is the effective sigma_eff already.
-% Relative-mode direct calls (isRel=true) fall back to point-evaluation,
+% (rel=false) MAET, so its sigma is the effective sigma_eff already.
+% Relative-mode direct calls (rel=true) fall back to point-evaluation,
 % which agrees with bin-integration to ~1e-4 on the fine grids relative-
 % mode use-cases require; the full multivariate-normal box treatment is
 % a v2.3 item.
@@ -1257,7 +1257,7 @@ end
 
 function M = localAxisMat(spec, sel, truncationSigmas)
 %LOCALAXISMAT  Per-axis (nJ x nCells) erf-difference cell-mass matrix for
-%   one axis spec (fields: cents, lo, hi, sigma, isPer, per, wrap). sel
+%   one axis spec (fields: cents, lo, hi, sigma, per, period, wrap). sel
 %   selects a subset of cells; pass [] for all cells. truncationSigmas
 %   is the resolved width whose floor fixes a full-image periodic axis's
 %   image count.
@@ -1268,13 +1268,13 @@ function M = localAxisMat(spec, sel, truncationSigmas)
         lo = spec.lo(sel);
         hi = spec.hi(sel);
     end
-    if spec.isPer
+    if spec.per
         wrapA = 'full-image';
         if isfield(spec, 'wrap') && ~isempty(spec.wrap)
             wrapA = char(spec.wrap);
         end
         M = localPhiDiffAxisPeriodic(spec.cents, lo, hi, spec.sigma, ...
-                                     spec.per, truncationSigmas, wrapA);
+                                     spec.period, truncationSigmas, wrapA);
     else
         M = localPhiDiffAxis(spec.cents, lo, hi, spec.sigma);
     end
@@ -1345,22 +1345,22 @@ function cells = localCellMassesSingleMultisetAbsolute(T, ax, truncationSigmas)
 %
 %   Returns a flat (prod_d n_cells x 1) column vector of integrated
 %   cell masses int_{cell} f dx via per-axis erf differences. Restricted
-%   to isRel=false; the caller is responsible for routing isRel=true
+%   to rel=false; the caller is responsible for routing rel=true
 %   elsewhere. Mirrors Python's _cell_masses_ma_absolute exactly so
 %   numerical outputs match across languages.
 
-    if logical(T.isRel)
+    if logical(T.rel)
         error('entropyMaet:cellMassesSingleMultisetNotAbsolute', ...
-            'localCellMassesSingleMultisetAbsolute: isRel=true is not supported by this path.');
+            'localCellMassesSingleMultisetAbsolute: rel=true is not supported by this path.');
     end
     dim = double(T.dim);
     sig = double(T.sigma);
-    isPer = logical(T.isPer);
+    isPer = logical(T.per);
     per = double(T.period);
     if ~isPer
         per = 0.0;
     end
-    C = double(T.Centres);         % (dim x nJ) when isRel=false
+    C = double(T.Centres);         % (dim x nJ) when rel=false
     wJ = double(T.wJ(:));
 
     % Auto-prune zero-weight tuples (see localCellMassesMAAbsolute).
@@ -1393,7 +1393,7 @@ function cells = localCellMassesSingleMultisetAbsolute(T, ax, truncationSigmas)
     axisSpecs = cell(1, dim);
     for d = 1:dim
         axisSpecs{d} = struct('cents', C(d, :), 'lo', lo, 'hi', hi, ...
-            'sigma', sig, 'isPer', isPer, 'per', per, 'wrap', wrapA);
+            'sigma', sig, 'per', isPer, 'period', per, 'wrap', wrapA);
     end
     cells = localContractCellAxes(wJ, axisSpecs, truncationSigmas);
 end
@@ -1405,19 +1405,19 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
 %   Returns a flat column vector of integrated cell masses on the
 %   Cartesian-product grid built from axes (a 1-by-D cell of 1-D
 %   linspaces). Restricted to absolute-mode densities (every group
-%   isRel=false). Mirrors Python's _cell_masses_ma_absolute.
+%   rel=false). Mirrors Python's _cell_masses_ma_absolute.
 
-    if any(logical(dens.isRel))
+    if any(logical(dens.rel))
         error('entropyMaet:cellMassesMANotAbsolute', ...
             ['localCellMassesMAAbsolute: relative-mode densities are ' ...
-             'not supported by this path. Route isRel=true via point-' ...
+             'not supported by this path. Route rel=true via point-' ...
              'evaluation.']);
     end
 
     A = double(dens.nAttrs);
     dimPer = double(dens.dimPerAttr);
     sigmaG = double(dens.sigma);
-    isPerG = logical(dens.isPer);
+    isPerG = logical(dens.per);
     periodG = double(dens.period);
     Centres = dens.Centres;        % 1-by-A cell; each (dim_per(a) x nJ)
     wJ = double(dens.wJ(:));
@@ -1468,7 +1468,7 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
             ax = axes{axisD};
             [lo, hi] = localAxisEdges(ax, isPerA, perA);
             axisSpecs{axisD} = struct('cents', Ca(sub, :), 'lo', lo, ...
-                'hi', hi, 'sigma', sig, 'isPer', isPerA, 'per', perA, ...
+                'hi', hi, 'sigma', sig, 'per', isPerA, 'period', perA, ...
                 'wrap', wrapA); %#ok<AGROW>
         end
     end
@@ -1483,15 +1483,15 @@ end
 
 
 function c = localExchArgs(nvArgs)
-%LOCALEXCHARGS  Cell of the optional isExch positional for buildMaet.
+%LOCALEXCHARGS  Cell of the optional exch positional for buildMaet.
 %
 %   Returns {} when no [exch] flag was supplied (symmetric default) or
-%   {isExch} otherwise, for splatting into a buildMaet call as the
+%   {exch} otherwise, for splatting into a buildMaet call as the
 %   trailing positional after periodVec.
-    if ~isfield(nvArgs, 'isExch') || isempty(nvArgs.isExch)
+    if ~isfield(nvArgs, 'exch') || isempty(nvArgs.exch)
         c = {};
     else
-        c = {nvArgs.isExch};
+        c = {nvArgs.exch};
     end
 end
 
@@ -1635,8 +1635,8 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         if nPos ~= 7
             error('entropyMaet:wrongArgCountSingleMultiset', ...
                 ['Single-multiset raw call expects 7 or 8 positional ' ...
-                 'arguments (p, w, sigma, r, isRel, isPer, period' ...
-                 '[, isExch]); got %d.'], nPos);
+                 'arguments (p, w, sigma, r, rel, per, period' ...
+                 '[, exch]); got %d.'], nPos);
         end
         p      = posArgs{1};
         w      = posArgs{2};
@@ -1836,7 +1836,7 @@ function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSingleMulti
     T = internal.singleMultisetView(maet);
 
     sig = double(T.sigma);
-    isPer = logical(T.isPer);
+    isPer = logical(T.per);
     per = double(T.period);
     dim = double(T.dim);
 
@@ -1879,7 +1879,7 @@ function [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, 
     A = double(dens.nAttrs);
     dimPer = double(dens.dimPerAttr);
     sigmaG = double(dens.sigma);
-    isPerG = logical(dens.isPer);
+    isPerG = logical(dens.per);
     periodG = double(dens.period);
     pAttr = dens.pAttr;
     wCell = dens.w;   % 1-by-A cell of K_a x N per-attribute weight matrices
@@ -2020,7 +2020,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     if nPos ~= 7
         error('entropyMaet:wrongArgCountSingleMultiset', ...
             ['Single-multiset raw call expects 7 or 8 positional arguments ' ...
-             '(p, w, sigma, r, isRel, isPer, period[, isExch]); got %d.'], nPos);
+             '(p, w, sigma, r, rel, per, period[, exch]); got %d.'], nPos);
     end
     p      = posArgs{1};
     w      = posArgs{2};
@@ -2144,13 +2144,13 @@ function H = localRenyi2(dens, base, ipKw)
     for a = 1:A
         isNested(a) = ~isempty(nested{a}) && isstruct(nested{a}) && isfield(nested{a}, 'tags');
     end
-    if isfield(dens, 'isExch') && ~isempty(dens.isExch)
-        isExchVec = logical(dens.isExch(:).');
+    if isfield(dens, 'exch') && ~isempty(dens.exch)
+        isExchVec = logical(dens.exch(:).');
     else
         isExchVec = true(1, A);
     end
     rVec = double(dens.r(:).');
-    relR1 = ~isNested & logical(dens.isRel(:).') & (rVec == 1);
+    relR1 = ~isNested & logical(dens.rel(:).') & (rVec == 1);
     live = find(~relR1);
 
     internal.maybeShowDispatchMsg('entropyMaet', 'ip', ...
@@ -2166,7 +2166,7 @@ function H = localRenyi2(dens, base, ipKw)
                 specs{i} = nested{a};
             else
                 specs{i} = struct('r', rVec(a), 'exch', isExchVec(a), ...
-                                  'rel', logical(dens.isRel(a)));
+                                  'rel', logical(dens.rel(a)));
             end
         end
         bArgs = {};
@@ -2174,7 +2174,7 @@ function H = localRenyi2(dens, base, ipKw)
             bArgs = {'wrap', dens.wrap(live)};
         end
         sub = buildMaet(dens.pAttr(live), dens.w(live), 'specs', specs, ...
-                           'sigma', dens.sigma(live), 'isPer', logical(dens.isPer(live)), ...
+                           'sigma', dens.sigma(live), 'per', logical(dens.per(live)), ...
                            'period', dens.period(live), bArgs{:}, 'verbose', false);
         ip_xx = simMaet(sub, sub, 'normalize', 'none', ipKw{:}, ...
                         'verbose', false);
@@ -2198,7 +2198,7 @@ function H = localRenyi2(dens, base, ipKw)
     Zpe = ones(N, A);
     for a = 1:A
         sig = double(dens.sigma(a));
-        isRel = logical(dens.isRel(a));
+        isRel = logical(dens.rel(a));
         r_a = rVec(a);
         Pa = dens.pAttr{a};
         Wa = dens.w{a};

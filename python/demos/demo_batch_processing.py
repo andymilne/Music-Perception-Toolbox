@@ -28,10 +28,10 @@ transposition and pitch order: the twelve transpositions of a chord type
 collapse to one computation, and the 144 chord rows to 4. SPCS depends
 on where the chord lies against its scale, so its key is the (scale,
 chord) pair, up to transposing both together, under the analysis
-parameters (sigma, r, is_rel, is_per, period). Here, with is_per = True,
+parameters (sigma, r, rel, per, period). Here, with per = True,
 pitch is read as pitch class, so the augmented triad's transpositions by
 a major third, which give one pitch-class set, collapse, and the 144
-pairs cost 120 computations; under is_rel = True (which needs r >= 2)
+pairs cost 120 computations; under rel = True (which needs r >= 2)
 every transposition of a chord would collapse, a relative density being
 transposition-invariant. The analyst changes the flags and the saving
 follows, with no change to the calling code. The one feature without a
@@ -79,8 +79,8 @@ spec = ['harmonic', n_harm, 'powerlaw', rho]
 # Expectation tensor parameters
 sigma = 10
 r = 1
-is_rel = False
-is_per = True
+rel = False
+per = True
 period = 1200
 
 # Reference pitch for roughness (Hz)
@@ -147,7 +147,7 @@ print("=== Workflow 1: SPCS via batched sim_maet ===\n")
 
 spcs = mpt.sim_maet(
     p_mat_a, None, p_mat_b, None,
-    sigma, r, is_rel, is_per, period,
+    sigma, r, rel, per, period,
     spectrum=spec,
 )
 spcs = np.round(spcs, 3)
@@ -281,8 +281,8 @@ def _item(pcs, onsets):
     p = [np.asarray(pcs, dtype=float)[None, :],
          np.asarray(onsets, dtype=float)[None, :]]
     return mpt.pack_pre_maet(p, specs=mpt.flat_specs(
-        p, name=["pitch class", "onset"], sigma=[35.0, 0.25],
-        is_per=[True, False], period=[1200.0, 0.0]))
+        p, names=["pitch class", "onset"], sigma=[35.0, 0.25],
+        per=[True, False], period=[1200.0, 0.0]))
 
 items = [_item([0, 400, 700], [0, 1, 2]),
          _item([0, 300, 700, 1000], [0, 1, 2, 3]),

@@ -411,7 +411,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
       offset a zero is refused, and admitting zeros means writing the
       constant down (log(x + c) is not unit-free: the unit of x is then
       part of the model). ``'affine'`` is the only transform compatible
-      with a periodic attribute (``is_per=True`` at build); the others
+      with a periodic attribute (``per=True`` at build); the others
       change the metric and so cannot be wrapped.
     - a scale pair ``('from', 'to')`` or ``{'from': ..., 'to': ...}``
       among the pitch scales ``'hz'``, ``'midi'``, ``'cents'`` (100 x
@@ -421,7 +421,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
       value matrix; ``y`` must have the same shape and be finite
       wherever ``x`` holds a value.
 
-    Slots holding no value (``NaN``, the padding of events with fewer
+    Positions holding no value (``NaN``, the padding of events with fewer
     values than others) pass through unchanged.
 
     **Domain.** Values outside a transform's domain are refused with a
@@ -574,7 +574,7 @@ def transform_attributes(p_attr, w_attr=None, transforms=None, *,
             if w_list is not None:
                 w_out.append(w_list[a])
             continue
-        # NaN marks a slot holding no value (the padding of events with
+        # NaN marks a position holding no value (the padding of events with
         # fewer values than others); it is carried through unchanged.
         absent = np.isnan(x)
         if np.isinf(x).any():

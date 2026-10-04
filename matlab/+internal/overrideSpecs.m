@@ -1,7 +1,7 @@
 function specs = overrideSpecs(specs, rKw, relKw, exchKw, A)
 %OVERRIDESPECS  Apply the r / rel / exch keyword overrides to specs.
 %
-%   The kernel parameters sigma, isPer, and period are resolved after the
+%   The kernel parameters sigma, per, and period are resolved after the
 %   specs are read, so a keyword can override them there. The tuple size
 %   and the [rel] and [exch] flags are read out of the specs themselves, so
 %   an override has to be written into the specs first. A supplied keyword

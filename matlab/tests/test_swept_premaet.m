@@ -151,7 +151,7 @@ ok = isequal(size(got), size(ref)) && max(abs(got(:) - ref(:))) < tol;
 results(end+1, :) = {'sweptSimilarity independent correlogram (2-D)', ok}; %#ok<SAGROW>
 
 % ----- 5. generated sweep values match listed ones -----------------------
-% A window-only role: its generated sweep values default to the context's
+% A window-only alignment: its generated sweep values default to the context's
 % extent, stepped at half the window's sd.
 geom5 = {[SIGP, SIGT], [1, 1], [false, false], [false, false], [0.0, 0.0]};
 common5 = {'align', {2, 'window'}, 'drop', 2, 'window', {2, {'rect', 'width', 1.0}}, ...
@@ -333,7 +333,7 @@ end
 % wraps it: a window aligned at 0 on a cycle of 4 reaches an event at 3.9.
 pPer = {[60 64 67], [0.1 3.9 2.0]};
 [pw, ww] = unpackPreMaet(weightEvents(pPer, [], 2, 1, 0.0, 1.0, ...
-    'width', 1.0, 'isPer', true, 'period', 4.0, 'dropInputAttr', true));
+    'width', 1.0, 'per', true, 'period', 4.0, 'dropInputAttr', true));
 dens = buildMaet(pw, ww, 0.5, 1, false, false, 0.0, 'verbose', false);
 ref = entropyMaet(dens, 'method', 'renyi2', 'verbose', false);
 got = sweptEntropy(pPer, [], [0.5, 0.1], [1, 1], [false, false], ...

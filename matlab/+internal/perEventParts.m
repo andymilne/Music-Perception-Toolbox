@@ -10,7 +10,7 @@ function [pAttr, wAttr] = perEventParts(pAttr, wAttr)
 %
 %   Per-event weights are likewise a 1 x N cell, each entry a scalar
 %   (weighting every value of its event) or a vector with one weight per
-%   value; the slots holding no value take weight 0. Numeric weights pass
+%   value; the positions holding no value take weight 0. Numeric weights pass
 %   through unchanged and apply to the padded matrix as usual.
 %
 %   Inputs

@@ -110,8 +110,8 @@ w = {metre, metre};
 % The kernel geometry of each attribute: pitch periodic at the octave
 % (12 semitones) with sigma = 0.5 semitones, and time non-periodic with
 % sigma = 0.25 quarter-notes. Both attributes are absolute.
-specs = flatSpecs(pAttr, 'name', {'pitch', 'time'}, 'sigma', [0.5 0.25], ...
-                  'isPer', [true false], 'period', [12 0]);
+specs = flatSpecs(pAttr, 'names', {'pitch', 'time'}, 'sigma', [0.5 0.25], ...
+                  'per', [true false], 'period', [12 0]);
 
 % The three parts travel together as one pre-MAET, which every operation
 % below takes whole and returns whole.
@@ -157,7 +157,7 @@ fprintf('=== 3. bindEvents (B) ===\n');
 % Bind 2 consecutive events into 2-grams on both attributes. Each source
 % attribute becomes ONE nested attribute: the two bound events form the
 % ordered outer level, each event's own value the inner level (inheriting
-% the source r/isRel/isExch). A' = A = 2. Trailing-drop alignment gives
+% the source r/rel/exch). A' = A = 2. Trailing-drop alignment gives
 % N' = N - max(L) + 1 = 6. B gathers each super-event's constituent
 % weights alongside its values rather than combining them, so both of a
 % 2-gram's metre weights survive, in order, inside the cell. Binding is
@@ -240,7 +240,7 @@ fprintf('=== 4. translateAttributes (T) ===\n');
 
 % Translate pitch (attribute 1) by +5 semitones; leave time alone.
 % Offsets are a per-attribute cell: a scalar broadcasts across the
-% attribute's values (here K = 1 each). isRel is read from the specs
+% attribute's values (here K = 1 each). rel is read from the specs
 % (both attributes absolute), so neither translation is a no-op. T moves
 % values only: the weights below are the metre weights unchanged.
 %
@@ -316,16 +316,16 @@ fprintf('=== 5c. bindAttributes and separateAttributes ===\n');
 % attribute whose value at an event is the ordered pair, read whole
 % (r = 2, exch = false) rather than as the product of two attributes.
 % The two disagree on periodicity, so the bound attribute is given its
-% own: non-periodic, with one sigma for both slots.
+% own: non-periodic, with one sigma for both positions.
 pmBA = bindAttributes(pm, [1 2], 'name', 'pitchTime', 'r', 2, ...
-                      'exch', false, 'sigma', 0.5, 'isPer', false, ...
+                      'exch', false, 'sigma', 0.5, 'per', false, ...
                       'period', 0);
 showPreMaet(pmBA, 'decimals', 3);
 fprintf('\n');
 
 % separateAttributes goes the other way, splitting the bound attribute
-% into one attribute per slot, each named for the bound attribute and
-% its slot.
+% into one attribute per position, each named for the bound attribute and
+% its position.
 [pBack, ~, sBack] = unpackPreMaet(separateAttributes(pmBA, 'pitchTime'));
 fprintf('  separated into %d attributes: %s\n\n', numel(pBack), ...
         strjoin(cellfun(@(x) x.name, sBack, 'UniformOutput', false), ', '));
@@ -452,7 +452,7 @@ fprintf('  log(|D(pitch)|+1) = [%.4f %.4f], sign = [%g %g] (spec name ''%s'')\n'
 % carry sigma as NA (demo_preMaetIo, section 6), and the widths the new
 % units call for are supplied here.
 densF = buildMaet(pmF, 'sigma', [0.2 0.3], ...
-                     'isPer', [false false], 'period', [0 0], 'verbose', false);
+                     'per', [false false], 'period', [0 0], 'verbose', false);
 fprintf('  buildMaet on the two-attribute pre-MAET: dim = %d\n', densF.dim);
 
 % (iii) A zero under 'log' is an error with remedies, never -Inf.
@@ -482,7 +482,7 @@ fprintf('  entropyMaet(pm)\n');
 fprintf('    = %.4f  (Renyi-2)\n', H_orig);
 
 % The raw positional form, with the parts and the five geometry vectors
-% (sigma, r, isRel, isPer, period) written out, reaches the same value;
+% (sigma, r, rel, per, period) written out, reaches the same value;
 % it serves data that was never packed as a pre-MAET.
 [p0, w0] = unpackPreMaet(pm);
 H_raw = entropyMaet(p0, w0, [0.5 0.25], [1 1], [false false], ...

@@ -24,7 +24,7 @@ SCORE = os.path.join(os.path.dirname(__file__), "jmm", "data",
 #: a displacement of register is forgiven and what is left to disagree
 #: about is the voicing. demo_score_workflow.py sweeps that width.
 ATTRIBUTES = (dict(column="pitch", name="pitchClass", sigma=0.5,
-                   is_per=True, period=12.0),
+                   per=True, period=12.0),
               dict(column="pitch", name="pitchHeight", sigma=24.0),
               dict(column="onset", sigma=0.5))
 
@@ -49,7 +49,7 @@ def main():
 
     def convert(**kw):
         return mpt.pre_maet_from_attr_table(
-            grid, attributes=ATTRIBUTES, time="beats", **kw)
+            grid, specs=ATTRIBUTES, time="beats", **kw)
 
     # --- the three encodings -------------------------------------------
     # The two structural roles realize the level as *where the value
@@ -136,7 +136,7 @@ def main():
     # soprano's pitch class with the bass's height. Binding a note's
     # attributes to each other needs one event per note, which is what
     # the agnostic encoding above does.
-    bound = mpt.pre_maet_from_attr_table(grid, attributes=tuple(
+    bound = mpt.pre_maet_from_attr_table(grid, specs=tuple(
         dict(a, r=1, exch=True) if a["column"] == "pitch" else a
         for a in ATTRIBUTES), time="beats")
     print("bound and role-free:",

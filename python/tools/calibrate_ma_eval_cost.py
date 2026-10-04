@@ -121,16 +121,16 @@ def _time_ms(fn):
     return sorted(samples)[len(samples) // 2]
 
 
-def _cell(rows, rng, is_rel, is_per, r, K, n_q_vals, sigma, span):
+def _cell(rows, rng, rel, per, r, K, n_q_vals, sigma, span):
     """Time both arms for one (mode, shape, geometry) cell."""
-    period = PERIOD if is_per else 0.0
-    extent = PERIOD if is_per else span
+    period = PERIOD if per else 0.0
+    extent = PERIOD if per else span
     joint = math.factorial(r) * math.comb(K, r)
     p = np.sort(rng.uniform(0.0, extent, K))
     w = 0.2 + 0.8 * rng.random(K)
-    dens = mpt.build_maet(p, w, sigma, r, is_rel, is_per, period,
+    dens = mpt.build_maet(p, w, sigma, r, rel, per, period,
                               verbose=False)
-    dim = r - 1 if is_rel else r
+    dim = r - 1 if rel else r
     for n_q in n_q_vals:
         x = rng.uniform(0.0, extent, (dim, n_q))
         if joint <= JOINT_SKIP and joint * n_q <= WORK_SKIP:
@@ -143,10 +143,10 @@ def _cell(rows, rng, is_rel, is_per, r, K, n_q_vals, sigma, span):
         # Where centres was not timed there is no comparison to report:
         # the cell says which arm was faster only when both were run.
         faster = "-" if cen < 0 else ("centres" if cen < mob else "mobius")
-        print(f"{int(is_rel):<4d} {int(is_per):<4d} {r:<3d} {K:<4d} {n_q:<5d} "
+        print(f"{int(rel):<4d} {int(per):<4d} {r:<3d} {K:<4d} {n_q:<5d} "
               f"{sigma:<6.0f} {extent:<6.0f} {joint:>10d} {cen:>10.4f} "
               f"{mob:>10.4f} {faster:<8s}", flush=True)
-        rows.append(f"{int(is_rel)},{int(is_per)},{r},{K},{n_q},"
+        rows.append(f"{int(rel)},{int(per)},{r},{K},{n_q},"
                     f"{sigma:g},{extent:g},{joint},{cen:.4f},{mob:.4f}")
 
 
@@ -175,36 +175,36 @@ def _run():
     print(f"\n--- Section A: shape sweep at sigma = {SIGMA_REF:g} "
           f"over a span of {SPAN_REF:g} ---")
     print(header)
-    for is_rel, is_per in modes:
+    for rel, per in modes:
         for r in (2, 3, 4):
             for K in (6, 12, 24, 48):
-                _cell(rows, rng, is_rel, is_per, r, K, n_q_vals,
+                _cell(rows, rng, rel, per, r, K, n_q_vals,
                       SIGMA_REF, SPAN_REF)
 
     print("\n--- Section B: geometry sweep (sigma, span) ---")
     print(header)
-    for is_rel, is_per in modes:
+    for rel, per in modes:
         for sigma in (5.0, 15.0, 60.0):
-            spans = (PERIOD,) if is_per else (1200.0, 3600.0, 9600.0)
+            spans = (PERIOD,) if per else (1200.0, 3600.0, 9600.0)
             for span in spans:
-                if is_per and sigma == SIGMA_REF:
+                if per and sigma == SIGMA_REF:
                     continue
-                if not is_per and sigma == SIGMA_REF and span == SPAN_REF:
+                if not per and sigma == SIGMA_REF and span == SPAN_REF:
                     continue
                 for r in (3, 4):
                     for K in (12, 24):
-                        _cell(rows, rng, is_rel, is_per, r, K, n_q_vals,
+                        _cell(rows, rng, rel, per, r, K, n_q_vals,
                               sigma, span)
 
     print("\n--- Section C: node-count trace (relative modes) ---")
     print(header)
-    for is_rel, is_per in ((True, True), (True, False)):
+    for rel, per in ((True, True), (True, False)):
         # Avoids Section B's 5, 15 and 60, so no cell is measured twice.
         for sigma in (3.0, 7.0, 10.0, 20.0, 40.0, 80.0):
-            span = PERIOD if is_per else SPAN_REF
+            span = PERIOD if per else SPAN_REF
             for r in (3, 4):
                 for K in (12, 24):
-                    _cell(rows, rng, is_rel, is_per, r, K, [200],
+                    _cell(rows, rng, rel, per, r, K, [200],
                           sigma, span)
 
     print("\n--- Section D: spectral branch (relative modes) ---")

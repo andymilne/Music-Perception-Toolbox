@@ -98,7 +98,7 @@ def test_reproduces_old_tensor_join():
     diffs = np.array([[2.0, -1.0, 3.0, 0.0, -2.0, 1.0, 4.0]])
     n = 3
     pb, wb, specs = unpack_pre_maet(bind_events([diffs], None, n, circular=True))
-    d_new = build_maet(pb, wb, specs=specs, sigma=[10.0], is_per=[True],
+    d_new = build_maet(pb, wb, specs=specs, sigma=[10.0], per=[True],
                            period=[12.0], verbose=False)
     idx = lambda ell: (np.arange(7) + ell) % 7
     p_old = [diffs[:, idx(ell)] for ell in range(n)]
@@ -223,12 +223,12 @@ def test_deep_nesting_without_specs_silently_flattens():
 def test_name_from_kwarg_and_inherited():
     p = [np.array([[0.0, 4.0, 7.0, 11.0]])]
     # kwarg name stamps and overrides
-    _, _, specs = unpack_pre_maet(bind_events(p, None, 2, name="steps",
+    _, _, specs = unpack_pre_maet(bind_events(p, None, 2, names="steps",
                               level_names=["step", "ngram"]))
     assert specs[0]["name"] == "steps"
     assert specs[0]["names"] == ["step", "ngram"]
     # name carried on the incoming spec is inherited when no kwarg
-    _, _, sp2 = unpack_pre_maet(bind_events(p, None, 2, specs=flat_specs(p, name="pitch")))
+    _, _, sp2 = unpack_pre_maet(bind_events(p, None, 2, specs=flat_specs(p, names="pitch")))
     assert sp2[0]["name"] == "pitch"
 
 

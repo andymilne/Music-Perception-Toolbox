@@ -29,7 +29,7 @@ def _w():
 
 
 KW = dict(names=['pitch', 'time'], sigma=[0.5, 0.25],
-          is_per=[True, False], period=[12.0, 0.0], verbose=False)
+          per=[True, False], period=[12.0, 0.0], verbose=False)
 
 
 class TestMarkdown:
@@ -114,7 +114,7 @@ class TestCells:
         P = np.array([[36.0, 43], [55, 55], [60, 59], [64, 62]])
         pb, wb, sb = mpt.unpack_pre_maet(mpt.bind_events([P], None, [2]))
         out = mpt.show_pre_maet(pb, wb, sb, names=['pitch'], sigma=0.15,
-                                is_per=True, period=12.0, verbose=False)
+                                per=True, period=12.0, verbose=False)
         assert "({36, 55, 60, 64}, {43, 55, 59, 62})" in out
 
     def test_nested_keeps_brackets_at_one_element(self):
@@ -208,7 +208,7 @@ class TestLatex:
         out = mpt.show_pre_maet(
             [np.array([[36.0], [55], [60], [64]])], None,
             [{'r': 2, 'rel': False, 'exch': True}], names=['pitch'],
-            sigma=0.15, is_per=True, period=12.0, format='latex',
+            sigma=0.15, per=True, period=12.0, format='latex',
             caption='A caption.', label='tab:x', verbose=False)
         assert out.splitlines() == [
             r"\begin{table}[]",

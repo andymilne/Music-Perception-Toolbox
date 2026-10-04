@@ -57,8 +57,8 @@ function [total, ratio] = evalMaOrbit(dens, x, opts)
     dims    = double(dens.dimPerAttr(:)).';
     sigmaG  = dens.sigma(:).';
     rVec    = dens.r(:).';
-    isRelG  = dens.isRel(:).';
-    isPerG  = dens.isPer(:).';
+    isRelG  = dens.rel(:).';
+    isPerG  = dens.per(:).';
     periodG = dens.period(:).';
 
     if ~ismatrix(x)

@@ -4,7 +4,7 @@
 %  §6.4): a cell of per-attribute structs. A flat attribute is a one-level
 %  spec struct('r',.,'rel',.,'exch',.,'name',.) (scalar r, bool rel/exch); a
 %  nested attribute carries a 'tags' field plus per-level vectors. Scalar
-%  geometry not structured by nesting (sigma, isPer, period) stays outside
+%  geometry not structured by nesting (sigma, per, period) stays outside
 %  the spec, supplied as name-value kwargs. The old positional form is
 %  retained unchanged as a shim.
 
@@ -26,7 +26,7 @@ d_old = buildMaet(P2, [], [50 30], [2 1], [true false], ...
                      [false false], [0 0], 'verbose', false);
 specs = {struct('r', 2, 'rel', true, 'exch', true), struct('r', 1, 'rel', false)};
 d_spec = buildMaet(P2, [], 'specs', specs, 'sigma', [50 30], ...
-                      'isPer', [false false], 'period', [0 0], 'verbose', false);
+                      'per', [false false], 'period', [0 0], 'verbose', false);
 okFlat = (d_old.dim == d_spec.dim);
 for q = {[5; 100], [7; 140], [3; 120]}
     okFlat = okFlat && abs( ...
@@ -39,10 +39,10 @@ results{end,2}   = okFlat;
 
 % --- Flat-spec defaults (rel=false, exch=true) ---
 d_min = buildMaet(P2, [], 'specs', {struct('r', 2), struct('r', 1)}, ...
-                     'sigma', [50 30], 'isPer', [false false], ...
+                     'sigma', [50 30], 'per', [false false], ...
                      'period', [0 0], 'verbose', false);
 results{end+1,1} = 'specs: flat defaults rel=false exch=true';
-results{end,2}   = (d_min.isRel(1) == false) && (d_min.isExch(1) == true);
+results{end,2}   = (d_min.rel(1) == false) && (d_min.exch(1) == true);
 
 
 % --- Nested spec matches nested= kwarg ---
@@ -50,7 +50,7 @@ nsp = struct('tags', [0 0 1 1], 'r', [2 2], 'exch', [true false], 'rel', 'outerm
 d_kw = buildMaet({[0; 4; 7; 11]}, [], [50], [1], [false], [false], [0], ...
                     'nested', {nsp}, 'verbose', false);
 d_ns = buildMaet({[0; 4; 7; 11]}, [], 'specs', {nsp}, 'sigma', 50, ...
-                    'isPer', false, 'period', 0, 'verbose', false);
+                    'per', false, 'period', 0, 'verbose', false);
 results{end+1,1} = 'specs: nested spec matches nested= kwarg';
 results{end,2}   = (d_kw.dim == d_ns.dim) && (d_ns.dim == 3) ...
                    && (abs(simMaet(d_kw, d_ns, 'verbose', false) - 1) < 1e-9);
@@ -60,7 +60,7 @@ results{end,2}   = (d_kw.dim == d_ns.dim) && (d_ns.dim == 3) ...
 dN = buildMaet(P2, [], 'specs', ...
         {struct('r', 2, 'rel', true, 'name', 'pitch'), ...
          struct('r', 1, 'name', 'time')}, ...
-        'sigma', [50 30], 'isPer', [false false], 'period', [0 0], ...
+        'sigma', [50 30], 'per', [false false], 'period', [0 0], ...
         'verbose', false);
 dNp = internal.prunedMaet(dN);
 okNames = isfield(dN, 'names') ...
@@ -75,7 +75,7 @@ nspNamed = struct('tags', [0 0 1 1], 'r', [2 2], 'exch', [true false], ...
                   'rel', 'innermost', 'name', 'chordprog');
 nspNamed.names = {'note', 'chord'};
 dL = buildMaet({[0; 4; 7; 11]}, [], 'specs', {nspNamed}, 'sigma', 50, ...
-                  'isPer', false, 'period', 0, 'verbose', false);
+                  'per', false, 'period', 0, 'verbose', false);
 results{end+1,1} = 'specs: level names carried in nested spec';
 results{end,2}   = strcmp(dL.names{1}, 'chordprog') ...
                    && isfield(dL.nested{1}, 'names') ...
@@ -86,10 +86,10 @@ results{end,2}   = strcmp(dL.names{1}, 'chordprog') ...
 okG1 = false; okG2 = false; okG3 = false; okG4 = false; okG5 = false;
 try
     buildMaet(P2, [], [50 30], 'specs', specs, 'sigma', [1 1], ...
-        'isPer', [false false], 'period', [0 0], 'verbose', false);
+        'per', [false false], 'period', [0 0], 'verbose', false);
 catch; okG1 = true; end
 try
-    buildMaet(P2, [], 'specs', specs, 'isPer', [false false], ...
+    buildMaet(P2, [], 'specs', specs, 'per', [false false], ...
         'period', [0 0], 'verbose', false);
 catch; okG2 = true; end
 try
@@ -98,11 +98,11 @@ try
 catch; okG3 = true; end
 try
     buildMaet(P2, [], 'specs', {struct('r', 2)}, 'sigma', [1 1], ...
-        'isPer', [false false], 'period', [0 0], 'verbose', false);
+        'per', [false false], 'period', [0 0], 'verbose', false);
 catch; okG4 = true; end
 try
     buildMaet(P2, [], 'specs', {struct('rel', true), struct('r', 1)}, ...
-        'sigma', [1 1], 'isPer', [false false], 'period', [0 0], 'verbose', false);
+        'sigma', [1 1], 'per', [false false], 'period', [0 0], 'verbose', false);
 catch; okG5 = true; end
 results{end+1,1} = 'specs: guards (positional/missing/length/flat-r)';
 results{end,2}   = okG1 && okG2 && okG3 && okG4 && okG5;
@@ -113,9 +113,9 @@ results{end,2}   = okG1 && okG2 && okG3 && okG4 && okG5;
 % ===================================================================
 
 % --- flatSpecs constructor matches positional ---
-sFS = flatSpecs(P2, 'r', [2 1], 'rel', [true false], 'name', {'pitch', 'time'});
+sFS = flatSpecs(P2, 'r', [2 1], 'rel', [true false], 'names', {'pitch', 'time'});
 dFS = buildMaet(P2, [], 'specs', sFS, 'sigma', [50 30], ...
-                   'isPer', [false false], 'period', [0 0], 'verbose', false);
+                   'per', [false false], 'period', [0 0], 'verbose', false);
 dPos = buildMaet(P2, [], [50 30], [2 1], [true false], ...
                     [false false], [0 0], 'verbose', false);
 okFS = (dFS.dim == dPos.dim) ...
@@ -140,9 +140,9 @@ pvT = {[0; 4; 7; 11]};
 full    = struct('tags', [0 0 1 1], 'r', [2 2], 'exch', [true true], 'rel', 'innermost');
 partial = struct('tags', [0 0 1 1], 'r', [2 2], 'rel', 'innermost');   % no exch
 dFull = buildMaet(pvT, [], 'specs', {full},    'sigma', 50, ...
-                     'isPer', false, 'period', 0, 'verbose', false);
+                     'per', false, 'period', 0, 'verbose', false);
 dPart = buildMaet(pvT, [], 'specs', {partial}, 'sigma', 50, ...
-                     'isPer', false, 'period', 0, 'verbose', false);
+                     'per', false, 'period', 0, 'verbose', false);
 results{end+1,1} = 'specs: nested omitted exch defaults all-True';
 results{end,2}   = abs(simMaet(dFull, dPart, 'verbose', false) - 1) < 1e-9;
 
@@ -152,7 +152,7 @@ edited = struct('tags', [0 0 1 1], 'r', [2 2], 'rel', 'outermost', 'name', 'cp')
 edited.names = {'n', 'c'};
 edited.myNote = 'hand-edit';
 dE = buildMaet(pvT, [], 'specs', {edited}, 'sigma', 50, ...
-                  'isPer', false, 'period', 0, 'verbose', false);
+                  'per', false, 'period', 0, 'verbose', false);
 results{end+1,1} = 'specs: nested carries unknown fields';
 results{end,2}   = strcmp(dE.names{1}, 'cp') ...
                    && isfield(dE.nested{1}, 'names') ...
@@ -165,11 +165,11 @@ results{end,2}   = strcmp(dE.names{1}, 'cp') ...
 okSR1 = false; okSR2 = false;
 try
     buildMaet(pvT, [], 'specs', {struct('tags', [0 0 1 1], 'exch', [true false])}, ...
-        'sigma', 50, 'isPer', false, 'period', 0, 'verbose', false);
+        'sigma', 50, 'per', false, 'period', 0, 'verbose', false);
 catch; okSR1 = true; end
 try
     buildMaet(pvT, [], 'specs', {struct('r', [2 2], 'exch', [true false])}, ...
-        'sigma', 50, 'isPer', false, 'period', 0, 'verbose', false);
+        'sigma', 50, 'per', false, 'period', 0, 'verbose', false);
 catch; okSR2 = true; end
 results{end+1,1} = 'specs: structural fields r/tags required';
 results{end,2}   = okSR1 && okSR2;

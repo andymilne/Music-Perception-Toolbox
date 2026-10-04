@@ -39,7 +39,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %        use the chord's pitches and weights as given (suitable for
 %        empirical spectral peaks, e.g., from audioPeaks).
 %     4. Evaluate both as 1-D absolute expectation tensors (r = 1,
-%        isRel = false) on a fine grid.
+%        rel = false) on a fine grid.
 %     5. Cross-correlate the two density vectors.
 %     6. Normalize by the geometric mean of their energies (giving
 %        cosine similarity at each lag).
@@ -233,7 +233,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
     end
 
     % === Build template tensor and evaluate on grid ===
-    % r = 1, isRel = false: intrinsic to the virtual-pitch definition
+    % r = 1, rel = false: intrinsic to the virtual-pitch definition
     % (1-D absolute density of spectral components).
 
     margin = 4 * sigma;

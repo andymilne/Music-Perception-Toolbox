@@ -20,12 +20,12 @@ function [H, sv] = sweptEntropy(varargin)
 %     H = sweptEntropy(pm, ...)
 %
 %   with a whole pre-MAET, whose specs give the geometry. Any of the six
-%   per-attribute parameters ('sigma', 'isPer', 'period', 'r', 'rel',
+%   per-attribute parameters ('sigma', 'per', 'period', 'r', 'rel',
 %   'exch') may be given alongside to override it, as at buildMaet, either
 %   in full or selectively as a 1 x A cell whose empty entries keep the
 %   spec's value.
 %
-%     H = sweptEntropy(pAttr, w, sigma, r, isRel, isPer, period, ...)
+%     H = sweptEntropy(pAttr, w, sigma, r, rel, per, period, ...)
 %
 %   the raw positional form.
 %
@@ -77,7 +77,7 @@ function [H, sv] = sweptEntropy(varargin)
 %                    grid. nPointsPerDim is required for those methods, and
 %                    xMin / xMax for a non-periodic attribute that is kept.
 %                    The continuous methods ignore them.
-%     'specs', 'isExch', 'verbose'
+%     'specs', 'exch', 'verbose'
 %                    As at sweptSimilarity.
 %
 %   The output has one dimension per swept attribute, in attribute order;
@@ -123,19 +123,19 @@ arguments
     nv.gridLimit = 1e8
     nv.targetAttr = []
     nv.specs = []
-    nv.isExch = []
+    nv.exch = []
     nv.verbose (1,1) logical = false
 end
 
-if ~isempty(nv.isExch) && ~isempty(nv.specs)
-    error('sweptEntropy:isExchVsSpecs', ...
-        ['isExch applies to the flat per-attribute surface; nested ' ...
+if ~isempty(nv.exch) && ~isempty(nv.specs)
+    error('sweptEntropy:exchVsSpecs', ...
+        ['exch applies to the flat per-attribute surface; nested ' ...
          'geometry carries its per-level exch inside specs. Pass one ' ...
          'or the other.']);
 end
 nv.align = []; nv.queryRef = [];
 plan = internal.sweptPlan(pAttr, [], nv.specs, isRel, nv, ...
-    'sweptEntropy', struct('sigma', {sigma}, 'isPer', {isPer}, ...
+    'sweptEntropy', struct('sigma', {sigma}, 'per', {isPer}, ...
     'period', {period}));
 
 A = numel(pAttr);
@@ -150,7 +150,7 @@ if any(target == dropAxes)
 end
 nested = ~isempty(nv.specs);
 [sg, rr, rl, pr, pd] = internal.subGeom(sigma, r, isRel, isPer, period, keep);
-exchC = internal.subExchArgs(nv.isExch, keep);
+exchC = internal.subExchArgs(nv.exch, keep);
 dims = plan.dims;
 axes = [dims.a];
 sizes = arrayfun(@(d) numel(d.vals), dims);
@@ -165,7 +165,7 @@ for li = 1:prod(sizes)
         plan.win(axes), locates, target);
     [pc, wc, sc] = internal.dropAxes(pc, wc, sc, dropAxes, A);
     if nested
-        dens = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+        dens = buildMaet(pc, wc, 'sigma', sg, 'per', pr, 'period', pd, ...
             'specs', sc, 'verbose', false);
     else
         dens = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);

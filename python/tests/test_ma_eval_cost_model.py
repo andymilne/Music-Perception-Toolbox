@@ -52,15 +52,15 @@ from math import comb as _math_comb
 _MAX_TOLERATED_CENTRES_SLOWDOWN = 3.0
 
 
-def _build(sig, r_vec, is_rel, is_per, period, K, N, seed=0):
+def _build(sig, r_vec, rel, per, period, K, N, seed=0):
     g = np.random.default_rng(seed)
     A = len(sig)
     pas = [g.uniform(0, 100, (K, N)) for _ in range(A)]
-    return build_maet(pas, None, sig, r_vec, is_rel, is_per, period,
+    return build_maet(pas, None, sig, r_vec, rel, per, period,
                           verbose=False)
 
 
-def _build_span(sig, r_vec, is_rel, is_per, period, K, span, seed=0):
+def _build_span(sig, r_vec, rel, per, period, K, span, seed=0):
     """Build a single-multiset-per-attribute density spanning ``span``.
 
     The relative-mode Möbius cost scales with the u-grid node count, which
@@ -71,7 +71,7 @@ def _build_span(sig, r_vec, is_rel, is_per, period, K, span, seed=0):
     g = np.random.default_rng(seed)
     A = len(sig)
     pas = [np.sort(g.uniform(0, span, (K, 1)), axis=0) for _ in range(A)]
-    return build_maet(pas, None, sig, r_vec, is_rel, is_per, period,
+    return build_maet(pas, None, sig, r_vec, rel, per, period,
                           verbose=False)
 
 
@@ -92,7 +92,7 @@ def _bench(fn, n=5):
 # we cannot time an OOM); feasibility at large K is covered separately
 # by the memory-guard test below.
 _GRID = [
-    # (label, sigma, r_vec, is_rel, is_per, period, K, N)
+    # (label, sigma, r_vec, rel, per, period, K, N)
     ("A1 abs r2 K6",  [30.],      [2],      [False],        [False],        [0.],         6,  1),
     ("A1 abs r2 K10", [30.],      [2],      [False],        [False],        [0.],         10, 1),
     ("A1 abs r2 K20", [30.],      [2],      [False],        [False],        [0.],         20, 1),
@@ -178,8 +178,8 @@ def test_ma_cost_model_infeasible_single_image_honours_user_override():
 def test_ma_cost_model_never_badly_wrong(case):
     """Whenever the cost model picks centres, centres is within a modest
     factor of Möbius. Picking Möbius is always acceptable."""
-    label, sig, r_vec, is_rel, is_per, period, K, N = case
-    dens = _build(sig, r_vec, is_rel, is_per, period, K, N)
+    label, sig, r_vec, rel, per, period, K, N = case
+    dens = _build(sig, r_vec, rel, per, period, K, N)
     n_q = 200
     g = np.random.default_rng(1)
     x = g.uniform(0, 100, (dens.dim, n_q))
@@ -290,16 +290,16 @@ def test_ma_cost_model_small_corner_may_choose_centres():
 # bound, and the Bulger tuple-pair kernel too large).
 # ---------------------------------------------------------------------
 
-def _single_multiset_ip_select(K, r, is_rel=False, is_per=False, period=0.0, method="auto"):
+def _single_multiset_ip_select(K, r, rel=False, per=False, period=0.0, method="auto"):
     from mpt._tensor.dispatch import _select_ma_inner_product_method
     chosen = _select_ma_inner_product_method(
         r_vec=np.array([r]), k_vec=np.array([K]), A=1,
         N_x=1, N_y=1,
-        any_per=is_per,
-        any_rel_nonper=(is_rel and not is_per),
-        any_rel_per=(is_rel and is_per),
+        any_per=per,
+        any_rel_nonper=(rel and not per),
+        any_rel_per=(rel and per),
         sigma_over_P_max=0.0, user_method=method,
-        rel_vec=np.array([is_rel]), nu_vec=None,
+        rel_vec=np.array([rel]), nu_vec=None,
     )
     return (chosen,)
 
@@ -367,7 +367,7 @@ def test_ma_eval_ordered_r11_routes_centres_and_evaluates():
     x = np.arange(11, dtype=float)
     p_b, w_b, sp_b = unpack_pre_maet(bind_events([x[None, :]], None, 11))
     dens = build_maet(p_b, w_b, specs=sp_b, sigma=[0.3],
-                          is_per=[False], period=[None], verbose=False)
+                          per=[False], period=[None], verbose=False)
     chosen, reason = _select_ma_eval(dens, 200, method="auto")
     assert chosen == "centres"
     assert "ordered" in reason

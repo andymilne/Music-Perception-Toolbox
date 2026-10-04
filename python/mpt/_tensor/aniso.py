@@ -32,12 +32,12 @@ linear map).
 
 Constraints (validated at build time):
 
-- ``is_exch`` must be False (the symmetric power requires a
+- ``exch`` must be False (the symmetric power requires a
   permutation-invariant kernel; a general ``Sigma`` is not);
-- ``is_rel`` must be False (the exact common-shift quotient remains
-  the province of the ``is_rel`` flag; graded shift tolerance is
+- ``rel`` must be False (the exact common-shift quotient remains
+  the province of the ``rel`` flag; graded shift tolerance is
   expressed *within* ``Sigma`` via an ``sd_shift**2 * ones`` ridge);
-- ``is_per`` must be False (componentwise wrapping does not commute
+- ``per`` must be False (componentwise wrapping does not commute
   with the whitening change of coordinates);
 - ``r == K`` (``Sigma`` is the covariance of the whole ordered tuple,
   so each event's tuple must be its full atom multiset);
@@ -216,7 +216,7 @@ def validate_kernel_cov(Sigma, dim: int | None = None, *,
         raise ValueError(
             f"{name}: kernel covariance must be finite. For exact "
             f"common-shift (transposition/tempo) invariance use "
-            f"is_rel=True rather than an infinite shift variance."
+            f"rel=True rather than an infinite shift variance."
         )
     try:
         R = np.linalg.cholesky(Sigma)
@@ -226,12 +226,12 @@ def validate_kernel_cov(Sigma, dim: int | None = None, *,
             f"(Cholesky factorization failed). A singular covariance "
             f"means infinite tolerance along a null direction, which "
             f"a finite Gaussian kernel cannot represent; for the exact "
-            f"common-shift quotient use is_rel=True."
+            f"common-shift quotient use rel=True."
         ) from exc
     return Sigma, R
 
 
-def check_aniso_constraints(*, r: int, K: int, is_rel, is_per, is_exch,
+def check_aniso_constraints(*, r: int, K: int, rel, per, exch,
                             nested_attr: bool = False,
                             name: str = "sigma"):
     """Enforce the mode constraints for a matrix-sigma attribute."""
@@ -240,24 +240,24 @@ def check_aniso_constraints(*, r: int, K: int, is_rel, is_per, is_exch,
             f"{name}: a matrix-valued kernel covariance is not "
             f"supported on nested attributes."
         )
-    if bool(is_exch):
+    if bool(exch):
         raise ValueError(
             f"{name}: a matrix-valued kernel covariance requires an "
-            f"ordered multiset (is_exch=False); the symmetric power "
+            f"ordered multiset (exch=False); the symmetric power "
             f"requires a permutation-invariant kernel."
         )
-    if bool(is_rel):
+    if bool(rel):
         raise ValueError(
             f"{name}: a matrix-valued kernel covariance requires "
-            f"is_rel=False; exact common-shift invariance remains the "
-            f"province of is_rel=True, and graded shift tolerance is "
+            f"rel=False; exact common-shift invariance remains the "
+            f"province of rel=True, and graded shift tolerance is "
             f"expressed within the covariance (an sd_shift**2 * ones "
             f"ridge; see kernel_cov)."
         )
-    if bool(is_per):
+    if bool(per):
         raise ValueError(
             f"{name}: a matrix-valued kernel covariance requires "
-            f"is_per=False; periodic wrapping does not commute with "
+            f"per=False; periodic wrapping does not commute with "
             f"the anisotropic change of coordinates."
         )
     if int(r) != int(K):

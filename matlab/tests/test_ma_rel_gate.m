@@ -10,7 +10,7 @@
 %  previous raw-op-count gate over-selected centres by one to two orders
 %  of magnitude in wall time.
 %
-%  Each case is one (K, r_a, sigma, span_or_period, isPer, expectCentres)
+%  Each case is one (K, r_a, sigma, span_or_period, per, expectCentres)
 %  tuple. The MATLAB and Python cost-model constants match exactly so
 %  that the two languages route the same cells to the same path.
 %

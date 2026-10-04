@@ -47,7 +47,7 @@ prev_defaults = mpt.set_default(show_hints=False)
 # The TISMIR article's settings (Section 2.4): sigma = 10 cents, 16
 # harmonics, power-law rolloff rho = 1. SPCS: r = 1, absolute, periodic
 # at the octave.
-sigma, r, is_rel, is_per, period = 10.0, 1, False, True, 1200.0
+sigma, r, rel, per, period = 10.0, 1, False, True, 1200.0
 spec_harm = ['harmonic', 16, 'powerlaw', 1.0]
 
 # Krumhansl and Kessler (1982) major-key probe-tone ratings, C to B.
@@ -77,8 +77,8 @@ chrom = np.arange(0.0, 1200.0, 100.0)[:, None]
 
 print("=== 1. C-major scale: SPCS against K&K major-key ratings ===")
 c_major = np.array([0, 200, 400, 500, 700, 900, 1100], dtype=float)
-spcs_c = mpt.sim_maet(c_major, None, fine, None, sigma, r, is_rel,
-                      is_per, period, spectrum=spec_harm,
+spcs_c = mpt.sim_maet(c_major, None, fine, None, sigma, r, rel,
+                      per, period, spectrum=spec_harm,
                       verbose=False)
 spcs_c12 = spcs_c[::100]
 # The squared correlation is the R^2 of the best affine map from the
@@ -98,12 +98,12 @@ print(f"  R^2 = {r2_c:.3f}   (article: 0.63)")
 print("\n=== 2. Porcupine[7] in 22-EDO, 22 probes ===")
 step = 1200.0 / 22
 porcupine = np.array([0, 4, 7, 10, 13, 16, 19]) * step   # steps 4333333
-spcs_p = mpt.sim_maet(porcupine, None, fine, None, sigma, r, is_rel,
-                      is_per, period, spectrum=spec_harm,
+spcs_p = mpt.sim_maet(porcupine, None, fine, None, sigma, r, rel,
+                      per, period, spectrum=spec_harm,
                       verbose=False)
 probes22 = np.arange(22) * step
 spcs_p22 = mpt.sim_maet(porcupine, None, probes22[:, None], None, sigma,
-                        r, is_rel, is_per, period, spectrum=spec_harm,
+                        r, rel, per, period, spectrum=spec_harm,
                         verbose=False)
 for k in np.argsort(spcs_p22)[::-1][:7]:
     print(f"  step {k:2d} ({probes22[k]:6.1f} cents): "
@@ -159,7 +159,7 @@ prof = {}
 print(f"\n  {'spectrum':10s} {'weights':8s}  R^2 K&K C  R^2 K&K G  SD")
 for sname, spec in spectra.items():
     for cname, (cp, cw) in contexts.items():
-        s = mpt.sim_maet(cp, cw, chrom, None, sigma, r, is_rel, is_per,
+        s = mpt.sim_maet(cp, cw, chrom, None, sigma, r, rel, per,
                          period, spectrum=spec, verbose=False)
         prof[sname, cname] = s
         r2c = np.corrcoef(s, kk_major)[0, 1] ** 2

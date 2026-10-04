@@ -70,8 +70,8 @@ onset = notes(2, :);
 % beats) is absolute with sigma = 0.1 beats.
 sigma = [0.2, 0.1];
 pCtx  = {midi, onset};
-specs = flatSpecs(pCtx, 'name', {'pitch', 'onset'}, 'sigma', sigma, ...
-                  'isPer', [true, false], 'period', [12, 0]);
+specs = flatSpecs(pCtx, 'names', {'pitch', 'onset'}, 'sigma', sigma, ...
+                  'per', [true, false], 'period', [12, 0]);
 melody = packPreMaet(pCtx, [], specs);
 query  = packPreMaet({queryMidi, rhythm}, [], specs);
 showPreMaet(query);
@@ -260,8 +260,8 @@ fprintf('=== 7. ''align'' ''window'', onset relative (bound onsets) ===\n');
 % super-events (bindEvents) with the outer level relative ('relOuter'):
 % each super-event is then compared by its onsets measured from its
 % first, its rhythm. Pitch is left out here, to ask about rhythm alone.
-tSpecs = flatSpecs({onset}, 'name', {'onset'}, 'sigma', 0.1, ...
-                   'isPer', false, 'period', 0);
+tSpecs = flatSpecs({onset}, 'names', {'onset'}, 'sigma', 0.1, ...
+                   'per', false, 'period', 0);
 boundMel = bindEvents(packPreMaet({onset}, [], tSpecs), 4, 'relOuter', true);
 boundQry = bindEvents(packPreMaet({rhythm}, [], tSpecs), 4, 'relOuter', true);
 showPreMaet(boundQry);
@@ -270,7 +270,7 @@ showPreMaet(boundQry);
 % pre-MAET holds (its four onsets reduced to one, their mean, the default
 % of 'locate'), before the density is built; the comparison then uses
 % only the spacing. Translation would change nothing on a relative
-% attribute, so 'window' is the role.
+% attribute, so 'window' is the alignment.
 S7 = sweptSimilarity(boundMel, boundQry, 'sweep', {1, barCentres}, ...
                      'align', {1, 'window'}, ...
                      'window', {1, {'rect', 'width', 4}});

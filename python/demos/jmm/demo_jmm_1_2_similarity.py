@@ -120,7 +120,7 @@ PAIR_COLOURS = ['#1f4eb8', '#2b8a3e', '#c25008', '#b03060', '#666666', '#aaaaaa'
 # before any density is built, so its width never enters; the pitch-height
 # width is the sweep's, which build_maet overrides per call.
 ATTRIBUTES = (dict(column='pitch', name='pitchClass', sigma=SIGMA_PC,
-                   is_per=True, period=12.0),
+                   per=True, period=12.0),
               dict(column='pitch', name='pitchHeight', sigma=SIGMA_PHS[0]),
               dict(column='onset', sigma=1.0))
 
@@ -138,17 +138,17 @@ VOICE = dict(role='simplex', sigma=SIGMA_VOICE)
 #: the same grain with no voice attribute.
 ENCODINGS = [
     ('Voice-aware encoding',
-     mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
+     mpt.pre_maet_from_attr_table(grid, specs=ATTRIBUTES, time='beats',
                                   pitch='midi', weights='ones',
                                   roles={'part': 'ordered_multiset'}),
      lambda sph: [SIGMA_PC, sph]),
     (f'Simplex-voice encoding (σ$_{{voice}}$ = {SIGMA_VOICE})',
-     mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
+     mpt.pre_maet_from_attr_table(grid, specs=ATTRIBUTES, time='beats',
                                   pitch='midi', weights='ones',
                                   chords='separate', roles={'part': VOICE}),
      lambda sph: [SIGMA_PC, sph, SIGMA_VOICE]),
     ('Voice-agnostic encoding',
-     mpt.pre_maet_from_attr_table(grid, attributes=ATTRIBUTES, time='beats',
+     mpt.pre_maet_from_attr_table(grid, specs=ATTRIBUTES, time='beats',
                                   pitch='midi', weights='ones',
                                   chords='separate'),
      lambda sph: [SIGMA_PC, sph]),

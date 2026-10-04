@@ -6,7 +6,7 @@
 %  axis (which makes D(T(p)) == D(p)). A scalar broadcasts to all positions; a
 %  column is per-position; a row is a per-sweep global shift; a K_total x M
 %  matrix is per-position x sweep.
-%  is_rel is read per-attribute from specs: a uniform shift on an outermost-
+%  rel is read per-attribute from specs: a uniform shift on an outermost-
 %  relative attribute is a structural no-op (warns); a non-uniform offset
 %  applies.
 
@@ -78,7 +78,7 @@ results{end+1,1} = 'translate: a row of offsets is refused';
 results{end,2}   = okRow;
 
 
-% --- is_rel from specs: relative no-op ------------------------------
+% --- rel from specs: relative no-op ------------------------------
 
 % Relative + uniform -> no-op + warn.
 pR = {[0 4 7 11]};
@@ -154,12 +154,12 @@ chord = [0; 4; 7];                             % K=3 chord, N=1
 tr_grid  = [-200 -100 0 100 200];
 specsC = flatSpecs({chord});
 ref = buildMaet({chord}, [], 'specs', specsC, 'sigma', 30, ...
-                   'isPer', false, 'period', 0, 'verbose', false);
+                   'per', false, 'period', 0, 'verbose', false);
 sims = zeros(1, numel(tr_grid));
 for m = 1:numel(tr_grid)
     [pT, ~, ~] = unpackPreMaet(translateAttributes({chord}, [], {tr_grid(m)}));
     d = buildMaet(pT, [], 'specs', specsC, 'sigma', 30, ...
-                  'isPer', false, 'period', 0, 'verbose', false);
+                  'per', false, 'period', 0, 'verbose', false);
     sims(m) = simMaet(ref, d, 'verbose', false);
 end
 [~, peakIdx] = max(sims);

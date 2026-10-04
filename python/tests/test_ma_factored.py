@@ -27,7 +27,7 @@ def _dense_joint_raw(dens, x):
     return _ma_eval_full(
         dens.centres, dens.w_j, dens.n_j, x_list, x.shape[1],
         dens.n_attrs, dens.dim_per_attr, dens.r, dens.sigma,
-        dens.is_rel, dens.is_per, dens.period,
+        dens.rel, dens.per, dens.period,
         truncation_sigmas=resolve_truncation_sigmas(None),
         inner_r=_inner_r_vec(dens),
     )
@@ -100,7 +100,7 @@ class TestFactoredEqualsDenseJoint:
         n = pb0[0].shape[1]
         d = mpt.build_maet(
             [pb0[0], pb1[0]], [np.ones((3, n))] * 2, specs=[s0[0], s1[0]],
-            sigma=[0.3, 0.3], is_per=[False] * 2, period=[0.0] * 2,
+            sigma=[0.3, 0.3], per=[False] * 2, period=[0.0] * 2,
             verbose=False)
         assert _max_rel_err(d, _query_near_mass(d, 60, 0.3, 9)) < 1e-4
 
@@ -115,7 +115,7 @@ class TestFactoredEqualsDenseJoint:
         nn, nsl = pbA[0].shape[1], pbA[0].shape[0]
         d = mpt.build_maet(
             [pbA[0], pbB[0]], [np.ones((nsl, nn))] * 2, specs=[sA[0], sB[0]],
-            sigma=[0.5, 0.5], is_per=[False] * 2, period=[0.0] * 2,
+            sigma=[0.5, 0.5], per=[False] * 2, period=[0.0] * 2,
             verbose=False)
         assert _max_rel_err(d, _query_near_mass(d, 60, 0.4, 9)) < 1e-4
 

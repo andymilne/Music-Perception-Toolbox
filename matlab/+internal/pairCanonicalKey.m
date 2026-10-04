@@ -1,9 +1,9 @@
 function [pAc, wAc, pBc, wBc] = pairCanonicalKey(pAv, wAv, pBv, wBv, ...
-                                                 isRel, isPer, period, nDec)
+                                                 rel, per, period, nDec)
 %PAIRCANONICALKEY Canonical form of a paired weighted multiset (A, B).
 %
 %   [pAc, wAc, pBc, wBc] = internal.pairCanonicalKey(pAv, wAv, pBv, wBv, ...
-%                                                    isRel, isPer, period, nDec)
+%                                                    rel, per, period, nDec)
 %
 %   The cosine similarity of two densities is invariant under certain joint
 %   transformations of the pair, so structurally equivalent pairs share a
@@ -31,9 +31,9 @@ function [pAc, wAc, pBc, wBc] = pairCanonicalKey(pAv, wAv, pBv, wBv, ...
 %   Inputs:
 %     pAv, pBv  - Row vectors of values for A and B, already NaN-stripped.
 %     wAv, wBv  - Matching weights, or [] for uniform weights.
-%     isRel     - Logical. Relative ([rel]) reading.
-%     isPer     - Logical. Periodic ([per]) reading.
-%     period    - Numeric scalar. The period, used when isPer is true.
+%     rel       - Logical. Relative ([rel]) reading.
+%     per       - Logical. Periodic ([per]) reading.
+%     period    - Numeric scalar. The period, used when per is true.
 %     nDec      - Decimal places for post-canonicalization rounding, or []
 %                 for none.
 %
@@ -48,10 +48,10 @@ function [pAc, wAc, pBc, wBc] = pairCanonicalKey(pAv, wAv, pBv, wBv, ...
 %
 %   See also internal.canonicalizeSet, internal.cyclicCanonical.
 
-    if isRel
+    if rel
         % Relative: independent canonicalization
-        [pAc, wAc] = internal.canonicalizeSet(pAv, wAv, isRel, isPer, period);
-        [pBc, wBc] = internal.canonicalizeSet(pBv, wBv, isRel, isPer, period);
+        [pAc, wAc] = internal.canonicalizeSet(pAv, wAv, rel, per, period);
+        [pBc, wBc] = internal.canonicalizeSet(pBv, wBv, rel, per, period);
     else
         % Absolute: joint co-transposition normalization.
         % simMaet(A-c, B-c) = simMaet(A, B) because the
@@ -65,7 +65,7 @@ function [pAc, wAc, pBc, wBc] = pairCanonicalKey(pAv, wAv, pBv, wBv, ...
         [pAs, siA] = sort(pAv);
         if hasWA, wAs = wAv(siA); else, wAs = []; end
 
-        if isPer
+        if per
             pAs = mod(pAs, period);
             [pAs, siA2] = sort(pAs);
             if hasWA, wAs = wAs(siA2); end
@@ -81,7 +81,7 @@ function [pAc, wAc, pBc, wBc] = pairCanonicalKey(pAv, wAv, pBv, wBv, ...
         [pBs, siB] = sort(pBv);
         if hasWB, wBs = wBv(siB); else, wBs = []; end
 
-        if isPer
+        if per
             pBshifted = mod(pBs - shift, period);
             [pBshifted, siB2] = sort(pBshifted);
             pBc = pBshifted(:)';

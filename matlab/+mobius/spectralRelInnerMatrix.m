@@ -61,7 +61,7 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period, for
 %   the same K^2 * N_x * N_y product and the same exponents (1, -2, -2),
 %   pinned by the cost algebra and selected on the Python data against
 %   every subset of {log gridSize, log K, log N, log N_u, log P(r),
-%   log B(r), isPer} by BIC and by cross-validated regret.
+%   log B(r), per} by BIC and by cross-validated regret.
 %
 %   1100 is fitted by routing regret against an oracle on measured MATLAB
 %   wall times: the bench_spectral_ip_gate grid (r = 2..4, K = 4..30,

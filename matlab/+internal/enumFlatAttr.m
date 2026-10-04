@@ -6,12 +6,13 @@ function [permMat, combMat, permW, combW] = ...
 %   column `valCol` at tuple size `r_a`. Applies the r = 1 equal-value
 %   collapse (summing weights). Shared by buildMaet's per-(n, a) fill
 %   loop and evalMaet's factored centres path so both produce
-%   identical tuples. Caller guarantees numel(valid) >= r_a, or
-%   numel(valid) == 0 for an event with no value at all on this
-%   attribute, which admits no tuple and so contributes nothing. Twin of
-%   Python _enum_flat_attr.
+%   identical tuples. numel(valid) may be at least r_a; 0, for an event
+%   with no value at all on this attribute, which admits no tuple and so
+%   contributes nothing; or between, a missing value (NaN) being a
+%   position of weight 0, so that the event gives no tuple (warned of by
+%   buildMaet). Twin of Python _enum_flat_attr.
     K_na = numel(valid);
-    if K_na == 0
+    if K_na < r_a
         permMat = zeros(r_a, 0);
         combMat = zeros(r_a, 0);
         permW   = zeros(1, 0);
@@ -43,7 +44,7 @@ function [permMat, combMat, permW, combW] = ...
         combMat = nchoosek(valid, r_a).';
     end
 
-    % Permutations: r_a x (r_a! * C) when symmetric; ordered (isExch = 0)
+    % Permutations: r_a x (r_a! * C) when symmetric; ordered (exch = 0)
     % keeps each combination in listed order (perm side == comb side);
     % r_a = 1 has no order to symmetrise either way.
     if r_a == 1 || ~isExch

@@ -43,7 +43,7 @@ def _dens(seed, sigma, wrap='full-image'):
     p = np.sort(rng.uniform(0.0, P, size=(CHORD * N_CHORDS, N_EVENTS)),
                 axis=0)
     return build_maet([p], None, specs=[dict(SPEC)], sigma=[sigma],
-                          is_per=[True], period=[P], wrap=[wrap],
+                          per=[True], period=[P], wrap=[wrap],
                           verbose=False)
 
 
@@ -85,7 +85,7 @@ def test_batched_contraction_matches_the_reference_ip():
     x, y = _dens(1, sigma), _dens(2, sigma)
     r_levels = np.asarray(SPEC["r"])
     exch_levels = np.asarray(SPEC["exch"])
-    rec = build_recipe(r_levels, exch_levels, TAGS, is_rel=False, is_per=True)
+    rec = build_recipe(r_levels, exch_levels, TAGS, rel=False, per=True)
     PX = np.asarray(x.p_attr[0], float)
     PY = np.asarray(y.p_attr[0], float)
     M = nested_attr_matrix(rec, rec, PX, PY, x.w[0], y.w[0], sigma,

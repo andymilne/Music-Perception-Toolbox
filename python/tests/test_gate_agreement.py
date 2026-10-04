@@ -56,12 +56,12 @@ def test_every_gate_decision_reproduces(cases):
         px = np.asarray(c["px"], dtype=float).reshape(-1, 1)
         py = np.asarray(c["py"], dtype=float).reshape(-1, 1)
         got = bool(_ma_rel_attr_prefers_centres(
-            px, py, c["sigma"], c["r"], True, c["isPer"], c["period"]
+            px, py, c["sigma"], c["r"], True, c["per"], c["period"]
         ))
         if got != c["decision"]:
             mismatches.append(
                 f"r={c['r']} K={c['K']} sigma={c['sigma']} "
-                f"isPer={c['isPer']} period={c['period']}: "
+                f"per={c['per']} period={c['period']}: "
                 f"expected {c['decision']}, got {got}"
             )
     assert not mismatches, (
@@ -71,7 +71,7 @@ def test_every_gate_decision_reproduces(cases):
 
 
 def test_decisions_are_monotone_in_K_within_each_shape(cases):
-    """Within a fixed (r, sigma, period, isPer), the gate must not
+    """Within a fixed (r, sigma, period, per), the gate must not
     oscillate as K grows: centres cost rises as K^(2r) while grid cost
     rises far more slowly, so once grid wins it must keep winning.
     A non-monotone boundary would mean the cost model is not ordering
@@ -85,7 +85,7 @@ def test_decisions_are_monotone_in_K_within_each_shape(cases):
     for c in cases:
         if c["Ky"] != c["K"]:
             continue
-        key = (c["r"], c["sigma"], c["period"], c["isPer"])
+        key = (c["r"], c["sigma"], c["period"], c["per"])
         groups.setdefault(key, []).append((c["K"], c["decision"]))
     assert groups, "fixture carries no equal-value-count cases"
     bad = []
@@ -121,7 +121,7 @@ def test_decisions_are_monotone_in_the_second_count(cases):
     dearer; once the grid route wins it must keep winning."""
     groups = {}
     for c in cases:
-        key = (c["r"], c["sigma"], c["period"], c["isPer"], c["K"])
+        key = (c["r"], c["sigma"], c["period"], c["per"], c["K"])
         groups.setdefault(key, []).append((c["Ky"], c["decision"]))
     bad = []
     for key, items in groups.items():

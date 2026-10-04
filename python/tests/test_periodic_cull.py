@@ -43,11 +43,11 @@ def fixed_chunk():
     mpt.set_default(**prev)
 
 
-def density(r, sigma, is_exch=True, is_per=True):
+def density(r, sigma, exch=True, per=True):
     p_attr = [SCALE[:, None]]
-    specs = mpt.flat_specs(p_attr, r=r, rel=True, exch=is_exch)
+    specs = mpt.flat_specs(p_attr, r=r, rel=True, exch=exch)
     return mpt.build_maet(p_attr, None, specs=specs, sigma=[sigma],
-                          is_per=[is_per], period=[PERIOD], verbose=False)
+                          per=[per], period=[PERIOD], verbose=False)
 
 
 def grid(dim, n, rng):
@@ -58,10 +58,10 @@ class TestAgainstTheUntruncatedEvaluation:
     """At the accuracy floor the cull must lose nothing measurable."""
 
     @pytest.mark.parametrize('r', [2, 3, 4, 5])
-    @pytest.mark.parametrize('is_exch', [True, False])
-    def test_the_culled_sum_matches(self, fixed_chunk, r, is_exch):
+    @pytest.mark.parametrize('exch', [True, False])
+    def test_the_culled_sum_matches(self, fixed_chunk, r, exch):
         sigma = 15.0
-        dens = density(r, sigma, is_exch)
+        dens = density(r, sigma, exch)
         centres = np.asarray(mpt.maet_centres(dens)[0], dtype=float)
         dim = centres.shape[0]
         w_j = np.linspace(0.5, 1.5, centres.shape[1])

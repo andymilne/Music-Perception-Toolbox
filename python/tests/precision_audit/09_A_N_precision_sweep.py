@@ -36,13 +36,13 @@ P = 1200.0
 SEEDS = 5
 
 
-def err(p1, w1, p2, w2, sigma, P, r, A, is_rel, is_per):
+def err(p1, w1, p2, w2, sigma, P, r, A, rel, per):
     """orbit vs pairwise relative cosine err at given attribute config."""
     sigmas = [sigma]                 # single group
     rs = [r] * A
     groups = [0] * A
-    is_rels = [is_rel]
-    is_pers = [is_per]
+    is_rels = [rel]
+    is_pers = [per]
     periods = [P]
     d1 = build_maet(p1, w1, sigmas, rs, is_rels, is_pers, periods, verbose=False)
     d2 = build_maet(p2, w2, sigmas, rs, is_rels, is_pers, periods, verbose=False)
@@ -64,7 +64,7 @@ def main():
     )
     print(header)
     print("-" * len(header))
-    for mode_name, is_rel, is_per in MODES:
+    for mode_name, rel, per in MODES:
         for r in R_VALUES:
             K = r + 2
             for A in A_VALUES:
@@ -99,7 +99,7 @@ def main():
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             errs.append(err(
-                                p1, w1, p2, w2, SIGMA, P, r, A, is_rel, is_per,
+                                p1, w1, p2, w2, SIGMA, P, r, A, rel, per,
                             ))
                     errs = np.array(errs)
                     flag = "    "

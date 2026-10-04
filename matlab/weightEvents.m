@@ -63,7 +63,7 @@ function pm = weightEvents(varargin)
 %                  so rectangles a width apart share no event, unless
 %                  'edges' is 'closed'.
 %
-%   For a periodic input attribute (isPer = true), the difference delta = v
+%   For a periodic input attribute (per = true), the difference delta = v
 %   - centre is wrapped to [-P/2, P/2] before applying h; the stored values
 %   in pAttr are not modified.
 %
@@ -129,7 +129,7 @@ function pm = weightEvents(varargin)
 %                  the input attribute's entry. Not otherwise consulted;
 %                  the window is computed from the input attribute's
 %                  values, centre, shape, sd/width, and (for a periodic
-%                  input) isPer/period.
+%                  input) per/period.
 %     sd           Scalar positive double. Profile standard deviation.
 %                  For a numeric shape, exactly one of 'sd' or 'width'
 %                  must be supplied; a named profile takes either 'sd'
@@ -151,10 +151,10 @@ function pm = weightEvents(varargin)
 %                  rectangle at shape = 1; internally translated to
 %                  sd = width / (2 * sqrt(3)). Exactly one of 'sd' or
 %                  'width' must be supplied.
-%     isPer        (1,1) logical, default false. If true, the input
+%     per        (1,1) logical, default false. If true, the input
 %                  attribute is periodic — delta is wrapped to
 %                  [-period/2, period/2] before applying h.
-%     period       (1,1) double, default 0. Only used when isPer=true
+%     period       (1,1) double, default 0. Only used when per=true
 %                  (must then be > 0).
 %     locate       The single value that stands for an event holding
 %                  several values on inputAttr: 'centroid' (their mean,
@@ -207,7 +207,7 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
         nvArgs.decayRateStart = []
         nvArgs.decayRateEnd = []
         nvArgs.alpha (1,1) double {mustBeInRange(nvArgs.alpha, 0, 1)} = 0.5
-        nvArgs.isPer (1,1) logical = false
+        nvArgs.per (1,1) logical = false
         nvArgs.period (1,1) double = 0
         nvArgs.locate = 'centroid'
         nvArgs.edges = ''
@@ -218,10 +218,10 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
         nvArgs.specs = specsPm;
     end
 
-    % isPer/period/dropInputAttr as locals (the rest of the body reads them
+    % per/period/dropInputAttr as locals (the rest of the body reads them
     % by these names). dropInputAttr has no default: omitting it errors when
     % the field is accessed, keeping the destructive choice explicit.
-    isPer       = nvArgs.isPer;
+    per         = nvArgs.per;
     period      = nvArgs.period;
     dropInputAttr = nvArgs.dropInputAttr;
 
@@ -305,16 +305,16 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
         error('weightEvents:badCentre', ...
               'centre must be finite; got %g.', centre);
     end
-    if isPer && period <= 0
+    if per && period <= 0
         error('weightEvents:badPeriod', ...
-              'period must be > 0 when isPer is true; got %g.', period);
+              'period must be > 0 when per is true; got %g.', period);
     end
 
     % --- Compute factor h(delta) from the input attribute's values ---
     % Each event is represented by one value: its only value, or, where it
     % holds several (a bound super-event's onsets), the one locate picks.
     valRow = internal.locateRow(pAttr{inputAttr}, nvArgs.locate);   % (1, N)
-    factor = internal.weightFactor(valRow, centre, prof, isPer, period, ...
+    factor = internal.weightFactor(valRow, centre, prof, per, period, ...
         closed);
 
     % --- Normalise w to length-A cell; multiply factor into target entry ---

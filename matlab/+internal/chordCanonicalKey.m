@@ -1,12 +1,12 @@
-function [key, pCanon, wCanon] = chordCanonicalKey(p, w, sigma, r, isRel, isPer, period)
+function [key, pCanon, wCanon] = chordCanonicalKey(p, w, sigma, r, rel, per, period)
 %CHORDCANONICALKEY Canonical hashable key for a single weighted multiset.
 %   [key, pCanon, wCanon] = internal.chordCanonicalKey(p, w, sigma, r, ...
-%                                              isRel, isPer, period)
+%                                              rel, per, period)
 %
 %   This is the MATLAB twin of the Python _chord_canonical_key. Two chords
 %   (p1, w1) and (p2, w2) produce the same KEY iff their density
-%   object is structurally identical for the given (sigma, r, isRel,
-%   isPer, period) — i.e., regardless of input-side permutation or
+%   object is structurally identical for the given (sigma, r, rel,
+%   per, period) — i.e., regardless of input-side permutation or
 %   (in relative modes) transposition / rotation around the period.
 %
 %   Used as the dictionary key for consumer-level deduplication in
@@ -18,15 +18,15 @@ function [key, pCanon, wCanon] = chordCanonicalKey(p, w, sigma, r, isRel, isPer,
 %   Inputs
 %     p, w               : pitch and weight vectors (w may be []).
 %     sigma, r           : density parameters baked into the key.
-%     isRel, isPer       : mode flags (drive canonicalisation).
-%     period             : period in cents (used iff isPer).
+%     rel, per           : mode flags (drive canonicalisation).
+%     period             : period in cents (used iff per).
 %
 %   Outputs
 %     key      : char row vector usable as a containers.Map key.
 %     pCanon   : canonical pitches (1-by-n row).
 %     wCanon   : canonical weights (1-by-n row), or [].
 
-    [pCanon, wCanon] = internal.canonicalizeSet(p, w, isRel, isPer, period);
+    [pCanon, wCanon] = internal.canonicalizeSet(p, w, rel, per, period);
 
     % mat2str at 12 decimal places is well below FP precision but
     % above the 9-decimal rounding inside cyclicCanonical, so the key
@@ -38,5 +38,5 @@ function [key, pCanon, wCanon] = chordCanonicalKey(p, w, sigma, r, isRel, isPer,
     end
     key = sprintf('p=%s|w=%s|s=%.12g|r=%d|rel=%d|per=%d|P=%.12g', ...
         mat2str(pCanon(:)', 12), wStr, sigma, r, ...
-        double(logical(isRel)), double(logical(isPer)), period);
+        double(logical(rel)), double(logical(per)), period);
 end

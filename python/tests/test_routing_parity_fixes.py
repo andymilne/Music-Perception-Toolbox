@@ -42,7 +42,7 @@ def _nested_plus_flat(seed, wrap):
     specs = [{"tags": tags, "r": [1, 2], "exch": [True, True], "rel": [0, 0]},
              {"r": 2, "exch": True, "rel": False}]
     return build_maet([p0, p1], None, specs=specs, sigma=[0.05 * P, SIG],
-                          is_per=[True, True], period=[P, P],
+                          per=[True, True], period=[P, P],
                           wrap=['full-image', wrap], verbose=False)
 
 
@@ -91,7 +91,7 @@ def test_eval_mobius_on_a_nested_density_takes_the_per_level_route():
     tags = np.repeat(np.arange(2), 3)
     p = np.sort(rng.uniform(0.0, P, size=(6, 2)), axis=0)
     spec = {"tags": tags, "r": [1, 2], "exch": [True, True], "rel": [0, 1]}
-    d = build_maet([p], None, specs=[spec], sigma=[0.5], is_per=[True],
+    d = build_maet([p], None, specs=[spec], sigma=[0.5], per=[True],
                        period=[P], verbose=False)
     X = np.zeros((d.dim, 3))
     v_mob = eval_maet(d, X, method="mobius", verbose=False)

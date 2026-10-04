@@ -94,7 +94,7 @@ for isRel_ = [false, true]
     dens_ma = buildMaet({p_sm}, {w_sm}, sigma, r_, isRel_, isPer_, period_, ...
         'lazy', false, 'verbose', false);
 
-    relTag = sprintf(' (isRel=%d)', isRel_);
+    relTag = sprintf(' (rel=%d)', isRel_);
     results{end+1,1} = ['MAET: single multiset-equivalence tag' relTag];
     results{end,2}   = strcmp(dens_ma.tag, 'MaetDensity'); %#ok<*SAGROW>
 
@@ -117,8 +117,8 @@ for isRel_ = [false, true]
     results{end,2}   = max(abs(dens_ma.wv_comb - dens_sm.wv_comb)) < 1e-12;
 end
 
-% Dimensionality reduction under isRel=true
-results{end+1,1} = 'MAET: Centres dim reduction (isRel=true, r=2)';
+% Dimensionality reduction under rel=true
+results{end+1,1} = 'MAET: Centres dim reduction (rel=true, r=2)';
 dens_ma = buildMaet({p_sm}, {w_sm}, sigma, 2, true, true, 1200, ...
     'lazy', false, 'verbose', false);
 results{end,2}   = isequal(size(dens_ma.Centres{1}), [1, dens_ma.nJ]);
@@ -245,9 +245,18 @@ results{end,2}   = all(abs(dens.wv_comb - 30) < 1e-12);
 % -- Error paths --
 
 pitchMat = [0 4];
-results{end+1,1} = 'MAET: insufficient values errors';
-results{end,2}   = throwsError(@() buildMaet({[0 0; 4 NaN; NaN NaN]}, [], ...
-    10, 2, false, true, 1200, 'verbose', false));
+% Event 2 has one value at r = 2: it contributes nothing, with a warning.
+lastwarn('', '');
+insuffDens = buildMaet({[0 0; 4 NaN; NaN NaN]}, [], 10, 2, false, true, ...
+    1200, 'verbose', false);
+[~, insuffId] = lastwarn();
+results{end+1,1} = 'MAET: insufficient values warn and contribute nothing';
+results{end,2}   = strcmp(insuffId, 'buildMaet:tooFewValues') ...
+    && abs(massMaet(insuffDens) - 2) < 1e-12;
+% Three positions at r = 4: no event can supply a 4-tuple.
+results{end+1,1} = 'MAET: insufficient positions error';
+results{end,2}   = throwsErrorWithId(@() buildMaet({[0 0; 4 NaN; NaN NaN]}, [], ...
+    10, 4, false, true, 1200, 'verbose', false), 'buildMaet:tooFewPositions');
 
 results{end+1,1} = 'MAET: wrong r length errors';
 results{end,2}   = throwsError(@() buildMaet({pitchMat, pitchMat}, [], ...
@@ -265,15 +274,15 @@ results{end+1,1} = 'MAET: wrong positional count errors';
 results{end,2}   = throwsError(@() buildMaet({pitchMat}, [], ...
     10, 1, false, true, 'verbose', false));
 
-% -- isRel + r=1 degenerate warning --
+% -- rel + r=1 degenerate warning --
 
 lastwarn('');   % clear the warning buffer
 buildMaet({pitchMat}, [], 10, 1, true, true, 1200, 'verbose', false);
 warnMsg = lastwarn;
-results{end+1,1} = 'MAET: isRel + r=1 emits degenerate warning';
+results{end+1,1} = 'MAET: rel + r=1 emits degenerate warning';
 results{end,2}   = ~isempty(warnMsg) && contains(warnMsg, 'degenerate');
 
-% -- evalMaet MA path: single multiset-equivalence (isRel=false) --
+% -- evalMaet MA path: single multiset-equivalence (rel=false) --
 
 p_sm_v  = [0; 400; 700];
 w_sm_v  = [1; 0.7; 0.5];
@@ -294,7 +303,7 @@ results{end,2}   = max(abs(vals_ma_cell - vals_sm)) < 1e-12;
 results{end+1,1} = 'evalMaet MA: single multiset-equivalence abs (matrix form)';
 results{end,2}   = max(abs(vals_ma_mat - vals_sm)) < 1e-12;
 
-% -- evalMaet MA path: single multiset-equivalence (isRel=true, r=3) --
+% -- evalMaet MA path: single multiset-equivalence (rel=true, r=3) --
 
 r_v = 3;
 xSingleMultiset_rel = [400 200; 700 500];    % dim = r-1 = 2, nQ = 2
@@ -333,7 +342,7 @@ vals_mat  = evalMaet(dens, [x_pitch; x_time], 'verbose', false);
 results{end+1,1} = 'evalMaet MA: cell form == matrix form';
 results{end,2}   = isequal(vals_cell, vals_mat);
 
-% -- evalMaet MA: per-group isPer --
+% -- evalMaet MA: per-group [per] flag --
 
 pitch1 = 0;   % K=1, N=1
 time1  = 0;
@@ -436,7 +445,7 @@ p_b_v  = [0; 300; 700];
 w_a_v  = [1; 0.7; 0.5];
 w_b_v  = [1; 0.6; 0.8];
 
-% Absolute (isRel=false), periodic
+% Absolute (rel=false), periodic
 s_sm = simMaet(p_a_v, w_a_v, p_b_v, w_b_v, 10, 2, false, true, 1200, ...
     'verbose', false);
 da = buildMaet({p_a_v}, {w_a_v}, 10, 2, false, true, 1200, 'verbose', false);
@@ -493,7 +502,7 @@ s_ba = simMaet(db, da, 'verbose', false);
 results{end+1,1} = 'simMaet MA: symmetry (a,b) == (b,a)';
 results{end,2}   = abs(s_ab - s_ba) < 1e-12;
 
-% -- simMaet MA: isRel transposition invariance --
+% -- simMaet MA: rel transposition invariance --
 
 pitchT  = [0; 400; 700];
 pitchTs = pitchT + 137;
@@ -505,7 +514,7 @@ d2 = buildMaet({pitchTs, timeT}, [], ...
     [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 s_trans = simMaet(d1, d2, 'verbose', false);
-results{end+1,1} = 'simMaet MA: isRel transposition invariance';
+results{end+1,1} = 'simMaet MA: rel transposition invariance';
 results{end,2}   = abs(s_trans - 1) < 1e-10;
 
 % -- simMaet MA: raw-args matches struct form --
@@ -551,9 +560,9 @@ results{end,2}   = throwsError(@() simMaet(d_ref, d_r, 'verbose', false));
 d_s = buildMaet({pitchA}, [], 20, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'simMaet MA: mismatched sigma error';
 results{end,2}   = throwsError(@() simMaet(d_ref, d_s, 'verbose', false));
-% different isRel
+% different rel
 d_rel = buildMaet({pitchA}, [], 10, 2, true, true, 1200, 'verbose', false);
-results{end+1,1} = 'simMaet MA: mismatched isRel error';
+results{end+1,1} = 'simMaet MA: mismatched rel error';
 results{end,2}   = throwsError(@() simMaet(d_ref, d_rel, 'verbose', false));
 % different period on periodic group
 d_p = buildMaet({pitchA}, [], 10, 2, false, true, 2400, 'verbose', false);
@@ -731,7 +740,7 @@ results{end,2}   = isequal(size(w_bc{1}), [3 2]) && ...
 
 % Periodic wrap: delta = v - c wrapped to [-P/2, P/2] before h. Raw values intact.
 p_per = {[10 11 0 1 2]};
-[~, w_per, ~] = unpackPreMaet(weightEvents(p_per, [], 1, 1, 0, 0, 'sd', 2, 'dropInputAttr', false, 'isPer', true, 'period', 12));
+[~, w_per, ~] = unpackPreMaet(weightEvents(p_per, [], 1, 1, 0, 0, 'sd', 2, 'dropInputAttr', false, 'per', true, 'period', 12));
 expected_per = exp(-([-2 -1 0 1 2] .^ 2) ./ 8);
 results{end+1,1} = 'weightEvents: periodic wrap of delta before shape';
 results{end,2}   = max(abs(w_per{1} - expected_per)) < 1e-12;
@@ -879,9 +888,9 @@ results{end,2}   = throwsErrorWithId( ...
     @() weightEvents({[1 2]}, [], 1, 1, 1, 0, 'sd', 1, 'dropInputAttr', true), ...
     'weightEvents:dropInputAttrIncoherent');
 
-results{end+1,1} = 'weightEvents: isPer=true with period=0 errors (badPeriod id)';
+results{end+1,1} = 'weightEvents: per=true with period=0 errors (badPeriod id)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], 1, 1, 1, 0, 'sd', 1, 'dropInputAttr', false, 'isPer', true, 'period', 0), ...
+    @() weightEvents({[1 2]}, [], 1, 1, 1, 0, 'sd', 1, 'dropInputAttr', false, 'per', true, 'period', 0), ...
     'weightEvents:badPeriod');
 
 % T \circ W centre-shift commutation: T then W with centre c equals W with
@@ -897,8 +906,8 @@ results{end+1,1} = 'weightEvents: T \circ W centre-shift commutation';
 results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 
 % translateAttributes moved onto the (pAttr, w, specs) triple (3c-iv-d);
-% its tests now live in tests/test_translate.m. The old groups / isRel /
-% isPer / period positional contract has been removed.
+% its tests now live in tests/test_translate.m. The old groups / rel /
+% per / period positional contract has been removed.
 
 % -- simMaet raw-MA scalar form, and the refused raw list --
 

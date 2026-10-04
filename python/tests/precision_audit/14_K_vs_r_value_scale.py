@@ -34,9 +34,9 @@ SEEDS = 30
 FLOOR = truncation_floor(6)
 
 
-def both_cosines(p1, w1, p2, w2, r, is_rel, is_per):
+def both_cosines(p1, w1, p2, w2, r, rel, per):
     """Return the orbit and enumerated cosine similarities."""
-    geom = ([SIGMA], [r], [is_rel], [is_per], [P])
+    geom = ([SIGMA], [r], [rel], [per], [P])
     d1 = build_maet([p1], [w1], *geom, verbose=False)
     d2 = build_maet([p2], [w2], *geom, verbose=False)
     o_xy, o_xx, o_yy = _sim_maet_ma_orbit(d1, d2)
@@ -53,7 +53,7 @@ def main():
               f"{'p90':>10} {'max':>10} {'n>floor':>8}")
     print(header)
     print("-" * len(header))
-    for mode_name, is_rel, is_per in MODES:
+    for mode_name, rel, per in MODES:
         for r in R_VALUES:
             for dk in DELTA_K_VALUES:
                 K = r + dk
@@ -67,7 +67,7 @@ def main():
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         co, cp = both_cosines(
-                            p1, w1, p2, w2, r, is_rel, is_per)
+                            p1, w1, p2, w2, r, rel, per)
                     errs.append(abs(co - cp))
                 errs = np.array(errs)
                 n_over = int((errs > FLOOR).sum())

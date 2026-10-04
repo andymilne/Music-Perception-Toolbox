@@ -14,7 +14,7 @@ function args = sweptPreMaetArgs(args, fname, nPre)
 %   the same r, [rel], [exch], and nesting on every attribute. The context
 %   supplies the geometry; a disagreement is an error rather than a silent
 %   choice between them. Each side keeps its own 'tags', which say which
-%   slot of that side belongs to which nesting group -- a chorale's beat
+%   position of that side belongs to which nesting group -- a chorale's beat
 %   may hold seven notes where the prototype it is compared against holds
 %   two -- so the query's specs are the shared geometry carrying the
 %   query's own grouping.
@@ -71,8 +71,8 @@ specs = internal.overrideSpecs(specs, kw.r, kw.rel, kw.exch, A);
 [~, ~, ~, ~, names, specKernel] = internal.normaliseSpecs(specs, A);
 sigma  = internal.resolveKernelParam(kw.sigma,  specKernel.sigma,  ...
                                      'sigma',  names, A, false);
-isPer  = internal.resolveKernelParam(kw.isPer,  specKernel.isPer,  ...
-                                     'isPer',  names, A, false);
+isPer  = internal.resolveKernelParam(kw.per,  specKernel.per,  ...
+                                     'per',  names, A, false);
 period = internal.resolveKernelParam(kw.period, specKernel.period, ...
                                      'period', names, A, true);
 [rVec, isRelVec, isExchVec, nestedList] = internal.normaliseSpecs(specs, A);
@@ -91,7 +91,7 @@ if any(~cellfun(@isempty, nestedList))
         args = [args, {'querySpecs', localSideSpecs(specs, pms{2}.specs, A)}];
     end
 else
-    args = [args, {'isExch', isExchVec}];
+    args = [args, {'exch', isExchVec}];
 end
 end
 
@@ -109,7 +109,7 @@ end
 
 function [kw, rest] = localTakeOverrides(rest)
 %LOCALTAKEOVERRIDES  Remove the six per-attribute overrides from rest.
-    kw = struct('sigma', [], 'isPer', [], 'period', [], ...
+    kw = struct('sigma', [], 'per', [], 'period', [], ...
                 'r', [], 'rel', [], 'exch', []);
     keys = fieldnames(kw);
     keep = true(1, numel(rest));
@@ -147,7 +147,7 @@ function localCheckAgrees(specsA, specsB, A, fname)
                       ['The two pre-MAETs disagree on ''%s'' for ' ...
                        'attribute %d. They describe one comparison, so ' ...
                        'the structural geometry must match; sigma, ' ...
-                       'isPer and period may differ and are taken from ' ...
+                       'per and period may differ and are taken from ' ...
                        'the first.'], f{1}, a);
             end
         end

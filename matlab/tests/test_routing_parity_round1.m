@@ -79,10 +79,10 @@ for rp1_isPer = [false true]
     keyOk = ~isempty(keys) && all(cellfun(@(k) ~isempty(regexp(k, ...
         '^contract\|2\|', 'once')), keys));
     results{end+1, 1} = sprintf( ...
-        'parity round1: nested contraction truncates at ts=2 (isPer=%d)', rp1_isPer);
+        'parity round1: nested contraction truncates at ts=2 (per=%d)', rp1_isPer);
     results{end, 2}   = abs(coarse - ref) > 1e-6;
     results{end+1, 1} = sprintf( ...
-        'parity round1: nested memo keyed on ts=2 (isPer=%d)', rp1_isPer);
+        'parity round1: nested memo keyed on ts=2 (per=%d)', rp1_isPer);
     results{end, 2}   = keyOk;
 end
 
@@ -302,7 +302,7 @@ function d = rp1Nested(values, sigma, isRel, isPer, wrap, P)
         period = 0;
     end
     d = buildMaet({v}, {[]}, 'specs', {spec}, 'sigma', sigma, ...
-                     'isPer', isPer, 'period', period, 'wrap', {wrap}, ...
+                     'per', isPer, 'period', period, 'wrap', {wrap}, ...
                      'verbose', false);
 end
 
@@ -314,7 +314,7 @@ function d = rp1NestedPlusR1(values)
     sp0 = struct('tags', tags, 'r', [2 2], 'exch', [true true], 'rel', [0 0]);
     sp1 = struct('r', 1, 'exch', true, 'rel', false);
     d = buildMaet({v, 3.0}, {[], []}, 'specs', {sp0, sp1}, ...
-                     'sigma', [0.4 1.0], 'isPer', [false false], ...
+                     'sigma', [0.4 1.0], 'per', [false false], ...
                      'period', [0 0], 'verbose', false);
 end
 

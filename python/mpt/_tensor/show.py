@@ -33,7 +33,7 @@ _SIGMA = "sigma"
 #  Input normalisation
 # -------------------------------------------------------------------
 
-def _unpack(p_attr, w, specs, sigma, is_rel, is_per, period, names):
+def _unpack(p_attr, w, specs, sigma, rel, per, period, names):
     """Return ``(P, W, specs, params)`` from either input form.
 
     Accepts a built density, from which every field is recovered, or the
@@ -52,11 +52,11 @@ def _unpack(p_attr, w, specs, sigma, is_rel, is_per, period, names):
                 sp.append(dict(nested[a]))
             else:
                 sp.append({"r": int(np.atleast_1d(d.r)[a]),
-                           "rel": bool(np.atleast_1d(d.is_rel)[a]),
-                           "exch": bool(np.atleast_1d(d.is_exch)[a])})
+                           "rel": bool(np.atleast_1d(d.rel)[a]),
+                           "exch": bool(np.atleast_1d(d.exch)[a])})
         params = {
             "sigma": [float(v) for v in np.atleast_1d(d.sigma)],
-            "is_per": [bool(v) for v in np.atleast_1d(d.is_per)],
+            "per": [bool(v) for v in np.atleast_1d(d.per)],
             "period": [float(v) for v in np.atleast_1d(d.period)],
         }
         return P, W, sp, params, _names(names, sp, A)
@@ -85,16 +85,15 @@ def _unpack(p_attr, w, specs, sigma, is_rel, is_per, period, names):
     # Def. 2.6); an explicit argument overrides it, as at build time.
     params = {}
     for key, given, cast in (("sigma", sigma, float),
-                             ("is_per", is_per, bool),
+                             ("per", per, bool),
                              ("period", period, float)):
         vals = _bcast(given, A, key, cast)
         for a in range(A):
             if vals[a] is None:
-                alias = "isPer" if key == "is_per" else key
-                vals[a] = sp[a].get(key, sp[a].get(alias))
+                vals[a] = sp[a].get(key)
         params[key] = vals
-    if is_rel is not None:
-        for a, v in enumerate(_bcast(is_rel, A, "is_rel", bool)):
+    if rel is not None:
+        for a, v in enumerate(_bcast(rel, A, "rel", bool)):
             sp[a]["rel"] = v
     return P, W, sp, params, _names(names, sp, A)
 
@@ -215,7 +214,7 @@ def _param_num(x):
 #  Cell model: one attribute at one event, as a bracket tree
 # -------------------------------------------------------------------
 
-# An empty slot of an ordered attribute, shown between its values.
+# An ordered attribute's position with no value, shown between its values.
 _BLANK = "_"
 
 
@@ -233,10 +232,10 @@ def _cell_tree(p_col, w_col, spec, max_elements):
 
     if tags is None:
         if exch_levels and not exch_levels[0]:
-            # Ordered: the slot is the level (a voice, a coordinate), so
-            # an empty slot before the last value is shown as a blank and
-            # the values keep their positions. Trailing empty slots are
-            # left off, since reading a cell fills slots from the first.
+            # Ordered: the position identifies the level (a voice, a coordinate), so
+            # a position with no value before the last value is shown as a blank and
+            # the values keep their positions. Trailing positions with no value are
+            # left off, since reading a cell fills positions from the first.
             last = (int(np.flatnonzero(finite)[-1]) + 1
                     if finite.any() else 0)
             leaves = [(float(p_col[k]),
@@ -354,7 +353,7 @@ def _stub_lines(name, spec, params, a, latex):
     r = _levels(spec, "r", 1)
     rel = [bool(v) for v in _levels(spec, "rel", False)]
     sigma = params["sigma"][a]
-    is_per = params["is_per"][a]
+    per = params["per"][a]
     period = params["period"][a]
 
     def tup(vals, cast=str):
@@ -372,7 +371,7 @@ def _stub_lines(name, spec, params, a, latex):
     bits.append("r = " + tup(r, lambda v: str(int(v))))
 
     rel_s = tup([int(v) for v in rel], str)
-    per_v = 0 if is_per is None else int(bool(is_per))
+    per_v = 0 if per is None else int(bool(per))
     # The manuscript collapses the two flags when both are the scalar 0.
     if len(rel) == 1 and int(rel[0]) == 0 and per_v == 0:
         bits.append(f"{rel_t}, {per_t} = 0")
@@ -471,8 +470,8 @@ def _render_latex(names, stubs, cells, cols, N, caption, label):
 # -------------------------------------------------------------------
 
 def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
-                  is_rel=None,
-                  is_per=None, period=None, names=None, format="markdown",
+                  rel=None,
+                  per=None, period=None, names=None, format="markdown",
                   max_events=8, max_elements=8, decimals=4,
                   weights="auto", title=None, caption=None, label=None,
                   headings=None, delimiter=",", verbose=True):
@@ -487,9 +486,9 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
     unordered (``[exch] = 1``) and parenthesis-delimited where it is
     ordered; a nested attribute is bracketed level by level, the
     outermost level outermost. A single element is written bare. On an
-    ordered attribute the slot is the level (a voice, a coordinate), so
-    an empty slot (NaN) before the event's last value is written as a
-    blank, ``(62, _, 67)``; on an unordered one empty slots are omitted.
+    ordered attribute the position identifies the level (a voice, a coordinate), so
+    a position with no value (NaN) before the event's last value is written as a
+    blank, ``(62, _, 67)``; on an unordered one such gaps are omitted.
     Where the weights are not uniform they are written as parenthesized
     superscripts on their values, ``60^(0.6)``.
 
@@ -511,9 +510,9 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
         Per-attribute specs, ``{r, rel, exch}`` flat or carrying ``tags``
         when nested, as produced by :func:`~mpt.flat_specs` and the
         pre-MAET operators. Defaults to flat, ``r = 1``, unordered.
-    sigma, is_rel, is_per, period : scalar or length-A, optional
+    sigma, rel, per, period : scalar or length-A, optional
         Kernel parameters, shown in the attribute row. Ignored when a
-        density is passed. ``is_rel`` overrides the specs' ``rel``.
+        density is passed. ``rel`` overrides the specs' ``rel``.
     names : str or length-A, optional
         Attribute names. Defaults to the specs' ``name`` entries, then
         to ``a_1``, ``a_2``, and so on.
@@ -552,7 +551,7 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
     >>> import numpy as np, mpt
     >>> p = [np.array([[67., 66., 64.]]), np.array([[5., 6., 7.]])]
     >>> _ = mpt.show_pre_maet(p, names=['pitch', 'time'], sigma=[0.5, 0.25],
-    ...                       is_per=[True, False], period=[12., 0.],
+    ...                       per=[True, False], period=[12., 0.],
     ...                       verbose=False)
 
     See also
@@ -572,7 +571,7 @@ def show_pre_maet(p_attr, w_attr=None, specs=None, *, sigma=None,
         max_events = max_elements = None
 
     P, W, sp, params, nm = _unpack(
-        p_attr, w, specs, sigma, is_rel, is_per, period, names)
+        p_attr, w, specs, sigma, rel, per, period, names)
     A = len(P)
     if A == 0:
         raise ValueError("a pre-MAET must carry at least one attribute.")

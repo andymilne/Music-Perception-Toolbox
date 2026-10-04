@@ -290,7 +290,7 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
                 h_m = opts.period / n_m;
                 lo = 0.0;
                 grid_m = h_m * (0:n_m - 1);
-                kwPer = [kw, {'isPer', true, 'period', opts.period}];
+                kwPer = [kw, {'per', true, 'period', opts.period}];
                 ym = internal.gaussianKernelSum( ...
                     p(:).', wm(:), grid_m, sigmaEff, kwPer{:});
             else

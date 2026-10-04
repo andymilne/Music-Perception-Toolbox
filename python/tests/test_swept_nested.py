@@ -5,8 +5,8 @@ Each nested result is pinned to the explicit composition it stands in for
 (``weight_events`` / ``translate_attributes`` -> ``build_maet`` ->
 ``sim_maet`` / ``entropy_maet`` with ``specs=``), exactly as
 ``test_swept_premaet.py`` pins the flat path. To prove the nested
-geometry is read from ``specs`` and not from the positional ``r``/``is_rel``,
-the calls pass deliberately wrong flat ``r``/``is_rel`` and still match.
+geometry is read from ``specs`` and not from the positional ``r``/``rel``,
+the calls pass deliberately wrong flat ``r``/``rel`` and still match.
 """
 import numpy as np
 import pytest
@@ -45,19 +45,19 @@ def _triple(spectral):
 def _ref_locked(ctx, w_ctx, qry, w_qry, specs, sweep_values, q_ext):
     """Inline hand-built locked-sweep reference (the composition the nested
     swept_similarity replaces)."""
-    sigma, is_per, period = [SIG_P, SIG_T], [False, False], [0.0, 0.0]
+    sigma, per, period = [SIG_P, SIG_T], [False, False], [0.0, 0.0]
     mu_q = float(np.nanmean(np.asarray(qry[AXIS], dtype=float)))
     out = np.empty(len(sweep_values))
     for i, c in enumerate(sweep_values):
         pc, wc, sc = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
-                                   width=q_ext, is_per=False, period=0.0,
+                                   width=q_ext, per=False, period=0.0,
                                    drop_input_attr=False, specs=specs))
-        dc = build_maet(pc, wc, sigma=sigma, is_per=is_per, period=period,
+        dc = build_maet(pc, wc, sigma=sigma, per=per, period=period,
                             specs=sc, verbose=False)
         offs = [None, None]
         offs[AXIS] = np.array([[c - mu_q]], dtype=float)
         pq, wq, sq = unpack_pre_maet(translate_attributes(qry, w_qry, offs, specs=specs))
-        dq = build_maet(pq, wq, sigma=sigma, is_per=is_per, period=period,
+        dq = build_maet(pq, wq, sigma=sigma, per=per, period=period,
                             specs=sq, verbose=False)
         out[i] = float(sim_maet(dc, dq, normalize="oneSidedDenom",
                                         verbose=False))
@@ -75,7 +75,7 @@ def test_similarity_nested_locked_matches_handbuilt(spectral):
     sweep_values = ctx[1].ravel()[:ctx[0].shape[1]]        # one centre per super-event
     ref = _ref_locked(ctx, w_ctx, qry, w_qry, specs, sweep_values, width)
 
-    # Deliberately WRONG flat r/is_rel: in nested mode they must be ignored.
+    # Deliberately WRONG flat r/rel: in nested mode they must be ignored.
     got = swept_similarity(
         ctx, w_ctx, qry, w_qry,
         [SIG_P, SIG_T], [1, 1], [False, False], [False, False], [0.0, 0.0],
@@ -121,14 +121,14 @@ def test_entropy_nested_matches_handbuilt():
     ctx, w_ctx, specs = _triple(spectral=False)
     width = 2.0
     sweep_values = np.linspace(ctx[1].min(), ctx[1].max(), 7)
-    sigma, is_per, period = [SIG_P, SIG_T], [False, False], [0.0, 0.0]
+    sigma, per, period = [SIG_P, SIG_T], [False, False], [0.0, 0.0]
 
     ref = np.empty(len(sweep_values))
     for i, c in enumerate(sweep_values):
         pw, ww, sw = unpack_pre_maet(weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
-                                   width=width, is_per=False, period=0.0,
+                                   width=width, per=False, period=0.0,
                                    drop_input_attr=False, specs=specs))
-        dens = build_maet(pw, ww, sigma=sigma, is_per=is_per,
+        dens = build_maet(pw, ww, sigma=sigma, per=per,
                               period=period, specs=sw, verbose=False)
         ref[i] = entropy_maet(dens, method="renyi2", verbose=False)
 

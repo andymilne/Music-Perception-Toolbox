@@ -34,12 +34,12 @@ A = 1
 SEEDS = 30
 
 
-def err(p1, w1, p2, w2, sigma, P, r, is_rel, is_per):
+def err(p1, w1, p2, w2, sigma, P, r, rel, per):
     sigmas = [sigma]
     rs = [r]
     groups = [0]
-    is_rels = [is_rel]
-    is_pers = [is_per]
+    is_rels = [rel]
+    is_pers = [per]
     periods = [P]
     d1 = build_maet(
         [p1], [w1], sigmas, rs, is_rels, is_pers, periods, verbose=False,
@@ -66,7 +66,7 @@ def main():
     )
     print(header)
     print("-" * len(header))
-    for mode_name, is_rel, is_per in MODES:
+    for mode_name, rel, per in MODES:
         for r in R_VALUES:
             for dk in DELTA_K_VALUES:
                 K = r + dk
@@ -80,7 +80,7 @@ def main():
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         errs.append(err(
-                            p1, w1, p2, w2, SIGMA, P, r, is_rel, is_per,
+                            p1, w1, p2, w2, SIGMA, P, r, rel, per,
                         ))
                 errs = np.array(errs)
                 flag = "    "

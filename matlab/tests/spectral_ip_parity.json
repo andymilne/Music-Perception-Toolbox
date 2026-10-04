@@ -4,7 +4,7 @@
  "costC": 1100.0,
  "cases": [
   {
-   "isPer": true,
+   "per": true,
    "r": 2,
    "K": 4,
    "sigmaOverP": 0.0125,
@@ -37,7 +37,7 @@
    "value": 27.68679524929838
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 2,
    "K": 4,
    "sigmaOverP": 0.05,
@@ -70,7 +70,7 @@
    "value": 502.3015956250792
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 2,
    "K": 4,
    "sigmaOverP": 0.2,
@@ -103,7 +103,7 @@
    "value": 4598.153778027102
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 2,
    "K": 7,
    "sigmaOverP": 0.0125,
@@ -148,7 +148,7 @@
    "value": 174.90279625793042
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 2,
    "K": 7,
    "sigmaOverP": 0.05,
@@ -193,7 +193,7 @@
    "value": 14675.579487695899
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 2,
    "K": 7,
    "sigmaOverP": 0.2,
@@ -238,7 +238,7 @@
    "value": 66843.55263744097
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 3,
    "K": 4,
    "sigmaOverP": 0.0125,
@@ -271,7 +271,7 @@
    "value": 0.0
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 3,
    "K": 4,
    "sigmaOverP": 0.05,
@@ -304,7 +304,7 @@
    "value": 13545.870906963413
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 3,
    "K": 4,
    "sigmaOverP": 0.2,
@@ -337,7 +337,7 @@
    "value": 15329522.947157813
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 3,
    "K": 7,
    "sigmaOverP": 0.0125,
@@ -382,7 +382,7 @@
    "value": 4834.028651847392
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 3,
    "K": 7,
    "sigmaOverP": 0.05,
@@ -427,7 +427,7 @@
    "value": 1755475.7709070477
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 3,
    "K": 7,
    "sigmaOverP": 0.2,
@@ -472,7 +472,7 @@
    "value": 630973389.87644
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 4,
    "K": 4,
    "sigmaOverP": 0.0125,
@@ -505,7 +505,7 @@
    "value": 0.0
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 4,
    "K": 4,
    "sigmaOverP": 0.05,
@@ -538,7 +538,7 @@
    "value": 0.0
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 4,
    "K": 4,
    "sigmaOverP": 0.2,
@@ -571,7 +571,7 @@
    "value": 268367685.131693
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 4,
    "K": 7,
    "sigmaOverP": 0.0125,
@@ -616,7 +616,7 @@
    "value": 0.0
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 4,
    "K": 7,
    "sigmaOverP": 0.05,
@@ -661,7 +661,7 @@
    "value": 0.0
   },
   {
-   "isPer": true,
+   "per": true,
    "r": 4,
    "K": 7,
    "sigmaOverP": 0.2,
@@ -706,7 +706,7 @@
    "value": 2399082508579.728
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 2,
    "K": 4,
    "sigmaOverP": 0.0125,
@@ -739,7 +739,7 @@
    "value": 54.36830284342666
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 2,
    "K": 4,
    "sigmaOverP": 0.05,
@@ -772,7 +772,7 @@
    "value": 798.5180620600388
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 2,
    "K": 4,
    "sigmaOverP": 0.2,
@@ -805,7 +805,7 @@
    "value": 7564.104506244753
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 2,
    "K": 7,
    "sigmaOverP": 0.0125,
@@ -850,7 +850,7 @@
    "value": 292.3095947615585
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 2,
    "K": 7,
    "sigmaOverP": 0.05,
@@ -895,7 +895,7 @@
    "value": 7312.226247689884
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 2,
    "K": 7,
    "sigmaOverP": 0.2,
@@ -940,7 +940,7 @@
    "value": 122551.69934414227
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 3,
    "K": 4,
    "sigmaOverP": 0.0125,
@@ -973,7 +973,7 @@
    "value": 0.0
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 3,
    "K": 4,
    "sigmaOverP": 0.05,
@@ -1006,7 +1006,7 @@
    "value": 2736.5054718404685
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 3,
    "K": 4,
    "sigmaOverP": 0.2,
@@ -1039,7 +1039,7 @@
    "value": 404099.36188151914
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 3,
    "K": 7,
    "sigmaOverP": 0.0125,
@@ -1084,7 +1084,7 @@
    "value": 1710.0983620554011
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 3,
    "K": 7,
    "sigmaOverP": 0.05,
@@ -1129,7 +1129,7 @@
    "value": 588445.5153383871
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 3,
    "K": 7,
    "sigmaOverP": 0.2,
@@ -1174,7 +1174,7 @@
    "value": 333135026.7264312
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 4,
    "K": 4,
    "sigmaOverP": 0.0125,
@@ -1207,7 +1207,7 @@
    "value": 0.0
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 4,
    "K": 4,
    "sigmaOverP": 0.05,
@@ -1240,7 +1240,7 @@
    "value": 0.0
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 4,
    "K": 4,
    "sigmaOverP": 0.2,
@@ -1273,7 +1273,7 @@
    "value": 0.0
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 4,
    "K": 7,
    "sigmaOverP": 0.0125,
@@ -1318,7 +1318,7 @@
    "value": 0.0
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 4,
    "K": 7,
    "sigmaOverP": 0.05,
@@ -1363,7 +1363,7 @@
    "value": 0.0
   },
   {
-   "isPer": false,
+   "per": false,
    "r": 4,
    "K": 7,
    "sigmaOverP": 0.2,

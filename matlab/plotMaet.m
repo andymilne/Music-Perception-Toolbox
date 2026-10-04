@@ -3,7 +3,7 @@ function h = plotMaet(dens, varargin)
 %
 %   plotMaet(dens) draws a density of one, two, or three drawn
 %   dimensions, dispatching on the dimensionality the density carries:
-%   dim = r - isRel. Four or more cannot be drawn and is refused.
+%   dim = r - rel. Four or more cannot be drawn and is refused.
 %
 %   Three methods, each named for what it shows rather than for the
 %   geometry it uses, since the geometry is what changes with the
@@ -220,7 +220,7 @@ function h = plotMaet(dens, varargin)
 %       pAttr = {[0 200 400 500 700 900 1100].'};
 %       specs = flatSpecs(pAttr, 'r', 4, 'rel', true, 'exch', true);
 %       dens  = buildMaet(pAttr, [], 'specs', specs, 'sigma', 15, ...
-%                         'isPer', true, 'period', 1200);
+%                         'per', true, 'period', 1200);
 %       plotMaet(dens);                                  % the kernels
 %       figure; plotMaet(dens, 'method', 'density');     % the density
 %
@@ -262,7 +262,7 @@ end
 
 Cc = maetCentres(dens);
 C = Cc{1};
-isPer = dens.isPer(1);
+isPer = dens.per(1);
 period = dens.period(1);
 sigma = dens.sigma(1);
 if isPer
@@ -388,7 +388,7 @@ function covK = localKernelCov(dens, dim)
                '''density'', which takes the density as evaluated.']);
     end
     sigma = dens.sigma(1);
-    if dens.isRel(1)
+    if dens.rel(1)
         covK = sigma ^ 2 * (eye(dim) + ones(dim));
     else
         covK = sigma ^ 2 * eye(dim);

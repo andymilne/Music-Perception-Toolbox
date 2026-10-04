@@ -142,7 +142,7 @@ results{end+1,1} = 'nested: inner [rel] dim 2 and per-event-invariant';
 results{end,2}   = okInner;
 
 
-% --- Inner equals tensor join of two is_rel dyads (eval parity) ---
+% --- Inner equals tensor join of two rel dyads (eval parity) ---
 dRef = buildMaet({[0; 4], [7; 11]}, [], [50 50], [2 2], ...
                     [true true], [false false], [0 0], 'verbose', false);
 okJoin = (dIn.dim == dRef.dim);

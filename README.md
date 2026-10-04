@@ -45,14 +45,14 @@ The release is a major version bump because a few defaults and one keyword chang
 
 This was a major rewrite. Key changes:
 
-- **Python implementation** — a functionally identical Python package (`mpt`) using snake_case naming. See the [User Guide](USER_GUIDE.md#10-api-conventions) for the full name mapping.
+- **Python implementation** — a functionally identical Python package (`mpt`) using snake_case naming. See the [User Guide](USER_GUIDE.md#101-naming) for the naming rules.
 - Analytical methods have replaced the previous numerical approximations wherever feasible. In v1, analytical computation was available only for the cosine similarity inner product (`simMaet`); in v2, individual tensor construction and evaluation (`buildMaet` / `build_maet` and `evalMaet` / `eval_maet`) are also analytical, eliminating grid discretization.
 - The `simMaet` computation itself has been substantially optimized — the original double loop over r-ad combinations has been replaced by fully vectorized operations over pre-calculated r-ads.
 - Precomputed density objects (`buildMaet` / `build_maet`) eliminate redundant computation across repeated comparisons.
 - Spectral enrichment (`addSpectra` / `add_spectra`) expanded from one mode to five: harmonic, stretched, frequency-linear, stiff-string, and custom.
 - All functions now accept event positions and weights directly (v1's indicator-vector inputs are no longer required).
 - No external dependencies (v1 required the [Sparse Array Toolbox](https://github.com/andymilne/Sparse-Array-Toolbox)).
-- **Comprehensive documentation** — every function includes a full help text with usage examples. A [User Guide](USER_GUIDE.md) covers the conceptual foundations, a complete function reference for both languages, worked examples, and demo scripts covering all major use cases, with a start-here guide to them. [MIGRATION.md](MIGRATION.md) maps every v1 function to its v2 equivalent.
+- **Comprehensive documentation** — every function includes a full help text with usage examples. A [User Guide](USER_GUIDE.md) covers the conceptual foundations and gives a complete function reference for both languages, and demo scripts cover all major use cases, with a start-here guide to them. [MIGRATION.md](MIGRATION.md) maps every v1 function to its v2 equivalent.
 
 The original `simMaet` calling convention is fully backward compatible.
 
@@ -156,7 +156,7 @@ s = mpt.sim_maet(maj_p, maj_w, min_p, min_w, 10, 1, False, True, 1200)
 print(f'SPCS(major, minor) = {s:.3f}')
 ```
 
-Demo scripts are included in `matlab/demos/` and `python/demos/`. Start with `demo_0_startHere` (Python: `demo_0_start_here.py`), which suggests a route through the demos for a beginner, shows how they fit together, and lists them by topic; `demo_overview` is a quick tour of all function families. See the [User Guide](USER_GUIDE.md#15-demo-scripts) for full descriptions.
+Demo scripts are included in `matlab/demos/` and `python/demos/`. Start with `demo_0_startHere` (Python: `demo_0_start_here.py`), which suggests a route through the demos for a beginner, shows how they fit together, and lists them by topic; `demo_overview` is a quick tour of all function families. See the [User Guide](USER_GUIDE.md#13-demo-scripts) for full descriptions.
 
 ## Repository structure
 
@@ -179,7 +179,7 @@ Music-Perception-Toolbox/
 
 ## Documentation
 
-- **[User Guide](USER_GUIDE.md)** — Conceptual overview, function reference (both languages), worked examples, and demo descriptions.
+- **[User Guide](USER_GUIDE.md)** — Conceptual overview, an analysis from material to measures, function reference (both languages), and demo descriptions.
 - **[CHANGELOG](CHANGELOG.md)** — Full list of changes across releases.
 - **[MIGRATION](MIGRATION.md)** — Function-by-function mapping from v1 to v2 (MATLAB only) and a v2.0 → v3.0 migration covering the breaking entropy-API and default changes, the soft-sigma structural measures, DFT Monte Carlo additions, unified-dispatch entry points, and consumer-level batching.
 
@@ -191,9 +191,9 @@ If you use this toolbox in published work, please cite:
 
 and the software itself using the DOI from Zenodo (see [CITATION.cff](CITATION.cff)). GitHub will also display a "Cite this repository" button from the CITATION.cff metadata.
 
-For functions related to balance, evenness, and rhythmic structure, additionally cite Milne, Bulger, & Herff (2017) and Milne & Herff (2020). For the rhythmic predictors, additionally cite Milne, Dean, & Bulger (2023). Full references are in the [User Guide](USER_GUIDE.md#17-references).
+For functions related to balance, evenness, and rhythmic structure, additionally cite Milne, Bulger, & Herff (2017) and Milne & Herff (2020). For the rhythmic predictors, additionally cite Milne, Dean, & Bulger (2023). Full references are in the [User Guide](USER_GUIDE.md#14-references).
 
-## Acknowledgments
+## Acknowledgements
 
 This work was supported, in part, by an Australian Research Council Discovery Early Career Researcher Award (project number DE170100353) funded by the Australian Government.
 

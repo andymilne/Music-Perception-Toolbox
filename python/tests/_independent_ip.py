@@ -36,7 +36,7 @@ def _tuple_centres(p, w, r):
     return np.asarray(u).T, np.asarray(w_j)
 
 
-def _kernel(c_a, c_b, r, sigma, is_rel, is_per, period):
+def _kernel(c_a, c_b, r, sigma, rel, per, period):
     """Kernel value for every pair of tuple centres, shape (n_a, n_b).
 
     The two periodic modes are periodized differently, and must be, to
@@ -55,13 +55,13 @@ def _kernel(c_a, c_b, r, sigma, is_rel, is_per, period):
     wrapped-difference kernel in :func:`_kernel`).
     """
     delta = c_a[:, None, :] - c_b[None, :, :]
-    if is_rel:
+    if rel:
         d = delta[..., :, None] - delta[..., None, :]      # (n_a, n_b, r, r)
-        if is_per:
+        if per:
             d = d - period * np.round(d / period)
         q = (d ** 2).sum(axis=(-1, -2)) / (2.0 * r)
         return np.exp(-q / (4.0 * sigma ** 2))
-    if not is_per:
+    if not per:
         return np.exp(-(delta ** 2).sum(axis=-1) / (4.0 * sigma ** 2))
     # Absolute periodic: product over coordinates of the wrapped Gaussian.
     # Images beyond the truncation width contribute below double
@@ -75,7 +75,7 @@ def _kernel(c_a, c_b, r, sigma, is_rel, is_per, period):
 
 
 def centres_inner_product(p_x, w_x, p_y, w_y, sigma, r,
-                          is_rel, is_per, period):
+                          rel, per, period):
     """Unnormalised inner product by unrestricted centres enumeration.
 
     Covers all four modes. Returns a float; zero when either side has
@@ -97,12 +97,12 @@ def centres_inner_product(p_x, w_x, p_y, w_y, sigma, r,
     # unusable, so the X side is chunked to hold the working set near
     # CHUNK_BYTES; the result is a plain sum and so is unaffected by the
     # chunking, up to floating-point accumulation order.
-    per_pair = r * r if is_rel else r
+    per_pair = r * r if rel else r
     rows = max(1, int(CHUNK_BYTES / max(1, 8 * per_pair * c_y.shape[0])))
     total = 0.0
     for start in range(0, c_x.shape[0], rows):
         stop = min(start + rows, c_x.shape[0])
-        kern = _kernel(c_x[start:stop], c_y, r, float(sigma), bool(is_rel),
-                       bool(is_per), float(period))
+        kern = _kernel(c_x[start:stop], c_y, r, float(sigma), bool(rel),
+                       bool(per), float(period))
         total += float((ww_x[start:stop, None] * ww_y[None, :] * kern).sum())
     return total

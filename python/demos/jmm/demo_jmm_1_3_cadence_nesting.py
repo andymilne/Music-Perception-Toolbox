@@ -26,11 +26,13 @@ semitones, P = 12). The chorale is reduced beat by beat to weighted
 pitch aggregates — its two eighth-note events weighted by metrical
 position (1 on the beat, 0.5 off it, times 1.5 under a fermata) and by
 the fraction of the eighth each note sounds, merged and normalized by
-the 1.5 a beat carries — and the aligned span of L consecutive beats,
-the resolution on the last, is bound into one nested super-event
-(``bind_events``) and compared with the query under the one-sided
-similarity (``swept_similarity(..., normalize='oneSidedDenom')``), so a
-peak of 1 is one isolated exact match. An optional inversion flag — a
+the 1.5 a beat carries — and each span of L consecutive beats is bound
+into one nested super-event (``bind_events``) timed at its last beat,
+the resolution. The query is translated along that time
+(``swept_similarity``, sigma_time = 0.1 beat, so only the span resolving
+at each candidate moment is in reach) and compared under the one-sided
+similarity (``normalize='oneSidedDenom'``), so a peak of 1 is one
+isolated exact match. An optional inversion flag — a
 second, simplex-coded attribute at +/-0.5 with sigma_flag = 0.1 — marks
 whether a chosen chord is a root-position triad (the dyad skeleton's
 resolution) or a second-inversion triad (the six-four's antepenult); the
@@ -52,7 +54,7 @@ context and query builders, and the pitch-derived flags.
 Data: ``jmm_data.bwv347_notes``. Toolbox: ``grid_attr_table`` (twice, the
 second regridding the first), ``pre_maet_from_attr_table``,
 ``bind_events`` (with per-attribute orders, so the window's time and flag
-stay flat), ``swept_similarity``, ``flat_specs``, ``select_pre_maet``.
+stay flat), ``swept_similarity``, ``flat_specs``.
 Runtime: a few seconds (eight queries at three inner tuple sizes, each
 sweep one call).
 """
@@ -73,7 +75,7 @@ except ImportError:
 # that module builds the chorale's beat aggregates on import.
 _prev_defaults = mpt.set_default(show_hints=False)
 
-from bwv_window import (show_pre_maet, as_compared, bound_context, query,
+from bwv_window import (show_pre_maet, bound_context, query,
                         dyad_query, b2bar, T0, T1, ROOT_YES)
 
 # Set True to write the figures to a figures/ folder beside this script;
@@ -146,8 +148,8 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
     # One bind_events call nests every window of three beats across the
     # whole chorale, carrying the time of the window's last beat (its
     # resolution) and the inversion flag flat alongside the nested pitch.
-    # The sweep is then one call: a rectangle of one beat admits exactly
-    # one window at each sweep value. The flag is pitch-derived --- a predicate
+    # The sweep is then one call per query, translating it along the time
+    # attribute to each resolution moment. The flag is pitch-derived --- a predicate
     # on the sonority at the antepenult beat, the window's first, stored
     # at its resolution beat --- and no harmonic labels are consulted.
     ctx_plain = bound_context(3, r_inner)
@@ -157,19 +159,16 @@ def prototype_sweep(r_inner: int, normalize: str = NORMALIZE,
     for name, spec in QUERIES.items():
         qd = _prototype_query(spec, r_inner)
         if show_input:
-            show_pre_maet(as_compared(qd),
+            show_pre_maet(qd,
                           title=f'  query: {name} (r_inner = {r_inner})')
             print()
-        # A rectangle of full support one beat, aligned at each window's
-        # resolution beat, admits exactly that window and no other --- its
-        # neighbours sit exactly a beat away. The time attribute (attribute 1)
-        # is dropped from the comparison, having done its work in placing
-        # the window.
+        # The query's time is its last chord's, 2, so query_ref = 2 moves
+        # its resolution to each sweep value. With sigma_time = 0.1 beat,
+        # the windows resolving a beat either side contribute nothing.
         prof = np.zeros(len(MUS))
         prof[idxs] = np.asarray(mpt.swept_similarity(
             ctx_flag if spec['flagged'] else ctx_plain, qd, sweep={1: at},
-            align={1: 'window'}, window={1: {'shape': 'rect', 'width': 1.0}},
-            drop=[1],
+            query_ref={1: 2.0},
             normalize=normalize, verbose=False)).ravel()
         out[name] = prof
     return out
@@ -188,9 +187,10 @@ def dyad_sweep(r_inner: int, use_flag: bool):
                         flag='root_position' if use_flag else None)
     idxs, at = _windows_in_piece(2)
     so = np.full(len(MUS), np.nan)
+    # As for the prototypes, translated along time: the query resolves at
+    # its second chord, 1.
     so[idxs] = np.asarray(mpt.swept_similarity(
-        ctx, qd, sweep={1: at}, align={1: 'window'},
-        window={1: {'shape': 'rect', 'width': 1.0}}, drop=[1],
+        ctx, qd, sweep={1: at}, query_ref={1: 1.0},
         normalize=NORMALIZE,
         verbose=False)).ravel()
     return WIN_BAR, so

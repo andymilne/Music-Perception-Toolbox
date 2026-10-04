@@ -127,7 +127,7 @@ disp(head(g(:, {'gridIndex', 'gridOnsetBeats', 'noteId', 'weight', ...
 % how many of an event's values a tuple takes, so sigma, r, and exch are
 % the analyst's and the conversion asks for them. It fills in only what
 % follows from the data or from another argument here: r and exch under a
-% structural role, and 'read as written' for rel and isPer.
+% structural role, and 'read as written' for rel and per.
 %
 % A categorical column reaches the pre-MAET only through a role, which
 % determines how its levels are represented; a column with no role is left
@@ -135,7 +135,7 @@ disp(head(g(:, {'gridIndex', 'gridOnsetBeats', 'noteId', 'weight', ...
 % three roles:
 %   'orderedMultiset'    structural: the level becomes a position within
 %                        one attribute, so the four voices occupy four
-%                        slots and matching is voice by voice. Used here,
+%                        positions and matching is voice by voice. Used here,
 %                        and it sets r = 4 and exch = false, which is why
 %                        neither is given.
 %   'separateAttributes' structural: the level becomes an attribute of
@@ -151,9 +151,9 @@ disp(head(g(:, {'gridIndex', 'gridOnsetBeats', 'noteId', 'weight', ...
 % reading. 'time', 'beats' puts the onset attribute's values in quarter
 % notes rather than in the default seconds, matching the unit the grid of
 % step 3 was built over.
-pm = preMaetFromAttrTable(g, 'attributes', { ...
+pm = preMaetFromAttrTable(g, 'specs', { ...
         struct('column', 'pitch', 'name', 'pitchClass', 'sigma', 0.5, ...
-               'isPer', true, 'period', 12), ...
+               'per', true, 'period', 12), ...
         struct('column', 'pitch', 'name', 'pitchHeight', 'sigma', 8), ...
         struct('column', 'onset', 'sigma', 0.5)}, ...
         'time', 'beats', 'roles', struct('part', 'orderedMultiset'));
@@ -166,7 +166,7 @@ fprintf('\n');
 % question below is about two chords, compared on their pitches, so each
 % chord becomes a one-event pre-MAET on the two pitch attributes; onset
 % located them and is not compared on. The four values are in S, A, T, B
-% order, the slots the orderedMultiset role gave them.
+% order, the positions the orderedMultiset role gave them.
 %
 % The two chords are the final chords of the first two cadences, which fall
 % on beats 7 and 15. The onset attribute is searched for those two beats to

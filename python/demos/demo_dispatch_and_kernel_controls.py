@@ -91,7 +91,7 @@ def nested_melody(n_notes, n_partials, n_bound):
     super-event an ordered group of notes, each note a multiset of
     partials."""
     p = np.round(rng.uniform(5400, 7200, n_notes) / 100) * 100
-    specs = mpt.flat_specs([p[None, :]], sigma=15.0, is_per=False, period=0.0)
+    specs = mpt.flat_specs([p[None, :]], sigma=15.0, per=False, period=0.0)
     pm = mpt.pack_pre_maet([p[None, :]], None, specs)
     pm = mpt.add_spectra(pm, 'harmonic', n_partials, 'powerlaw', 1,
                          attribute=0, units=1200.0)

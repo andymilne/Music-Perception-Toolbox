@@ -817,11 +817,11 @@ _EVENT_LEVEL = ("onset", "measure")
 
 #: The per-attribute parameters a spec entry may carry, besides the
 #: ``column`` that says which column it reads.
-_SPEC_FIELDS = ("name", "sigma", "r", "exch", "rel", "is_per", "period")
+_SPEC_FIELDS = ("name", "sigma", "r", "exch", "rel", "per", "period")
 
 
 def _attribute_entry(entry, what):
-    """Split one 'attributes' or 'roles' entry into its subject and the
+    """Split one 'specs' or 'roles' entry into its subject and the
     per-attribute parameters it carries.
 
     An attribute is a mapping, since a bare name carries no ``sigma`` and
@@ -830,18 +830,18 @@ def _attribute_entry(entry, what):
     attribute whose parameters have nowhere else to come from.
     """
     if isinstance(entry, str):
-        if what == "attributes":
+        if what == "specs":
             raise TypeError(
-                f"attributes[{entry!r}]: an attribute is given as a mapping "
+                f"specs[{entry!r}]: an attribute is given as a mapping "
                 "of its column and its parameters, not as a bare name, "
                 "since a name carries no sigma. Write "
                 f"dict(column={entry!r}, sigma=...).")
         return entry, {}
     if isinstance(entry, Mapping):
         entry = dict(entry)
-        subject = entry.pop("column", None) if what == "attributes" \
+        subject = entry.pop("column", None) if what == "specs" \
             else entry.pop("role", None)
-        key = "column" if what == "attributes" else "role"
+        key = "column" if what == "specs" else "role"
         if subject is None:
             raise ValueError(
                 f"An {what} entry given as a mapping needs a {key!r} key; "
@@ -851,9 +851,9 @@ def _attribute_entry(entry, what):
             raise ValueError(
                 f"{what}[{subject!r}]: unknown parameter(s) "
                 f"{sorted(unknown)}; choose from {_SPEC_FIELDS}.")
-        if entry.get("is_per") and "period" not in entry:
+        if entry.get("per") and "period" not in entry:
             raise ValueError(
-                f"{what}[{subject!r}]: is_per is set, so it needs a period.")
+                f"{what}[{subject!r}]: per is set, so it needs a period.")
         return subject, entry
     raise TypeError(
         f"An {what} entry must be a name or a mapping; got "
@@ -866,7 +866,7 @@ def _merge_spec(spec, supplied, fixed, k):
 
     A role fixes ``r`` and ``exch`` for the attributes it governs. Under
     ``'ordered_multiset'`` the role only arranges existing values into
-    slots, so how many are drawn from them and whether their order counts
+    positions, so how many are drawn from them and whether their order counts
     remain the analyst's questions and a supplied value wins, with a
     warning. Under ``'simplex'`` the role replaces the level with the
     coordinates of a simplex vertex, which denote a vertex only read
@@ -896,15 +896,15 @@ def _merge_spec(spec, supplied, fixed, k):
         if want_r is not None and int(want_r) != role_r:
             warnings.warn(
                 f"{spec['name']!r}: the 'ordered_multiset' role fills "
-                f"{role_r} slots, so it implies r = {role_r}; taking the "
+                f"{role_r} positions, so it implies r = {role_r}; taking the "
                 f"supplied r = {int(want_r)}, which reads tuples of "
-                f"{int(want_r)} of those slots.", UserWarning, stacklevel=3)
+                f"{int(want_r)} of those positions.", UserWarning, stacklevel=3)
             spec["r"] = int(want_r)
         if want_exch is not None and bool(want_exch) != role_exch:
             warnings.warn(
                 f"{spec['name']!r}: the 'ordered_multiset' role binds each "
-                "value to its slot, so it implies exch = False; taking the "
-                "supplied exch = True, which reads the slots as an unordered "
+                "value to its position, so it implies exch = False; taking the "
+                "supplied exch = True, which reads the positions as an unordered "
                 "multiset and leaves nothing downstream reading the "
                 "binding.", UserWarning, stacklevel=3)
             spec["exch"] = bool(want_exch)
@@ -915,11 +915,11 @@ def _merge_spec(spec, supplied, fixed, k):
             spec["exch"] = bool(want_exch)
 
     # A score reads its values as they are written --- absolute, on an
-    # unbounded axis --- so rel and is_per are false unless the analyst
+    # unbounded axis --- so rel and per are false unless the analyst
     # says otherwise; octave equivalence is an equivalence imposed, not
     # one the score states.
     spec["rel"] = bool(supplied.get("rel", spec.get("rel", False)))
-    spec["is_per"] = bool(supplied.get("is_per", False))
+    spec["per"] = bool(supplied.get("per", False))
     spec["period"] = float(supplied.get("period", 0.0))
     if "sigma" not in supplied:
         raise ValueError(
@@ -946,11 +946,11 @@ def _merge_spec(spec, supplied, fixed, k):
 
 
 
-def pre_maet_from_attr_table(table, *, attributes,
+def pre_maet_from_attr_table(table, *, specs,
                               pitch="midi", time="seconds",
                               weights="velocity", parts=None, chords="bind",
                               chord_tolerance=0.0, roles=None,
-                              group_by=None, names=True):
+                              group_by=None):
     """Build a pre-MAET from an attribute table.
 
     Parameters
@@ -959,11 +959,11 @@ def pre_maet_from_attr_table(table, *, attributes,
         An attribute table, as :func:`read_score` returns and
         :func:`grid_attr_table` passes on. A score file is read first, with
         :func:`read_score`; converting reads a table and nothing else.
-    attributes : sequence of mapping
+    specs : sequence of mapping
         Required: one entry per attribute, in order. An entry is a
         mapping carrying its column under ``'column'`` together with the
         attribute's own parameters: ``name``, ``sigma``, ``r``, ``exch``,
-        ``rel``, ``is_per``, ``period``. The ten names ``'pitch'``,
+        ``rel``, ``per``, ``period``. The ten names ``'pitch'``,
         ``'onset'``, ``'duration'``, ``'sounding_duration'``,
         ``'velocity'``, ``'weight'``, ``'note_number'``, ``'part'``,
         ``'measure'``, and ``'fermata'`` get the score-specific treatment
@@ -976,9 +976,9 @@ def pre_maet_from_attr_table(table, *, attributes,
         different parameters, which is how pitch class and pitch height
         are taken from one pitch column::
 
-            pre_maet_from_attr_table(table, attributes=(
+            pre_maet_from_attr_table(table, specs=(
                 dict(column="pitch", name="pitchClass",
-                     sigma=0.5, is_per=True, period=12.0),
+                     sigma=0.5, per=True, period=12.0),
                 dict(column="pitch", name="pitchHeight", sigma=8.0),
                 dict(column="onset", sigma=0.5)), time="beats")
 
@@ -1019,14 +1019,14 @@ def pre_maet_from_attr_table(table, *, attributes,
         Where a role fixes ``r`` or ``exch`` and a value is supplied too:
         under ``'ordered_multiset'`` the supplied value is taken and a
         warning names what the role implies, the role having only arranged
-        existing values into slots; under ``'simplex'`` it is refused, the
+        existing values into positions; under ``'simplex'`` it is refused, the
         role having replaced the level with coordinates that denote a
         vertex only read whole and in order.
 
         The first two are **structural**: the level is realized as which
         attribute you are in, or as which position, so the binding of
         value to level is carried by the layout. They gather an event's
-        rows into one event holding one slot per level, which needs
+        rows into one event holding one position per level, which needs
         ``chords='bind'`` and an event that holds exactly one row per
         level; events that do not are dropped, with a warning naming the
         count. Only one category may be structural, since a structural
@@ -1044,7 +1044,7 @@ def pre_maet_from_attr_table(table, *, attributes,
         concurrently-sounding note is then its own event, so it needs
         ``chords='separate'`` -- unless a structural category is also
         given, in which case the simplex is tagged within each of its
-        slots.
+        positions.
 
         A caution about the no-role reading. With ``chords='bind'`` and
         no role, an event holds the chord as an unordered multiset on
@@ -1066,17 +1066,14 @@ def pre_maet_from_attr_table(table, *, attributes,
         table with neither makes each row its own event, in table order.
     chord_tolerance : float
         Onset tolerance for binding, in the chosen time unit.
-    names : bool
-        Name the specs after the attributes (default ``True``).
-
     Returns
     -------
     dict
         The pre-MAET. Its ``p_attr`` holds one ``K_a x N`` value matrix
         per attribute; its ``w_attr`` one ``K_a x N`` weight matrix per
-        attribute (NaN-padded slots carry weight 0), or ``None`` under
-        ``'ones'``; its ``specs`` flat specs, named after the attributes
-        when ``names`` is set.
+        attribute (NaN-padded positions carry weight 0), or ``None`` under
+        ``'ones'``; its ``specs`` flat specs, each named after its
+        attribute.
 
         The pre-MAET is complete: every attribute carries the parameters
         its density needs, so it is ready for :func:`mpt.build_maet`
@@ -1084,7 +1081,7 @@ def pre_maet_from_attr_table(table, *, attributes,
         conversion fills in only what follows from the data or from
         another argument --- the values, ``r`` and ``exch`` under a
         structural role, and reading a value as written for ``rel`` and
-        ``is_per`` --- and asks for the rest: ``sigma`` always, and ``r``
+        ``per`` --- and asks for the rest: ``sigma`` always, and ``r``
         and ``exch`` where an attribute holds more than one value at an
         event and no role has fixed them.
     """
@@ -1093,7 +1090,7 @@ def pre_maet_from_attr_table(table, *, attributes,
             "table must be an attribute table, as read_score returns and "
             f"grid_attr_table passes on; got {type(table).__name__}. A score "
             "file is read first, with read_score.")
-    given = [_attribute_entry(a, "attributes") for a in attributes]
+    given = [_attribute_entry(a, "specs") for a in specs]
     attributes = [str(c) for c, _ in given]
     supplied_specs = [d for _, d in given]
     known = ("pitch", "onset", "duration", "sounding_duration", "velocity",
@@ -1160,7 +1157,7 @@ def pre_maet_from_attr_table(table, *, attributes,
                 "together; two of them give an attribute set that can never "
                 "be fully populated. Either keep "
                 f"{structural[0]!r} structural and give {column!r} the "
-                "'simplex' role, which tags it within each slot, or give "
+                "'simplex' role, which tags it within each position, or give "
                 f"{structural[0]!r} the 'simplex' role too, which yields one "
                 "event per note and additive partial credit across levels.")
         structural = (column, role)
@@ -1225,7 +1222,7 @@ def pre_maet_from_attr_table(table, *, attributes,
 
     # On a gridded table the event is the grid point, so its onset is the
     # grid's, not the onset of whichever note happens to be in the first
-    # slot. The note's own onset stays in the table for selection.
+    # position. The note's own onset stays in the table for selection.
     onset_column = f"onset_{unit}"
     if f"grid_onset_{unit}" in table.columns:
         onset_column = f"grid_onset_{unit}"
@@ -1313,16 +1310,16 @@ def pre_maet_from_attr_table(table, *, attributes,
     def _codes(column):
         return table[column].cat.codes.to_numpy()[keep]
 
-    # A structural category puts one of its levels in each slot of every
+    # A structural category puts one of its levels in each position of every
     # event, so an event must hold exactly one row per level. One that
     # does not is dropped, with a count: an analyst may well accept
     # losing a few events to use the encoding.
-    slots = None
+    positions = None
     if structural is not None:
         column, role = structural
         levels = list(table[column].cat.categories)
         codes = _codes(column)
-        slots, kept_groups, lost = [], [], 0
+        positions, kept_groups, lost = [], [], 0
         for g in groups:
             row = [-1] * len(levels)
             for i in g:
@@ -1334,7 +1331,7 @@ def pre_maet_from_attr_table(table, *, attributes,
             if row is None or any(r < 0 for r in row):
                 lost += 1
                 continue
-            slots.append(row)
+            positions.append(row)
             kept_groups.append(g)
         if lost:
             gridded = "; on a gridded table that breaks the uniform time " \
@@ -1342,7 +1339,7 @@ def pre_maet_from_attr_table(table, *, attributes,
             warnings.warn(
                 f"{lost} of {len(groups)} events do not hold exactly one "
                 f"{column} per level, so they are dropped{gridded}. A "
-                "structural category fills every slot of every event.",
+                "structural category fills every position of every event.",
                 UserWarning, stacklevel=2)
         groups = kept_groups
 
@@ -1389,18 +1386,18 @@ def pre_maet_from_attr_table(table, *, attributes,
 
         column, role = structural
         if a in _EVENT_LEVEL:
-            M = np.array([[vals[row[0]] for row in slots]], dtype=float)
+            M = np.array([[vals[row[0]] for row in positions]], dtype=float)
             _add(M, np.ones((1, N)), name=base, supplied=supplied)
         elif role == "separate_attributes":
             for v, level in enumerate(levels):
-                M = np.array([[vals[row[v]] for row in slots]], dtype=float)
-                W = np.array([[_weight_at(row[v]) for row in slots]])
+                M = np.array([[vals[row[v]] for row in positions]], dtype=float)
+                W = np.array([[_weight_at(row[v]) for row in positions]])
                 _add(M, W, name=f"{base}_{level}", supplied=supplied)
         else:
             V = len(levels)
             M = np.empty((V, N))
             W = np.empty((V, N))
-            for n, row in enumerate(slots):
+            for n, row in enumerate(positions):
                 for v in range(V):
                     M[v, n] = vals[row[v]]
                     W[v, n] = _weight_at(row[v])
@@ -1429,15 +1426,14 @@ def pre_maet_from_attr_table(table, *, attributes,
                  supplied=supplied, fixed="simplex")
         else:
             for v, level in enumerate(levels):
-                M = np.column_stack([_coords(row[v]) for row in slots]) \
+                M = np.column_stack([_coords(row[v]) for row in positions]) \
                     if N else np.zeros((d, 0))
                 _add(M, np.ones((d, N)), r=d, exch=False,
                      name=f"{base}_{level}", supplied=supplied,
                      fixed="simplex")
 
     w = None if w_note is None else w_list
-    specs = flat_specs(p_attr, r=spec_r, exch=spec_exch,
-                       name=spec_names if names else None)
+    specs = flat_specs(p_attr, r=spec_r, exch=spec_exch, names=spec_names)
     for spec, supplied, fixed, M in zip(specs, spec_supplied, spec_fixed,
                                         p_attr):
         _merge_spec(spec, supplied, fixed, int(M.shape[0]))

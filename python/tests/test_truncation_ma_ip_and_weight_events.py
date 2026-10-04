@@ -79,11 +79,11 @@ def test_r1_abs_single_shot_truncation_parity():
     sigma = 1.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
     ip_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         truncation_sigmas=float('inf'),
     )
     ip_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         truncation_sigmas=6.0,
     )
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
@@ -100,14 +100,14 @@ def test_r1_abs_chunked_truncation_parity():
     # Tight budget forces chunking along N_x.
     mpt.set_default(kernel_chunk_bytes=8 * K * K * N * 8)   # 8 rows
     ip_chunked = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         truncation_sigmas=6.0,
     )
 
     # Loose budget -> single-shot.
     mpt.set_default(kernel_chunk_bytes=10 ** 12)
     ip_single = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         truncation_sigmas=6.0,
     )
     # Chunked vs single-shot einsum reduction order differs at the
@@ -122,11 +122,11 @@ def test_r1_abs_periodic_truncation_parity():
     sigma, period = 1.0, 12.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng, span=period)
     ip_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=True, period=period,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=True, period=period,
         truncation_sigmas=float('inf'),
     )
     ip_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=True, period=period,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=True, period=period,
         truncation_sigmas=6.0,
     )
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
@@ -143,11 +143,11 @@ def test_r2_abs_truncation_parity():
     sigma = 1.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
     ip_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=2, rel=False, per=False, period=0.0,
         truncation_sigmas=float('inf'),
     )
     ip_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=2, rel=False, per=False, period=0.0,
         truncation_sigmas=6.0,
     )
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
@@ -161,11 +161,11 @@ def test_r2_abs_k_equal_r_truncation_parity():
     sigma = 1.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
     ip_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=2, rel=False, per=False, period=0.0,
         truncation_sigmas=float('inf'),
     )
     ip_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=2, rel=False, per=False, period=0.0,
         truncation_sigmas=6.0,
     )
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
@@ -192,11 +192,11 @@ def test_r2_abs_ragged_truncation_parity():
         Py[:k_this, n] = pos[:k_this, n] + 0.5
         Wy[:k_this, n] = wts[:k_this, n] + 0.05
     ip_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=2, rel=False, per=False, period=0.0,
         truncation_sigmas=float('inf'),
     )
     ip_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=2, rel=False, per=False, period=0.0,
         truncation_sigmas=6.0,
     )
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
@@ -208,11 +208,11 @@ def test_rel_per_truncation_parity():
     sigma, period = 1.0, 12.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng, span=period)
     ip_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=True, is_per=True, period=period,
+        Px, Wx, Py, Wy, sigma, r=2, rel=True, per=True, period=period,
         truncation_sigmas=float('inf'),
     )
     ip_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=True, is_per=True, period=period,
+        Px, Wx, Py, Wy, sigma, r=2, rel=True, per=True, period=period,
         truncation_sigmas=6.0,
     )
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
@@ -234,20 +234,20 @@ def test_default_truncation_sigmas_resolution():
 
     mpt.set_default(truncation_sigmas=float('inf'))
     ip_default_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
     )
     ip_explicit_inf = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         truncation_sigmas=float('inf'),
     )
     np.testing.assert_array_equal(ip_default_inf, ip_explicit_inf)
 
     mpt.set_default(truncation_sigmas=6.0)
     ip_default_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
     )
     ip_explicit_6 = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         truncation_sigmas=6.0,
     )
     np.testing.assert_array_equal(ip_default_6, ip_explicit_6)
@@ -283,13 +283,13 @@ def test_weight_events_default_inf_resolves_to_accuracy_floor():
         mpt.set_default(truncation_sigmas=float('inf'))
         _, w_out_inf, _ = unpack_pre_maet(weight_events(
             p_attr, w_init, input_attr=1, target_attr=0,
-            centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
+            centre=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
             drop_input_attr=True,
         ))
         mpt.set_default(truncation_sigmas=accuracy_floor_sigmas())
         _, w_out_floor, _ = unpack_pre_maet(weight_events(
             p_attr, w_init, input_attr=1, target_attr=0,
-            centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
+            centre=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
             drop_input_attr=True,
         ))
     finally:
@@ -311,7 +311,7 @@ def test_weight_events_truncation_gaussian():
     mpt.set_default(truncation_sigmas=3.0)
     _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
+        centre=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
         drop_input_attr=True,
     ))
     factor = w_out[0][0]
@@ -337,7 +337,7 @@ def test_weight_events_truncation_rectangle():
     mpt.set_default(truncation_sigmas=k)
     _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=width, shape=1.0, is_per=False, period=0.0,
+        centre=0.0, sd=width, shape=1.0, per=False, period=0.0,
         drop_input_attr=True,
     ))
     factor = w_out[0][0]
@@ -355,13 +355,13 @@ def test_weight_events_truncation_general_shape():
     mpt.set_default(truncation_sigmas=float('inf'))
     _, w_ref, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=width, shape=gamma, is_per=False, period=0.0,
+        centre=0.0, sd=width, shape=gamma, per=False, period=0.0,
         drop_input_attr=True,
     ))
     mpt.set_default(truncation_sigmas=k)
     _, w_trunc, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=width, shape=gamma, is_per=False, period=0.0,
+        centre=0.0, sd=width, shape=gamma, per=False, period=0.0,
         drop_input_attr=True,
     ))
     delta = times[0]
@@ -387,7 +387,7 @@ def test_weight_events_truncation_periodic_after_wrap():
     _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=1.0, shape=0.0,
-        is_per=True, period=10.0,
+        per=True, period=10.0,
         drop_input_attr=True,
     ))
     factor = w_out[0][0]
@@ -441,11 +441,11 @@ def test_auto_pruning_drops_zero_weight_events():
     Wy[:, zero_y] = 0.0
 
     ip_prune = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         prune_zero_weight_events=True,
     )
     ip_full = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         prune_zero_weight_events=False,
     )
     np.testing.assert_allclose(ip_prune, ip_full, rtol=1e-12, atol=1e-12)
@@ -462,11 +462,11 @@ def test_auto_pruning_no_zero_events_noop():
     sigma = 1.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
     ip_prune = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         prune_zero_weight_events=True,
     )
     ip_full = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         prune_zero_weight_events=False,
     )
     np.testing.assert_array_equal(ip_prune, ip_full)
@@ -481,7 +481,7 @@ def test_auto_pruning_all_zero_side_returns_zero_matrix():
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
     Wx[:] = 0.0
     ip = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         prune_zero_weight_events=True,
     )
     assert ip.shape == (N, N)
@@ -497,7 +497,7 @@ def test_auto_pruning_with_cancellation_ratio():
     Wx[:, [0, 3]] = 0.0
     Wy[:, [5]] = 0.0
     ip, ratio = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=2, rel=False, per=False, period=0.0,
         return_cancellation_ratio=True,
         prune_zero_weight_events=True,
     )
@@ -524,7 +524,7 @@ def test_auto_pruning_nan_weight_treated_as_missing():
     # Event 3 has all-zero weight on its valid values — SHOULD be pruned.
     Wx[:, 3] = 0.0
     ip = _ma_per_attr_inner_matrix(
-        Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
+        Px, Wx, Py, Wy, sigma, r=1, rel=False, per=False, period=0.0,
         prune_zero_weight_events=True,
     )
     # Event 2 is not pruned, so its row should be non-trivial.
@@ -586,7 +586,7 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
             p, None,
             input_attr=0, target_attr=1,
             centre=5.0, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
     finally:
@@ -691,7 +691,7 @@ def test_eval_ma_auto_prune_propagates_via_entropy_maet():
             p, None,
             input_attr=0, target_attr=1,
             centre=5.0, sd=1.0, shape=0.0,
-            is_per=False, period=0.0,
+            per=False, period=0.0,
             drop_input_attr=False,
         ))
     finally:

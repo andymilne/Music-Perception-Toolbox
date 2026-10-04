@@ -30,18 +30,18 @@ TOL_GRID = 5e-2  # generous: discretisation, not orbit precision
 def _grid_renyi2_single_multiset(T, n_per_dim, ax_range):
     """Direct grid evaluation of -log2(∫(T/Z)² dx) for an single-multiset tensor."""
     # A MaetDensity carries per-attribute vectors; this helper is written
-    # against a single multiset, so read the flat view for r/is_rel/is_per.
+    # against a single multiset, so read the flat view for r/rel/per.
     from mpt._tensor.density import single_multiset_view
     Tq = T                      # keep the original for eval_maet
     T = single_multiset_view(T)
-    if T.is_per:
+    if T.per:
         ax = np.linspace(0, T.period, n_per_dim, endpoint=False)
         dx = T.period / n_per_dim
     else:
         a, b = ax_range
         ax = np.linspace(a, b, n_per_dim)
         dx = (b - a) / (n_per_dim - 1)
-    if T.is_rel:
+    if T.rel:
         # Relative single-multiset tensor lives on dim r-1 (one translation removed).
         # Build a (r-1)-D mesh.
         d = T.r - 1

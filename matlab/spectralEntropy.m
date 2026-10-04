@@ -11,7 +11,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %   indicates greater consonance.
 %
 %   spectralEntropy is a thin wrapper around entropyMaet with
-%   r = 1, isRel = false, isPer = false (1-D absolute non-periodic
+%   r = 1, rel = false, per = false (1-D absolute non-periodic
 %   density). It applies addSpectra to enrich the pitches with
 %   partials (if a 'spectrum' argument is supplied), shifts the
 %   lowest pitch to 0, computes appropriate grid bounds where needed,
@@ -430,7 +430,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
     % --- Main loop with canonical-key cache ----------------------
     % spectralEntropy is invariant under joint transposition (lowest
     % pitch shifted to 0 internally), so the canonical key uses
-    % (isRel=true, isPer=false).
+    % (rel=true, per=false).
     resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
     for k = 1:nRows

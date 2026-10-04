@@ -91,7 +91,7 @@ def _admitting_sigmas(bound):
 from .dispatch import _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R
 
 
-def _orbit_eligible(K, r, exch, is_rel, is_per):
+def _orbit_eligible(K, r, exch, rel, per):
     """Is the Möbius reduction *structurally* available at this level?
 
     Structure only: the level must be symmetric and r within the shipped
@@ -126,7 +126,7 @@ class _Node:
         self.use_orbit = use_orbit  # True: orbit-reduce this level (skip xtup)
 
 
-def build_recipe(r_levels, exch_levels, tags, is_rel=False, is_per=False):
+def build_recipe(r_levels, exch_levels, tags, rel=False, per=False):
     """Build the contraction tree once.
 
     ``r_levels`` / ``exch_levels`` are per-level (length L, level 0 = finest).
@@ -146,7 +146,7 @@ def build_recipe(r_levels, exch_levels, tags, is_rel=False, is_per=False):
         if level == 0:
             r0 = int(r_levels[0])
             sy0 = bool(exch_levels[0])
-            if _orbit_eligible(len(val_idx), r0, sy0, is_rel, is_per):
+            if _orbit_eligible(len(val_idx), r0, sy0, rel, per):
                 empty = np.empty((0, r0), dtype=np.intp)
                 return _Node(0, val_idx, [], empty, empty, r0, sy0, True)
             xt, yt = _tuple_indices(len(val_idx), r0, sy0)
@@ -159,7 +159,7 @@ def build_recipe(r_levels, exch_levels, tags, is_rel=False, is_per=False):
             children.append(build(level - 1, sub))
         rl = int(r_levels[level])
         syl = bool(exch_levels[level])
-        if _orbit_eligible(len(children), rl, syl, is_rel, is_per):
+        if _orbit_eligible(len(children), rl, syl, rel, per):
             empty = np.empty((0, rl), dtype=np.intp)
             return _Node(level, val_idx, children, empty, empty, rl, syl, True)
         xt, yt = _tuple_indices(len(children), rl, syl)
@@ -817,7 +817,7 @@ def _tau_window(vx, vy, taus, sigma, truncation_sigmas):
 
 
 def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
-                       is_per, period, truncation_sigmas, *, taus=None,
+                       per, period, truncation_sigmas, *, taus=None,
                        periodic_taus=True, taus_reduce="mean",
                        wrap_a='full-image',
                        mem_budget=16_000_000):
@@ -838,8 +838,8 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     weights or ``None``. NaN-padded (variable-K) values are carried as
     zero-weight. The mode is set by ``taus``:
 
-    - ``taus=None`` -- the absolute (``is_per=False``) or absolute-periodic
-      (``is_per=True``) inner product, a one-body product per coordinate. The
+    - ``taus=None`` -- the absolute (``per=False``) or absolute-periodic
+      (``per=True``) inner product, a one-body product per coordinate. The
       absolute-periodic per-coordinate kernel is the wrapped Gaussian
       ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``, the same
       full-image object the per-pair reference and the
@@ -863,13 +863,13 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     with orbit_guard_scope(truncation_sigmas):
         return _nested_attr_matrix_impl(
             recipe_x, recipe_y, PX, PY, WX, WY, sigma,
-            is_per, period, truncation_sigmas, taus=taus,
+            per, period, truncation_sigmas, taus=taus,
             periodic_taus=periodic_taus,
             taus_reduce=taus_reduce, wrap_a=wrap_a, mem_budget=mem_budget)
 
 
 def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
-                             is_per, period, truncation_sigmas, *,
+                             per, period, truncation_sigmas, *,
                              taus=None, periodic_taus=True,
                              taus_reduce="mean",
                              wrap_a='full-image',
@@ -904,8 +904,8 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     m_idx = np.repeat(np.arange(Nx), Ny)
     n_idx = np.tile(np.arange(Ny), Nx)
     B = Nx * Ny
-    per = max(T, 1) * nX * nY
-    chunk = max(1, min(B, int(mem_budget // max(per, 1))))
+    per_item = max(T, 1) * nX * nY
+    chunk = max(1, min(B, int(mem_budget // max(per_item, 1))))
     out = np.empty(B, dtype=np.float64)
     for s in range(0, B, chunk):
         e = min(s + chunk, B)
@@ -914,7 +914,7 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
         wx, wy = WX[:, mi], WY[:, ni]
         if taus is None:
             d = vx.T[:, :, None] - vy.T[:, None, :]  # (nb, nX, nY)
-            if is_per and wrap_a != 'single-image':
+            if per and wrap_a != 'single-image':
                 # Absolute-periodic full-image: the per-coordinate 1D
                 # kernel is the wrapped Gaussian theta, not the
                 # nearest-image Gaussian. Reducing d to [-P/2, P/2) and
@@ -931,7 +931,7 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                 K = wrapped_gaussian_1d(d, sigma, period, truncation_sigmas,
                                         exponent_denominator=4)
             else:
-                if is_per:
+                if per:
                     d = _wrap(d, period)
                 K = np.exp(-(d ** 2) * inv)
             K = K * (wx.T[:, :, None] * wy.T[:, None, :])
@@ -994,7 +994,7 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
 
 
 def nested_attr_matrix_sweep(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
-                             is_per, period, truncation_sigmas, offsets, *,
+                             per, period, truncation_sigmas, offsets, *,
                              wrap_a='full-image', mem_budget=16_000_000):
     """(N_x, N_y, M) inner matrix of an absolute nested attribute with the
     Y operand's values translated by each of ``offsets`` (length M).
@@ -1041,12 +1041,12 @@ def nested_attr_matrix_sweep(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
             wx, wy = WX[:, mi], WY[:, ni]
             d = (vx.T[:, :, None, None]
                  - (vy.T[:, None, :, None] + mus[None, None, None, :]))
-            if is_per and wrap_a != 'single-image':
+            if per and wrap_a != 'single-image':
                 from .._wrapped_kernel import wrapped_gaussian_1d
                 K = wrapped_gaussian_1d(d, sigma, period, truncation_sigmas,
                                         exponent_denominator=4)
             else:
-                if is_per:
+                if per:
                     d = _wrap(d, period)
                 K = np.exp(-(d ** 2) * inv)
             K = K * (wx.T[:, :, None, None] * wy.T[:, None, :, None])

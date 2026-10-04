@@ -40,20 +40,20 @@ def _make_pair(rng, n, periodic=True, period=1200.0):
 
 @pytest.mark.parametrize("r", _R_VALUES)
 @pytest.mark.parametrize("n", _N_VALUES)
-@pytest.mark.parametrize("is_per", [False, True])
-@pytest.mark.parametrize("is_rel", [False, True])
-def test_method_values_agree_in_normal_use(r, n, is_per, is_rel):
+@pytest.mark.parametrize("per", [False, True])
+@pytest.mark.parametrize("rel", [False, True])
+def test_method_values_agree_in_normal_use(r, n, per, rel):
     """auto, pairwise, and direct produce the same cosine to ~1e-10 relative.
 
     With σ = 12 cents and P = 1200 cents (σ/P = 0.01), all three paths
     must agree. Any larger discrepancy indicates the orbit dispatcher
     or one of the documented escape hatches has drifted.
     """
-    rng = np.random.default_rng(seed=hash((r, n, is_per, is_rel)) & 0xFFFF)
-    p_a, w_a, p_b, w_b = _make_pair(rng, n, periodic=is_per)
+    rng = np.random.default_rng(seed=hash((r, n, per, rel)) & 0xFFFF)
+    p_a, w_a, p_b, w_b = _make_pair(rng, n, periodic=per)
     sigma, P = 12.0, 1200.0
-    T_a = build_maet(p_a, w_a, sigma, r, is_rel, is_per, P, verbose=False)
-    T_b = build_maet(p_b, w_b, sigma, r, is_rel, is_per, P, verbose=False)
+    T_a = build_maet(p_a, w_a, sigma, r, rel, per, P, verbose=False)
+    T_b = build_maet(p_b, w_b, sigma, r, rel, per, P, verbose=False)
 
     cos_auto = sim_maet(T_a, T_b, method='auto', verbose=False)
     cos_pw = sim_maet(T_a, T_b, method='bulger', verbose=False)
@@ -91,7 +91,7 @@ def test_method_values_agree_in_normal_use(r, n, is_per, is_rel):
     # criterion alone would fail on quadrature phase rather than
     # dispatcher drift.
     assert rel_err < 1e-10 or abs_err < 1e-11, (
-        f"r={r}, n={n}, rel={is_rel}, per={is_per}: "
+        f"r={r}, n={n}, rel={rel}, per={per}: "
         f"auto={cos_auto:.10e}, pairwise={cos_pw:.10e}, "
         f"abs_err={abs_err:.2e}, rel_err={rel_err:.2e}"
     )

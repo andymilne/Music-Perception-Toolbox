@@ -9,8 +9,8 @@ written back out the same way.
 The cells use the notation of the article and of
 :func:`~mpt.show_pre_maet`: braces for an unordered multiset, parentheses
 for an ordered one, brackets within brackets for a nested attribute,
-``60^(0.6)`` for a weighted value, and ``_`` for an empty slot of an
-ordered attribute, so ``(_, 65)`` puts 65 in the second slot. The writer and the reader are
+``60^(0.6)`` for a weighted value, and ``_`` for an ordered attribute's
+position with no value, so ``(_, 65)`` puts 65 in the second position. The writer and the reader are
 therefore inverse, and a pre-MAET survives a round trip through a
 spreadsheet unchanged.
 
@@ -87,7 +87,7 @@ def _parse_cell(text):
 
 def _parse_leaf(text):
     """``60`` or ``60^(0.6)`` -> ``(value, weight or None)``; the blank
-    ``_`` of an ordered attribute's empty slot -> ``(nan, None)``."""
+    ``_`` of an ordered attribute's position with no value -> ``(nan, None)``."""
     text = text.strip()
     if text == "_":
         return float("nan"), None
@@ -284,12 +284,12 @@ def read_pre_maet(source, *, delimiter=","):
     dict
         The pre-MAET. Its ``p_attr`` holds the per-attribute
         ``(K_a, N)`` value matrices, a blank ``_`` in a cell being an
-        empty slot, and NaN-padded where events carry
+        position with no value, and NaN-padded where events carry
         different numbers of elements; its ``w_attr`` the weight
         matrices, or ``None`` where no cell carried a weight; its
         ``specs`` the per-attribute specs carrying ``r``, ``rel``,
         ``exch``, ``name`` and, where the file gives them, ``sigma``,
-        ``is_per`` and ``period``, a nested attribute also carrying its
+        ``per`` and ``period``, a nested attribute also carrying its
         ``tags``.
 
     See Also
@@ -344,7 +344,7 @@ def read_pre_maet(source, *, delimiter=","):
                 spec["sigma"] = sigma
         per = _parse_param(row[4], int)
         if per is not None:
-            spec["is_per"] = bool(per) if not _isnan(per) else float("nan")
+            spec["per"] = bool(per) if not _isnan(per) else float("nan")
         period = _parse_param(row[5])
         if period is not None:
             spec["period"] = period
@@ -390,9 +390,9 @@ def _stack(nodes, depth, a, name):
     flat = [_flatten(nd, depth) for nd in nodes]
     if depth == 0:
         K = max((len(f) for f in flat), default=0)
-        slots = [((), i) for i in range(K)]
+        positions = [((), i) for i in range(K)]
     else:
-        # One slot per (group path, position), sized by the widest event.
+        # One row per (group path, position), sized by the widest event.
         widest = {}
         for f in flat:
             counts = {}
@@ -400,9 +400,9 @@ def _stack(nodes, depth, a, name):
                 counts[path] = counts.get(path, 0) + 1
             for path, c in counts.items():
                 widest[path] = max(widest.get(path, 0), c)
-        slots = [(path, i) for path in sorted(widest)
+        positions = [(path, i) for path in sorted(widest)
                  for i in range(widest[path])]
-    K = len(slots)
+    K = len(positions)
     N = len(nodes)
     P = np.full((K, N), np.nan)
     W = np.full((K, N), np.nan)
@@ -413,7 +413,7 @@ def _stack(nodes, depth, a, name):
             i = seen.get(path, 0)
             seen[path] = i + 1
             try:
-                k = slots.index((path, i))
+                k = positions.index((path, i))
             except ValueError:
                 raise ValueError(
                     f"Attribute {name or a}: event {n + 1} has more "
@@ -425,7 +425,7 @@ def _stack(nodes, depth, a, name):
     if depth == 0:
         tags = None
     else:
-        tags = np.array([list(path) for path, _ in slots], dtype=np.intp)
+        tags = np.array([list(path) for path, _ in positions], dtype=np.intp)
     return P, (W if saw_w else None), tags
 
 
@@ -468,7 +468,7 @@ def _render_csv(names, sp, params, P, W, cols, decimals,
                _fmt_param(params["sigma"][a]),
                _fmt_param(_levels(spec, "r", 1)),
                _fmt_param([int(v) for v in _levels(spec, "rel", 0)]),
-               _fmt_param(_as_flag(params["is_per"][a])),
+               _fmt_param(_as_flag(params["per"][a])),
                _fmt_param(params["period"][a]),
                _fmt_param([int(v) for v in _levels(spec, "exch", 1)])]
         # A file records what the pre-MAET holds, so weights are decided

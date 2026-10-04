@@ -261,7 +261,7 @@ def kernel_cov(r, sd_value=0.0, sd_interval=0.0, sd_shift=0.0, *,
       ridge tolerates a common shift of every value: a transposition
       of pitches, a displacement of onsets. As ``sd_shift`` grows the
       kernel's precision tends to the relative-mode projector, so
-      ``is_rel=True`` is the exact (infinite-``sd_shift``) limit and
+      ``rel=True`` is the exact (infinite-``sd_shift``) limit and
       the ridge its graded counterpart.
     - **Differenced values** (``r`` consecutive differences of
       ``r + 1`` values). Value noise reaches each interval
@@ -309,8 +309,8 @@ def kernel_cov(r, sd_value=0.0, sd_interval=0.0, sd_shift=0.0, *,
         argument of :func:`~mpt.build_maet`, :func:`~mpt.eval_maet`,
         :func:`~mpt.sim_maet`, :func:`~mpt.entropy_maet`, or
         :func:`~mpt.swept_similarity` for an ordered
-        (``is_exch=False``), absolute (``is_rel=False``), non-periodic
-        (``is_per=False``) attribute with ``r == K``.
+        (``exch=False``), absolute (``rel=False``), non-periodic
+        (``per=False``) attribute with ``r == K``.
 
     Raises
     ------
@@ -354,7 +354,7 @@ def kernel_cov(r, sd_value=0.0, sd_interval=0.0, sd_shift=0.0, *,
             raise ValueError(
                 f"kernel_cov: {nm} must be a finite non-negative "
                 f"standard deviation; got {v!r}. For exact common-shift "
-                f"invariance use is_rel=True rather than an infinite "
+                f"invariance use rel=True rather than an infinite "
                 f"sd_shift."
             )
     sp2, si2, ss2 = (float(sd_value) ** 2, float(sd_interval) ** 2,

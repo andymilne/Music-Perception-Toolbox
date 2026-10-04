@@ -21,11 +21,11 @@ from mpt import build_maet, sim_maet
 
 
 def _dens(K: int, r: int, sigma: float = 1.0,
-          is_rel: bool = False, is_per: bool = False, seed: int = 0):
+          rel: bool = False, per: bool = False, seed: int = 0):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0, 100, K))
     w = np.ones(K)
-    return build_maet(p, w, sigma, r, is_rel, is_per, 1200.0,
+    return build_maet(p, w, sigma, r, rel, per, 1200.0,
                           verbose=False)
 
 

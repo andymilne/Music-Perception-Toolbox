@@ -101,7 +101,7 @@ function pm = bindEvents(varargin)
 %       'rOuter'     - [] (default L_a) or scalar/1xA outer-level r.
 %       'exchOuter'   - outer-level [exch] (default false; bag reading if true).
 %       'relOuter'   - outer-level [rel] (default false).
-%       'name'       - [] , char, or 1 x A names; overrides any name carried
+%       'names'      - [] , char, or 1 x A names; overrides any name carried
 %                      on the incoming spec, otherwise inherited.
 %       'levelNames' - [] or 1 x 2 {inner outer} level names per nested spec.
 %                      Applies only when the incoming spec is flat; supplying
@@ -136,7 +136,7 @@ arguments
     nvArgs.rOuter = []
     nvArgs.exchOuter = false
     nvArgs.relOuter = false
-    nvArgs.name = []
+    nvArgs.names = []
     nvArgs.levelNames = []
     nvArgs.groupBy = []
     nvArgs.groupAtol (1, 1) double = 0
@@ -219,7 +219,7 @@ else
 end
 exchOut = localBcastGeom(nvArgs.exchOuter, A, 'exchOuter', true);
 relOut = localBcastGeom(nvArgs.relOuter, A, 'relOuter', true);
-namesAttr = localBcastNames(nvArgs.name, A);
+namesAttr = localBcastNames(nvArgs.names, A);
 levelNames = nvArgs.levelNames;
 if ~isempty(levelNames) && numel(levelNames) ~= 2
     error('bindEvents:levelNames', ...
@@ -309,13 +309,10 @@ for a = 1:A
     end
     % Binding regroups values; it does not touch them, so the attribute's
     % kernel geometry crosses to the nested spec intact.
-    for kf = {'sigma', 'isPer', 'period'}
+    for kf = {'sigma', 'per', 'period'}
         if isfield(sIn, kf{1})
             spec.(kf{1}) = sIn.(kf{1});
         end
-    end
-    if isfield(sIn, 'is_per') && ~isfield(spec, 'isPer')
-        spec.isPer = sIn.is_per;
     end
     if ~isempty(nm); spec.name = nm; end
     specs{a} = spec;
@@ -606,7 +603,7 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
     end
     exchOut = localBcastGeom(nvArgs.exchOuter, A, 'exchOuter', true);
     relOut = localBcastGeom(nvArgs.relOuter, A, 'relOuter', true);
-    namesAttr = localBcastNames(nvArgs.name, A);
+    namesAttr = localBcastNames(nvArgs.names, A);
     levelNames = nvArgs.levelNames;
     if ~isempty(levelNames) && numel(levelNames) ~= 2
         error('bindEvents:levelNames', ...
@@ -654,13 +651,10 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
         if ~isempty(levelNames); spec.names = levelNames; end
         % Binding regroups values; it does not touch them, so the
         % attribute's kernel geometry crosses to the nested spec intact.
-        for kf = {'sigma', 'isPer', 'period'}
+        for kf = {'sigma', 'per', 'period'}
             if isstruct(sIn) && isfield(sIn, kf{1})
                 spec.(kf{1}) = sIn.(kf{1});
             end
-        end
-        if isstruct(sIn) && isfield(sIn, 'is_per') && ~isfield(spec, 'isPer')
-            spec.isPer = sIn.is_per;
         end
         if ~isempty(namesAttr{a})
             spec.name = namesAttr{a};

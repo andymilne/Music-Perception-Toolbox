@@ -127,9 +127,9 @@ results{end,2}   = isequal(pDB{1}, pBD{1}) ...
 
 % The two routes build eval-identical densities.
 dDB = buildMaet(pDB, wDB, 'specs', sDB, 'sigma', 30, ...
-                   'isPer', false, 'period', 0, 'verbose', false);
+                   'per', false, 'period', 0, 'verbose', false);
 dBD = buildMaet(pBD, wBD, 'specs', sBD, 'sigma', 30, ...
-                   'isPer', false, 'period', 0, 'verbose', false);
+                   'per', false, 'period', 0, 'verbose', false);
 Qd  = (reshape(1:(dDB.dim * 4), dDB.dim, 4) - 6) / 2;
 vDB = evalMaet(dDB, Qd, 'verbose', false);
 vBD = evalMaet(dBD, Qd, 'verbose', false);

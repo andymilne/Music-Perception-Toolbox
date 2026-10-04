@@ -149,9 +149,9 @@ def test_bind_difference_commute_density_identical():
     pDB, wDB, sDB = unpack_pre_maet(bind_events(pD, wD, L, specs=sD))
     pB, wB, sB = unpack_pre_maet(bind_events([P], None, L))
     pBD, wBD, sBD = unpack_pre_maet(difference_events(pB, wB, 1, specs=sB))
-    d1 = build_maet(pDB, wDB, specs=sDB, sigma=[30.0], is_per=[False],
+    d1 = build_maet(pDB, wDB, specs=sDB, sigma=[30.0], per=[False],
                         period=[0.0], verbose=False)
-    d2 = build_maet(pBD, wBD, specs=sBD, sigma=[30.0], is_per=[False],
+    d2 = build_maet(pBD, wBD, specs=sBD, sigma=[30.0], per=[False],
                         period=[0.0], verbose=False)
     rng = np.random.default_rng(0)
     xs = rng.uniform(-5, 5, size=(2, 6))

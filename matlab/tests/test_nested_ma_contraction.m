@@ -152,7 +152,7 @@ function d = sadens(chords, rIn)
     for c = 1:nCh; p0 = [p0, chords{c}]; end
     sp = struct('tags', tags, 'r', [rIn nCh], 'exch', [true false], 'rel', [0 1]);
     d = buildMaet({p0(:)}, {[]}, 'specs', {sp}, 'sigma', SIG, ...
-                     'isPer', true, 'period', P, 'verbose', false);
+                     'per', true, 'period', P, 'verbose', false);
 end
 
 
@@ -175,6 +175,6 @@ function d = madens(events, flags, rIn)
     sp0 = struct('tags', tags, 'r', [rIn nCh], 'exch', [true false], 'rel', [0 1]);
     sp1 = struct('r', 1, 'exch', false, 'rel', false);
     d = buildMaet({p0, p1}, {[], []}, 'specs', {sp0, sp1}, ...
-                     'sigma', [SIG SF], 'isPer', [true false], ...
+                     'sigma', [SIG SF], 'per', [true false], ...
                      'period', [P 1.0], 'verbose', false);
 end

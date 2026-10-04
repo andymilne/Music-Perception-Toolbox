@@ -134,11 +134,11 @@ def _eval_query_pts(cell):
     seed = cell.get('seed') if cell.get('seed') is not None else 12345
     rng = np.random.default_rng(seed + 9000)
     r = cell['r']
-    is_rel = cell['is_rel']
-    is_per = cell['is_per']
+    rel = cell['rel']
+    per = cell['per']
     period = cell['period']
-    dim = r - 1 if is_rel else r
-    if is_per:
+    dim = r - 1 if rel else r
+    if per:
         return rng.uniform(0.0, period, (dim, _EVAL_N_Q))
     return rng.uniform(-300.0, 300.0, (dim, _EVAL_N_Q))
 

@@ -79,11 +79,11 @@ def eval_maet(*args,
 
     **Raw single-multiset scalar input**:
 
-    - ``eval_maet(p, w, sigma, r, is_rel, is_per, period, X)``.
+    - ``eval_maet(p, w, sigma, r, rel, per, period, X)``.
       Returns ``(nQ,)``.
-    - ``eval_maet(p, w, sigma, r, is_rel, is_per, period, X, normalize)``.
-    - ``eval_maet(p, w, sigma, r, is_rel, is_per, period, is_exch, X)``,
-      the optional ``is_exch`` sitting between ``period`` and ``X``.
+    - ``eval_maet(p, w, sigma, r, rel, per, period, X, normalize)``.
+    - ``eval_maet(p, w, sigma, r, rel, per, period, exch, X)``,
+      the optional ``exch`` sitting between ``period`` and ``X``.
 
     **Pre-MAET input**:
 
@@ -111,7 +111,7 @@ def eval_maet(*args,
 
     **Raw single-multiset batched input**:
 
-    - ``eval_maet(P, W, sigma, r, is_rel, is_per, period[, is_exch], X)``
+    - ``eval_maet(P, W, sigma, r, rel, per, period[, exch], X)``
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
       Returns ``(M, nQ)``.
 
@@ -125,7 +125,7 @@ def eval_maet(*args,
       built.
 
     In every raw form the geometry may end with an optional
-    ``is_exch`` (single multiset, batched) or ``is_exch_vec``
+    ``exch`` (single multiset, batched) or ``is_exch_vec``
     (multi-attribute) after ``period``: true (the default) for an
     exchangeable (unordered) multiset, whose density is invariant under
     permuting a tuple's coordinates; false for an ordered one, where
@@ -267,6 +267,13 @@ def eval_maet(*args,
                 "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
         if is_density_scalar:
+            # A 1-D density takes a 1-D array of query points; a flat
+            # list of numbers means the same, not one entry per
+            # attribute (a reading that needs dim > 1 to differ).
+            if (isinstance(x, (list, tuple)) and len(x) > 0
+                    and int(dens.dim) == 1
+                    and all(np.ndim(e) == 0 for e in x)):
+                x = np.asarray(x, dtype=np.float64)
             return _eval_maet_scalar(
                 dens, x, normalize, method=method,
                 truncation_sigmas=truncation_sigmas,
@@ -342,21 +349,21 @@ def eval_maet(*args,
     # ------------------------------------------------------------------
     # Raw single-multiset dispatch (1-D = scalar, 2-D = batch)
     # ------------------------------------------------------------------
-    # Positional geometry order: p, w, sigma, r, is_rel, is_per, period,
-    # [is_exch], x [, normalize]. 8 args omit is_exch (defaults symmetric)
-    # and normalize (kwarg/default); 9 supply is_exch; 10 supply both.
-    is_exch = None
+    # Positional geometry order: p, w, sigma, r, rel, per, period,
+    # [exch], x [, normalize]. 8 args omit exch (defaults symmetric)
+    # and normalize (kwarg/default); 9 supply exch; 10 supply both.
+    exch = None
     if len(args) == 8:
-        p, w, sigma, r_, is_rel, is_per, period, x = args
+        p, w, sigma, r_, rel, per, period, x = args
     elif len(args) == 9:
-        p, w, sigma, r_, is_rel, is_per, period, is_exch, x = args
+        p, w, sigma, r_, rel, per, period, exch, x = args
     elif len(args) == 10:
-        p, w, sigma, r_, is_rel, is_per, period, is_exch, x, normalize = args
+        p, w, sigma, r_, rel, per, period, exch, x, normalize = args
     else:
         raise TypeError(
             f"Raw single-multiset input expects 8, 9, or 10 positional "
-            f"arguments (p, w, sigma, r, is_rel, is_per, period"
-            f"[, is_exch], x[, normalize]); got {len(args)}."
+            f"arguments (p, w, sigma, r, rel, per, period"
+            f"[, exch], x[, normalize]); got {len(args)}."
         )
 
     try:
@@ -386,8 +393,8 @@ def eval_maet(*args,
             )
         from .build import build_maet as _bet
         dens_a = _bet(
-            p, w, sigma, r_, is_rel, is_per, period,
-            (True if is_exch is None else is_exch), verbose=False,
+            p, w, sigma, r_, rel, per, period,
+            (True if exch is None else exch), verbose=False,
         )
         return _eval_maet_scalar(
             dens_a, x, normalize, method=method,
@@ -401,14 +408,14 @@ def eval_maet(*args,
                 "'precision' kwarg is only valid for raw single-multiset batched input."
             )
         return _eval_maet_raw_single_multiset_scalar(
-            p, w, sigma, r_, is_rel, is_per, period, is_exch, x, normalize,
+            p, w, sigma, r_, rel, per, period, exch, x, normalize,
             spectrum=spectrum, method=method,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision, verbose=verbose,
         )
     if a_arr.ndim == 2:
         return _eval_maet_raw_single_multiset_batch(
-            p, w, sigma, r_, is_rel, is_per, period, is_exch, x, normalize,
+            p, w, sigma, r_, rel, per, period, exch, x, normalize,
             spectrum=spectrum, precision=precision,
             dedup=dedup, method=method,
             truncation_sigmas=truncation_sigmas,
@@ -534,7 +541,7 @@ def _eval_maet_density_list(
             key, _, _ = _chord_canonical_key(
                 _pd, _wd,
                 sigma=float(d.sigma[0]), r=int(d.r[0]),
-                is_rel=bool(d.is_rel[0]), is_per=bool(d.is_per[0]),
+                rel=bool(d.rel[0]), per=bool(d.per[0]),
                 period=float(d.period[0]),
             )
             if key not in result_cache:
@@ -571,7 +578,7 @@ def _eval_maet_density_list(
 
 
 def _eval_maet_raw_single_multiset_scalar(
-    p, w, sigma, r, is_rel, is_per, period, is_exch,
+    p, w, sigma, r, rel, per, period, exch,
     x, normalize: str,
     *, spectrum=None, method: str = "auto",
     truncation_sigmas: float | None = None,
@@ -585,8 +592,8 @@ def _eval_maet_raw_single_multiset_scalar(
                  else np.asarray(w, dtype=np.float64))
         p, w = add_spectra(p_arr, w_arr, *spectrum)
     dens = build_maet(
-        p, w, sigma, r, is_rel, is_per, period,
-        True if is_exch is None else is_exch, verbose=verbose,
+        p, w, sigma, r, rel, per, period,
+        True if exch is None else exch, verbose=verbose,
     )
     return _eval_maet_scalar(
         dens, x, normalize, method=method,
@@ -597,7 +604,7 @@ def _eval_maet_raw_single_multiset_scalar(
 
 
 def _eval_maet_raw_single_multiset_batch(
-    P, W, sigma, r, is_rel, is_per, period, is_exch,
+    P, W, sigma, r, rel, per, period, exch,
     x, normalize: str,
     *, spectrum=None, precision: int | None = None,
     dedup: bool = True, method: str = "auto",
@@ -622,7 +629,7 @@ def _eval_maet_raw_single_multiset_batch(
     # densities. Reject rather than return a wrong answer. Order-aware
     # batched dedup is a tracked follow-up; use scalar input for ordered
     # densities.
-    if (is_exch is not None) and (not bool(np.all(is_exch))) and r > 1:
+    if (exch is not None) and (not bool(np.all(exch))) and r > 1:
         raise NotImplementedError(
             "eval_maet batched (2-D) input does not yet support "
             "[exch]=0 (ordered) densities at r > 1: the batched dedup "
@@ -656,7 +663,7 @@ def _eval_maet_raw_single_multiset_batch(
         w_valid = W[i, mask] if use_w else None
         key, p_canon, w_canon = _chord_canonical_key(
             p_valid, w_valid,
-            sigma=sigma, r=r, is_rel=is_rel, is_per=is_per, period=period,
+            sigma=sigma, r=r, rel=rel, per=per, period=period,
             precision=precision,
         )
         if key not in dens_cache:
@@ -668,8 +675,8 @@ def _eval_maet_raw_single_multiset_batch(
                 )
                 w_canon = w_canon_aug
             dens_cache[key] = build_maet(
-                p_canon, w_canon, sigma, r, is_rel, is_per, period,
-                True if is_exch is None else is_exch,
+                p_canon, w_canon, sigma, r, rel, per, period,
+                True if exch is None else exch,
                 verbose=False,
             )
         row_to_key[i] = key
@@ -844,13 +851,13 @@ def _ma_eval_normalize(dens: MaetDensity, vals: np.ndarray,
     A = int(dens.n_attrs)
     dim_per = [int(v) for v in np.atleast_1d(dens.dim_per_attr)]
     r_vec = [int(v) for v in np.atleast_1d(dens.r)]
-    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
+    rel = [bool(v) for v in np.atleast_1d(dens.rel)]
     sigma = np.atleast_1d(dens.sigma)
     inner_r = _inner_r_vec(dens)
     gauss_const = 1.0
     for a in range(A):
         da = dim_per[a]
-        det_m_a = _quadratic_form_det(r_vec[a], inner_r[a], is_rel[a])
+        det_m_a = _quadratic_form_det(r_vec[a], inner_r[a], rel[a])
         gauss_const *= 1.0 / _gaussian_mass_const(sigma[a], da, det_m_a)
     vals = vals * gauss_const
     if normalize == "pdf":
@@ -986,7 +993,7 @@ def _eval_maet_ma(
         vals = _eval_core(
             c0, wj0, int(wj0.size), xs, int(xs.shape[1]), c0.shape[0],
             float(dens.sigma[0]), int(dens.r[0]),
-            bool(dens.is_rel[0]), bool(dens.is_per[0]), float(dens.period[0]),
+            bool(dens.rel[0]), bool(dens.per[0]), float(dens.period[0]),
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             wrap=(str(dens.wrap[0]) if hasattr(dens, 'wrap')
@@ -1014,8 +1021,8 @@ def _eval_maet_ma(
     dim_per     = dens.dim_per_attr
     r_vec       = dens.r
     sigma       = dens.sigma
-    is_rel      = dens.is_rel
-    is_per      = dens.is_per
+    rel      = dens.rel
+    per      = dens.per
     period      = dens.period
     centres     = dens.centres
     w_j         = dens.w_j
@@ -1100,13 +1107,13 @@ def _eval_maet_ma(
     else:
         _kp = kernel_precision
     _value_tables = _ma_value_tables(
-        centres, A, dim_per, is_rel, is_per, inner_r, _wrap_dens,
+        centres, A, dim_per, rel, per, inner_r, _wrap_dens,
         np.float32 if _kp == "single" else np.float64, n_q)
     if bytes_needed <= mem_limit:
         vals = _ma_eval_full(
             centres, w_j, n_j, x_list, n_q,
             A, dim_per, r_vec, sigma,
-            is_rel, is_per, period,
+            rel, per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             inner_r=inner_r,
@@ -1123,7 +1130,7 @@ def _eval_maet_ma(
             vals[c_start:c_end] = _ma_eval_full(
                 centres, w_j, n_j, x_chunk, n_qc,
                 A, dim_per, r_vec, sigma,
-                is_rel, is_per, period,
+                rel, per, period,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 inner_r=inner_r,
@@ -1191,11 +1198,11 @@ def _ma_eval_factored(
 
     P = [np.asarray(p, dtype=np.float64) for p in dens.p_attr]
     W = [np.asarray(w, dtype=np.float64) for w in dens.w]
-    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
-    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    rel = [bool(v) for v in np.atleast_1d(dens.rel)]
+    per = [bool(v) for v in np.atleast_1d(dens.per)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
-    is_exch = [bool(v) for v in np.atleast_1d(dens.is_exch)]
+    exch = [bool(v) for v in np.atleast_1d(dens.exch)]
     inner_r = _inner_r_vec(dens)
     nested = dens.nested
     ts = resolve_truncation_sigmas(truncation_sigmas)
@@ -1219,7 +1226,7 @@ def _ma_eval_factored(
             )
         else:
             pm, _, _, _ = _enum_flat_attr(
-                np.zeros(P[a].shape[0]), ever_valid, r_vec[a], is_exch[a],
+                np.zeros(P[a].shape[0]), ever_valid, r_vec[a], exch[a],
                 np.ones(P[a].shape[0]),
             )
         perm.append(pm)
@@ -1250,11 +1257,11 @@ def _ma_eval_factored(
                 ]) if r_in > 1 else np.empty((0, u.shape[1]))
                 d = c[:, :, None] - x_list[a][:, None, :]
                 q = _compute_Q_inner_blocks(
-                    d, r_in, is_per[a], period[a], reduced=True,
+                    d, r_in, per[a], period[a], reduced=True,
                 ) / (2.0 * sigma[a] ** 2)
                 s_a = (w_tuple[:, None] * np.exp(-q)).sum(axis=0)
             else:
-                c = (u[1:, :] - u[:1, :]) if is_rel[a] else u
+                c = (u[1:, :] - u[:1, :]) if rel[a] else u
                 # The attribute's declared wrap goes with it, as on the
                 # single-multiset and joint centres routes: without it a
                 # 'single-image' abs-per attribute was evaluated
@@ -1264,7 +1271,7 @@ def _ma_eval_factored(
                 s_a = _eval_core(
                     c, w_tuple, int(w_tuple.size), x_list[a], n_q,
                     int(c.shape[0]), sigma[a], r_vec[a],
-                    is_rel[a], is_per[a], period[a],
+                    rel[a], per[a], period[a],
                     truncation_sigmas=ts, kernel_precision=kernel_precision,
                     wrap=wrap_a,
                 )
@@ -1313,7 +1320,7 @@ def _distinct_value_table(c_a, n_q):
     return vals, inv.reshape(c_a.shape)
 
 
-def _ma_value_tables(centres, A, dim_per, is_rel, is_per, inner_r, wrap,
+def _ma_value_tables(centres, A, dim_per, rel, per, inner_r, wrap,
                      dtype, n_q):
     """Per-attribute distinct-value tables for the abs-per branch.
 
@@ -1330,7 +1337,7 @@ def _ma_value_tables(centres, A, dim_per, is_rel, is_per, inner_r, wrap,
         wrap_a = 'full-image'
         if wrap is not None and a < len(wrap):
             wrap_a = str(wrap[a])
-        if (r_in == 0 and is_per[a] and not is_rel[a]
+        if (r_in == 0 and per[a] and not rel[a]
                 and wrap_a == 'full-image'):
             tables[a] = _distinct_value_table(
                 np.asarray(centres[a]).astype(dtype, copy=False), n_q)
@@ -1340,7 +1347,7 @@ def _ma_value_tables(centres, A, dim_per, is_rel, is_per, inner_r, wrap,
 def _ma_eval_full(
     centres, w_j, n_j, x_list, n_qc,
     A, dim_per, r_vec, sigma,
-    is_rel, is_per, period,
+    rel, per, period,
     *,
     truncation_sigmas=None,
     kernel_precision=None,
@@ -1352,7 +1359,7 @@ def _ma_eval_full(
 
     Accumulates the summed-quadratic exponent across attributes, then
     exponentiates once and does the weighted sum against ``w_j``.
-    Geometry (``sigma``, ``is_rel``, ``is_per``, ``period``) is
+    Geometry (``sigma``, ``rel``, ``per``, ``period``) is
     per-attribute, indexed directly by ``a``.
 
     Untruncated-double bypass: when the resolved ``truncation_sigmas``
@@ -1408,7 +1415,7 @@ def _ma_eval_full(
         # identical, not merely equal to tolerance. It also avoids the
         # (dim, n_j, n_q) difference tensor entirely.
         table_a = None if value_tables is None else value_tables[a]
-        if (r_in == 0 and is_per[a] and not is_rel[a]
+        if (r_in == 0 and per[a] and not rel[a]
                 and wrap_a == 'full-image' and table_a is not None):
             from .._wrapped_kernel import wrapped_gaussian_1d
             vals, inv = table_a
@@ -1433,13 +1440,13 @@ def _ma_eval_full(
             # Inner [rel] unit: block-diagonal metric over event blocks
             # (pairwise wrap applied inside _compute_Q).
             q_a = _compute_Q_inner_blocks(
-                d_a, r_in, bool(is_per[a]), float(period[a]), reduced=True)
+                d_a, r_in, bool(per[a]), float(period[a]), reduced=True)
             q_total = q_total + q_a / (2 * dtype(sigma[a]) ** 2)
             continue
 
         # Outer wrap only needed for abs+per. For rel+per, _compute_Q
         # applies the pairwise wrap inside (Eq 6).
-        if is_per[a] and not is_rel[a]:
+        if per[a] and not rel[a]:
             pg = dtype(period[a])
             if wrap_a == 'full-image':
                 # Abs-per full-image via the shared wrapped-Gaussian
@@ -1462,9 +1469,9 @@ def _ma_eval_full(
 
         # _compute_Q matches d_a.dtype, preserving the single-precision
         # accumulator when kernel_precision='single'.
-        q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel[a]),
-                         bool(is_per[a]), float(period[a]),
-                         reduced=bool(is_rel[a]))
+        q_a = _compute_Q(d_a, int(r_vec[a]), bool(rel[a]),
+                         bool(per[a]), float(period[a]),
+                         reduced=bool(rel[a]))
 
         q_total = q_total + q_a / (2 * dtype(sigma[a]) ** 2)
 
@@ -1495,7 +1502,7 @@ def _neighbour_offsets(dim):
     return np.indices((3,) * dim).reshape(dim, -1) - 1
 
 
-def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
+def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, rel, r, k_sigma):
     """Bucket-grid spatial cull for the non-periodic single-multiset centres path.
 
     Twin of MATLAB ``internal.gaussianKernelSum``'s ``localTruncatedKernelSum``.
@@ -1518,7 +1525,7 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
 
     # Whitening transform (used only to make the Q-ball a Euclidean sphere for
     # bucketing; the returned kernel is computed on the original coordinates).
-    if is_rel:
+    if rel:
         e = np.ones(dim)
         metric = np.eye(dim) - (1.0 / r) * np.outer(e, e)
         lams, u = np.linalg.eigh(metric)
@@ -1635,7 +1642,7 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
             query = q_of[member]
 
             dq = centres[:, centre] - x_q[:, c0 + query]
-            if is_rel:
+            if rel:
                 q_form = (dq * dq).sum(axis=0) - dq.sum(axis=0) ** 2 / r
             else:
                 q_form = (dq * dq).sum(axis=0)
@@ -1815,7 +1822,7 @@ def _truncated_kernel_sum_culled_rel_per(centres, w_j, x_q, sigma, r,
 
 
 def _eval_core(
-    centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
+    centres, w_j, n_j, x, n_q, dim, sigma, r, rel, per, period,
     *, truncation_sigmas=None, wrap='full-image', kernel_precision=None,
 ):
     """Evaluate with automatic memory-aware chunking (single-multiset path).
@@ -1850,11 +1857,11 @@ def _eval_core(
         truncation_sigmas is not None
         and np.isfinite(truncation_sigmas)
         and truncation_sigmas > 0
-        and not is_per
+        and not per
         and _bucket_index_worthwhile(int(dim), int(n_j), int(n_q))
     ):
         return _truncated_kernel_sum_culled(
-            centres, w_j, x, sigma, is_rel, r, float(truncation_sigmas)
+            centres, w_j, x, sigma, rel, r, float(truncation_sigmas)
         )
 
     # Relative periodic: the same cull on a lattice that wraps with the
@@ -1866,8 +1873,8 @@ def _eval_core(
         truncation_sigmas is not None
         and np.isfinite(truncation_sigmas)
         and truncation_sigmas > 0
-        and is_per
-        and is_rel
+        and per
+        and rel
         and _rel_per_cull_worthwhile(int(dim), int(n_j), int(n_q), int(r),
                                      float(sigma), float(truncation_sigmas),
                                      float(period))
@@ -1886,11 +1893,11 @@ def _eval_core(
     # Distinct-value table for the abs-per full-image branch, resolved
     # once: the centres are the same in every chunk.
     value_table = None
-    if is_per and not is_rel and wrap == 'full-image':
+    if per and not rel and wrap == 'full-image':
         value_table = _distinct_value_table(centres, n_q)
 
     if bytes_needed <= mem_limit:
-        return _eval_full(centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
+        return _eval_full(centres, w_j, n_j, x, n_q, dim, sigma, r, rel, per, period,
                           truncation_sigmas=truncation_sigmas, wrap=wrap,
                           value_table=value_table)
 
@@ -1901,7 +1908,7 @@ def _eval_core(
         idx = slice(c_start, c_end)
         n_qc = c_end - c_start
         vals[idx] = _eval_full(
-            centres, w_j, n_j, x[:, idx], n_qc, dim, sigma, r, is_rel, is_per, period,
+            centres, w_j, n_j, x[:, idx], n_qc, dim, sigma, r, rel, per, period,
             truncation_sigmas=truncation_sigmas, wrap=wrap,
             value_table=value_table,
         )
@@ -1909,7 +1916,7 @@ def _eval_core(
 
 
 
-def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, period,
+def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, rel, per, period,
                *, truncation_sigmas=None, wrap='full-image',
                value_table=None):
     """Fully vectorized single-multiset density evaluation.
@@ -1932,7 +1939,7 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
     non-periodic modes.
     """
     # Outer wrap only needed for abs+per (see _compute_Q docstring).
-    if is_per and not is_rel:
+    if per and not rel:
         if wrap == 'full-image':
             # Full-image via the shared wrapped-Gaussian helper
             # (image-sum or Fourier, whichever is cheaper).
@@ -1979,7 +1986,7 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
     else:
         D = centres[:, :, None] - x_q[:, None, :]
 
-    Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
+    Q = _compute_Q(D, r, rel, per, period, reduced=rel)
 
     q_total = Q / (2 * sigma**2)
     use_truncation = (

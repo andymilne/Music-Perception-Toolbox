@@ -53,11 +53,11 @@ def threads():
     mpt.set_default(kernel_threads=prev)
 
 
-def density(r, is_rel, is_per, is_exch=True):
+def density(r, rel, per, exch=True):
     p_attr = [SCALE[:, None]]
-    specs = mpt.flat_specs(p_attr, r=r, rel=is_rel, exch=is_exch)
+    specs = mpt.flat_specs(p_attr, r=r, rel=rel, exch=exch)
     return mpt.build_maet(p_attr, None, specs=specs, sigma=[SIGMA],
-                          is_per=[is_per], period=[PERIOD], verbose=False)
+                          per=[per], period=[PERIOD], verbose=False)
 
 
 def evaluated(dens, points, n_threads):
@@ -148,16 +148,16 @@ class TestSplitRanges:
 class TestBitIdentity:
     """Threading changes the schedule, not the arithmetic."""
 
-    @pytest.mark.parametrize('r,is_rel,is_per', [
+    @pytest.mark.parametrize('r,rel,per', [
         (2, False, False),      # centres, bucketed, non-periodic
         (2, False, True),       # centres, periodic, wrapped kernel
         (3, True, False),       # relative
         (2, True, True),        # relative periodic
     ])
     def test_eval_agrees_with_the_serial_path(self, fixed_chunk, threads,
-                                              r, is_rel, is_per):
-        dens = density(r, is_rel, is_per)
-        dim = r - int(is_rel)
+                                              r, rel, per):
+        dens = density(r, rel, per)
+        dim = r - int(rel)
         rng = np.random.default_rng(0)
         points = rng.uniform(-PERIOD, PERIOD, (dim, 200_000))
         serial = evaluated(dens, points, 1)

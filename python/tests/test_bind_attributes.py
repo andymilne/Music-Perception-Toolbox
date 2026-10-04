@@ -2,7 +2,7 @@
 
 ``bind_attributes`` gathers several attributes into one whose value at
 an event is the tuple of all of them; ``separate_attributes`` splits one
-back into a slot apiece. The two are inverse, and the second is also the
+back into a position apiece. The two are inverse, and the second is also the
 operation by which the conversion's two structural roles differ.
 
 Mirror of MATLAB tests/test_bind_attributes.m.
@@ -28,7 +28,7 @@ def axes():
         [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]]),
          np.array([[7.0, 8.0, 9.0]])], None,
         [dict(name=n, r=1, exch=True, sigma=0.5, rel=False,
-              is_per=False, period=0.0) for n in ("x", "y", "z")])
+              per=False, period=0.0) for n in ("x", "y", "z")])
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ def test_agreed_parameters_are_inherited(axes):
     _, _, specs = unpack_pre_maet(bind_attributes(
         axes, ["x", "y"], name="xy", r=2, exch=False))
     assert specs[0]["sigma"] == 0.5
-    assert specs[0]["is_per"] is False
+    assert specs[0]["per"] is False
 
 
 def test_disagreeing_parameters_must_be_given(axes):
@@ -120,11 +120,11 @@ def test_separating_undoes_binding(axes):
 
 def test_the_parts_carry_the_source_s_kernel(axes):
     bound = bind_attributes(axes, ["x", "y"], name="xy", r=2, exch=False,
-                            sigma=3.0, is_per=True, period=12.0)
+                            sigma=3.0, per=True, period=12.0)
     _, _, specs = unpack_pre_maet(separate_attributes(bound, "xy"))
     for spec in specs[:2]:
         assert spec["sigma"] == 3.0
-        assert spec["is_per"] is True and spec["period"] == 12.0
+        assert spec["per"] is True and spec["period"] == 12.0
         assert spec["r"] == 1      # one value per event determines both
         assert spec["exch"] is True
 
@@ -142,15 +142,15 @@ def test_separating_a_single_valued_attribute_is_refused(axes):
 
 
 def test_the_two_structural_roles_differ_by_this_operation(chorale):
-    """Under 'ordered_multiset' slot k is level k, so splitting that
-    attribute slot by slot is what 'separate_attributes' builds from the
+    """Under 'ordered_multiset' position k is level k, so splitting that
+    attribute position by position is what 'separate_attributes' builds from the
     table -- up to the names, which only the table carries."""
     attributes = (dict(column="pitch", sigma=0.5),)
     by_role = pre_maet_from_attr_table(
-        chorale, attributes=attributes, time="beats",
+        chorale, specs=attributes, time="beats",
         roles={"part": "separate_attributes"})
     by_operation = separate_attributes(pre_maet_from_attr_table(
-        chorale, attributes=attributes, time="beats",
+        chorale, specs=attributes, time="beats",
         roles={"part": "ordered_multiset"}), "pitch")
 
     p_role, _, s_role = unpack_pre_maet(by_role)

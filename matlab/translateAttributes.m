@@ -34,13 +34,13 @@ function pm = translateAttributes(varargin)
 %   (pre-MAETs) or sweepSimMaet (densities), which compute every offset in
 %   one pass rather than building a copy per offset.
 %
-%   Relative attributes. is_rel is read per-attribute from specs (no
+%   Relative attributes. rel is read per-attribute from specs (no
 %   separate argument). A uniform shift cancels in every within-tuple
 %   difference, so on an attribute whose OUTERMOST level is relative a
 %   uniform finite offset is a structural no-op: that attribute is left
 %   unchanged and a single warning is emitted per call. A non-uniform
 %   (per-value) offset is NOT a no-op even on a relative attribute --- it
-%   shifts the within-tuple differences --- so it applies. is_per/period
+%   shifts the within-tuple differences --- so it applies. per/period
 %   are not consulted here (translation emits unwrapped values; the
 %   periodic kernel in buildMaet wraps downstream) and stay separate.
 %
@@ -53,7 +53,7 @@ function pm = translateAttributes(varargin)
 %
 %   Name-value pairs
 %       'specs' - [] (synthesise flat via flatSpecs) or a 1 x A cell of
-%                 per-attribute specs supplying is_rel (outermost level).
+%                 per-attribute specs supplying rel (outermost level).
 %
 %   Outputs
 %       pm    - Pre-MAET with the translated pAttr; wAttr and specs are

@@ -110,8 +110,8 @@ w = [metre.copy(), metre.copy()]
 # The kernel geometry of each attribute: pitch periodic at the octave
 # (12 semitones) with sigma = 0.5 semitones, and time non-periodic with
 # sigma = 0.25 quarter-notes. Both attributes are absolute.
-specs = mpt.flat_specs(p_attr, name=["pitch", "time"], sigma=[0.5, 0.25],
-                       is_per=[True, False], period=[12.0, 0.0])
+specs = mpt.flat_specs(p_attr, names=["pitch", "time"], sigma=[0.5, 0.25],
+                       per=[True, False], period=[12.0, 0.0])
 
 # The three parts travel together as one pre-MAET, which every operation
 # below takes whole and returns whole.
@@ -158,7 +158,7 @@ print("=== 3. bind_events (B) ===")
 # Bind 2 consecutive events into 2-grams on both attributes. Each source
 # attribute becomes ONE nested attribute: the two bound events form the
 # ordered outer level, each event's own value the inner level (inheriting
-# the source r/is_rel/is_exch). A' = A = 2. Trailing-drop alignment gives
+# the source r/rel/exch). A' = A = 2. Trailing-drop alignment gives
 # N' = N - max(L) + 1 = 6. B gathers each super-event's constituent
 # weights alongside its values rather than combining them, so both of a
 # 2-gram's metre weights survive, in order, inside the cell. Binding is
@@ -241,7 +241,7 @@ print("=== 4. translate_attributes (T) ===")
 
 # Translate pitch (attribute 0) by +5 semitones; leave time alone.
 # Offsets are a per-attribute list: a scalar broadcasts across the
-# attribute's values (here K = 1 each). is_rel is read from the specs
+# attribute's values (here K = 1 each). rel is read from the specs
 # (both attributes absolute), so neither translation is a no-op. T moves
 # values only: the weights below are the metre weights unchanged.
 #
@@ -325,15 +325,15 @@ print("=== 5c. bind_attributes and separate_attributes ===")
 # attribute whose value at an event is the ordered pair, read whole
 # (r = 2, exch = False) rather than as the product of two attributes.
 # The two disagree on periodicity, so the bound attribute is given its
-# own: non-periodic, with one sigma for both slots.
+# own: non-periodic, with one sigma for both positions.
 pmBA = mpt.bind_attributes(pm, [0, 1], name="pitchTime", r=2, exch=False,
-                           sigma=0.5, is_per=False, period=0.0)
+                           sigma=0.5, per=False, period=0.0)
 mpt.show_pre_maet(pmBA, decimals=3)
 print()
 
 # separate_attributes goes the other way, splitting the bound attribute
-# into one attribute per slot, each named for the bound attribute and
-# its slot.
+# into one attribute per position, each named for the bound attribute and
+# its position.
 p_back, _, s_back = mpt.unpack_pre_maet(
     mpt.separate_attributes(pmBA, "pitchTime"))
 print(f"  separated into {len(p_back)} attributes: "
@@ -477,7 +477,7 @@ print(f"  log(|D(pitch)|+1) = {np.round(p_f[0].ravel(), 4)}, "
 # carry sigma as NA (demo_pre_maet_io, section 6), and the widths the
 # new units call for are supplied here.
 dens_f = mpt.build_maet(pmF, sigma=[0.2, 0.3],
-                        is_per=[False, False], period=[0, 0],
+                        per=[False, False], period=[0, 0],
                         verbose=False)
 print(f"  build_maet on the two-attribute pre-MAET: dim = {dens_f.dim}")
 
@@ -508,7 +508,7 @@ print("  entropy_maet(pm)")
 print(f"    = {H_orig:.4f}  (Renyi-2)")
 
 # The raw positional form, with the parts and the five geometry vectors
-# (sigma, r, is_rel, is_per, period) written out, reaches the same value;
+# (sigma, r, rel, per, period) written out, reaches the same value;
 # it serves data that was never packed as a pre-MAET.
 p0, w0, _ = mpt.unpack_pre_maet(pm)
 H_raw = mpt.entropy_maet(p0, w0, [0.5, 0.25], [1, 1], [False, False],

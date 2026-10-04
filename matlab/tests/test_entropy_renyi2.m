@@ -99,10 +99,10 @@ results{end,2}   = abs(H_renyi - H_ref) < 1e-10;
 
 %% ---- single-multiset r=1 rel: degenerate, returns 0 ----
 
-% Suppress the buildMaet:isRelDegenerate warning for this test —
+% Suppress the buildMaet:relDegenerate warning for this test —
 % the warning is informational, not a failure. The renyi2 path is
 % specifically built to return 0 by convention in this regime.
-ws = warning('off', 'buildMaet:isRelDegenerate');
+ws = warning('off', 'buildMaet:relDegenerate');
 H_deg = entropyMaet(p1, w1, sigma, 1, true, false, 0, ...
     'method', 'renyi2', 'verbose', false);
 warning(ws);

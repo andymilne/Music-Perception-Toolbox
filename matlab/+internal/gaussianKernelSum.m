@@ -5,10 +5,10 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %
 %      v(q) = sum_j wJ(j) * exp(-Q(c_j - x_q) / (2 * sigma^2))
 %
-%   where Q is the quadratic form determined by opts.isRel and opts.r:
+%   where Q is the quadratic form determined by opts.rel and opts.r:
 %
-%      abs mode (opts.isRel=false):   Q(D) = sum(D.^2)
-%      rel mode (opts.isRel=true):    Q(D) = sum(D.^2) - sum(D)^2 / r
+%      abs mode (opts.rel=false):   Q(D) = sum(D.^2)
+%      rel mode (opts.rel=true):    Q(D) = sum(D.^2) - sum(D)^2 / r
 %
 %   This helper is the single centres-path numerical kernel used by
 %   evalMaet, simMaet, entropyMaet, and (eventually) the
@@ -36,7 +36,7 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %   platforms). Output is always cast back to double. Relative
 %   accuracy degrades to ~1e-7.
 %
-%   Periodic mode (opts.isPer = true), 1-D abs: truncates on the circle
+%   Periodic mode (opts.per = true), 1-D abs: truncates on the circle
 %   when the window is narrower than half the circumference
 %   (2*truncationSigmas*sigma < period); otherwise, and for the rel or
 %   multi-axis periodic cases, the exhaustive wrapped path is taken,
@@ -49,10 +49,10 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %     X       (dim, nQ) double - queries
 %     sigma   (1, 1) positive double
 %     opts    struct with fields:
-%       isRel             logical (default false)
-%       r                 integer >= 2 (required if isRel)
-%       isPer             logical (default false)
-%       period            scalar (required if isPer; > 0)
+%       rel               logical (default false)
+%       r                 integer >= 2 (required if rel)
+%       per               logical (default false)
+%       period            scalar (required if per; > 0)
 %       truncationSigmas  positive scalar or Inf (default from mptDefaults)
 %       kernelPrecision         'double' (default from mptDefaults) or 'single'
 %
@@ -66,9 +66,9 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         wJ (:,1) double
         X double
         sigma (1,1) double {mustBePositive}
-        opts.isRel (1,1) logical = false
+        opts.rel (1,1) logical = false
         opts.r (1,1) {mustBeInteger} = 0
-        opts.isPer (1,1) logical = false
+        opts.per (1,1) logical = false
         opts.period (1,1) double = 0.0
         opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
         opts.kernelPrecision (1,:) char = mptDefaults('kernelPrecision')
@@ -98,11 +98,11 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         error('internal:gaussianKernelSum:weightShape', ...
             'wJ must have length nJ = %d.', nJ);
     end
-    if opts.isRel && opts.r < 2
+    if opts.rel && opts.r < 2
         error('internal:gaussianKernelSum:relRequiresR', ...
             'rel mode requires opts.r >= 2 (got %d).', opts.r);
     end
-    if opts.isPer && opts.period <= 0
+    if opts.per && opts.period <= 0
         error('internal:gaussianKernelSum:perRequiresPeriod', ...
             'periodic mode requires opts.period > 0.');
     end
@@ -157,15 +157,15 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         qCutoff = (double(opts.truncationSigmas) * double(sigma))^2;
     end
 
-    if useTruncation && ~opts.isPer
+    if useTruncation && ~opts.per
         % 1-D abs case: vectorised path via sorted-centres +
         % searchsorted, much faster than the general per-query loop.
-        if size(C_w, 1) == 1 && ~opts.isRel
+        if size(C_w, 1) == 1 && ~opts.rel
             v_w = localTruncatedKernelSum1D(C_w, wJ_w, X_w, sigma_w, ...
                 opts.truncationSigmas, inv2s2);
         elseif localBucketIndexWorthwhile(size(C_w, 1), nJ, nQ)
             v_w = localTruncatedKernelSum(C_w, wJ_w, X_w, sigma_w, ...
-                opts.isRel, opts.r, opts.truncationSigmas, inv2s2);
+                opts.rel, opts.r, opts.truncationSigmas, inv2s2);
         else
             % The bucket index costs 3^dim neighbour lookups per query
             % before any kernel entry is touched; where that exceeds the
@@ -180,10 +180,10 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
             % matrix-valued kernel covariance after whitening -- would
             % silently skip truncation.
             v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
-                opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
+                opts.rel, opts.r, opts.per, period_w, inv2s2, sigma_w, ...
                 opts.wrap, opts.truncationSigmas, qCutoff);
         end
-    elseif useTruncation && opts.isPer && opts.isRel ...
+    elseif useTruncation && opts.per && opts.rel ...
             && localRelPerCullWorthwhile(size(C_w, 1), nJ, nQ, opts.r, ...
                    sigma_w, opts.truncationSigmas, period_w)
         % Relative periodic: the bucket cull on a lattice that wraps with
@@ -193,7 +193,7 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         % per-tuple kernel to one evaluation per distinct source value.
         v_w = localTruncatedKernelSumRelPer(C_w, wJ_w, X_w, sigma_w, ...
             opts.r, period_w, opts.truncationSigmas, inv2s2);
-    elseif useTruncation && opts.isPer && size(C_w, 1) == 1 && ~opts.isRel
+    elseif useTruncation && opts.per && size(C_w, 1) == 1 && ~opts.rel
         % Circular 1-D truncation, valid only when the window is narrower
         % than the circle; otherwise there are no savings (and the
         % replication trick would double count), so fall through to the
@@ -204,12 +204,12 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
                 sigma_w, period_w, opts.truncationSigmas, inv2s2);
         else
             v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
-                opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
+                opts.rel, opts.r, opts.per, period_w, inv2s2, sigma_w, ...
                 opts.wrap, opts.truncationSigmas, qCutoff);
         end
     else
         v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
-            opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
+            opts.rel, opts.r, opts.per, period_w, inv2s2, sigma_w, ...
             opts.wrap, opts.truncationSigmas, qCutoff);
     end
 

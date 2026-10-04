@@ -1,7 +1,7 @@
 """test_pre_maet_io.py -- kernel geometry in specs, and CSV I/O.
 
 Two related things are tested here. First, that a spec may carry the
-attribute's sigma, is_per and period --- the parameters Milne (2026,
+attribute's sigma, per and period --- the parameters Milne (2026,
 Def. 2.6) counts as part of the pre-MAET --- that an explicit keyword
 overrides them, and that a value missing from both places is refused by
 name. Second, that a pre-MAET survives a round trip through CSV
@@ -19,9 +19,9 @@ def _p():
 
 def _specs():
     return [{"name": "pitch", "r": 1, "rel": False, "exch": True,
-             "sigma": 0.5, "is_per": True, "period": 12.0},
+             "sigma": 0.5, "per": True, "period": 12.0},
             {"name": "time", "r": 1, "rel": False, "exch": True,
-             "sigma": 0.25, "is_per": False, "period": 0.0}]
+             "sigma": 0.25, "per": False, "period": 0.0}]
 
 
 class TestResolution:
@@ -29,7 +29,7 @@ class TestResolution:
     def test_specs_alone_suffice(self):
         d = mpt.build_maet(_p(), None, specs=_specs(), verbose=False)
         np.testing.assert_allclose(np.atleast_1d(d.sigma), [0.5, 0.25])
-        assert list(np.atleast_1d(d.is_per)) == [True, False]
+        assert list(np.atleast_1d(d.per)) == [True, False]
 
     def test_keyword_overrides_silently(self):
         """A sweep supplies sigma per call while the specs hold a
@@ -59,19 +59,12 @@ class TestResolution:
         np.testing.assert_allclose(np.atleast_1d(d.sigma), [0.5, 0.25])
 
     def test_period_defaults_to_zero(self):
-        """Only sigma and is_per are compulsory: a period is inert on a
+        """Only sigma and per are compulsory: a period is inert on a
         non-periodic attribute."""
         sp = _specs()
         del sp[1]["period"]
         d = mpt.build_maet(_p(), None, specs=sp, verbose=False)
         assert float(np.atleast_1d(d.period)[1]) == 0.0
-
-    def test_camel_case_alias_is_read(self):
-        """A spec written for either language reads in both."""
-        sp = _specs()
-        sp[0]["isPer"] = sp[0].pop("is_per")
-        d = mpt.build_maet(_p(), None, specs=sp, verbose=False)
-        assert bool(np.atleast_1d(d.is_per)[0])
 
     def test_covariance_in_a_spec_is_honoured(self):
         """The matrix path is chosen after resolution, not from the
@@ -79,9 +72,9 @@ class TestResolution:
         C = mpt.kernel_cov(3, sd_value=0.2, sd_interval=0.3, differenced=True)
         pb, wb, sb = mpt.unpack_pre_maet(mpt.bind_events([np.array([[1.0, 2, 3, 4]])], None, [3]))
         by_kw = mpt.build_maet(pb, wb, specs=sb, sigma=[C],
-                                   is_per=[False], period=[0.0],
+                                   per=[False], period=[0.0],
                                    verbose=False)
-        sb[0].update(sigma=C, is_per=False, period=0.0)
+        sb[0].update(sigma=C, per=False, period=0.0)
         in_spec = mpt.build_maet(pb, wb, specs=sb, verbose=False)
         assert in_spec.kernel_cov[0] is not None
         np.testing.assert_allclose(in_spec.kernel_cov[0], by_kw.kernel_cov[0])
@@ -91,7 +84,7 @@ class TestOperatorRules:
 
     def test_difference_scales_sigma_by_root_binomial(self):
         sp = [{"name": "p", "r": 1, "rel": False, "exch": True,
-               "sigma": 10.0, "is_per": False, "period": 0.0}]
+               "sigma": 10.0, "per": False, "period": 0.0}]
         p = [np.array([[1.0, 2, 3, 4]])]
         _, _, s1 = mpt.unpack_pre_maet(mpt.difference_events(p, None, 1, specs=sp))
         _, _, s2 = mpt.unpack_pre_maet(mpt.difference_events(p, None, 2, specs=sp))
@@ -105,7 +98,7 @@ class TestOperatorRules:
         # Differencing needs K = 1 per event, so the covariance rides on
         # a single-valued attribute across four events.
         sp = [{"name": "t", "r": 1, "rel": False, "exch": True,
-               "sigma": C, "is_per": False, "period": 0.0}]
+               "sigma": C, "per": False, "period": 0.0}]
         _, _, s = mpt.unpack_pre_maet(mpt.difference_events([np.array([[1.0, 2, 3, 4]])],
                                         None, 1, specs=sp))
         np.testing.assert_allclose(np.asarray(s[0]["sigma"]), C * 2.0)
@@ -162,20 +155,20 @@ class TestFromScore:
                            "score_small.musicxml")
         _, _, specs = mpt.unpack_pre_maet(mpt.pre_maet_from_attr_table(
             mpt.read_score(src), chords="separate",
-            attributes=(dict(column="pitch", sigma=0.5),)))
+            specs=(dict(column="pitch", sigma=0.5),)))
         assert specs[0]["sigma"] == 0.5
-        assert specs[0]["is_per"] is False
+        assert specs[0]["per"] is False
         assert specs[0]["period"] == 0.0
 
         _, _, specs = mpt.unpack_pre_maet(mpt.pre_maet_from_attr_table(
             mpt.read_score(src), chords="separate",
-            attributes=(dict(column="pitch", sigma=0.5, is_per=True,
+            specs=(dict(column="pitch", sigma=0.5, per=True,
                              period=12.0),)))
-        assert specs[0]["is_per"] is True and specs[0]["period"] == 12.0
+        assert specs[0]["per"] is True and specs[0]["period"] == 12.0
 
         with pytest.raises(ValueError, match="no sigma"):
             mpt.pre_maet_from_attr_table(
-                mpt.read_score(src), chords="separate", attributes=(dict(column="pitch"),))
+                mpt.read_score(src), chords="separate", specs=(dict(column="pitch"),))
 
 
 FLAT = '''name,sigma,r,rel,per,P,exch,n = 1,n = 2,n = 3
@@ -279,21 +272,21 @@ class TestCsvRoundTrip:
         """A file records the pre-MAET; it does not display it."""
         p = [np.arange(20.0).reshape(1, 20)]
         sp = [{"name": "x", "r": 1, "rel": False, "exch": True,
-               "sigma": 1.0, "is_per": False, "period": 0.0}]
+               "sigma": 1.0, "per": False, "period": 0.0}]
         out = mpt.write_pre_maet(None, p, None, sp, max_events=3)
         assert "n = 20" in out and "..." not in out
 
     def test_ordered_slots_keep_their_positions(self):
-        """An ordered attribute's slot is its level, so an empty slot
+        """An ordered attribute's position identifies its level, so a position with no value
         before the last value is written as a blank and read back into
-        the same slot; an unordered attribute is written compacted."""
+        the same position; an unordered attribute is written compacted."""
         nan = np.nan
         p = [[[60, 64, 67], [62, nan, 67], [nan, 65, nan], 64, []],
              [0, 1, 2, 3, 4]]
         sp = [{"name": "pitch", "r": 1, "rel": False, "exch": False,
-               "sigma": 0.5, "is_per": False, "period": 0.0},
+               "sigma": 0.5, "per": False, "period": 0.0},
               {"name": "onset", "r": 1, "rel": False, "exch": True,
-               "sigma": 0.25, "is_per": False, "period": 0.0}]
+               "sigma": 0.25, "per": False, "period": 0.0}]
         pm = mpt.pack_pre_maet(p, None, sp)
         out = mpt.write_pre_maet(None, pm)
         assert '"(62, _, 67)","(_, 65)",64,()' in out

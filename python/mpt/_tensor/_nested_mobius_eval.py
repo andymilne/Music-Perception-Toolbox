@@ -11,18 +11,18 @@ set-partition decomposition **level by level**:
 
 * at a symmetric level, the sum over ordered ``r``-tuples of *distinct*
   children is written by inclusion–exclusion over the set partitions
-  ``π`` of the ``r`` tuple slots,
+  ``π`` of the ``r`` tuple positions,
 
       Σ_{distinct} Π_t M[c_t, t] = Σ_π μ(π) Π_{B∈π} Σ_c Π_{t∈B} M[c, t],
 
   where ``M[c, t]`` is child ``c``'s sub-density evaluated at the query
-  coordinates of slot ``t`` — the same identity the flat evaluator
+  coordinates of position ``t`` — the same identity the flat evaluator
   :func:`mpt._mobius.eval_orbit_abs` uses, with children in place of
   values;
 * at an ordered level the sum runs over children in listed order, a
   dynamic programme over the children (no factorial);
 * at the leaf, ``M[v, t] = w_v θ(x_t - p_v)`` is the weighted
-  one-body kernel of value ``v`` at slot ``t``.
+  one-body kernel of value ``v`` at position ``t``.
 
 Because the query side is a single fixed point rather than a summed
 tuple set, the identity needs no orbit table: the set-partition lists
@@ -56,7 +56,7 @@ from ._nested_contraction import build_recipe
 
 
 def eval_nested_attr_orbit(p, w, tags, r_levels, exch_levels, rel_unit,
-                           sigma, x, *, is_per=False, period=0.0,
+                           sigma, x, *, per=False, period=0.0,
                            wrap='full-image', truncation_sigmas=None,
                            samples_per_sigma=None):
     """Evaluate one event's nested-attribute density at query points.
@@ -75,7 +75,7 @@ def eval_nested_attr_orbit(p, w, tags, r_levels, exch_levels, rel_unit,
     x : (dim_a, n_q) array
         Query coordinates in the attribute's reduced layout (the layout
         ``build_maet`` documents for ``centres``).
-    is_per, period, wrap, truncation_sigmas, samples_per_sigma :
+    per, period, wrap, truncation_sigmas, samples_per_sigma :
         Kernel and quadrature controls, as on the flat evaluators.
 
     Returns
@@ -109,7 +109,7 @@ def eval_nested_attr_orbit(p, w, tags, r_levels, exch_levels, rel_unit,
         spp = int(resolve_samples_per_sigma(samples_per_sigma,
                                             max(2, s_unit), truncation_sigmas))
 
-    ctx = _Ctx(p, w, float(sigma), bool(is_per), float(period), str(wrap),
+    ctx = _Ctx(p, w, float(sigma), bool(per), float(period), str(wrap),
                ts, r_levels, rel_unit, spp)
 
     # The tree: build_recipe groups values by the tag columns exactly as
@@ -125,21 +125,21 @@ def eval_nested_attr_orbit(p, w, tags, r_levels, exch_levels, rel_unit,
 
 
 class _Ctx:
-    """Per-call constants and the slot-width bookkeeping."""
-    __slots__ = ("p", "w", "sigma", "is_per", "period", "wrap", "ts",
+    """Per-call constants and the position-width bookkeeping."""
+    __slots__ = ("p", "w", "sigma", "per", "period", "wrap", "ts",
                  "r_levels", "rel_unit", "spp", "_s")
 
-    def __init__(self, p, w, sigma, is_per, period, wrap, ts, r_levels,
+    def __init__(self, p, w, sigma, per, period, wrap, ts, r_levels,
                  rel_unit, spp):
         self.p, self.w = p, w
-        self.sigma, self.is_per, self.period = sigma, is_per, period
+        self.sigma, self.per, self.period = sigma, per, period
         self.wrap, self.ts = wrap, ts
         self.r_levels, self.rel_unit, self.spp = r_levels, rel_unit, spp
-        # s[l] = number of leaf slots spanned by one level-l sub-tuple.
+        # s[l] = number of leaf positions spanned by one level-l sub-tuple.
         self._s = [int(np.prod(r_levels[:l + 1])) for l in range(len(r_levels))]
 
     def span(self, level):
-        """Leaf slots of one level-``level`` sub-tuple (absolute layout)."""
+        """Leaf positions of one level-``level`` sub-tuple (absolute layout)."""
         return self._s[level]
 
     def width(self, level):
@@ -195,7 +195,7 @@ def _contract_abs(node, xq, ctx):
 def _theta(d, ctx):
     """One-body kernel per coordinate: Gaussian, or its wrapped form on a
     periodic attribute under the declared measure."""
-    if ctx.is_per:
+    if ctx.per:
         if ctx.wrap == 'single-image':
             d = d - ctx.period * np.round(d / ctx.period)
         else:
@@ -209,7 +209,7 @@ def _combine(M, r, exch):
     """Σ over r-tuples of distinct children of Π_t M[c_t, t, :].
 
     ``M`` is (n_children, r, n_q). Symmetric: the Möbius set-partition sum
-    over the r slots. Ordered: children in listed order, by a dynamic
+    over the r positions. Ordered: children in listed order, by a dynamic
     programme over the children."""
     n, _, n_q = M.shape
     if r == 1:
@@ -228,7 +228,7 @@ def _combine(M, r, exch):
                                             mus, track_max=False)
         return total
     # Ordered: dp[t] = Σ over increasing index sequences of length t
-    # (slots 0..t-1) of the slot-wise product.
+    # (positions 0..t-1) of the position-wise product.
     dp = [np.ones(n_q, dtype=np.float64)] + [
         np.zeros(n_q, dtype=np.float64) for _ in range(r)]
     for i in range(n):
@@ -246,11 +246,11 @@ def _integrate_translation(node, xq, ctx):
     s = ctx.span(node.level)
     n_q = xq.shape[1]
     if s < 2:
-        # A one-slot unit is translation-degenerate: constant, the total
+        # A one-position unit is translation-degenerate: constant, the total
         # weight of the sub-density (the flat r = 1 convention).
         return np.full(n_q, float(ctx.w[node.val_idx].sum()))
     sigma = ctx.sigma
-    if ctx.is_per:
+    if ctx.per:
         N_u = max(64, int(math.ceil(ctx.period / sigma * ctx.spp)))
         u_grid = np.linspace(0.0, ctx.period, N_u, endpoint=False)
         du = ctx.period / N_u
@@ -268,7 +268,7 @@ def _integrate_translation(node, xq, ctx):
     x_full = np.vstack([np.zeros((1, n_q)), xq])          # (s, n_q)
     X = (x_full[:, :, None] + u_grid[None, None, :]).reshape(s, n_q * N_u)
     F = _contract_abs(node, X, ctx).reshape(n_q, N_u)
-    if ctx.is_per:
+    if ctx.per:
         integral = F.sum(axis=1) * du
     else:
         integral = np.trapezoid(F, u_grid, axis=1)

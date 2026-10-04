@@ -178,8 +178,8 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     A       = double(dens.nAttrs);
     rVec    = double(dens.r(:).');
     kVec    = double(dens.K(:).');
-    isRel   = logical(dens.isRel(:).');
-    isPer   = logical(dens.isPer(:).');
+    isRel   = logical(dens.rel(:).');
+    isPer   = logical(dens.per(:).');
     sigmaG  = double(dens.sigma(:).');
     periodG = double(dens.period(:).');
 
@@ -195,7 +195,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % for the alignment window). ----
     nQeff = max(double(nQ), 1);
     % Nested attributes are estimated by internal.nestedEvalCostsMs; here
-    % they are skipped (their r is the leaf-slot total, not a flat order).
+    % they are skipped (their r is the leaf-position total, not a flat order).
     flatAttrs = 1:A;
     if isfield(dens, 'nested') && ~isempty(dens.nested)
         keep = true(1, A);

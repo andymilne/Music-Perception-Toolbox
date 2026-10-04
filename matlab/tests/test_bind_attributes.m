@@ -2,7 +2,7 @@
 %
 %  bindAttributes gathers several attributes into one whose value at an
 %  event is the tuple of all of them; separateAttributes splits one back
-%  into a slot apiece. The two are inverse, and the second is also the
+%  into a position apiece. The two are inverse, and the second is also the
 %  operation by which the conversion's two structural roles differ.
 %
 %  Mirror of Python tests/test_bind_attributes.py.
@@ -22,7 +22,7 @@ ba_specs = cell(1, 3);
 ba_names = {'x', 'y', 'z'};
 for ba_i = 1:3
     ba_specs{ba_i} = struct('name', ba_names{ba_i}, 'r', 1, 'exch', true, ...
-                            'sigma', 0.5, 'rel', false, 'isPer', false, ...
+                            'sigma', 0.5, 'rel', false, 'per', false, ...
                             'period', 0);
 end
 ba_axes = packPreMaet(ba_p, [], ba_specs);
@@ -50,7 +50,7 @@ results(end+1, :) = {'bindAttributes: the bound attribute takes the place of the
 [~, ~, sp] = unpackPreMaet(bindAttributes(ba_axes, {'x', 'y'}, ...
     'name', 'xy', 'r', 2, 'exch', false));
 results(end+1, :) = {'bindAttributes: agreed parameters are inherited', ...
-    sp{1}.sigma == 0.5 && sp{1}.isPer == false};
+    sp{1}.sigma == 0.5 && sp{1}.per == false};
 
 ba_mixedSpecs = ba_specs;
 ba_mixedSpecs{2}.sigma = 2;
@@ -97,10 +97,10 @@ results(end+1, :) = {'separateAttributes: separating undoes binding', ...
     && isequal(p, ba_p)};
 
 ba_bound2 = bindAttributes(ba_axes, {'x', 'y'}, 'name', 'xy', 'r', 2, ...
-    'exch', false, 'sigma', 3, 'isPer', true, 'period', 12);
+    'exch', false, 'sigma', 3, 'per', true, 'period', 12);
 [~, ~, sp] = unpackPreMaet(separateAttributes(ba_bound2, 'xy'));
 results(end+1, :) = {'separateAttributes: the parts carry the source''s kernel', ...
-    all(cellfun(@(s) s.sigma == 3 && s.isPer && s.period == 12 ...
+    all(cellfun(@(s) s.sigma == 3 && s.per && s.period == 12 ...
                      && s.r == 1 && s.exch == true, sp(1:2)))};
 
 [~, ~, sp] = unpackPreMaet(separateAttributes(ba_bound2, 'xy', ...
@@ -114,8 +114,8 @@ results(end+1, :) = {'separateAttributes: a single-valued attribute is refused',
         'separateAttributes:nothingToSeparate')};
 
 % --- the two structural roles differ by this operation --------------------
-% Under 'orderedMultiset' slot k is level k, so splitting that attribute
-% slot by slot is what 'separateAttributes' builds from the table -- up to
+% Under 'orderedMultiset' position k is level k, so splitting that attribute
+% position by position is what 'separateAttributes' builds from the table -- up to
 % the names, which only the table carries.
 ba_demos = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'demos', 'jmm');
 ba_added = ~contains(path, ba_demos);
@@ -124,10 +124,10 @@ if ba_added; addpath(ba_demos); end
 ba_chorale = gridAttrTable(jmm.bwv347Notes(), 0.25);
 ba_attr = {struct('column', 'pitch', 'sigma', 0.5)};
 [pRole, ~, spRole] = unpackPreMaet(preMaetFromAttrTable(ba_chorale, ...
-    'attributes', ba_attr, 'time', 'beats', ...
+    'specs', ba_attr, 'time', 'beats', ...
     'roles', struct('part', 'separateAttributes')));
 [pOp, ~, spOp] = unpackPreMaet(separateAttributes(preMaetFromAttrTable( ...
-    ba_chorale, 'attributes', ba_attr, 'time', 'beats', ...
+    ba_chorale, 'specs', ba_attr, 'time', 'beats', ...
     'roles', struct('part', 'orderedMultiset')), 'pitch'));
 results(end+1, :) = {'separateAttributes: the two structural roles differ by this operation', ...
     numel(pOp) == 4 && numel(pRole) == 4 && isequaln(pRole, pOp) ...

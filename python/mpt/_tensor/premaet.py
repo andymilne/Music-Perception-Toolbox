@@ -61,7 +61,7 @@ def pack_pre_maet(p_attr, w_attr=None, specs=None):
         attribute. An entry is a scalar; a per-event list, whose entries
         are a scalar (weighting all the event's values) or a sequence
         with one weight per value; a flat list with one weight per value
-        slot (length ``K_a``, when that differs from ``N``); or an array of
+        position (length ``K_a``, when that differs from ``N``); or an array of
         shape ``(N,)`` or ``(K_a, N)``.
     specs : None or sequence of dict, optional
         A length-A sequence of per-attribute specifications.
@@ -151,7 +151,7 @@ def shift_lead(p_attr, w_attr, following, specs, *, func):
     The operators accept either a whole pre-MAET followed by their own
     positional arguments, or ``p_attr`` and ``w_attr`` followed by those
     same positional arguments. Where a whole one was given, every
-    positional argument sits one slot early and is shifted back here, and
+    positional argument sits one position early and is shifted back here, and
     its ``specs`` stands unless the call named ``specs`` itself.
 
     Parameters
@@ -275,7 +275,7 @@ def _normalise_specs(specs, A):
 # -------------------------------------------------------------------
 #
 # An attribute's values may be given as a K x N matrix (a NumPy array,
-# one row per value slot and one column per event, NaN-padded where an
+# one row per value position and one column per event, NaN-padded where an
 # event holds fewer values than the widest) or in the per-event form: a
 # list or tuple with one entry per event, each a scalar, a 1-D sequence
 # of that event's values, or empty / None for an event with no value.
@@ -320,7 +320,7 @@ def _per_event_weights(w, values, attr=None):
     """Per-event weights as a ``(K, N)`` array aligned with ``values``.
 
     Each entry is a scalar, which weights every value of its event, or a
-    sequence with one weight per value of the event; the slots holding
+    sequence with one weight per value of the event; the positions holding
     no value take weight 0.
     """
     where = "" if attr is None else f"attribute {attr}: "
@@ -357,7 +357,7 @@ def _attr_weights(w, values, attr=None):
     """An attribute's weights as given, with the per-event form converted.
 
     A list or tuple with one entry per event is the per-event form. A flat
-    list of scalars whose length is the number of value slots rather than
+    list of scalars whose length is the number of value positions rather than
     of events keeps its per-value reading. Anything else passes through.
     """
     if not isinstance(w, (list, tuple)):

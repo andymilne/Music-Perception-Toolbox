@@ -40,7 +40,7 @@ bsx_Ns     = [1, 2];
 bsx_reps   = 5;
 
 fprintf('CSV_BEGIN\n');
-fprintf('r,K,N,sigmaOverP,isPer,gridSize,msSpectral,msGrid,ratio\n');
+fprintf('r,K,N,sigmaOverP,per,gridSize,msSpectral,msGrid,ratio\n');
 
 for bsx_N = bsx_Ns
     for bsx_K = bsx_Ks

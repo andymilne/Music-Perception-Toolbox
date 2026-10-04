@@ -90,7 +90,7 @@ C_FINE = '#8e2f9e'          # purple --- sub-JND (super-human) line
 # which the differencing leaves alone to serve as the window attribute.
 voice = mpt.pre_maet_from_attr_table(
     pe.voice_table(2),
-    attributes=(dict(column='pitch', name='dp', sigma=SIGMA_DP),
+    specs=(dict(column='pitch', name='dp', sigma=SIGMA_DP),
                 dict(column='onset', name='dt', sigma=SIGMA_JND),
                 dict(column='onset', name='t', sigma=1.0)),
     time='seconds', chords='separate', weights='ones')

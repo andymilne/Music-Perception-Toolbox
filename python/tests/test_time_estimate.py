@@ -37,10 +37,10 @@ from mpt._tensor.dispatch import (
 )
 
 
-def _single(K, spread, sigma, is_rel=True):
+def _single(K, spread, sigma, rel=True):
     p = [np.linspace(0.0, spread, K).reshape(-1, 1)]
     return mpt.build_maet(
-        p, None, [sigma], [2], [is_rel], [False], [0.0], verbose=False,
+        p, None, [sigma], [2], [rel], [False], [0.0], verbose=False,
     )
 
 
@@ -133,8 +133,8 @@ class TestCullingCorrection:
         assert _predict_ma_eval_cost_ms(d, 2000, "centres") == centres_ms
         assert _predict_ma_eval_cost_ms(d, 2000, "mobius") == mobius_ms
 
-    @pytest.mark.parametrize("is_rel", [True, False])
-    def test_periodic_single_multiset_is_unculled(self, is_rel):
+    @pytest.mark.parametrize("rel", [True, False])
+    def test_periodic_single_multiset_is_unculled(self, rel):
         # Periodic single-multiset runs dense (the pairwise wrap is not a
         # tail-truncatable ball), so it takes no culling reduction: its
         # centres cost must equal the plain unculled form. The per-query
@@ -144,15 +144,15 @@ class TestCullingCorrection:
         # measured cost is superlinear in the tuple count where the
         # absolute kernel's is not.
         K, nq = 30, 4000
-        r = 2 if is_rel else 1
+        r = 2 if rel else 1
         p = [np.linspace(0.0, 1150.0, K).reshape(-1, 1)]
         d = mpt.build_maet(
-            p, None, [22.0], [r], [is_rel], [True], [1200.0], verbose=False,
+            p, None, [22.0], [r], [rel], [True], [1200.0], verbose=False,
         )
-        joint = 2 * (K * (K - 1) // 2) if is_rel else K
-        slope = (_MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS if is_rel
+        joint = 2 * (K * (K - 1) // 2) if rel else K
+        slope = (_MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS if rel
                  else _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS)
-        exp = (_MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER if is_rel
+        exp = (_MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER if rel
                else _MA_COST_CENTRES_QUERY_JOINT_EXP_PER)
         expected = (
             _MA_COST_CENTRES_SETUP_MS

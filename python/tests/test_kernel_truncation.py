@@ -28,15 +28,15 @@ from mpt._kernel import gaussian_kernel_sum
 # Reference: a plain broadcast-subtract-exp-sum
 # ---------------------------------------------------------------------
 
-def _ref_kernel_sum(C, wJ, X, sigma, *, is_rel=False, r=0,
-                    is_per=False, period=0.0):
+def _ref_kernel_sum(C, wJ, X, sigma, *, rel=False, r=0,
+                    per=False, period=0.0):
     """Direct reference: no truncation, no chunking, double precision."""
     dim, nJ = C.shape
     nQ = X.shape[1]
     D = C[:, :, None] - X[:, None, :]
-    if is_per:
+    if per:
         D = D - period * np.floor(D / period + 0.5)
-    if is_rel:
+    if rel:
         Q = np.sum(D * D, axis=0) - np.sum(D, axis=0) ** 2 / r
     else:
         Q = np.sum(D * D, axis=0)
@@ -80,8 +80,8 @@ def test_exact_matches_reference(small_problem):
 def test_exact_rel_matches_reference(small_problem):
     C, wJ, X, sigma = small_problem
     # Rel mode requires (dim) centres = (r - 1); for r=3 we have dim=2.
-    v = gaussian_kernel_sum(C, wJ, X, sigma, is_rel=True, r=3)
-    ref = _ref_kernel_sum(C, wJ, X, sigma, is_rel=True, r=3)
+    v = gaussian_kernel_sum(C, wJ, X, sigma, rel=True, r=3)
+    ref = _ref_kernel_sum(C, wJ, X, sigma, rel=True, r=3)
     assert np.max(np.abs(v - ref)) < 1e-12 * np.max(np.abs(ref))
 
 
@@ -106,9 +106,9 @@ def test_truncated_abs_within_bound(small_problem, k):
 @pytest.mark.parametrize("k", [4, 5, 6, 8])
 def test_truncated_rel_within_bound(small_problem, k):
     C, wJ, X, sigma = small_problem
-    v_trunc = gaussian_kernel_sum(C, wJ, X, sigma, is_rel=True, r=3,
+    v_trunc = gaussian_kernel_sum(C, wJ, X, sigma, rel=True, r=3,
                                    truncation_sigmas=k)
-    ref = _ref_kernel_sum(C, wJ, X, sigma, is_rel=True, r=3)
+    ref = _ref_kernel_sum(C, wJ, X, sigma, rel=True, r=3)
     bound = 200 * math.exp(-k ** 2 / 2)
     rel = np.max(np.abs(v_trunc - ref) / np.maximum(np.abs(ref), 1e-30))
     assert rel < bound
@@ -148,11 +148,11 @@ def test_periodic_truncates_on_circle():
     wJ = rng.uniform(0.5, 1.5, nJ)
     X = rng.uniform(0, 1200, (dim, nQ))
     sigma = 30.0
-    ref = _ref_kernel_sum(C, wJ, X, sigma, is_per=True, period=1200.0)
+    ref = _ref_kernel_sum(C, wJ, X, sigma, per=True, period=1200.0)
     peak = np.max(np.abs(ref))
     v6 = gaussian_kernel_sum(
         C, wJ, X, sigma, truncation_sigmas=6,
-        is_per=True, period=1200.0,
+        per=True, period=1200.0,
     )
     # 6 sigma: circular truncation is active (drops terms beyond the
     # window, so the result departs from exact) but bounded by the
@@ -161,7 +161,7 @@ def test_periodic_truncates_on_circle():
     assert 1e-11 * peak < err6 < 1e-6 * peak
     v_inf = gaussian_kernel_sum(
         C, wJ, X, sigma, truncation_sigmas=np.inf,
-        is_per=True, period=1200.0,
+        per=True, period=1200.0,
     )
     # Accuracy floor: matches exact to ~1e-12.
     assert np.max(np.abs(v_inf - ref)) < 1e-11 * peak
@@ -274,7 +274,7 @@ def test_bad_inputs_raise():
     with pytest.raises(ValueError, match="kernel_precision"):
         gaussian_kernel_sum(C, wJ, X, 1.0, kernel_precision='quad')
     with pytest.raises(ValueError, match="rel mode requires r"):
-        gaussian_kernel_sum(C, wJ, X, 1.0, is_rel=True)
+        gaussian_kernel_sum(C, wJ, X, 1.0, rel=True)
 
 
 # ---------------------------------------------------------------------

@@ -4,7 +4,7 @@ Each new-function result is checked against the equivalent inline pipeline
 (``weight_events`` / ``translate_attributes`` / ``build_maet`` /
 ``entropy_maet`` / ``sim_maet``) it replaces, so the functions
 are pinned to the hand-written composition rather than to remembered
-numbers. Each role of ``align`` is exercised, alone and together.
+numbers. Each alignment of ``align`` is exercised, alone and together.
 """
 
 import numpy as np
@@ -48,7 +48,7 @@ def test_entropy_drop_window_axis(triple, method, shape):
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
         pw, ww, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), shape,
-                                  is_per=False, period=0.0, drop_input_attr=True, **kw))
+                                  per=False, period=0.0, drop_input_attr=True, **kw))
         dens = build_maet(pw, ww, [SIG_P], [1], [False], [False], [0.0], verbose=False)
         ref[i] = entropy_maet(dens, method=method, verbose=False)
     got = swept_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
@@ -67,7 +67,7 @@ def test_entropy_grid_methods_take_the_grid(triple, method):
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
         pw, ww, _ = unpack_pre_maet(weight_events(
-            p_attr, None, 1, 0, float(c), 0.0, is_per=False, period=0.0,
+            p_attr, None, 1, 0, float(c), 0.0, per=False, period=0.0,
             sd=SD, drop_input_attr=True))
         dens = build_maet(pw, ww, [SIG_P], [1], [False], [False], [0.0],
                           verbose=False)
@@ -90,7 +90,7 @@ def test_entropy_retain_axis(triple):
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
         pw, ww, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), 1.0,
-                                  is_per=False, period=0.0, width=W_WIDTH, drop_input_attr=False))
+                                  per=False, period=0.0, width=W_WIDTH, drop_input_attr=False))
         dens = build_maet(pw, ww, [SIG_P, SIG_T], [1, 1], [False, False],
                               [False, False], [0.0, 0.0], verbose=False)
         ref[i] = entropy_maet(dens, method="renyi2", verbose=False)
@@ -141,7 +141,7 @@ def test_similarity_locked(triple, query, normalize):
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
         pc, wc, _ = unpack_pre_maet(weight_events(p_attr, None, 1, 0, float(c), 1.0,
-                                  width=q_ext, is_per=False, period=0.0, drop_input_attr=False))
+                                  width=q_ext, per=False, period=0.0, drop_input_attr=False))
         pq, wq, _ = unpack_pre_maet(translate_attributes(query, None, [None, np.array([[c - mu_q]])]))
         ref[i] = sim_maet(pc, wc, pq, wq, [SIG_P, SIG_T], [1, 1],
                                   [False, False], [False, False], [0.0, 0.0],
@@ -190,7 +190,7 @@ def test_similarity_decoupled_correlogram(triple, query):
 def test_similarity_generative_sweep_matches_explicit(triple, query):
     p_attr, _ = triple
     onset = p_attr[1]
-    # A window-only role: its generated sweep values default to the
+    # A window-only alignment: its generated sweep values default to the
     # context's extent, stepped at half the window's sd.
     common = dict(align={1: "window"}, drop=[1],
                   window={1: {"shape": "rect", "width": 1.0}},

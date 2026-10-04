@@ -21,17 +21,17 @@ results{end+1,1} = 'buildMaet: r too large errors';
 results{end,2}   = throwsError(@() buildMaet([0, 4], [], 10, 3, ...
     false, true, 12, 'verbose', false));
 
-% v3: single-multiset isRel + r=1 was a hard error in v2.0; relaxed to a
+% v3: single-multiset rel + r=1 was a hard error in v2.0; relaxed to a
 % degenerate warning that parallels the MA path's behaviour. The build
 % itself succeeds (dim = 0); the warning flags the unusual regime.
-w_state_sa1rel = warning('on', 'buildMaet:isRelDegenerate');
+w_state_sa1rel = warning('on', 'buildMaet:relDegenerate');
 lastwarn('');
 dens_sa1rel = buildMaet([0, 4, 7], [], 10, 1, true, true, 12, ...
     'verbose', false);
 [~, lastID_sa1rel] = lastwarn;
 warning(w_state_sa1rel);
-results{end+1,1} = 'buildMaet: single-multiset isRel + r=1 emits degenerate warning (was error in v2.0)';
-results{end,2}   = strcmp(lastID_sa1rel, 'buildMaet:isRelDegenerate') ...
+results{end+1,1} = 'buildMaet: single-multiset rel + r=1 emits degenerate warning (was error in v2.0)';
+results{end,2}   = strcmp(lastID_sa1rel, 'buildMaet:relDegenerate') ...
                    && isstruct(dens_sa1rel) && dens_sa1rel.dim == 0;
 
 results{end+1,1} = 'coherence: duplicates error';

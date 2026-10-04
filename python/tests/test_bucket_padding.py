@@ -34,15 +34,15 @@ K_SIGMA = 6.0
 SCALE = np.array([0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0])
 
 
-def centres_of(r, is_rel, is_exch=True):
+def centres_of(r, rel, exch=True):
     p_attr = [SCALE[:, None]]
-    specs = mpt.flat_specs(p_attr, r=r, rel=is_rel, exch=is_exch)
+    specs = mpt.flat_specs(p_attr, r=r, rel=rel, exch=exch)
     dens = mpt.build_maet(p_attr, None, specs=specs, sigma=[SIGMA],
-                          is_per=[False], period=[1200.0], verbose=False)
+                          per=[False], period=[1200.0], verbose=False)
     return np.asarray(mpt.maet_centres(dens)[0], dtype=float)
 
 
-def direct(centres, w_j, x_q, is_rel, r):
+def direct(centres, w_j, x_q, rel, r):
     """The quantity the cull is an optimisation of: every centre within
     the truncation ball of the query, and no other."""
     threshold2 = (K_SIGMA * SIGMA) ** 2
@@ -50,7 +50,7 @@ def direct(centres, w_j, x_q, is_rel, r):
     out = np.empty(x_q.shape[1])
     for q in range(x_q.shape[1]):
         dq = centres - x_q[:, q:q + 1]
-        if is_rel:
+        if rel:
             q_form = (dq * dq).sum(axis=0) - dq.sum(axis=0) ** 2 / r
         else:
             q_form = (dq * dq).sum(axis=0)
@@ -88,26 +88,26 @@ CASES = [(1, False, 'absolute, dim 1'),
          (4, True, 'relative, dim 3')]
 
 
-@pytest.mark.parametrize('r,is_rel,label', CASES)
+@pytest.mark.parametrize('r,rel,label', CASES)
 class TestCulledSumMatchesADirectSum:
 
-    def test_culled_centres_path(self, r, is_rel, label):
-        centres = centres_of(r, is_rel)
+    def test_culled_centres_path(self, r, rel, label):
+        centres = centres_of(r, rel)
         w_j = np.linspace(0.5, 1.5, centres.shape[1])
         x_q = probe_points(centres, np.random.default_rng(0))
         got = _truncated_kernel_sum_culled(centres, w_j, x_q, SIGMA,
-                                           is_rel, r, K_SIGMA)
-        assert np.allclose(got, direct(centres, w_j, x_q, is_rel, r),
+                                           rel, r, K_SIGMA)
+        assert np.allclose(got, direct(centres, w_j, x_q, rel, r),
                            rtol=0, atol=1e-12)
 
-    def test_bucketed_kernel_sum(self, r, is_rel, label):
-        centres = centres_of(r, is_rel)
+    def test_bucketed_kernel_sum(self, r, rel, label):
+        centres = centres_of(r, rel)
         w_j = np.linspace(0.5, 1.5, centres.shape[1])
         x_q = probe_points(centres, np.random.default_rng(1))
         inv_2s2 = 1.0 / (2.0 * SIGMA * SIGMA)
-        got = _truncated_kernel_sum(centres, w_j, x_q, SIGMA, is_rel, r,
+        got = _truncated_kernel_sum(centres, w_j, x_q, SIGMA, rel, r,
                                     K_SIGMA, inv_2s2)
-        assert np.allclose(got, direct(centres, w_j, x_q, is_rel, r),
+        assert np.allclose(got, direct(centres, w_j, x_q, rel, r),
                            rtol=0, atol=1e-12)
 
 
@@ -160,7 +160,7 @@ class TestThroughThePublicEntryPoint:
         p_attr = [SCALE[:, None]]
         specs = mpt.flat_specs(p_attr, r=2, rel=False, exch=True)
         dens = mpt.build_maet(p_attr, None, specs=specs, sigma=[SIGMA],
-                              is_per=[False], period=[1200.0],
+                              per=[False], period=[1200.0],
                               verbose=False)
         g = np.linspace(-2400.0, 3600.0, 400)
         ga, gb = np.meshgrid(g, g)

@@ -46,7 +46,7 @@ function pm = transformAttributes(varargin)
 %       offset a zero is refused, and admitting zeros means writing the
 %       constant down (log(x + c) is not unit-free: the unit of x is then
 %       part of the model). 'affine' is the only transform compatible
-%       with a periodic attribute (isPer true at build); the others
+%       with a periodic attribute (per true at build); the others
 %       change the metric and so cannot be wrapped.
 %     {'from', 'to'}       - a pitch-scale conversion among 'hz', 'midi',
 %                            'cents' (100 x MIDI), 'octave' (MIDI / 12),
@@ -59,7 +59,7 @@ function pm = transformAttributes(varargin)
 %                            the same shape and be finite wherever the
 %                            matrix holds a value.
 %
-%   Slots holding no value (NaN, the padding of events with fewer values
+%   Positions holding no value (NaN, the padding of events with fewer values
 %   than others) pass through unchanged.
 %
 %   Domain. Values outside a transform's domain are refused with a message
@@ -251,7 +251,7 @@ for a = 1:A
         end
         continue;
     end
-    % NaN marks a slot holding no value (the padding of events with
+    % NaN marks a position holding no value (the padding of events with
     % fewer values than others); it is carried through unchanged.
     absent = isnan(x);
     if any(isinf(x(:)))

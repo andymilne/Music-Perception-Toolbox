@@ -35,7 +35,7 @@ class TestTensor:
 
     def test_relative_tensor(self):
         dens = mpt.build_maet([0, 4, 7], None, 0.5, 2, True, True, 12, verbose=False)
-        assert dens.dim == 1  # r=2, is_rel=True → dim=1
+        assert dens.dim == 1  # r=2, rel=True → dim=1
 
     def test_normalize_pdf(self):
         # Use non-periodic case: the pdf should integrate to ~1 over R
@@ -64,7 +64,7 @@ class TestTensor:
     # --- Transposition invariance tests (simMaet fix) ----------
 
     def test_isrel_transposition_invariance_nonperiodic(self):
-        """isRel should give exact transposition invariance (non-periodic)."""
+        """rel should give exact transposition invariance (non-periodic)."""
         B = [0, 200, 400, 500, 700, 900, 1100]
         s0 = mpt.sim_maet(
             [0, 400, 700], None, B, None,
@@ -77,7 +77,7 @@ class TestTensor:
         assert s0 == pytest.approx(s1, abs=1e-14)
 
     def test_isrel_transposition_invariance_periodic(self):
-        """isPer + isRel should give exact transposition invariance."""
+        """per + rel should give exact transposition invariance."""
         B = [0, 200, 400, 500, 700, 900, 1100]
         s0 = mpt.sim_maet(
             [0, 400, 700], None, B, None,
@@ -90,7 +90,7 @@ class TestTensor:
         assert s0 == pytest.approx(s1, abs=1e-14)
 
     def test_isrel_transposition_invariance_periodic_r3(self):
-        """isPer + isRel transposition invariance should hold for r=3."""
+        """per + rel transposition invariance should hold for r=3."""
         B = [0, 200, 400, 500, 700, 900, 1100]
         s0 = mpt.sim_maet(
             [0, 400, 700], None, B, None,
@@ -104,7 +104,7 @@ class TestTensor:
 
     @pytest.mark.parametrize("shift", [100, 300, 500, 700, 1100])
     def test_isrel_transposition_all_shifts(self, shift):
-        """isPer + isRel should be invariant across many transpositions."""
+        """per + rel should be invariant across many transpositions."""
         A = np.array([0.0, 400, 700])
         B = np.array([0, 200, 400, 500, 700, 900, 1100], dtype=float)
         s_ref = mpt.sim_maet(
@@ -118,7 +118,7 @@ class TestTensor:
         assert s_ref == pytest.approx(s_shift, abs=1e-14)
 
     def test_isper_octave_equivalence(self):
-        """isPer should treat octave-displaced pitches as equivalent."""
+        """per should treat octave-displaced pitches as equivalent."""
         B = [0, 200, 400, 500, 700, 900, 1100]
         s0 = mpt.sim_maet(
             [0, 400, 700], None, B, None,
@@ -131,7 +131,7 @@ class TestTensor:
         assert s0 == pytest.approx(s1, abs=1e-14)
 
     def test_isrel_with_weights_periodic(self):
-        """isPer + isRel transposition invariance should hold with weights."""
+        """per + rel transposition invariance should hold with weights."""
         B = [0, 200, 400, 500, 700, 900, 1100]
         w = [1.0, 0.8, 0.6]
         s0 = mpt.sim_maet(
@@ -145,7 +145,7 @@ class TestTensor:
         assert s0 == pytest.approx(s1, abs=1e-14)
 
     def test_batch_deduplication_octave(self):
-        """Batch should deduplicate octave-displaced sets under isPer."""
+        """Batch should deduplicate octave-displaced sets under per."""
         A = np.array([
             [0, 400, 700],
             [1200, 1600, 1900],  # octave displaced

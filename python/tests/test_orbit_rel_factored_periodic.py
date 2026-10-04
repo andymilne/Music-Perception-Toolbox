@@ -36,9 +36,9 @@ def test_factored_periodic_matches_direct(r, P_over_sigma):
     p, w = _sources(P, K=400, seed=r)
     rng = np.random.default_rng(100 + r)
     x_rel = rng.uniform(-6.0, 6.0, (r - 1, 5))
-    vf = eval_orbit_rel(p, w, sigma, r, x_rel, is_per=True, period=P,
+    vf = eval_orbit_rel(p, w, sigma, r, x_rel, per=True, period=P,
                         factored=True, truncation_sigmas=6.0)
-    vd = eval_orbit_rel(p, w, sigma, r, x_rel, is_per=True, period=P,
+    vd = eval_orbit_rel(p, w, sigma, r, x_rel, per=True, period=P,
                         factored=False, truncation_sigmas=6.0)
     rel = np.max(np.abs(vf - vd) / np.maximum(np.abs(vd), 1e-300))
     assert rel < 1e-10
@@ -49,9 +49,9 @@ def test_factored_periodic_large_query_spread():
     sigma, P, r = 2.0, 400.0, 3
     p, w = _sources(P, K=500, seed=11)
     x_rel = np.vstack([np.full(4, 0.20 * P), np.full(4, -0.15 * P)])  # span 0.35P
-    vf = eval_orbit_rel(p, w, sigma, r, x_rel, is_per=True, period=P,
+    vf = eval_orbit_rel(p, w, sigma, r, x_rel, per=True, period=P,
                         factored=True, truncation_sigmas=6.0)
-    vd = eval_orbit_rel(p, w, sigma, r, x_rel, is_per=True, period=P,
+    vd = eval_orbit_rel(p, w, sigma, r, x_rel, per=True, period=P,
                         factored=False, truncation_sigmas=6.0)
     assert np.max(np.abs(vf - vd) / np.maximum(np.abs(vd), 1e-300)) < 1e-9
 
@@ -63,7 +63,7 @@ def test_factored_true_rejected_when_circle_too_small():
     p, w = _sources(P, K=200, seed=5)
     x_rel = np.zeros((r - 1, 3))
     with pytest.raises(ValueError, match="periodic"):
-        eval_orbit_rel(p, w, sigma, r, x_rel, is_per=True, period=P,
+        eval_orbit_rel(p, w, sigma, r, x_rel, per=True, period=P,
                        factored=True, truncation_sigmas=6.0)
 
 
@@ -72,9 +72,9 @@ def test_auto_gate_periodic_matches_direct():
     p, w = _sources(P, K=900, seed=9)
     rng = np.random.default_rng(21)
     x_rel = rng.uniform(-5.0, 5.0, (r - 1, 25))   # batch + large K -> factored
-    va = eval_orbit_rel(p, w, sigma, r, x_rel, is_per=True, period=P,
+    va = eval_orbit_rel(p, w, sigma, r, x_rel, per=True, period=P,
                         truncation_sigmas=6.0)
-    vd = eval_orbit_rel(p, w, sigma, r, x_rel, is_per=True, period=P,
+    vd = eval_orbit_rel(p, w, sigma, r, x_rel, per=True, period=P,
                         factored=False, truncation_sigmas=6.0)
     assert np.max(np.abs(va - vd) / np.maximum(np.abs(vd), 1e-300)) < 1e-9
 

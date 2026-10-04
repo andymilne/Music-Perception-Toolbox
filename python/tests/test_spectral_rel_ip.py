@@ -17,8 +17,8 @@ import mpt._tensor._mobius_inner as _mobius_inner
 from mpt._tensor._mobius_inner import (_rel_inner_batched, _spectral_rel_inner_matrix)
 
 
-def _both(Px, Wx, Py, Wy, sigma, r, is_per, period):
-    args = (Px, Wx, Py, Wy, sigma, r, is_per, period)
+def _both(Px, Wx, Py, Wy, sigma, r, per, period):
+    args = (Px, Wx, Py, Wy, sigma, r, per, period)
     got = np.asarray(_rel_inner_batched(
         *args, truncation_sigmas=np.inf))
     _mobius_inner._SPECTRAL_IP_ENABLED = False
@@ -35,14 +35,14 @@ def test_spectral_matches_grid_path_r2_to_r4():
     grid path's matrix to well within the accuracy floor."""
     rng = np.random.default_rng(401)
     for r in (2, 3, 4):
-        for is_per in (True, False):
+        for per in (True, False):
             K, NX, NY, P, sigma = 10, 3, 3, 1200.0, 40.0
             Px = np.sort(rng.uniform(0, P, (K, NX)), axis=0)
             Wx = 0.5 + rng.random((K, NX))
             Py = np.sort(rng.uniform(0, P, (K, NY)), axis=0)
             Wy = 0.5 + rng.random((K, NY))
-            got, ref = _both(Px, Wx, Py, Wy, sigma, r, is_per,
-                             P if is_per else 0.0)
+            got, ref = _both(Px, Wx, Py, Wy, sigma, r, per,
+                             P if per else 0.0)
             assert (np.max(np.abs(got - ref))
                     <= 1e-10 * np.max(np.abs(ref)))
 

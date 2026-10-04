@@ -84,7 +84,7 @@ class TestAddSpectraPreMaet:
 
     def _pm(self, values, weights=None, **spec):
         base = dict(name="pitch", sigma=20.0, r=1, exch=True, rel=False,
-                    is_per=False, period=0.0)
+                    per=False, period=0.0)
         base.update(spec)
         return mpt.pack_pre_maet([np.asarray(values, dtype=float)],
                                  None if weights is None
@@ -122,9 +122,9 @@ class TestAddSpectraPreMaet:
         necessary and every attribute gets them."""
         pm = mpt.pack_pre_maet([np.array([[0.0]]), np.array([[7.0]])], None,
                                [dict(name="a", sigma=1.0, r=1, exch=True,
-                                     rel=False, is_per=False, period=0.0),
+                                     rel=False, per=False, period=0.0),
                                 dict(name="b", sigma=1.0, r=1, exch=True,
-                                     rel=False, is_per=False, period=0.0)])
+                                     rel=False, per=False, period=0.0)])
         assert mpt.unpack_pre_maet(pm)[1] is None
         out = mpt.add_spectra(pm, *self.SPEC, attribute="a")
         w_attr = mpt.unpack_pre_maet(out)[1]
@@ -149,7 +149,7 @@ class TestAddSpectraPreMaet:
             mpt.add_spectra(np.array([0.0]), None, *self.SPEC, attribute=0)
 
     def test_the_positional_arguments_sit_one_slot_early(self):
-        """Given a pre-MAET the mode takes the slot the weights take
+        """Given a pre-MAET the mode takes the argument position the weights take
         otherwise, and the rest follow it."""
         pm = self._pm([[0.0, 100.0]])
         grown = mpt.unpack_pre_maet(mpt.add_spectra(pm, *self.SPEC,

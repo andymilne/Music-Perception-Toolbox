@@ -22,10 +22,10 @@ P = 1200.0
 N = 2
 
 
-def route(r, K, is_rel, is_per, n_q=500):
+def route(r, K, rel, per, n_q=500):
     """Route chosen by each flat dispatcher for this configuration."""
     rng = np.random.default_rng(0)
-    geom = ([0.025 * P], [r], [is_rel], [is_per], [P])
+    geom = ([0.025 * P], [r], [rel], [per], [P])
     dens = build_maet([rng.uniform(0, P, (K, N))],
                           [rng.uniform(0.1, 1.0, (K, N))], *geom,
                           verbose=False)
@@ -38,10 +38,10 @@ def route(r, K, is_rel, is_per, n_q=500):
         try:
             ip = D._select_ma_inner_product_method(
                 r_vec=np.array([r]), k_vec=np.array([K]), A=1,
-                rel_vec=np.array([is_rel]), N_x=N, N_y=N,
-                any_per=is_per, any_rel_nonper=is_rel and not is_per,
-                any_rel_per=is_rel and is_per,
-                sigma_over_P_max=0.025 if (is_rel and is_per) else 0.0,
+                rel_vec=np.array([rel]), N_x=N, N_y=N,
+                any_per=per, any_rel_nonper=rel and not per,
+                any_rel_per=rel and per,
+                sigma_over_P_max=0.025 if (rel and per) else 0.0,
                 user_method="auto", guard_forced_bulger=False)
         except TypeError:
             ip = "n/a"
@@ -57,13 +57,13 @@ def main():
     orig = D._orbit_safe_for_precision
 
     shipped = {}
-    for (name, is_rel, is_per), r, dk in cells:
-        shipped[(name, r, dk)] = route(r, r + dk, is_rel, is_per)
+    for (name, rel, per), r, dk in cells:
+        shipped[(name, r, dk)] = route(r, r + dk, rel, per)
 
     D._orbit_safe_for_precision = lambda r_vec, k_vec: True
     removed = {}
-    for (name, is_rel, is_per), r, dk in cells:
-        removed[(name, r, dk)] = route(r, r + dk, is_rel, is_per)
+    for (name, rel, per), r, dk in cells:
+        removed[(name, r, dk)] = route(r, r + dk, rel, per)
     D._orbit_safe_for_precision = orig
 
     print(f"Flat size-margin incidence over {len(cells)} configurations "
@@ -74,7 +74,7 @@ def main():
     print(header)
     print("-" * len(header))
     n_ev = n_ip = 0
-    for (name, is_rel, is_per), r, dk in cells:
+    for (name, rel, per), r, dk in cells:
         s_ev, s_ip = shipped[(name, r, dk)]
         r_ev, r_ip = removed[(name, r, dk)]
         if s_ev == r_ev and s_ip == r_ip:

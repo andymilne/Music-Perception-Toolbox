@@ -42,7 +42,7 @@ def _dens(events, flags, r_in, rel_out=1):
               "rel": [0, rel_out]},
              {"r": 1, "exch": False, "rel": False}]
     return build_maet([p_harm, p_flag], None, specs=specs,
-                          sigma=[SIG, SF], is_per=[True, False],
+                          sigma=[SIG, SF], per=[True, False],
                           period=[P, 1.0], verbose=False)
 
 
@@ -109,7 +109,7 @@ def test_ma_nested_factorises_into_harmonic_times_flag():
         return build_maet([p], None,
                               specs=[{"tags": tags, "r": [r_in, len(ev)],
                                       "exch": [True, False], "rel": [0, 1]}],
-                              sigma=[SIG], is_per=[True], period=[P],
+                              sigma=[SIG], per=[True], period=[P],
                               verbose=False)
     s_harm = sim_maet(_harm(_IVI), _harm(_ivi), method="contract",
                               verbose=False)
@@ -138,7 +138,7 @@ def _dens_sm(events, r_in, rel_out=1):
     specs = [{"tags": tags, "r": [r_in, n_chords], "exch": [True, False],
               "rel": [0, rel_out]}]
     return build_maet([p_harm], None, specs=specs, sigma=[SIG],
-                          is_per=[True], period=[P], verbose=False)
+                          per=[True], period=[P], verbose=False)
 
 
 @pytest.mark.parametrize("r_in", [1, 2])

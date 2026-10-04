@@ -124,9 +124,9 @@ query_notes = pd.DataFrame({'pitch': float(Q_ROOT) + ALS_IV,
 # One conversion each, pitch and onset, one event per note.
 ATTRIBUTES = (dict(column='pitch', name='pitch', sigma=SIGMA_PITCH),
               dict(column='onset', name='onset', sigma=SIGMA_TIME))
-passage = pre_maet_from_attr_table(notes, attributes=ATTRIBUTES, time='beats',
+passage = pre_maet_from_attr_table(notes, specs=ATTRIBUTES, time='beats',
                                    chords='separate', weights='ones')
-query = pre_maet_from_attr_table(query_notes, attributes=ATTRIBUTES,
+query = pre_maet_from_attr_table(query_notes, specs=ATTRIBUTES,
                                  time='beats', chords='separate',
                                  weights='ones')
 

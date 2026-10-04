@@ -261,9 +261,9 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
     if strcmp(nvArgs.sigmaSpace, 'interval')
         % sigma is per-step uncertainty: each bound step is an
         % independent N(d_k, sigma^2). The n bound steps form one
-        % absolute ordered attribute; sigma/isPer/period are scalar.
+        % absolute ordered attribute; sigma/per/period are scalar.
         T = buildMaet(pStep, wStep, 'specs', stepSpecs, ...
-                         'sigma', sigmaUse, 'isPer', true, ...
+                         'sigma', sigmaUse, 'per', true, ...
                          'period', period, 'verbose', false);
     else  % 'position'
         % sigma is positional uncertainty on each p_k. Bind n+1
@@ -285,7 +285,7 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         % differences are the n consecutive steps.
         winSpecs{1}.rel = [0 1];
         T = buildMaet(pWin, wWin, 'specs', winSpecs, ...
-                         'sigma', sigmaUse, 'isPer', true, ...
+                         'sigma', sigmaUse, 'per', true, ...
                          'period', period, 'verbose', false);
     end
 

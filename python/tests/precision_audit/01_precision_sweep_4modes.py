@@ -7,7 +7,7 @@ import time
 import sys
 
 
-def precision_cell(seed, r, K, sigma=50.0, is_rel=False, is_per=False, period=0.0,
+def precision_cell(seed, r, K, sigma=50.0, rel=False, per=False, period=0.0,
                     A=1, N=2):
     rng = np.random.default_rng(seed)
     p_x = [rng.uniform(0, 1200, size=(K, N)) for _ in range(A)]
@@ -17,8 +17,8 @@ def precision_cell(seed, r, K, sigma=50.0, is_rel=False, is_per=False, period=0.
     sigma_vec = [sigma] * A
     r_vec = [r] * A
     groups = list(range(A))
-    is_rel_vec = [is_rel] * A
-    is_per_vec = [is_per] * A
+    is_rel_vec = [rel] * A
+    is_per_vec = [per] * A
     period_vec = [period] * A
     dx = build_maet(p_x, w_x, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
     dy = build_maet(p_y, w_y, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
@@ -38,7 +38,7 @@ modes = [
 
 print(f"{'mode':<12} {'r':>2} {'K':>2} | {'med':>9} {'p90':>9} {'max':>9}")
 t0 = time.time()
-for mode_name, is_rel, is_per, period in modes:
+for mode_name, rel, per, period in modes:
     for r in [2, 3, 4, 5]:
         for K in [r, r+1, r+2, r+4]:
             if time.time() - t0 > 500:
@@ -49,7 +49,7 @@ for mode_name, is_rel, is_per, period in modes:
             for seed in range(5):
                 try:
                     rels.append(precision_cell(
-                        seed, r, K, is_rel=is_rel, is_per=is_per, period=period))
+                        seed, r, K, rel=rel, per=per, period=period))
                 except Exception as ex:
                     ok = False
                     print(f"{mode_name:<12} {r:>2} {K:>2} | EXCEPTION: {type(ex).__name__}: {ex}")

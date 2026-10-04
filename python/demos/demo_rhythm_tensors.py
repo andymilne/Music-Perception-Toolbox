@@ -88,9 +88,9 @@ print(f"  r = 1, against its rotations by 0-15 pulses:\n    {s_rot}")
 # IOI of d pulses read backwards around the cycle is one of 16 - d.
 print("\n=== 2. Densities of the son clave (figure) ===")
 fig, axes = plt.subplots(2, 1, figsize=(9, 5.5))
-for ax, (r, is_rel, label) in zip(axes, [(1, False, "onset (pulse)"),
+for ax, (r, rel, label) in zip(axes, [(1, False, "onset (pulse)"),
                                          (2, True, "IOI (pulses)")]):
-    dens = mpt.build_maet(son_f, None, SIGMA, r, is_rel, True, PERIOD,
+    dens = mpt.build_maet(son_f, None, SIGMA, r, rel, True, PERIOD,
                           verbose=False)
     mpt.plot_maet(dens, method='density', ax=ax)
     ax.set_xticks(np.arange(PERIOD + 1))
@@ -146,8 +146,8 @@ print("\n=== 4. Differencing and binding against n_tuple_entropy ===")
 def rhythm_pm(onsets, sigma=None):
     """A rhythm as a pre-MAET: one onset per event."""
     p = [np.asarray(onsets, dtype=float)[None, :]]
-    specs = mpt.flat_specs(p, name=['onset'], sigma=sigma,
-                           is_per=[True], period=[PERIOD])
+    specs = mpt.flat_specs(p, names=['onset'], sigma=sigma,
+                           per=[True], period=[PERIOD])
     return mpt.pack_pre_maet(p, None, specs)
 
 

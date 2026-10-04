@@ -24,13 +24,13 @@ from tests.references.nested_ip_reference import make_quadrature, nested_ip
 P = 1200.0
 
 
-def _reference_cosine(p_x, p_y, w_x, w_y, sigma, r, is_rel, is_per, period):
+def _reference_cosine(p_x, p_y, w_x, w_y, sigma, r, rel, per, period):
     """Cosine assembled from the reference inner product alone."""
     tags = np.zeros(len(p_x), dtype=np.intp)
-    recipe = build_recipe([r], [True], tags, is_rel=is_rel, is_per=is_per)
+    recipe = build_recipe([r], [True], tags, rel=rel, per=per)
     lo = float(min(p_x.min(), p_y.min()))
     hi = float(max(p_x.max(), p_y.max()))
-    quad = make_quadrature(is_rel, is_per, sigma, period, lo, hi,
+    quad = make_quadrature(rel, per, sigma, period, lo, hi,
                            truncation_sigmas=np.inf)
 
     def ip(a, b, wa, wb):
@@ -43,13 +43,13 @@ def _reference_cosine(p_x, p_y, w_x, w_y, sigma, r, is_rel, is_per, period):
     return xy / np.sqrt(xx * yy)
 
 
-@pytest.mark.parametrize("label,is_rel,is_per,period,sigma", [
+@pytest.mark.parametrize("label,rel,per,period,sigma", [
     ("absolute non-periodic", False, False, 0.0, 40.0),
     ("absolute periodic", False, True, P, 40.0),
     ("relative non-periodic", True, False, 0.0, 40.0),
     ("relative periodic", True, True, P, 20.0),
 ])
-def test_reference_reproduces_the_shipped_cosine(label, is_rel, is_per,
+def test_reference_reproduces_the_shipped_cosine(label, rel, per,
                                                  period, sigma):
     r = 2
     rng = np.random.default_rng(11)
@@ -58,14 +58,14 @@ def test_reference_reproduces_the_shipped_cosine(label, is_rel, is_per,
     w_x = rng.uniform(0.5, 1.5, 5)
     w_y = rng.uniform(0.5, 1.5, 5)
 
-    d_x = build_maet(p_x, w_x, sigma, r, is_rel, is_per, period,
+    d_x = build_maet(p_x, w_x, sigma, r, rel, per, period,
                          verbose=False)
-    d_y = build_maet(p_y, w_y, sigma, r, is_rel, is_per, period,
+    d_y = build_maet(p_y, w_y, sigma, r, rel, per, period,
                          verbose=False)
     shipped = sim_maet(d_x, d_y, truncation_sigmas=np.inf,
                                verbose=False)
     reference = _reference_cosine(p_x, p_y, w_x, w_y, sigma, r,
-                                  is_rel, is_per, period)
+                                  rel, per, period)
 
     # Measured agreement is 7e-14 to 2e-13 in every mode, including the
     # relative ones, whose quadrature grid is fine enough that it does not

@@ -28,7 +28,7 @@ function pm = bindAttributes(pAttr, wAttr, attributes, nvArgs)
 %     'exch'   - whether the bound values are exchangeable. Required, and
 %                normally false, the point of binding being that position
 %                signifies.
-%     'sigma', 'rel', 'isPer', 'period'
+%     'sigma', 'rel', 'per', 'period'
 %              - the bound attribute's kernel parameters. Each is
 %                inherited where every input agrees on it and required
 %                where they differ, since there is no reading of a
@@ -47,7 +47,7 @@ function pm = bindAttributes(pAttr, wAttr, attributes, nvArgs)
         nvArgs.exch = []
         nvArgs.sigma = []
         nvArgs.rel = []
-        nvArgs.isPer = []
+        nvArgs.per = []
         nvArgs.period = []
         nvArgs.specs = []
     end
@@ -118,8 +118,8 @@ function pm = bindAttributes(pAttr, wAttr, attributes, nvArgs)
 
     spec = struct('name', nvArgs.name, 'r', double(nvArgs.r), ...
                   'exch', logical(nvArgs.exch));
-    fields = {'sigma', 'rel', 'isPer', 'period'};
-    given = {nvArgs.sigma, nvArgs.rel, nvArgs.isPer, nvArgs.period};
+    fields = {'sigma', 'rel', 'per', 'period'};
+    given = {nvArgs.sigma, nvArgs.rel, nvArgs.per, nvArgs.period};
     for f = 1:numel(fields)
         if ~isempty(given{f})
             spec.(fields{f}) = given{f};
@@ -133,10 +133,10 @@ function pm = bindAttributes(pAttr, wAttr, attributes, nvArgs)
         end
         if ~isempty(value); spec.(fields{f}) = value; end
     end
-    if isfield(spec, 'isPer') && spec.isPer ...
+    if isfield(spec, 'per') && spec.per ...
             && (~isfield(spec, 'period') || spec.period == 0)
         error('bindAttributes:noPeriod', ...
-              '%s: isPer is set, so it needs a period.', spec.name);
+              '%s: per is set, so it needs a period.', spec.name);
     end
 
     boundP = vertcat(pAttr{idx});

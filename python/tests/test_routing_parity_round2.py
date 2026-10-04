@@ -52,20 +52,20 @@ def _quiet():
 P = 12.0
 
 
-def _flat(seed, sigma, r=2, *, is_rel=False, is_per=False,
-          wrap='full-image', K=5, N=2, is_exch=True):
+def _flat(seed, sigma, r=2, *, rel=False, per=False,
+          wrap='full-image', K=5, N=2, exch=True):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
-    return build_maet([p], None, [sigma], [r], [is_rel], [is_per],
-                          [P if is_per else 0.0], [is_exch], wrap=[wrap],
+    return build_maet([p], None, [sigma], [r], [rel], [per],
+                          [P if per else 0.0], [exch], wrap=[wrap],
                           verbose=False)
 
 
-def _chord(values, sigma, r=2, *, is_rel=False, is_per=False,
+def _chord(values, sigma, r=2, *, rel=False, per=False,
            wrap='full-image'):
     v = np.asarray(values, float).reshape(-1, 1)
-    return build_maet([v], None, [sigma], [r], [is_rel], [is_per],
-                          [P if is_per else 0.0], wrap=[wrap],
+    return build_maet([v], None, [sigma], [r], [rel], [per],
+                          [P if per else 0.0], wrap=[wrap],
                           verbose=False)
 
 
@@ -75,18 +75,18 @@ def _nested(values, sigma, *, chord=3):
     tags = np.repeat(np.arange(v.shape[0] // chord), chord)
     spec = dict(r=[2, 2], exch=[True, True], tags=tags, rel=[0, 1])
     return build_maet([v], None, specs=[spec], sigma=[sigma],
-                          is_per=[False], period=[0.0], verbose=False)
+                          per=[False], period=[0.0], verbose=False)
 
 
 # --------------------------------------------------------------- A-5 / B-7
 
 def test_renyi2_relative_r1_is_zero_at_the_single_multiset_corner():
-    d = _chord([0.0, 4.0, 7.0], 1.0, r=1, is_rel=True)
+    d = _chord([0.0, 4.0, 7.0], 1.0, r=1, rel=True)
     assert entropy_maet(d, method='renyi2', verbose=False) == 0.0
 
 
 def test_renyi2_relative_r1_is_zero_for_many_events():
-    d = _flat(3, 1.0, r=1, is_rel=True, K=4, N=3)
+    d = _flat(3, 1.0, r=1, rel=True, K=4, N=3)
     assert entropy_maet(d, method='renyi2', verbose=False) == 0.0
 
 
@@ -192,7 +192,7 @@ def test_raw_ma_list_form_is_refused():
 
 # -------------------------------------------------------------------- A-15
 
-@pytest.mark.parametrize("r,is_rel,is_per,wrap,sigma", [
+@pytest.mark.parametrize("r,rel,per,wrap,sigma", [
     (2, False, False, 'full-image', 0.7),
     (3, False, False, 'full-image', 0.9),
     (2, False, True, 'full-image', 0.15 * P),
@@ -203,29 +203,29 @@ def test_raw_ma_list_form_is_refused():
 ])
 @pytest.mark.parametrize("ts", [None, 4.0, math.inf])
 def test_single_attribute_helper_agrees_with_log_kernel_core(
-        r, is_rel, is_per, wrap, sigma, ts):
-    dx = _flat(21, sigma, r, is_rel=is_rel, is_per=is_per, wrap=wrap, K=6)
-    dy = _flat(22, sigma, r, is_rel=is_rel, is_per=is_per, wrap=wrap, K=5)
+        r, rel, per, wrap, sigma, ts):
+    dx = _flat(21, sigma, r, rel=rel, per=per, wrap=wrap, K=6)
+    dy = _flat(22, sigma, r, rel=rel, per=per, wrap=wrap, K=5)
     tsr = resolve_truncation_sigmas(ts)
-    period = P if is_per else 0.0
+    period = P if per else 0.0
     h = _ip_via_helper(dx.u_perm[0], dx.w_j, dy.v_comb[0], dy.wv_comb,
-                       r, sigma, is_rel, is_per, period,
+                       r, sigma, rel, per, period,
                        truncation_sigmas=tsr, wrap_a=wrap)
     g = _ip_full_ma(dx.u_perm, dx.w_j, dx.n_j, dy.v_comb, dy.wv_comb,
-                    dy.n_k, 1, dx.r, dx.sigma, dx.is_rel, dx.is_per,
+                    dy.n_k, 1, dx.r, dx.sigma, dx.rel, dx.per,
                     dx.period, truncation_sigmas=tsr,
                     inner_r=np.zeros(1, dtype=int), wrap=[wrap])
     assert abs(h - g) <= max(truncation_floor(ts), 1e-12) * abs(g)
 
 
-@pytest.mark.parametrize("r,is_rel,is_per,wrap,sigma", [
+@pytest.mark.parametrize("r,rel,per,wrap,sigma", [
     (2, False, False, 'full-image', 0.7),
     (2, False, True, 'full-image', 0.15 * P),
     (2, True, False, 'full-image', 0.6),
 ])
 @pytest.mark.parametrize("ts", [4.0, math.inf])
 def test_helper_route_agrees_with_log_kernel_core_at_the_cosine(
-        r, is_rel, is_per, wrap, sigma, ts):
+        r, rel, per, wrap, sigma, ts):
     # A second attribute holding one shared value per event multiplies
     # every kernel entry by exactly 1 and leaves the tuple counts
     # unchanged, so the two-attribute density is the same inner product
@@ -234,17 +234,17 @@ def test_helper_route_agrees_with_log_kernel_core_at_the_cosine(
     rng = np.random.default_rng(23)
     px = np.sort(rng.uniform(0.0, P, (6, 2)), axis=0)
     py = np.sort(rng.uniform(0.0, P, (5, 2)), axis=0)
-    period = P if is_per else 0.0
+    period = P if per else 0.0
     one = 3.0 * np.ones((1, 2))
-    dx1 = build_maet([px], None, [sigma], [r], [is_rel], [is_per],
+    dx1 = build_maet([px], None, [sigma], [r], [rel], [per],
                          [period], wrap=[wrap], verbose=False)
-    dy1 = build_maet([py], None, [sigma], [r], [is_rel], [is_per],
+    dy1 = build_maet([py], None, [sigma], [r], [rel], [per],
                          [period], wrap=[wrap], verbose=False)
     dx2 = build_maet([px, one], None, [sigma, 1.0], [r, 1],
-                         [is_rel, False], [is_per, False], [period, 0.0],
+                         [rel, False], [per, False], [period, 0.0],
                          wrap=[wrap, 'full-image'], verbose=False)
     dy2 = build_maet([py, one], None, [sigma, 1.0], [r, 1],
-                         [is_rel, False], [is_per, False], [period, 0.0],
+                         [rel, False], [per, False], [period, 0.0],
                          wrap=[wrap, 'full-image'], verbose=False)
     s1 = sim_maet(dx1, dy1, method='bulger', truncation_sigmas=ts,
                           verbose=False)
@@ -290,10 +290,10 @@ def test_density_list_dedup_key_carries_the_wrap():
     # sigma/P where the two measures differ: the dedup must keep them
     # apart, and the list form must return the two scalar values.
     sig = 0.3 * P
-    xf = _chord([0.0, 4.0, 7.0], sig, is_per=True, wrap='full-image')
-    yf = _chord([0.0, 3.0, 7.0], sig, is_per=True, wrap='full-image')
-    xs = _chord([0.0, 4.0, 7.0], sig, is_per=True, wrap='single-image')
-    ys = _chord([0.0, 3.0, 7.0], sig, is_per=True, wrap='single-image')
+    xf = _chord([0.0, 4.0, 7.0], sig, per=True, wrap='full-image')
+    yf = _chord([0.0, 3.0, 7.0], sig, per=True, wrap='full-image')
+    xs = _chord([0.0, 4.0, 7.0], sig, per=True, wrap='single-image')
+    ys = _chord([0.0, 3.0, 7.0], sig, per=True, wrap='single-image')
     s_full = sim_maet(xf, yf, verbose=False)
     s_single = sim_maet(xs, ys, verbose=False)
     assert abs(s_full - s_single) > 1e-6
@@ -308,9 +308,9 @@ def test_density_list_dedup_key_carries_the_wrap():
 def test_full_image_cell_masses_sum_to_total_and_differ_from_single_image():
     sig = 0.3 * P
     axes = [np.linspace(0.0, P, 64, endpoint=False)]
-    d_full = _chord([0.0, 4.0, 7.0], sig, r=1, is_per=True,
+    d_full = _chord([0.0, 4.0, 7.0], sig, r=1, per=True,
                     wrap='full-image')
-    d_single = _chord([0.0, 4.0, 7.0], sig, r=1, is_per=True,
+    d_single = _chord([0.0, 4.0, 7.0], sig, r=1, per=True,
                       wrap='single-image')
     ts = resolve_truncation_sigmas(math.inf)
     m_full = _cell_masses_ma_absolute(d_full, axes, truncation_sigmas=ts)
@@ -324,22 +324,22 @@ def test_full_image_cell_masses_sum_to_total_and_differ_from_single_image():
 def test_shannon_entropy_follows_the_wrap_and_the_width():
     big, small = 0.3 * P, 0.02 * P
     kw = dict(method='shannon', n_points_per_dim=64, verbose=False)
-    h_full = entropy_maet(_chord([0.0, 4.0, 7.0], big, r=1, is_per=True,
+    h_full = entropy_maet(_chord([0.0, 4.0, 7.0], big, r=1, per=True,
                                      wrap='full-image'), **kw)
     h_single = entropy_maet(_chord([0.0, 4.0, 7.0], big, r=1,
-                                       is_per=True, wrap='single-image'),
+                                       per=True, wrap='single-image'),
                                 **kw)
     assert abs(h_full - h_single) > 1e-6
     # Below the overlap regime the two readings coincide.
     h_full_s = entropy_maet(_chord([0.0, 4.0, 7.0], small, r=1,
-                                       is_per=True, wrap='full-image'), **kw)
+                                       per=True, wrap='full-image'), **kw)
     h_single_s = entropy_maet(_chord([0.0, 4.0, 7.0], small, r=1,
-                                         is_per=True, wrap='single-image'),
+                                         per=True, wrap='single-image'),
                                   **kw)
     assert abs(h_full_s - h_single_s) <= 1e-9
     # The per-call width governs the image count: a width so narrow
     # that no image is admitted (L = 0) reads a single Gaussian.
-    d = _chord([0.0, 4.0, 7.0], big, r=1, is_per=True, wrap='full-image')
+    d = _chord([0.0, 4.0, 7.0], big, r=1, per=True, wrap='full-image')
     h_narrow = entropy_maet(d, truncation_sigmas=1.0, **kw)
     h_floor = entropy_maet(d, truncation_sigmas=math.inf, **kw)
     assert abs(h_narrow - h_floor) > 1e-6

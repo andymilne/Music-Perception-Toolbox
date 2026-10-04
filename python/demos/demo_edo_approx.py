@@ -2,7 +2,7 @@
 
 Pitch class similarity (PCS) of equal divisions of the octave
 (n-EDOs) to a just intonation reference chord, using relative dyad
-expectation tensors (r = 2, is_rel = True, dim = 1).
+expectation tensors (r = 2, rel = True, dim = 1).
 
 An example of this type of plot appears as Example 6.3 / Figure 4 in:
   Milne, A. J., Sethares, W. A., Laney, R., & Sharp, D. B. (2011).
@@ -17,7 +17,7 @@ higher similarity.
 An n-EDO is a one-dimensional tuning: every interval is a multiple of a
 single generator (1200/n cents). This is why the paper calls these
 "one-dimensional approximations". Separately, because r = 2 and
-is_rel = True, the expectation tensor itself is a one-dimensional
+rel = True, the expectation tensor itself is a one-dimensional
 density over intervals (dim = 1).
 
 Uses: sim_maet (batched-raw, broadcast form).
@@ -55,8 +55,8 @@ n_max = 102
 # Expectation tensor parameters
 sigma = 6         # Gaussian smoothing width (cents)
 r = 2             # dyad expectation tensor
-is_rel = True     # relative (transposition-invariant)
-is_per = True     # periodic (pitch-class equivalence)
+rel = True     # relative (transposition-invariant)
+per = True     # periodic (pitch-class equivalence)
 period = 1200     # one octave in cents
 
 # ===================================================================
@@ -81,7 +81,7 @@ for i, n in enumerate(edo_range):
 print(f"Computing PCS of {n_edos} EDOs against {ref_name}...")
 s = mpt.sim_maet(
     ref_pitches, ref_weights, p_mat_b, None,
-    sigma, r, is_rel, is_per, period,
+    sigma, r, rel, per, period,
     verbose=True,
 )
 print("Done.")
@@ -102,7 +102,7 @@ plt.setp(markerline, markersize=4, color=(0.2, 0.2, 0.6))
 ax.set_xlabel('n-EDO')
 ax.set_ylabel('Pitch class similarity')
 ax.set_title(f'PCS of n-EDOs with {ref_name}\n'
-             f'(r = {r}, is_rel = {is_rel}, σ = {sigma} cents)')
+             f'(r = {r}, rel = {rel}, σ = {sigma} cents)')
 ax.set_xlim(n_min - 1, n_max + 1)
 ax.grid(True, alpha=0.3)
 

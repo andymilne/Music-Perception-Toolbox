@@ -43,7 +43,7 @@ musically distinct tolerances:
                 tuple -- on log-IOIs, a TEMPO change. One sd is a
                 tempo factor of exp(sd_shift). As sd_shift grows the
                 kernel's precision tends to the relative-mode
-                projector, so `is_rel=True` is the exact
+                projector, so `rel=True` is the exact
                 (infinite-sd_shift) limit: graded tempo TOLERANCE
                 tends to exact tempo INVARIANCE.
 
@@ -76,7 +76,7 @@ Four sections:
                   under six kernels; the candidate table contrasts
                   value (timing) tolerance with tempo tolerance,
                   and both with exact tempo invariance.
-  4. The limit    sd_shift -> infinity converges to `is_rel=True`.
+  4. The limit    sd_shift -> infinity converges to `rel=True`.
 
 Similarities throughout are `normalize='oneSidedDenom'`, which is 1 on
 a self-match; for these single-trigram comparisons with a shared
@@ -86,7 +86,7 @@ the difference between the two trigrams' points.
 Two figures are written next to this script: the onset stream with the
 query and the six similarity profiles aligned beneath it
 (demo_tempo_invariance.png), and the sd_shift sweep converging to the
-is_rel limit (demo_tempo_invariance_limit.png).
+rel limit (demo_tempo_invariance_limit.png).
 
 Requires: numpy, matplotlib, mpt.
 
@@ -207,7 +207,7 @@ print("  interval (the window-placing attribute).")
 #     tempo change in these log-IOI coordinates: a rank-one ridge
 #     (sd_shift^2 added to every entry). The larger this ridge, the
 #     freer the common shift becomes, and in the limit the kernel
-#     approaches the relative-mode reading (is_rel=True), which quotients
+#     approaches the relative-mode reading (rel=True), which quotients
 #     the shift out exactly. Section 4 traces this convergence.
 # The three cases below turn on one term at a time so each contribution
 # to the covariance is visible on its own.
@@ -359,10 +359,10 @@ w_query = [np.ones((3, 1)), np.ones((1, 1))]
 kw0 = KERNELS[0][2]
 mpt.show_pre_maet(p_context, w_context, [kw0["spec"], sp_bound[1]],
                   names=['trigram', 'time'], sigma=[kw0["sigma"], 0.25],
-                  is_per=[False, False], max_events=4)
+                  per=[False, False], max_events=4)
 mpt.show_pre_maet(p_query, w_query, [kw0["spec"], sp_bound[1]],
                   names=['trigram', 'time'], sigma=[kw0["sigma"], 0.25],
-                  is_per=[False, False])
+                  per=[False, False])
 print()
 
 profiles = {}
@@ -509,14 +509,14 @@ fig.savefig(FN_FIG_MAIN, dpi=120)
 print(f"\n  wrote {FN_FIG_MAIN}")
 
 
-# ===== 4. From tolerance to invariance: the is_rel limit =====
+# ===== 4. From tolerance to invariance: the rel limit =====
 
-print("\n=== 4. sd_shift -> infinity is is_rel=True ===\n")
+print("\n=== 4. sd_shift -> infinity is rel=True ===\n")
 print("  As sd_shift grows, the kernel's precision tends to the")
 print("  relative-mode projector: the shift direction becomes free")
 print("  while the within-shape metric is left behind. With the")
 print("  within-shape term supplied by sd_interval = 0.08, the limit")
-print("  is EXACTLY is_rel=True at sigma = 0.08, because rel mode's")
+print("  is EXACTLY rel=True at sigma = 0.08, because rel mode's")
 print("  isotropic within-shape kernel is the limit of the diagonal")
 print("  (sd_interval) family. (The sd_value family also has a")
 print("  shift-invariant limit, but its within-shape metric is the")
@@ -543,7 +543,7 @@ row = [float(mpt.sim_maet(X_MOTIF, W3, x, W3, SD_INT, 3,
                                   normalize="oneSidedDenom",
                                   verbose=False))
        for _, x in targets]
-print("  " + f"{'is_rel=True':<12}"
+print("  " + f"{'rel=True':<12}"
       + "".join(f"{v:>15.4f}" for v in row))
 
 # --- Limit figure: similarity vs sd_shift, with the rel asymptotes --
@@ -558,7 +558,7 @@ for j, ((tname, x), rel_v) in enumerate(zip(targets, row)):
              for ss in ss_dense]
     ax2.semilogx(ss_dense, curve, '-', color=f'C{j}', label=tname)
     ax2.axhline(rel_v, color=f'C{j}', ls='--', lw=0.9)
-    ax2.text(0.055, rel_v + 0.02, f'is_rel=True: {rel_v:.3f}',
+    ax2.text(0.055, rel_v + 0.02, f'rel=True: {rel_v:.3f}',
              color=f'C{j}', fontsize=8)
 ax2.set_xlabel('sd_shift (log scale)')
 ax2.set_ylabel('similarity')

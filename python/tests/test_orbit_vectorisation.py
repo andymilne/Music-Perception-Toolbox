@@ -92,11 +92,11 @@ def test_eval_orbit_abs_bad_first_dim_raises():
 # ---------------------------------------------------------------------
 
 
-def _manual_sequential_orbit_rel(p, w, sigma, r, x_rel, is_per, period):
+def _manual_sequential_orbit_rel(p, w, sigma, r, x_rel, per, period):
     """Mimic the pre-v3 sequential u-grid loop for cross-check."""
     samples_per_sigma = 10
     n_q = x_rel.shape[1]
-    if is_per:
+    if per:
         N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
         u_grid = np.linspace(0.0, period, N_u, endpoint=False)
         du = period / N_u
@@ -116,26 +116,26 @@ def _manual_sequential_orbit_rel(p, w, sigma, r, x_rel, is_per, period):
         x_full[0, :] = u
         x_full[1:, :] = u + x_rel
         F[j, :] = eval_orbit_abs(p, w, sigma, r, x_full,
-                                  is_per=is_per, period=period)
-    if is_per:
+                                  per=per, period=period)
+    if per:
         integral = F.sum(axis=0) * du
     else:
         integral = np.trapezoid(F, u_grid, axis=0)
     return integral / (sigma * np.sqrt(2 * np.pi / r))
 
 
-@pytest.mark.parametrize("r,is_per", [(2, False), (3, False), (2, True), (3, True)])
-def test_eval_orbit_rel_chunked_matches_sequential(r, is_per):
+@pytest.mark.parametrize("r,per", [(2, False), (3, False), (2, True), (3, True)])
+def test_eval_orbit_rel_chunked_matches_sequential(r, per):
     """Batched chunked u-grid is bit-identical to manual sequential."""
     rng = np.random.default_rng(42)
     p = rng.uniform(0, 1200, 6)
     w = np.ones(6)
     sigma = 12.0
-    period = 1200.0 if is_per else 0.0
+    period = 1200.0 if per else 0.0
     x_rel = rng.uniform(0, 1200, (r - 1, 7))
     v_vec = eval_orbit_rel(p, w, sigma, r, x_rel,
-                            is_per=is_per, period=period)
-    v_man = _manual_sequential_orbit_rel(p, w, sigma, r, x_rel, is_per, period)
+                            per=per, period=period)
+    v_man = _manual_sequential_orbit_rel(p, w, sigma, r, x_rel, per, period)
     # Should be bit-identical: same FP ops in same order modulo chunking.
     assert np.max(np.abs(v_vec - v_man)) < 1e-12 * np.max(np.abs(v_man))
 
@@ -149,7 +149,7 @@ def test_eval_orbit_rel_chunked_cancellation_ratio_matches_sequential():
     r = 3
     x_rel = rng.uniform(0, 1200, (r - 1, 5))
     v_vec, ratios_vec = eval_orbit_rel(
-        p, w, sigma, r, x_rel, is_per=False, period=0.0,
+        p, w, sigma, r, x_rel, per=False, period=0.0,
         return_cancellation_ratio=True,
     )
     assert ratios_vec.shape == (5,)

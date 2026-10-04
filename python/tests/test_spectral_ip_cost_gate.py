@@ -27,10 +27,10 @@ def _cols(K, N=1, seed=0):
     return P, np.ones((K, N))
 
 
-def _mode_grid(sigma, r, is_per, span=0.0):
+def _mode_grid(sigma, r, per, span=0.0):
     """The branch's own sizing, reproduced so the tests can state which
     side of the gate a cell sits on rather than assuming it."""
-    L = PERIOD if is_per else span + 2.0 * (8.6 + 2.0) * sigma
+    L = PERIOD if per else span + 2.0 * (8.6 + 2.0) * sigma
     M = int(np.ceil(8.6 / np.sqrt(2.0) * L / (2.0 * np.pi * sigma))) + 2
     return (2 * M + 1) ** (r - 1)
 

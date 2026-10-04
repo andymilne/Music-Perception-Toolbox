@@ -1,9 +1,9 @@
 function exchC = subExchArgs(isExch, keep)
-%SUBEXCHARGS  Reduce a per-attribute isExch vector to the kept axes.
+%SUBEXCHARGS  Reduce a per-attribute exch vector to the kept axes.
 %
 %   Returns {} when ISSYM is empty (the buildMaet/simMaet
 %   default, symmetric), else a one-element cell holding the subset,
-%   ready to splat as the trailing positional isExch of the raw forms.
+%   ready to splat as the trailing positional exch of the raw forms.
 
     if isempty(isExch)
         exchC = {};

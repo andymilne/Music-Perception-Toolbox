@@ -6,7 +6,7 @@ This script runs no analysis; running it prints this text. It says
 where to begin, how the demos fit together, and which demos cover
 each topic. Each demo opens with a header saying what it shows, and
 most end their sections with pointers to the demos that go further.
-The User Guide (USER_GUIDE.md, section 15) describes every demo in
+The User Guide (USER_GUIDE.md, section 13) describes every demo in
 more detail. Every Python demo has a MATLAB twin in matlab/demos/,
 with the same computations and the same printed numbers.
 
@@ -109,8 +109,8 @@ Scores and attribute tables
   JMM 1.1-1.4 (Bach), 2.1-2.3 (Coltrane)
 
 Building and reading MAETs
-  demo_overview              the four parameters (r, is_rel, is_per,
-                             is_exch), drawn
+  demo_overview              the four parameters (r, rel, per,
+                             exch), drawn
   demo_maet_plots            every combination of the four parameters,
                              drawn by each plot_maet method
   demo_softening_equivalences

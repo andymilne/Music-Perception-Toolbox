@@ -21,10 +21,10 @@ def melody():
 
 
 def _by_weight_events(ctx, qry, at, **profile):
-    """The 'window' role written out: the context weighted on time by
+    """The 'window' alignment written out: the context weighted on time by
     weight_events at ``at``, time dropped, compared with the query."""
     pm = weight_events(ctx, None, 1, 0, at, profile.pop("shape"),
-                       is_per=False, period=0.0, drop_input_attr=True,
+                       per=False, period=0.0, drop_input_attr=True,
                        **profile)
     pc, wc, _ = mpt.unpack_pre_maet(pm)
     g = [GEOM[i][:1] for i in range(5)]
@@ -125,7 +125,7 @@ def test_periodic_window_wraps():
     H = swept_entropy([p, t], None, *geom, sweep={1: np.array([0.0])},
                       window={1: {"shape": "rect", "width": 1.0}}, drop=[1],
                       method="renyi2", verbose=False)
-    pm = weight_events([p, t], None, 1, 0, 0.0, 1.0, width=1.0, is_per=True,
+    pm = weight_events([p, t], None, 1, 0, 0.0, 1.0, width=1.0, per=True,
                        period=4.0, drop_input_attr=True)
     pc, wc, _ = mpt.unpack_pre_maet(pm)
     np.testing.assert_allclose(np.ravel(wc[0]), [1.0, 1.0, 0.0])
@@ -140,7 +140,7 @@ def test_weight_events_locate_and_edges():
     a rectangle's upper edge with edges='closed'."""
     t = np.array([[0.0, 1.0, 2.0], [0.5, 1.5, 2.5]])      # K = 2 onsets
     p = np.array([[60.0, 62.0, 64.0]])
-    kw = dict(is_per=False, period=0.0, drop_input_attr=True)
+    kw = dict(per=False, period=0.0, drop_input_attr=True)
     w_start = mpt.unpack_pre_maet(weight_events(
         [p, t], None, 1, 0, 1.0, 1.0, width=2.0, locate="start",
         **kw))[1][0]

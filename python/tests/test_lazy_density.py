@@ -48,11 +48,11 @@ P = 1200.0
 # -------------------------------------------------------------------
 
 
-def _make_dens(K=8, r=3, sigma=33.0, is_rel=False, is_per=True, seed=0):
+def _make_dens(K=8, r=3, sigma=33.0, rel=False, per=True, seed=0):
     rng = np.random.default_rng(seed)
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
-    return build_maet(p, w, sigma, r, is_rel, is_per, P, verbose=False)
+    return build_maet(p, w, sigma, r, rel, per, P, verbose=False)
 
 
 def test_build_returns_lazy_density():
@@ -63,7 +63,7 @@ def test_build_returns_lazy_density():
 
 @pytest.mark.parametrize(
     "field",
-    ["p", "w", "sigma", "r", "is_rel", "is_per", "period", "dim"],
+    ["p", "w", "sigma", "r", "rel", "per", "period", "dim"],
 )
 def test_scalar_input_reads_do_not_materialise(field):
     """Reading any of the eagerly-stored input fields must not

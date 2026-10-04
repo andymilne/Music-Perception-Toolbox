@@ -88,7 +88,7 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %   The query itself is not windowed here. To weight the query's own
 %   events by a window, apply weightEvents to the query before the call.
 %
-%   CHOOSING A ROLE.
+%   CHOOSING AN ALIGNMENT.
 %
 %     'query'       The canonical sweep: where in the context, or at which
 %                   transposition, the query best matches the context as a
@@ -109,10 +109,10 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %
 %   TREATMENT OF THE SWEPT ATTRIBUTE. Whether the swept attribute is
 %   absolute or relative (its specs), and whether it is dropped ('drop'),
-%   decides what it contributes to each comparison, whatever the role:
+%   decides what it contributes to each comparison, whatever the alignment:
 %
 %     absolute      Compared by position, so translating the query along
-%                   it changes where the query matches, and all four roles
+%                   it changes where the query matches, and all four alignments
 %                   apply. Under 'window' the query is compared in place:
 %                   the profile shows where in the context its match with
 %                   the query as written comes from (two parts of a piece
@@ -180,15 +180,15 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %
 %   with two whole pre-MAETs (the canonical entry). The geometry is taken
 %   from their specs. Any of the six per-attribute parameters ('sigma',
-%   'isPer', 'period', 'r', 'rel', 'exch') may be given alongside to
+%   'per', 'period', 'r', 'rel', 'exch') may be given alongside to
 %   override it, as at buildMaet, either in full or selectively as a
 %   1 x A cell whose empty entries keep the spec's value. The two
 %   pre-MAETs describe one comparison, so they must agree on 'r', 'rel',
-%   'exch', and the nesting; 'sigma', 'isPer', and 'period' may differ,
+%   'exch', and the nesting; 'sigma', 'per', and 'period' may differ,
 %   and the context's are used.
 %
 %     S = sweptSimilarity(pContext, wContext, pQuery, wQuery, ...
-%                            sigma, r, isRel, isPer, period, ...)
+%                            sigma, r, rel, per, period, ...)
 %
 %   the raw positional form, with each operand's per-attribute values and
 %   weights and the shared geometry written out as for simMaet.
@@ -209,7 +209,7 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %                    start to stop in steps of step, in place of listing them;
 %                    each overrides one default. A bare number applies to the
 %                    swept attribute where 'sweep' names one ('sweep', 2,
-%                    'step', 0.5). The defaults depend on the role. Where the
+%                    'step', 0.5). The defaults depend on the alignment. Where the
 %                    sweep values translate the query ('query', 'both'), start
 %                    and stop cover every placement at which the query overlaps
 %                    the context (from its highest value on the context's
@@ -336,8 +336,9 @@ function [out, mu, sv] = sweptSimilarity(varargin)
 %                    'cosine' gives the shape-only cosine similarity,
 %                    bounded in [-1, 1]; 'none' the bare inner product.
 %     'specs'        Nested geometry from bindEvents (raw form).
-%     'isExch'       Per-attribute exchangeability for the raw form ([]
-%                    keeps the unordered default). Needed, in particular,
+%     'exch'         Per-attribute exchangeability: in the raw form the flags ([]
+%                    keeps the unordered default), in the pre-MAET form an
+%                    override of the specs. Needed, in particular,
 %                    for ordered attributes carrying a matrix-valued kernel
 %                    covariance (see kernelCov). Not allowed together with
 %                    'specs', whose nesting gives exchangeability level by
@@ -410,23 +411,23 @@ arguments
     nv.normalize (1,:) char = 'oneSidedDenom'
     nv.specs = []
     nv.querySpecs = []
-    nv.isExch = []
+    nv.exch = []
     nv.verbose (1,1) logical = false
 end
 
-if ~isempty(nv.isExch) && ~isempty(nv.specs)
-    error('sweptSimilarity:isExchVsSpecs', ...
-        ['isExch applies to the flat per-attribute surface; nested ' ...
+if ~isempty(nv.exch) && ~isempty(nv.specs)
+    error('sweptSimilarity:exchVsSpecs', ...
+        ['exch applies to the flat per-attribute surface; nested ' ...
          'geometry carries its per-level exch inside specs. Pass one ' ...
          'or the other.']);
 end
 querySpecs = nv.querySpecs;
 if isempty(querySpecs), querySpecs = nv.specs; end
 plan = internal.sweptPlan(pContext, pQuery, nv.specs, isRel, nv, ...
-    'sweptSimilarity', struct('sigma', {sigma}, 'isPer', {isPer}, ...
+    'sweptSimilarity', struct('sigma', {sigma}, 'per', {isPer}, ...
     'period', {period}, 'r', {r}));
 out = localRun(pContext, wContext, pQuery, wQuery, sigma, r, isRel, isPer, ...
-    period, nv.isExch, nv.specs, querySpecs, plan, nv.locate, ...
+    period, nv.exch, nv.specs, querySpecs, plan, nv.locate, ...
     nv.targetAttr, nv.normalize);
 end
 
@@ -559,9 +560,9 @@ end
 function s = localCompare(pc, wc, sc, pq, wq, sq, sg, rr, rl, pr, pd, exchC, ...
         nested, normalize)
     if nested
-        dc = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+        dc = buildMaet(pc, wc, 'sigma', sg, 'per', pr, 'period', pd, ...
             'specs', sc, 'verbose', false);
-        dq = buildMaet(pq, wq, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+        dq = buildMaet(pq, wq, 'sigma', sg, 'per', pr, 'period', pd, ...
             'specs', sq, 'verbose', false);
         s = simMaet(dc, dq, 'normalize', normalize, 'verbose', false);
     else
@@ -583,9 +584,9 @@ function row = localSweepRow(pc, wc, sc, pq, wq, sq, sg, rr, rl, pr, pd, ...
     row = [];
     try
         if nested
-            dc = buildMaet(pc, wc, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+            dc = buildMaet(pc, wc, 'sigma', sg, 'per', pr, 'period', pd, ...
                 'specs', sc, 'verbose', false);
-            dq = buildMaet(pq, wq, 'sigma', sg, 'isPer', pr, 'period', pd, ...
+            dq = buildMaet(pq, wq, 'sigma', sg, 'per', pr, 'period', pd, ...
                 'specs', sq, 'verbose', false);
         else
             dc = buildMaet(pc, wc, sg, rr, rl, pr, pd, exchC{:}, 'verbose', false);

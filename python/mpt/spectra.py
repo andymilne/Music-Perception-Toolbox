@@ -28,7 +28,7 @@ def add_spectra(
     expands attribute ``a`` of every event at once and returns a
     pre-MAET, as the other pre-MAET preprocessors do. The expansion
     multiplies the attribute's ``K`` by the number of partials and
-    leaves ``N`` and the spec alone; padded slots stay padded, a
+    leaves ``N`` and the spec alone; padded positions stay padded, a
     missing value having no spectrum. Partials of one value differ in
     weight, so the result always carries weights, even where the input
     carried none. The expanded rows come in the order the
@@ -72,7 +72,7 @@ def add_spectra(
     """
     if _is_pre_maet(p):
         # Given a pre-MAET, every positional argument after it sits one
-        # slot early; the weights come from the pre-MAET itself.
+        # position early; the weights come from the pre-MAET itself.
         if w is None:
             lead, rest = mode, args
         else:

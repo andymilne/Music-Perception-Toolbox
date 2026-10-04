@@ -33,7 +33,7 @@ mptDefaults('reset');
 mptDefaults('truncationSigmas', Inf);
 
 % --- Battery of representative cases ---
-% Each row: {label, K, r, isRel, isPer, period, sigma, nQ}
+% Each row: {label, K, r, rel, per, period, sigma, nQ}
 er_cases = { ...
     'abs r=2 K=6',     6, 2, false, false, 0,    8,  30; ...
     'rel r=2 K=6',     6, 2, true,  false, 0,    8,  30; ...
@@ -203,8 +203,8 @@ function v = local_ref_eval(dens, X)
     sigma   = dens.sigma;
     r       = dens.r;
     dim     = dens.dim;
-    isRel   = dens.isRel;
-    isPer   = dens.isPer;
+    isRel   = dens.rel;
+    isPer   = dens.per;
     J       = dens.period;
     nJ      = dens.nJ;
     nQ      = size(X, 2);

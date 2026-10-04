@@ -404,8 +404,8 @@ class TestSpectralEntropyMethod:
 # entropy_maet supports five input forms:
 #   (a) scalar density object (MaetDensity)
 #   (b) list of density objects
-#   (c) raw single-multiset scalar (p, w, sigma, r, is_rel, is_per, period)
-#   (d) raw single-attribute batched (P, W, sigma, r, is_rel, is_per, period)
+#   (c) raw single-multiset scalar (p, w, sigma, r, rel, per, period)
+#   (d) raw single-attribute batched (P, W, sigma, r, rel, per, period)
 #   (e) raw MA scalar (p_attr, w, sigma_vec, r_vec, groups, ...)
 #
 # The discrete methods ('shannon', 'normalized') support all five.
@@ -420,7 +420,7 @@ def single_multiset_inputs():
     return dict(
         p=np.array([100., 200., 300.]),
         w=np.array([1., 1., 1.]),
-        sigma=20.0, r=1, is_rel=False, is_per=False, period=0.0,
+        sigma=20.0, r=1, rel=False, per=False, period=0.0,
     )
 
 
@@ -429,7 +429,7 @@ def single_multiset_dens(single_multiset_inputs):
     return build_maet(
         single_multiset_inputs["p"], single_multiset_inputs["w"],
         single_multiset_inputs["sigma"], single_multiset_inputs["r"],
-        single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"], single_multiset_inputs["period"],
+        single_multiset_inputs["rel"], single_multiset_inputs["per"], single_multiset_inputs["period"],
         verbose=False,
     )
 
@@ -442,7 +442,7 @@ def single_multiset_dens_list(single_multiset_inputs):
         out.append(build_maet(
             single_multiset_inputs["p"] + shift, single_multiset_inputs["w"],
             single_multiset_inputs["sigma"], single_multiset_inputs["r"],
-            single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"], single_multiset_inputs["period"],
+            single_multiset_inputs["rel"], single_multiset_inputs["per"], single_multiset_inputs["period"],
             verbose=False,
         ))
     return out
@@ -458,7 +458,7 @@ def single_attribute_batched(single_multiset_inputs):
         single_multiset_inputs["p"] + 150.,
     ])
     W = np.ones_like(P)
-    return dict(P=P, W=W, sigma=20.0, r=1, is_rel=False, is_per=False, period=0.0)
+    return dict(P=P, W=W, sigma=20.0, r=1, rel=False, per=False, period=0.0)
 
 
 @pytest.fixture
@@ -499,7 +499,7 @@ class TestShannonInputForms:
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
-            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["r"], single_multiset_inputs["rel"], single_multiset_inputs["per"],
             single_multiset_inputs["period"],
             method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
@@ -509,7 +509,7 @@ class TestShannonInputForms:
     def test_raw_single_attribute_batched(self, single_attribute_batched):
         H = entropy_maet(
             single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
-            single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+            single_attribute_batched["r"], single_attribute_batched["rel"], single_attribute_batched["per"],
             single_attribute_batched["period"],
             method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
@@ -550,7 +550,7 @@ class TestNormalizedInputForms:
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
-            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["r"], single_multiset_inputs["rel"], single_multiset_inputs["per"],
             single_multiset_inputs["period"],
             method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
@@ -560,7 +560,7 @@ class TestNormalizedInputForms:
     def test_raw_single_attribute_batched(self, single_attribute_batched):
         H = entropy_maet(
             single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
-            single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+            single_attribute_batched["r"], single_attribute_batched["rel"], single_attribute_batched["per"],
             single_attribute_batched["period"],
             method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
@@ -587,7 +587,7 @@ class TestDifferentialInputForms:
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
-            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["r"], single_multiset_inputs["rel"], single_multiset_inputs["per"],
             single_multiset_inputs["period"],
             method='differential', verbose=False,
         )
@@ -611,7 +611,7 @@ class TestDifferentialInputForms:
         with pytest.raises(NotImplementedError):
             entropy_maet(
                 single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
-                single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+                single_attribute_batched["r"], single_attribute_batched["rel"], single_attribute_batched["per"],
                 single_attribute_batched["period"],
                 method='differential', verbose=False,
             )
@@ -628,7 +628,7 @@ class TestRenyi2InputForms:
     def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_maet(
             single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
-            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["r"], single_multiset_inputs["rel"], single_multiset_inputs["per"],
             single_multiset_inputs["period"],
             method='renyi2', verbose=False,
         )
@@ -646,7 +646,7 @@ class TestRenyi2InputForms:
         with pytest.raises(NotImplementedError):
             entropy_maet(
                 single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
-                single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+                single_attribute_batched["r"], single_attribute_batched["rel"], single_attribute_batched["per"],
                 single_attribute_batched["period"],
                 method='renyi2', verbose=False,
             )

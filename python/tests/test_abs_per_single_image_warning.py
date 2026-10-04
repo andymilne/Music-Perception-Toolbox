@@ -22,19 +22,19 @@ PERIOD = 1200.0
 _MARKER = "absolute-periodic"
 
 
-def _build(sigma, is_rel, is_per, period=PERIOD, r=2, wrap='single-image'):
+def _build(sigma, rel, per, period=PERIOD, r=2, wrap='single-image'):
     p = np.array([0.0, 100.0, 300.0, 700.0]).reshape(-1, 1)
     w = np.ones(4).reshape(-1, 1)
     return mpt.build_maet(
-        [p], [w], [sigma], [r], [is_rel], [is_per], [period],
+        [p], [w], [sigma], [r], [rel], [per], [period],
         wrap=wrap, verbose=False,
     )
 
 
-def _warns(sigma, is_rel, is_per, period=PERIOD, r=2, wrap='single-image'):
+def _warns(sigma, rel, per, period=PERIOD, r=2, wrap='single-image'):
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        _build(sigma, is_rel, is_per, period, r, wrap=wrap)
+        _build(sigma, rel, per, period, r, wrap=wrap)
     return [w for w in caught if _MARKER in str(w.message)]
 
 

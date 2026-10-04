@@ -1,24 +1,24 @@
 function specs = flatSpecs(pAttr, nvArgs)
 %FLATSPECS Build a cell of flat (one-level) specs for bare attributes.
 %
-%   specs = flatSpecs(pAttr, 'r', r, 'rel', rel, 'exch', exch, 'name', name)
-%   specs = flatSpecs(pAttr, ..., 'sigma', s, 'isPer', per, 'period', P)
+%   specs = flatSpecs(pAttr, 'r', r, 'rel', rel, 'exch', exch, 'names', names)
+%   specs = flatSpecs(pAttr, ..., 'sigma', s, 'per', per, 'period', P)
 %   is a convenience constructor for the canonical attribute
 %   specifications: it wraps a cell of per-attribute value matrices in
 %   flat spec structs
 %   struct('r', ., 'rel', ., 'exch', .[, 'name', .][, 'sigma', .,
-%   'isPer', ., 'period', .]), broadcasting scalar geometry across
+%   'per', ., 'period', .]), broadcasting scalar geometry across
 %   attributes. This is the trivial flat-specs synthesis at the entry of a
 %   pre-MAET chain (raw attributes carry no level structure yet) and an
 %   ergonomic alternative to hand-writing flat structs for
 %   buildMaet(..., 'specs', specs).
 %
 %   The kernel parameters are optional here and compulsory at the tensor
-%   (User Guide 7.4.3). Given them, the specs are a complete pre-MAET
+%   (User Guide §6.3). Given them, the specs are a complete pre-MAET
 %   geometry and nothing further need be supplied at the build:
 %
 %     pm = packPreMaet(pAttr, wAttr, flatSpecs(pAttr, 'r', [2 1], ...
-%              'sigma', [0.5 0.25], 'isPer', [true false], ...
+%              'sigma', [0.5 0.25], 'per', [true false], ...
 %              'period', [12 0]));
 %     dens = buildMaet(pm);
 %
@@ -32,14 +32,14 @@ function specs = flatSpecs(pAttr, nvArgs)
 %               the values not being inspected.
 %
 %   Name-value pairs
-%       'r'    - scalar or 1 x A per-attribute tuple size (default 1).
-%       'rel'  - scalar or 1 x A [rel] (default false).
-%       'exch'  - scalar or 1 x A [exch] (default true).
-%       'name'   - [], char, or 1 x A cell of per-attribute names.
+%       'r'      - scalar or 1 x A per-attribute tuple size (default 1).
+%       'rel'    - scalar or 1 x A [rel] (default false).
+%       'exch'   - scalar or 1 x A [exch] (default true).
+%       'names'  - [], char, or 1 x A cell of per-attribute names.
 %       'sigma'  - [] or scalar / 1 x A per-attribute kernel width; a
 %                  per-attribute entry may be a matrix-valued kernel
 %                  covariance.
-%       'isPer'  - [] or scalar / 1 x A per-attribute periodicity.
+%       'per'    - [] or scalar / 1 x A [per].
 %       'period' - [] or scalar / 1 x A per-attribute period (inert where
 %                  not periodic).
 %
@@ -55,9 +55,9 @@ arguments
     nvArgs.r = 1
     nvArgs.rel = false
     nvArgs.exch = true
-    nvArgs.name = []
+    nvArgs.names = []
     nvArgs.sigma = []
-    nvArgs.isPer = []
+    nvArgs.per = []
     nvArgs.period = []
 end
 
@@ -69,7 +69,7 @@ A = numel(pAttr);
 rV   = localBcast(nvArgs.r,   A, 'r',   false);
 relV = localBcast(nvArgs.rel, A, 'rel', true);
 exchV = localBcast(nvArgs.exch, A, 'exch', true);
-names = localNames(nvArgs.name, A);
+names = localNames(nvArgs.names, A);
 
 specs = cell(1, A);
 for a = 1:A
@@ -77,8 +77,8 @@ for a = 1:A
     if ~isempty(names{a})
         s.name = names{a};
     end
-    kernelNames = {'sigma', 'isPer', 'period'};
-    kernelVals = {nvArgs.sigma, nvArgs.isPer, nvArgs.period};
+    kernelNames = {'sigma', 'per', 'period'};
+    kernelVals = {nvArgs.sigma, nvArgs.per, nvArgs.period};
     for f = 1:numel(kernelNames)
         if isempty(kernelVals{f})
             continue;

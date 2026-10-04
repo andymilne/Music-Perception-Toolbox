@@ -44,7 +44,7 @@ def _theta_truncation_L(sigma, period, truncation_sigmas):
 
 
 
-def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
+def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, per, period,
                  truncation_sigmas, wrap_a='full-image'):
     """Absolute-mode inner product for one nested attribute.
 
@@ -68,7 +68,7 @@ def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
     the 1D per-position kernel matrix.
     """
     d = vX[:, None] - vY[None, :]
-    if is_per:
+    if per:
         d = _wrap(d, period)
         L = (_theta_truncation_L(sigma, period, truncation_sigmas)
              if wrap_a == 'full-image' else 0)
@@ -151,7 +151,7 @@ def _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
 
 
 
-def make_quadrature(is_rel, is_per, sigma, period, vmin, vmax,
+def make_quadrature(rel, per, sigma, period, vmin, vmax,
                     truncation_sigmas):
     """Shared quadrature grid for all event-pairs and the IP triple.
 
@@ -159,10 +159,10 @@ def make_quadrature(is_rel, is_per, sigma, period, vmin, vmax,
     across XY, XX, YY and cancels in the cosine. Returns a dict the IP
     helper consumes.
     """
-    if not is_rel:
-        return {"mode": "abs", "is_per": bool(is_per)}
+    if not rel:
+        return {"mode": "abs", "per": bool(per)}
     tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2), 1e-12)
-    if is_per:
+    if per:
         ntau = auto_ntau(period, sigma, tol)
         return {"mode": "relper",
                 "taus": np.linspace(0.0, period, ntau, endpoint=False)}
@@ -187,7 +187,7 @@ def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
         # quadrature dict), not from whether ``period`` happens to be finite:
         # an absolute non-periodic attribute may still carry a finite period.
         return _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                            bool(quad["is_per"]), period, truncation_sigmas,
+                            bool(quad["per"]), period, truncation_sigmas,
                             wrap_a)
     if mode == "relper":
         taus = quad["taus"]

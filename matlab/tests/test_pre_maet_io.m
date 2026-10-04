@@ -1,7 +1,7 @@
 %% test_pre_maet_io.m — kernel geometry in specs, and CSV I/O
 %
 %  Two related things are tested here. First, that a spec may carry the
-%  attribute's sigma, isPer and period -- the parameters Milne (2026,
+%  attribute's sigma, per and period -- the parameters Milne (2026,
 %  Def. 2.6) counts as part of the pre-MAET -- that an explicit keyword
 %  overrides them, and that a value missing from both places is refused
 %  by name. Second, that a pre-MAET survives a round trip through CSV
@@ -21,9 +21,9 @@ end
 
 pIO = {[60 62 64], [0 1 2]};
 mkSpecs = @() {struct('name','pitch','r',1,'rel',false,'exch',true, ...
-                      'sigma',0.5,'isPer',true,'period',12), ...
+                      'sigma',0.5,'per',true,'period',12), ...
                struct('name','time','r',1,'rel',false,'exch',true, ...
-                      'sigma',0.25,'isPer',false,'period',0)};
+                      'sigma',0.25,'per',false,'period',0)};
 
 % ---- Resolution ----
 
@@ -31,7 +31,7 @@ d = buildMaet(pIO, [], 'specs', mkSpecs(), 'verbose', false);
 results{end+1,1} = 'preMaetIo: specs alone suffice'; %#ok<SAGROW>
 results{end,2}   = abs(d.sigma(1) - 0.5) < 1e-12 && ...
                    abs(d.sigma(2) - 0.25) < 1e-12 && ...
-                   d.isPer(1) && ~d.isPer(2);
+                   d.per(1) && ~d.per(2);
 
 % A sweep supplies sigma per call while the specs hold a baseline, so the
 % two disagreeing is the ordinary idiom, not an error.
@@ -55,23 +55,17 @@ d = buildMaet(pIO, [], 'specs', sp, 'sigma', [0.5 0.25], 'verbose', false);
 results{end+1,1} = 'preMaetIo: NA recoverable at the call'; %#ok<SAGROW>
 results{end,2}   = abs(d.sigma(1) - 0.5) < 1e-12;
 
-% Only sigma and isPer are compulsory: a period is inert on a
+% Only sigma and per are compulsory: a period is inert on a
 % non-periodic attribute.
 sp = mkSpecs(); sp{2} = rmfield(sp{2}, 'period');
 d = buildMaet(pIO, [], 'specs', sp, 'verbose', false);
 results{end+1,1} = 'preMaetIo: period defaults to zero'; %#ok<SAGROW>
 results{end,2}   = d.period(2) == 0;
 
-% A spec written for either language reads in both.
-sp = mkSpecs(); sp{1} = rmfield(sp{1}, 'isPer'); sp{1}.is_per = true;
-d = buildMaet(pIO, [], 'specs', sp, 'verbose', false);
-results{end+1,1} = 'preMaetIo: snake_case alias is read'; %#ok<SAGROW>
-results{end,2}   = d.isPer(1) == 1;
-
 % ---- Operator rules ----
 
 spD = {struct('name','p','r',1,'rel',false,'exch',true, ...
-              'sigma',10,'isPer',false,'period',0)};
+              'sigma',10,'per',false,'period',0)};
 [~,~,s1] = unpackPreMaet(differenceEvents({[1 2 3 4]}, [], 1, 'specs', spD));
 [~,~,s2] = unpackPreMaet(differenceEvents({[1 2 3 4]}, [], 2, 'specs', spD));
 results{end+1,1} = 'preMaetIo: difference scales sigma by sqrt(C(2k,k))'; %#ok<SAGROW>
@@ -82,7 +76,7 @@ results{end,2}   = abs(s1{1}.sigma - 10*sqrt(2)) < 1e-9 && ...
 % takes its root.
 C = diag([0.04 0.09 0.16]);
 spC = {struct('name','t','r',1,'rel',false,'exch',true, ...
-              'sigma',C,'isPer',false,'period',0)};
+              'sigma',C,'per',false,'period',0)};
 [~,~,sC] = unpackPreMaet(differenceEvents({[1 2 3 4]}, [], 1, 'specs', spC));
 results{end+1,1} = 'preMaetIo: difference scales a covariance by C(2k,k)'; %#ok<SAGROW>
 results{end,2}   = max(max(abs(sC{1}.sigma - C * 2))) < 1e-12;
@@ -206,25 +200,25 @@ results{end,2}   = threw;
 
 % A file records the pre-MAET; it does not display it.
 spWide = {struct('name','x','r',1,'rel',false,'exch',true, ...
-                 'sigma',1,'isPer',false,'period',0)};
+                 'sigma',1,'per',false,'period',0)};
 wide = writePreMaet([], {0:19}, [], spWide, 'maxEvents', 3);
 results{end+1,1} = 'preMaetIo: csv elides nothing'; %#ok<SAGROW>
 results{end,2}   = ~isempty(strfind(wide, 'n = 20')) && ...
                    isempty(strfind(wide, '...')); %#ok<STREMP>
 
 
-% An ordered attribute's slot is its level, so an empty slot before the
-% last value is written as a blank and read back into the same slot; an
+% An ordered attribute's position identifies its level, so a position with no value before the
+% last value is written as a blank and read back into the same position; an
 % unordered attribute is written compacted.
 io_p = {{[60 64 67], [62 NaN 67], [NaN 65 NaN], 64, []}, 0:4};
 io_s1 = struct('name', 'pitch', 'r', 1, 'rel', false, 'exch', false, ...
-               'sigma', 0.5, 'isPer', false, 'period', 0);
+               'sigma', 0.5, 'per', false, 'period', 0);
 io_s2 = struct('name', 'onset', 'r', 1, 'rel', false, 'exch', true, ...
-               'sigma', 0.25, 'isPer', false, 'period', 0);
+               'sigma', 0.25, 'per', false, 'period', 0);
 io_pm = packPreMaet(io_p, [], {io_s1, io_s2});
 io_out = writePreMaet([], io_pm);
 io_back = readPreMaet(io_out);
-results{end+1,1} = 'preMaetIo: ordered slots keep their positions'; %#ok<SAGROW>
+results{end+1,1} = 'preMaetIo: ordered values keep their positions'; %#ok<SAGROW>
 results{end,2} = ~isempty(strfind(io_out, '"(62, _, 67)","(_, 65)",64,()')) ...
     && isequaln(io_back.pAttr{1}, io_pm.pAttr{1}) ...
     && strcmp(writePreMaet([], io_back), io_out); %#ok<STREMP>

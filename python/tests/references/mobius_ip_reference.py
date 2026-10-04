@@ -25,7 +25,7 @@ from mpt._tensor._mobius_inner import _rel_inner_batched, _trunc_kernel_exp
 from mpt._tensor.density import _nchoosek_indices
 
 
-def orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
+def orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, per, period,
                      *, return_cancellation_ratio=False,
                      truncation_sigmas=None, wrap_a='full-image'):
     """<T_A, T_B> in absolute mode via the Möbius method.
@@ -44,7 +44,7 @@ def orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     convention. The r-tuple full-image kernel factors as
     :math:`\\prod_a \\theta(d_a)`, delivered by the orbit reduction
     over the 1-D theta values. ``'single-image'`` opts into the
-    nearest-image kernel unchanged. Ignored when ``is_per=False``.
+    nearest-image kernel unchanged. Ignored when ``per=False``.
     """
     from mpt._mobius import inner_product_orbit
     from mpt._defaults import get_default
@@ -54,7 +54,7 @@ def orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
         truncation_sigmas = get_default('truncation_sigmas')
 
     diffs = p_a[:, None] - p_b[None, :]
-    if is_per and wrap_a == 'full-image':
+    if per and wrap_a == 'full-image':
         # Overlap-kernel convention (exponent_denominator = 4). The
         # (sigma sqrt(pi))^r prefactor stays: the 1-D wrapped Gaussian's
         # integral over the circle equals the single Gaussian's over the
@@ -62,7 +62,7 @@ def orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
         K = wrapped_gaussian_1d(diffs, sigma, period, truncation_sigmas,
                                 exponent_denominator=4)
     else:
-        if is_per:
+        if per:
             diffs = diffs - period * np.floor(diffs / period + 0.5)
         K = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
     return inner_product_orbit(
@@ -73,7 +73,7 @@ def orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
 
 
 def inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
-                                   is_per, period):
+                                   per, period):
     """<T_X, T_Y> in absolute mode via direct r-tuple enumeration.
 
     Computes the single-multiset inner product
@@ -111,7 +111,7 @@ def inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
 
     if r == 1:
         diffs = p_x[:, None] - p_y[None, :]
-        if is_per:
+        if per:
             diffs = diffs - period * np.floor(diffs / period + 0.5)
         K_mat = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
         return float(sigma * np.sqrt(np.pi) *
@@ -122,7 +122,7 @@ def inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
     U_y, wJ_y = build_ordered_r_tuples(p_y, w_y, r)
 
     diffs = U_x[:, :, None] - U_y[:, None, :]   # (r, nJ_x, nJ_y)
-    if is_per:
+    if per:
         diffs = diffs - period * np.floor(diffs / period + 0.5)
     Q = np.sum(diffs ** 2, axis=0)              # (nJ_x, nJ_y)
     K_mat = np.exp(-Q / (4 * sigma ** 2))
@@ -162,7 +162,7 @@ def build_ordered_r_tuples(p, w, r):
 
 
 
-def orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
+def orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, per, period,
                      samples_per_sigma=None, *,
                      return_cancellation_ratio=False,
                      truncation_sigmas=None):
@@ -189,7 +189,7 @@ def orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     Wa = np.asarray(w_a, dtype=np.float64).reshape(-1, 1)
     Wb = np.asarray(w_b, dtype=np.float64).reshape(-1, 1)
     out = _rel_inner_batched(
-        Pa, Wa, Pb, Wb, sigma, r, is_per, period,
+        Pa, Wa, Pb, Wb, sigma, r, per, period,
         return_cancellation_ratio=return_cancellation_ratio,
         truncation_sigmas=truncation_sigmas,
         samples_per_sigma=samples_per_sigma,

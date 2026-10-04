@@ -111,7 +111,7 @@ def _canonical_normalize(normalize: str) -> str:
 
 
 def _ip_canonical_scale(dens, chosen, nested_routes=None):
-    """Factor that puts a route's bare inner product on the canonical scale.
+    r"""Factor that puts a route's bare inner product on the canonical scale.
 
     The canonical scale is the physical one: :math:`\langle X, Y \rangle =
     \int T_X T_Y` with each event's density the sum, over the attribute's
@@ -126,7 +126,7 @@ def _ip_canonical_scale(dens, chosen, nested_routes=None):
     \sqrt\pi)^{d_a}` for an absolute attribute of tuple dimension
     :math:`d_a` and :math:`g_a = \big[(\sigma_a \sqrt\pi)^{s_u - 1}
     \sqrt{s_u}\big]^{d_a / (s_u - 1)}` for a relative one whose
-    co-transposition blocks have :math:`s_u` slots (the block metric's
+    co-transposition blocks have :math:`s_u` positions (the block metric's
     determinant), the factors are:
 
     * flat Möbius matrix: 1;
@@ -144,27 +144,34 @@ def _ip_canonical_scale(dens, chosen, nested_routes=None):
       the period of the same integrand): :math:`P_a |G_a|\, s\,
       (\sigma_a \sqrt\pi)^{s - 2} / 2`.
 
+    The nested per-route constants live in :func:`_nested_route_scale`.
+    The nested plan's combiners (:func:`_try_nested_contract`, its MA twin,
+    and the sweep's contraction route) put every nested attribute's matrix
+    on the nested centres route's scale before combining
+    (:func:`_nested_attr_matrix_common`), so on the plan a nested
+    attribute's factor is :math:`g_a` whichever route ran, and
+    ``nested_routes`` no longer changes the result.
+
     These are the constants :func:`_self_ip_cache_key` lists; they are
     pinned by ``tests/test_inner_product_scale.py``, which checks every
     route against an enumeration reference on every shape.
     """
     import math as _m
-    from ._mobius_inner import _nested_orbit_mult
     A = int(dens.n_attrs)
     nested = getattr(dens, "nested", None) or [None] * A
-    is_exch = np.asarray(getattr(dens, "is_exch", np.ones(A, dtype=bool))).ravel()
+    exch = np.asarray(getattr(dens, "exch", np.ones(A, dtype=bool))).ravel()
     scale = 1.0
     for a in range(A):
         sigma = float(dens.sigma[a])
-        is_rel = bool(dens.is_rel[a])
+        rel = bool(dens.rel[a])
         sp = sigma * _m.sqrt(_m.pi)
         spec = nested[a]
         if spec is None:
             r_a = int(dens.r[a])
-            if is_rel and r_a < 2:
+            if rel and r_a < 2:
                 continue       # 0-D point mass: no kernel, no prefactor
-            g = (sp ** (r_a - 1) * _m.sqrt(r_a)) if is_rel else sp ** r_a
-            ordered = (not bool(is_exch[a])) and r_a > 1
+            g = (sp ** (r_a - 1) * _m.sqrt(r_a)) if rel else sp ** r_a
+            ordered = (not bool(exch[a])) and r_a > 1
             if chosen == "mobius":
                 f = 1.0
             elif chosen == "centres":
@@ -175,36 +182,71 @@ def _ip_canonical_scale(dens, chosen, nested_routes=None):
                 f = g if ordered else 1.0       # ordered ones the centres
             scale *= f
             continue
-        r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
-        s_tot = int(np.prod(r_levels))
-        rel_unit = spec.get("rel_unit")
-        if rel_unit is None:
-            g = sp ** s_tot
-        else:
-            s_u = int(np.prod(r_levels[:int(rel_unit) + 1]))
-            g = (sp ** (s_u - 1) * _m.sqrt(s_u)) ** (s_tot // s_u)
-        G = float(_nested_orbit_mult(r_levels, spec["exch"]))
-        if chosen == "bulger":
-            f = G * g
-        elif chosen == "centres":
-            f = g
-        else:
-            route = (nested_routes[a] if nested_routes is not None
-                     and a < len(nested_routes) else "contract")
-            if route == "centres":
-                f = g
-            elif route == "contract_relnonper":
-                # Trapezoid over the alignment line: an integral over the
-                # translation of the s leaf kernels, in the ones direction.
-                f = G * s_tot * sp ** (s_tot - 2) / 2.0
-            elif route == "taugrid":
-                # Mean over the period of the same integrand.
-                f = (float(dens.period[a]) * G * s_tot
-                     * sp ** (s_tot - 2) / 2.0)
-            else:
-                f = G * g
-        scale *= f
+        # Bulger's enumeration is on its own scale; the centres route and
+        # the nested plan (whose combiners put every route on the centres
+        # scale, see _nested_attr_matrix_common) are on the centres one.
+        scale *= _nested_route_scale(
+            dens, a, "bulger" if chosen == "bulger" else "centres")
     return scale
+
+
+def _nested_route_scale(dens, a, route):
+    r"""Factor that puts nested attribute ``a``'s bare matrix on ``route``
+    on the canonical scale.
+
+    With :math:`s` the leaf positions of one tuple
+    (:math:`\prod_l r_l`), :math:`|G|` the wreath-product orbit order of
+    :func:`~mpt._tensor._mobius_inner._nested_orbit_mult` and :math:`g`
+    the block-metric prefactor of :func:`_ip_canonical_scale`:
+
+    * ``'centres'`` -- :math:`g`: every arrangement on both sides,
+      kernel peak 1;
+    * ``'bulger'`` and ``'contract'`` -- :math:`|G|\, g`: one side
+      restricted to one combination per orbit;
+    * ``'contract_relnonper'`` -- :math:`|G|\, s\, (\sigma\sqrt\pi)^{s-2}/2`:
+      the integral over the alignment line of the product of the
+      :math:`s` leaf kernels, which is :math:`2\sigma\sqrt{\pi/s}`
+      times the centres kernel;
+    * ``'taugrid'`` -- :math:`P` times that: the mean over the period of
+      the same integrand.
+
+    The routes therefore differ by exactly known constants (pinned against
+    first-principles references in ``tests/test_nested_route_scale.py``),
+    and :func:`_nested_attr_matrix_common` removes them, so matrices from
+    different routes may be combined.
+    """
+    import math as _m
+    from ._mobius_inner import _nested_orbit_mult
+    spec = dens.nested[a]
+    sp = float(dens.sigma[a]) * _m.sqrt(_m.pi)
+    r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
+    s_tot = int(np.prod(r_levels))
+    rel_unit = spec.get("rel_unit")
+    if rel_unit is None:
+        g = sp ** s_tot
+    else:
+        s_u = int(np.prod(r_levels[:int(rel_unit) + 1]))
+        g = (sp ** (s_u - 1) * _m.sqrt(s_u)) ** (s_tot // s_u)
+    G = float(_nested_orbit_mult(r_levels, spec["exch"]))
+    if route == "centres":
+        return g
+    if route == "contract_relnonper":
+        # Trapezoid over the alignment line: an integral over the
+        # translation of the s leaf kernels, in the ones direction.
+        return G * s_tot * sp ** (s_tot - 2) / 2.0
+    if route == "taugrid":
+        # Mean over the period of the same integrand.
+        return float(dens.period[a]) * G * s_tot * sp ** (s_tot - 2) / 2.0
+    if route in ("contract", "bulger"):
+        return G * g
+    raise ValueError(f"unknown nested route {route!r}")
+
+
+def _nested_common_factor(dens, a, route):
+    """Factor taking nested attribute ``a``'s bare matrix on ``route`` to
+    the common scale, the nested centres route's (1 for ``'centres'``)."""
+    return (_nested_route_scale(dens, a, route)
+            / _nested_route_scale(dens, a, "centres"))
 
 
 def _apply_kernel_cov_scale(value, scale: float, normalize: str):
@@ -298,15 +340,15 @@ def sim_maet(*args,
 
     **Raw single-multiset scalar input**:
 
-    - ``sim_maet(p1, w1, p2, w2, sigma, r, is_rel, is_per, period[,
-      is_exch])`` where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
+    - ``sim_maet(p1, w1, p2, w2, sigma, r, rel, per, period[,
+      exch])`` where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
       ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
       Returns scalar.
 
     **Raw single-multiset batched input**:
 
-    - ``sim_maet(P1, W1, P2, W2, sigma, r, is_rel, is_per, period[,
-      is_exch])`` with ``P1``, ``P2`` 2-D ``(M, K)`` matrices whose rows are
+    - ``sim_maet(P1, W1, P2, W2, sigma, r, rel, per, period[,
+      exch])`` with ``P1``, ``P2`` 2-D ``(M, K)`` matrices whose rows are
       multisets, NaN-padded where cardinality varies, and ``W1``,
       ``W2`` matching or ``None``. Returns ``(M,)``. Either operand
       may instead be 1-D or ``(1, K)``, in which case it is broadcast
@@ -353,7 +395,7 @@ def sim_maet(*args,
     one pass.
 
     In every raw form the geometry may end with an optional trailing
-    ``is_exch`` (single multiset, batched) or ``is_exch_vec``
+    ``exch`` (single multiset, batched) or ``is_exch_vec``
     (multi-attribute) after ``period``: true (the default) for an
     exchangeable (unordered) multiset, whose density is invariant under
     permuting a tuple's coordinates; false for an ordered one, where
@@ -364,7 +406,7 @@ def sim_maet(*args,
     *args
         Positional arguments. Length depends on the input form:
         2 for density modes; 9 for raw single-multiset modes; 10 for raw
-        MA mode; one more in each raw mode when ``is_exch`` is given.
+        MA mode; one more in each raw mode when ``exch`` is given.
     mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
         For density list-vs-list. Ignored in scalar and broadcast cases.
     dedup : bool, default True
@@ -647,8 +689,8 @@ def sim_maet(*args,
     if len(args) not in (9, 10):
         raise TypeError(
             f"Raw single-multiset input expects 9 or 10 positional "
-            f"arguments (p1, w1, p2, w2, sigma, r, is_rel, is_per, "
-            f"period[, is_exch]); got {len(args)}."
+            f"arguments (p1, w1, p2, w2, sigma, r, rel, per, "
+            f"period[, exch]); got {len(args)}."
         )
 
     try:
@@ -696,8 +738,8 @@ def sim_maet(*args,
         for nm, arr in (("P1", a_arr), ("P2", b_arr)):
             K_side = arr.shape[-1]
             check_aniso_constraints(
-                r=r_in, K=K_side, is_rel=is_rel_in, is_per=is_per_in,
-                is_exch=is_exch_in, name=f"sigma ({nm})",
+                r=r_in, K=K_side, rel=is_rel_in, per=is_per_in,
+                exch=is_exch_in, name=f"sigma ({nm})",
             )
         Sigma_in, R_in = validate_kernel_cov(
             args[4], dim=int(r_in), name="sigma")
@@ -710,8 +752,8 @@ def sim_maet(*args,
 
     # Batched dispatch fires whenever either operand is 2-D.
     if a_arr.ndim == 2 or b_arr.ndim == 2:
-        sigma, r_, is_rel, is_per, period = args[4:9]
-        is_exch = args[9] if len(args) == 10 else None
+        sigma, r_, rel, per, period = args[4:9]
+        exch = args[9] if len(args) == 10 else None
         W1_arg, W2_arg = args[1], args[3]
 
         # Reshape any 1-D operand to (1, K) so both are 2-D from here on.
@@ -748,7 +790,7 @@ def sim_maet(*args,
             )
 
         return _apply_kernel_cov_scale(_cos_sim_raw_single_multiset_batch(
-            P1, P2, sigma, r_, is_rel, is_per, period, is_exch,
+            P1, P2, sigma, r_, rel, per, period, exch,
             weights_a=W1, weights_b=W2,
             spectrum=spectrum, precision=precision,
             dedup=dedup,
@@ -838,10 +880,10 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
         if (d.n_attrs != A
                 or not np.array_equal(d.r, shared_p.r)
                 or not np.array_equal(d.sigma, shared_p.sigma)
-                or not np.array_equal(d.is_rel, shared_p.is_rel)
-                or not np.array_equal(d.is_per, shared_p.is_per)):
+                or not np.array_equal(d.rel, shared_p.rel)
+                or not np.array_equal(d.per, shared_p.per)):
             return None
-        per_mask = shared_p.is_per.astype(bool)
+        per_mask = shared_p.per.astype(bool)
         if np.any(d.period[per_mask] != shared_p.period[per_mask]):
             return None
         wrap_d = list(getattr(d, "wrap", ["full-image"] * A))
@@ -851,8 +893,8 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
 
     ts = resolve_truncation_sigmas(truncation_sigmas)
     sigma = shared_p.sigma
-    is_rel = shared_p.is_rel
-    is_per = shared_p.is_per
+    rel = shared_p.rel
+    per = shared_p.per
     period = shared_p.period
     wrap = list(getattr(shared_p, "wrap", ["full-image"] * A))
     need_xx_shared = (normalize == "cosine") if shared_is_x else True
@@ -905,11 +947,11 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
             c1 = min(c0 + chunk, T)
             L = np.zeros((int(n_j), c1 - c0), dtype=np.float64)
             for a in range(A):
-                if bool(is_rel[a]):
+                if bool(rel[a]):
                     continue
                 d = (u_cell[a][0][:, None] - v_cell[a][0][None, c0:c1])
                 wrap_a = str(wrap[a]) if a < len(wrap) else 'full-image'
-                if bool(is_per[a]) and wrap_a == 'full-image':
+                if bool(per[a]) and wrap_a == 'full-image':
                     from .._wrapped_kernel import wrapped_gaussian_1d
                     theta = wrapped_gaussian_1d(
                         d, float(sigma[a]), float(period[a]), ts,
@@ -917,7 +959,7 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
                     )
                     L += np.log(theta)
                     continue
-                if bool(is_per[a]):
+                if bool(per[a]):
                     p_a = float(period[a])
                     d = d - p_a * np.floor(d / p_a + 0.5)
                 L -= (d * d) / (4 * float(sigma[a]) ** 2)
@@ -943,7 +985,7 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
         ip_shared = _ip_core_ma(
             shared_p.u_perm, shared_p.w_j, shared_p.n_j,
             shared_p.v_comb, shared_p.wv_comb, shared_p.n_k,
-            A, shared_p.r, sigma, is_rel, is_per, period,
+            A, shared_p.r, sigma, rel, per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             inner_r=_inner_r_vec(shared_p), wrap=wrap,
@@ -964,7 +1006,7 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
         elif need_self_entry:
             ip_self = _ip_core_ma(
                 d.u_perm, d.w_j, d.n_j, d.v_comb, d.wv_comb, d.n_k,
-                A, d.r, sigma, is_rel, is_per, period,
+                A, d.r, sigma, rel, per, period,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 inner_r=_inner_r_vec(d), wrap=wrap,
@@ -1008,7 +1050,7 @@ def _compute_pair_results_with_dedup(
         return (
             pd, wd,
             float(d.sigma[0]), int(d.r[0]),
-            bool(d.is_rel[0]), bool(d.is_per[0]), float(d.period[0]),
+            bool(d.rel[0]), bool(d.per[0]), float(d.period[0]),
         )
 
     def _declared(d):
@@ -1021,7 +1063,7 @@ def _compute_pair_results_with_dedup(
         # value, so it is part of the key too.
         from .aniso import density_ip_scale
         wrap = getattr(d, "wrap", None)
-        exch = getattr(d, "is_exch", None)
+        exch = getattr(d, "exch", None)
         return (str(wrap[0]) if wrap is not None else "full-image",
                 bool(exch[0]) if exch is not None else True,
                 density_ip_scale(d))
@@ -1031,8 +1073,8 @@ def _compute_pair_results_with_dedup(
         pb, wb, sig_b, r_b, rel_b, per_b, period_b = _fields(b)
         key_a, key_b, _, _, _, _ = _pair_canonical_key(
             pa, wa, pb, wb,
-            sigma=sig_a, r=r_a, is_rel=rel_a,
-            is_per=per_a, period=period_a,
+            sigma=sig_a, r=r_a, rel=rel_a,
+            per=per_a, period=period_a,
         )
         pk = (
             key_a,
@@ -1299,7 +1341,7 @@ def _cos_sim_density_path(
 
 def _cos_sim_raw_single_multiset_scalar(
     p1, w1, p2, w2,
-    sigma, r, is_rel, is_per, period, is_exch=None,
+    sigma, r, rel, per, period, exch=None,
     *,
     spectrum=None,
     method: str = "auto",
@@ -1309,8 +1351,8 @@ def _cos_sim_raw_single_multiset_scalar(
     verbose: bool = True,
 ) -> float:
     """Raw single-multiset scalar dispatch for :func:`sim_maet`."""
-    if is_exch is None:
-        is_exch = True
+    if exch is None:
+        exch = True
     if spectrum is not None:
         p1_aug, w1_aug = add_spectra(
             np.asarray(p1, dtype=np.float64),
@@ -1329,11 +1371,11 @@ def _cos_sim_raw_single_multiset_scalar(
         p2_aug, w2_aug = p2, w2
 
     dx = build_maet(
-        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, is_exch,
+        p1_aug, w1_aug, sigma, r, rel, per, period, exch,
         verbose=verbose,
     )
     dy = build_maet(
-        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, is_exch,
+        p2_aug, w2_aug, sigma, r, rel, per, period, exch,
         verbose=verbose,
     )
     return _cos_sim_pair_core(
@@ -1392,8 +1434,8 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     """
     A = dens_x.n_attrs
     r_vec = dens_x.r
-    is_rel = dens_x.is_rel
-    is_per = dens_x.is_per
+    rel = dens_x.rel
+    per = dens_x.per
     sigma = dens_x.sigma
     period = dens_x.period
 
@@ -1403,10 +1445,10 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     any_rel_nonper = False
     any_rel_per = False
     for a in range(A):
-        if bool(is_per[a]):
+        if bool(per[a]):
             any_per = True
-        if bool(is_rel[a]):
-            if bool(is_per[a]):
+        if bool(rel[a]):
+            if bool(per[a]):
                 any_rel_per = True
                 if float(period[a]) > 0:
                     sop_max = max(
@@ -1440,12 +1482,12 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     # while truncating at the per-call width would race the routes on a
     # grid neither of them uses (MATLAB: simMaet nuVecSel).
     _ts_sel = _resolve_ts(truncation_sigmas)
-    rel_vec = np.array([bool(is_rel[a]) for a in range(A)], dtype=bool)
+    rel_vec = np.array([bool(rel[a]) for a in range(A)], dtype=bool)
     nu_vec = np.ones(max(A, 1))[:A]
     for a in range(A):
         if not rel_vec[a] or int(r_vec[a]) < 2:
             continue
-        if bool(is_per[a]):
+        if bool(per[a]):
             nu_vec[a] = auto_ntau_default(
                 float(period[a]), float(sigma[a]), _ts_sel)
         else:
@@ -1492,8 +1534,8 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     skip_yy = (not need_yy) or _self_ip_memoised(dens_y)
 
     # Ordered ([exch]=0) attributes at r_a > 1 on either side.
-    is_exch_x = np.asarray(getattr(dens_x, "is_exch", np.ones(A, dtype=bool)))
-    is_exch_y = np.asarray(getattr(dens_y, "is_exch", np.ones(A, dtype=bool)))
+    is_exch_x = np.asarray(getattr(dens_x, "exch", np.ones(A, dtype=bool)))
+    is_exch_y = np.asarray(getattr(dens_y, "exch", np.ones(A, dtype=bool)))
     ordered_any = bool(
         np.any((~is_exch_x) & (r_vec > 1))
         or np.any((~is_exch_y) & (r_vec > 1))
@@ -1509,8 +1551,8 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
         rel_vec=rel_vec, nu_vec=nu_vec,
         guard_forced_bulger=not nested_any,
         wrap_vec=wrap_vec_x,
-        per_vec=[bool(is_per[a]) for a in range(A)],
-        exch_vec=getattr(dens_x, "is_exch", None),
+        per_vec=[bool(per[a]) for a in range(A)],
+        exch_vec=getattr(dens_x, "exch", None),
         truncation_sigmas=truncation_sigmas,
         skip_xx=skip_xx, skip_yy=skip_yy,
     )
@@ -1542,7 +1584,7 @@ def _sim_maet_ma(
 
     Both densities must share the full parameter structure: number of
     attributes, group assignment, per-attribute ``r``, and per-group
-    ``sigma``/``is_rel``/``is_per``/``period``. Weights and event/value
+    ``sigma``/``rel``/``per``/``period``. Weights and event/value
     counts may differ freely — that's the whole point of the similarity
     measure.
     """
@@ -1566,13 +1608,13 @@ def _sim_maet_ma(
         raise ValueError("Both MaetDensities must have the same r (per attribute).")
     if not np.array_equal(dens_x.sigma, dens_y.sigma):
         raise ValueError("Both MaetDensities must have the same sigma (per attribute).")
-    if not np.array_equal(dens_x.is_rel, dens_y.is_rel):
-        raise ValueError("Both MaetDensities must have the same is_rel (per attribute).")
-    if not np.array_equal(dens_x.is_per, dens_y.is_per):
-        raise ValueError("Both MaetDensities must have the same is_per (per attribute).")
-    # Periods must match for attributes where is_per is True (non-periodic
+    if not np.array_equal(dens_x.rel, dens_y.rel):
+        raise ValueError("Both MaetDensities must have the same rel (per attribute).")
+    if not np.array_equal(dens_x.per, dens_y.per):
+        raise ValueError("Both MaetDensities must have the same per (per attribute).")
+    # Periods must match for attributes where per is True (non-periodic
     # attributes can carry any period value without affecting the kernel).
-    per_mask = dens_x.is_per.astype(bool)
+    per_mask = dens_x.per.astype(bool)
     if np.any(dens_x.period[per_mask] != dens_y.period[per_mask]):
         raise ValueError(
             "Both MaetDensities must have the same period for periodic attributes."
@@ -1734,7 +1776,7 @@ def _sim_maet_ma(
 
 def _ip_core_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
-    A, r_vec, sigma, is_rel, is_per, period,
+    A, r_vec, sigma, rel, per, period,
     *, truncation_sigmas=None, kernel_precision=None, inner_r=None,
     wrap=None,
 ):
@@ -1772,7 +1814,7 @@ def _ip_core_ma(
     single_attr_helper_ok = (
         A == 1
         and (inner_r is None or int(inner_r[0]) == 0)
-        and not (bool(is_rel[0]) and bool(is_per[0]))
+        and not (bool(rel[0]) and bool(per[0]))
     )
     if single_attr_helper_ok:
         wrap_a = 'full-image'
@@ -1781,7 +1823,7 @@ def _ip_core_ma(
         return _ip_via_helper(
             u_cell[0], w_u, v_cell[0], w_v,
             int(r_vec[0]), float(sigma[0]),
-            bool(is_rel[0]), bool(is_per[0]), float(period[0]),
+            bool(rel[0]), bool(per[0]), float(period[0]),
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             wrap_a=wrap_a,
@@ -1807,7 +1849,7 @@ def _ip_core_ma(
     if all_r1:
         return _ip_r1_direct(
             u_cell, w_u, int(n_j), v_cell, w_v, int(n_k),
-            A, sigma, is_rel, is_per, period,
+            A, sigma, rel, per, period,
             truncation_sigmas=truncation_sigmas, wrap=wrap,
         )
 
@@ -1819,7 +1861,7 @@ def _ip_core_ma(
     if bytes_needed <= mem_limit:
         return _ip_full_ma(
             u_cell, w_u, n_j, v_cell, w_v, n_k,
-            A, r_vec, sigma, is_rel, is_per, period,
+            A, r_vec, sigma, rel, per, period,
             truncation_sigmas=truncation_sigmas, inner_r=inner_r,
             wrap=wrap,
         )
@@ -1832,7 +1874,7 @@ def _ip_core_ma(
         v_chunk = [V[:, c_start:c_end] for V in v_cell]
         log_kernel = _ma_log_kernel(
             u_cell, v_chunk, int(n_j), n_kc,
-            A, r_vec, sigma, is_rel, is_per, period,
+            A, r_vec, sigma, rel, per, period,
             inner_r=inner_r, wrap=wrap,
             truncation_sigmas=truncation_sigmas,
         )
@@ -1847,7 +1889,7 @@ def _ip_core_ma(
 
 def _ip_r1_direct(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
-    A, sigma, is_rel, is_per, period,
+    A, sigma, rel, per, period,
     *, truncation_sigmas, wrap=None,
 ):
     """Direct MA inner product for the all-r = 1 shape.
@@ -1878,7 +1920,7 @@ def _ip_r1_direct(
         c_end = min(c_start + chunk_size, int(n_k))
         L = np.zeros((int(n_j), c_end - c_start), dtype=np.float64)
         for a in range(A):
-            if bool(is_rel[a]):
+            if bool(rel[a]):
                 # A 1-tuple has no within-tuple differences: the
                 # relative quadratic form vanishes identically, as
                 # _compute_Q evaluates it, so the attribute
@@ -1889,7 +1931,7 @@ def _ip_r1_direct(
             wrap_a = 'full-image'
             if wrap is not None and a < len(wrap):
                 wrap_a = str(wrap[a])
-            if bool(is_per[a]) and wrap_a == 'full-image':
+            if bool(per[a]) and wrap_a == 'full-image':
                 from .._wrapped_kernel import wrapped_gaussian_1d
                 theta = wrapped_gaussian_1d(
                     d, float(sigma[a]), float(period[a]),
@@ -1898,7 +1940,7 @@ def _ip_r1_direct(
                 )
                 L += np.log(theta)
                 continue
-            if bool(is_per[a]):
+            if bool(per[a]):
                 p_a = float(period[a])
                 d = d - p_a * np.floor(d / p_a + 0.5)
             np.multiply(d, d, out=d)
@@ -1913,7 +1955,7 @@ def _ip_r1_direct(
 
 def _ip_full_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
-    A, r_vec, sigma, is_rel, is_per, period,
+    A, r_vec, sigma, rel, per, period,
     *, truncation_sigmas=None, inner_r=None, wrap=None,
 ):
     """Fully vectorized MA inner product (single chunk).
@@ -1928,7 +1970,7 @@ def _ip_full_ma(
 
     log_kernel = _ma_log_kernel(
         u_cell, v_cell, int(n_j), int(n_k),
-        A, r_vec, sigma, is_rel, is_per, period,
+        A, r_vec, sigma, rel, per, period,
         inner_r=inner_r, wrap=wrap,
         truncation_sigmas=truncation_sigmas,
     )
@@ -2014,7 +2056,7 @@ def _gram_quadratic_form(U, V, block):
 
 def _ma_log_kernel(
     u_cell, v_cell, n_j, n_k,
-    A, r_vec, sigma, is_rel, is_per, period,
+    A, r_vec, sigma, rel, per, period,
     *, inner_r=None, wrap=None, truncation_sigmas=None,
 ):
     """Accumulate the summed-Q / (4 sigma^2) log-kernel across attributes.
@@ -2045,9 +2087,9 @@ def _ma_log_kernel(
         # distance, so it comes out of one gemm rather than an
         # (r_a, nJ, nK) difference array. Periodic attributes keep the
         # tensor path below, where the wrap makes the form non-Euclidean.
-        if not bool(is_per[a]) and _gram_is_accurate_enough(
+        if not bool(per[a]) and _gram_is_accurate_enough(
                 u_cell[a], v_cell[a], float(sigma[a]), truncation_sigmas):
-            block = r_in if r_in > 0 else (r_a if bool(is_rel[a]) else 0)
+            block = r_in if r_in > 0 else (r_a if bool(rel[a]) else 0)
             Q_a = _gram_quadratic_form(u_cell[a], v_cell[a], block)
             log_kernel = log_kernel - Q_a / (4 * float(sigma[a]) ** 2)
             continue
@@ -2059,7 +2101,7 @@ def _ma_log_kernel(
             # _compute_Q applies the pairwise wrap inside, so the full
             # tuples enter without an outer wrap.
             Q_a = _compute_Q_inner_blocks(
-                D, r_in, bool(is_per[a]), float(period[a]), reduced=False)
+                D, r_in, bool(per[a]), float(period[a]), reduced=False)
             log_kernel = log_kernel - Q_a / (4 * float(sigma[a]) ** 2)
             continue
 
@@ -2072,7 +2114,7 @@ def _ma_log_kernel(
         wrap_a = 'full-image'
         if wrap is not None and a < len(wrap):
             wrap_a = str(wrap[a])
-        if (is_per[a] and not is_rel[a]
+        if (per[a] and not rel[a]
                 and wrap_a == 'full-image'):
             from .._wrapped_kernel import wrapped_gaussian_1d, _image_count_L
             from .._defaults import get_default
@@ -2100,16 +2142,16 @@ def _ma_log_kernel(
                 continue
 
         # The outer wrap is only needed when _compute_Q does not re-wrap
-        # the pairwise component differences (i.e., for is_per and not
-        # is_rel: Q = sum(D**2), which requires wrapped D components).
+        # the pairwise component differences (i.e., for per and not
+        # rel: Q = sum(D**2), which requires wrapped D components).
         # For rel+per, _compute_Q wraps each pairwise (D[i]-D[j]) inside
         # (Eq 6 form); that inner wrap is invariant under integer-period
         # shifts, so wrapping D first is redundant.
-        if is_per[a] and not is_rel[a]:
+        if per[a] and not rel[a]:
             p_a = float(period[a])
             D = D - p_a * np.floor(D / p_a + 0.5)
 
-        Q_a = _compute_Q(D, r_a, bool(is_rel[a]), bool(is_per[a]),
+        Q_a = _compute_Q(D, r_a, bool(rel[a]), bool(per[a]),
                          float(period[a]))
         log_kernel = log_kernel - Q_a / (4 * float(sigma[a]) ** 2)
 
@@ -2245,7 +2287,7 @@ def _sim_maet_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
 
     ``need_xx=False`` skips <X,X> when it is neither memoised nor
     consumed by the caller's normalisation; the triple's first self
-    slot is then ``None``. Both self inner products are memoised on
+    entry is then ``None``. Both self inner products are memoised on
     their densities, keyed on this route's per-attribute
     closed-form-vs-grid choices; the dispatcher purges this route's
     entries if its post-hoc impossible-value guard trips, so a broken
@@ -2275,7 +2317,7 @@ def _sim_maet_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
         bool(_ma_rel_attr_prefers_centres(
             dens_x.p_attr[a], dens_y.p_attr[a],
             float(dens_x.sigma[a]), int(dens_x.r[a]),
-            bool(dens_x.is_rel[a]), bool(dens_x.is_per[a]),
+            bool(dens_x.rel[a]), bool(dens_x.per[a]),
             float(dens_x.period[a]),
             truncation_sigmas=truncation_sigmas,
             user_forced_mobius=user_forced_mobius,
@@ -2295,8 +2337,8 @@ def _sim_maet_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
     for a in range(A):
         r_a = int(dens_x.r[a])
         sigma = float(dens_x.sigma[a])
-        is_rel = bool(dens_x.is_rel[a])
-        is_per = bool(dens_x.is_per[a])
+        rel = bool(dens_x.rel[a])
+        per = bool(dens_x.per[a])
         period = float(dens_x.period[a])
 
         Px, Py = dens_x.p_attr[a], dens_y.p_attr[a]
@@ -2329,19 +2371,19 @@ def _sim_maet_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
                     cy, cy, truncation_sigmas, wrap_a)
         else:
             P_xy *= _ma_per_attr_inner_matrix(
-                Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
+                Px, Wx, Py, Wy, sigma, r_a, rel, per, period,
                 truncation_sigmas=truncation_sigmas,
                 wrap=wrap_a,
             )
             if P_xx is not None:
                 P_xx *= _ma_per_attr_inner_matrix(
-                    Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
+                    Px, Wx, Px, Wx, sigma, r_a, rel, per, period,
                     truncation_sigmas=truncation_sigmas,
                     wrap=wrap_a,
                 )
             if P_yy is not None:
                 P_yy *= _ma_per_attr_inner_matrix(
-                    Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
+                    Py, Wy, Py, Wy, sigma, r_a, rel, per, period,
                     truncation_sigmas=truncation_sigmas,
                     wrap=wrap_a,
                 )
@@ -2379,7 +2421,7 @@ def _declared_wrap(dens_x, dens_y, a):
         w = getattr(d, 'wrap', None)
         return (str(w[a]) if w is not None and a < len(w) else 'full-image')
     wx, wy = _wrap_of(dens_x), _wrap_of(dens_y)
-    if wx != wy and bool(dens_x.is_per[a]):
+    if wx != wy and bool(dens_x.per[a]):
         raise ValueError(
             f"wrap mismatch on attribute {a}: dens_x declares {wx!r} and "
             f"dens_y declares {wy!r}. The wrap declares the measure, so "
@@ -2421,11 +2463,11 @@ def _nested_admissible_routes(dens_x, dens_y, a, ts=None):
     ``ts`` is the resolved per-call truncation width (``None`` resolves
     the default); the threshold is a function of it.
     """
-    is_rel = bool(dens_x.is_rel[a])
-    is_per = bool(dens_x.is_per[a])
-    if not is_rel:
+    rel = bool(dens_x.rel[a])
+    per = bool(dens_x.per[a])
+    if not rel:
         return ["contract"]
-    if not is_per:
+    if not per:
         return ["centres", "contract_relnonper"]
     from .dispatch import _orbit_sigma_over_p_threshold
     from .._defaults import resolve_truncation_sigmas
@@ -2539,7 +2581,7 @@ def _nested_enumeration_admissible(dens_x, dens_y, ts=None):
     from .._defaults import resolve_truncation_sigmas
     limit = _orbit_sigma_over_p_threshold(resolve_truncation_sigmas(ts))
     for a in range(int(dens_x.n_attrs)):
-        if not (bool(dens_x.is_rel[a]) and bool(dens_x.is_per[a])):
+        if not (bool(dens_x.rel[a]) and bool(dens_x.per[a])):
             continue
         if _declared_wrap(dens_x, dens_y, a) == 'single-image':
             continue
@@ -2594,7 +2636,7 @@ def _nested_attr_route(dens_x, dens_y, a, force_route=None,
 
     **Raw single-multiset batched input**:
 
-    - ``sim_maet(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
+    - ``sim_maet(P1, W1, P2, W2, sigma, r, rel, per, period)``
       where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
       (rows are chords; NaN-padded for variable cardinality), ``W1``,
       ``W2`` likewise (or ``None`` for uniform). Returns ``(M,)``. If
@@ -2634,16 +2676,16 @@ def _nested_attr_route(dens_x, dens_y, a, force_route=None,
     is the resolved per-call truncation width (``None`` resolves the
     default).
     """
-    is_rel = bool(dens_x.is_rel[a])
-    is_per = bool(dens_x.is_per[a])
-    if not is_rel:
+    rel = bool(dens_x.rel[a])
+    per = bool(dens_x.per[a])
+    if not rel:
         if force_route == "centres":
             return "centres"
         return "contract"
     sigma = float(dens_x.sigma[a])
     period = float(dens_x.period[a])
     admissible = _nested_admissible_routes(dens_x, dens_y, a, ts)
-    if is_per and admissible == ["taugrid"]:
+    if per and admissible == ["taugrid"]:
         if force_route == "centres":
             from .dispatch import _orbit_sigma_over_p_threshold
             from .._defaults import resolve_truncation_sigmas
@@ -2685,8 +2727,8 @@ def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
         wrap_a = _declared_wrap(dens_x, dens_y, a)
         return _closed_form_attr_matrix_from(cx, cy, ts, wrap_a)
     from ._nested_contraction import build_recipe, nested_attr_matrix
-    is_rel = bool(dens_x.is_rel[a])
-    is_per = bool(dens_x.is_per[a])
+    rel = bool(dens_x.rel[a])
+    per = bool(dens_x.per[a])
     sigma = float(dens_x.sigma[a])
     period = float(dens_x.period[a])
     spec_x = dens_x.nested[a]
@@ -2695,16 +2737,16 @@ def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
     exch_levels = np.asarray(spec_x["exch"]).ravel()
     tags_x = np.asarray(spec_x["tags"])
     tags_y = np.asarray(spec_y["tags"])
-    rx = build_recipe(r_levels, exch_levels, tags_x, is_rel, is_per)
+    rx = build_recipe(r_levels, exch_levels, tags_x, rel, per)
     same = (tags_x.shape == tags_y.shape
             and bool(np.array_equal(tags_x, tags_y)))
     ry = rx if same else build_recipe(r_levels, exch_levels, tags_y,
-                                      is_rel, is_per)
+                                      rel, per)
     PX = np.asarray(dens_x.p_attr[a], dtype=np.float64)
     PY = np.asarray(dens_y.p_attr[a], dtype=np.float64)
     if route == "taugrid":
         return nested_attr_matrix(rx, ry, PX, PY, dens_x.w[a], dens_y.w[a],
-                                  sigma, is_per, period, ts, taus=taus,
+                                  sigma, per, period, ts, taus=taus,
                                   periodic_taus=True, taus_reduce="mean")
     if route == "contract_relnonper":
         return nested_attr_matrix(rx, ry, PX, PY, dens_x.w[a], dens_y.w[a],
@@ -2715,13 +2757,30 @@ def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
     # the centres route above reads.
     wrap_a = _declared_wrap(dens_x, dens_y, a)
     return nested_attr_matrix(rx, ry, PX, PY, dens_x.w[a], dens_y.w[a],
-                              sigma, is_per, period, ts, taus=None,
+                              sigma, per, period, ts, taus=None,
                               wrap_a=wrap_a)
+
+
+def _nested_attr_matrix_common(dens_x, dens_y, a, route, taus,
+                               truncation_sigmas=None):
+    """:func:`_nested_attr_matrix` on the common (nested centres) scale.
+
+    The routes' bare matrices differ by constants known exactly
+    (:func:`_nested_route_scale`); every combiner uses this form, so a
+    product or ratio may draw its terms from different routes --- the
+    sweep prices its cross term alone and may take a route its self inner
+    products did not. Without it, two routes' terms in one ratio were off
+    by their constant (39 for a three-chord progression at inner r = 1,
+    sigma = 0.15, P = 12).
+    """
+    return (_nested_attr_matrix(dens_x, dens_y, a, route, taus,
+                                truncation_sigmas=truncation_sigmas)
+            * _nested_common_factor(dens_x, a, route))
 
 
 def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
                          force_route=None, method_name="contract",
-                         truncation_sigmas=None):
+                         truncation_sigmas=None, self_only=False):
     """Closed-form inner product of a single nested attribute.
 
     Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
@@ -2750,6 +2809,11 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
     quadrature tolerance, every kernel, the centres route, the cost model
     and the memo key, exactly as the MATLAB ``nestedContract`` resolves
     ``truncationSigmas`` at entry.
+
+    ``self_only=True`` validates and plans as usual but forms only the
+    self inner products the normalisation needs, returning ``None`` for
+    ``ip_xy``: the sweep forms its cross term itself, at every offset, and
+    would otherwise pay for this one twice.
     """
     def _decline(reason):
         if force:
@@ -2774,7 +2838,7 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
         return _try_nested_contract_ma(
             dens_x, dens_y, normalize=normalize, verbose=verbose, force=force,
             force_route=force_route, method_name=method_name,
-            truncation_sigmas=ts)
+            truncation_sigmas=ts, self_only=self_only)
     spec = dens_x.nested[0]
     spec_y = dens_y.nested[0]
     if spec is None or spec_y is None:
@@ -2814,8 +2878,9 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
         _LAST_NESTED_ROUTES[:] = []
         return None
     _LAST_NESTED_ROUTES[:] = [route]
-    ip_xy = float(_nested_attr_matrix(dens_x, dens_y, 0, route, taus,
-                                      truncation_sigmas=ts).sum())
+    ip_xy = (None if self_only else
+             float(_nested_attr_matrix_common(dens_x, dens_y, 0, route, taus,
+                                              truncation_sigmas=ts).sum()))
     # The two self inner products are memoised on their densities, as the
     # flat Bulger, centres and Möbius routes already do -- a sweep against
     # one prototype, or any repeated call on the same pair, then computes
@@ -2826,7 +2891,10 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
     # taken under one grid must never be reused under another.
     _tau_sig = (None if taus is None
                 else (int(np.size(taus)), float(taus[0]), float(taus[-1])))
-    _key = _self_ip_cache_key("contract", ts, None, (route, _tau_sig))
+    # "common" marks the common-scale values (_nested_attr_matrix_common),
+    # so a memo written on a route's bare scale is never read back.
+    _key = _self_ip_cache_key("contract", ts, None,
+                              (route, _tau_sig, "common"))
     # <X,X> is consumed by the cosine only: under 'oneSidedDenom' it is
     # neither computed nor memoised, as on the flat routes, and the
     # finaliser receives None for it.
@@ -2837,23 +2905,26 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
     elif not need_xx:
         ip_xx = None
     else:
-        ip_xx = float(_nested_attr_matrix(dens_x, dens_x, 0, route, taus,
-                                          truncation_sigmas=ts).sum())
+        ip_xx = float(_nested_attr_matrix_common(dens_x, dens_x, 0, route,
+                                                 taus,
+                                                 truncation_sigmas=ts).sum())
         dens_x._self_ip_cache[_key] = ip_xx
     if _key in dens_y._self_ip_cache:
         ip_yy = dens_y._self_ip_cache[_key]
     elif not need_yy:
         ip_yy = None
     else:
-        ip_yy = float(_nested_attr_matrix(dens_y, dens_y, 0, route, taus,
-                                          truncation_sigmas=ts).sum())
+        ip_yy = float(_nested_attr_matrix_common(dens_y, dens_y, 0, route,
+                                                 taus,
+                                                 truncation_sigmas=ts).sum())
         dens_y._self_ip_cache[_key] = ip_yy
     return ip_xy, ip_xx, ip_yy
 
 
 def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
                             force=False, force_route=None,
-                            method_name="contract", truncation_sigmas=None):
+                            method_name="contract", truncation_sigmas=None,
+                            self_only=False):
     """MA cosine when one or more attributes are nested or ordered.
 
     The MAET cross-event inner product factorises per event-pair across
@@ -2896,7 +2967,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
     inner_rx = _inner_r_vec(dens_x)
     inner_ry = _inner_r_vec(dens_y)
     is_exch_x = np.asarray(
-        getattr(dens_x, "is_exch", np.ones(A, dtype=bool))).ravel()
+        getattr(dens_x, "exch", np.ones(A, dtype=bool))).ravel()
 
     N_x = int(dens_x.n)
     N_y = int(dens_y.n)
@@ -2966,7 +3037,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
         (kind, int(a), route,
          (None if taus is None
           else (int(np.size(taus)), float(taus[0]), float(taus[-1]))))
-        for kind, a, route, taus in plans)
+        for kind, a, route, taus in plans) + ("common",)
     _ma_key = _self_ip_cache_key("contract_ma", _ts_ma, None, _ma_sig)
     _have_xx = _ma_key in dens_x._self_ip_cache
     _have_yy = _ma_key in dens_y._self_ip_cache
@@ -2984,8 +3055,8 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
             # Flat-symmetric or r=1: the orbit/Möbius per-attribute matrix,
             # which correctly symmetrises these readings.
             sigma = float(dens_x.sigma[a])
-            is_rel = bool(dens_x.is_rel[a])
-            is_per = bool(dens_x.is_per[a])
+            rel = bool(dens_x.rel[a])
+            per = bool(dens_x.per[a])
             period = float(dens_x.period[a])
             Pxa, Pya = dens_x.p_attr[a], dens_y.p_attr[a]
             Wxa, Wya = dens_x.w[a], dens_y.w[a]
@@ -2995,16 +3066,17 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
             # whenever it shared a density with a nested attribute (the
             # MATLAB twin, nestedContract.m, has always passed both).
             wrap_a = _declared_wrap(dens_x, dens_y, a)
-            P_xy *= _ma_per_attr_inner_matrix(
-                Pxa, Wxa, Pya, Wya, sigma, r_a, is_rel, is_per, period,
-                truncation_sigmas=_ts_ma, wrap=wrap_a)
+            if not self_only:
+                P_xy *= _ma_per_attr_inner_matrix(
+                    Pxa, Wxa, Pya, Wya, sigma, r_a, rel, per, period,
+                    truncation_sigmas=_ts_ma, wrap=wrap_a)
             if _form_xx:
                 P_xx *= _ma_per_attr_inner_matrix(
-                    Pxa, Wxa, Pxa, Wxa, sigma, r_a, is_rel, is_per, period,
+                    Pxa, Wxa, Pxa, Wxa, sigma, r_a, rel, per, period,
                     truncation_sigmas=_ts_ma, wrap=wrap_a)
             if _form_yy:
                 P_yy *= _ma_per_attr_inner_matrix(
-                    Pya, Wya, Pya, Wya, sigma, r_a, is_rel, is_per, period,
+                    Pya, Wya, Pya, Wya, sigma, r_a, rel, per, period,
                     truncation_sigmas=_ts_ma, wrap=wrap_a)
             continue
 
@@ -3012,15 +3084,20 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
             # Nested: the mode-aware per-level dispatch planned above
             # (contraction for absolute/abs-periodic and for the
             # cost-selected relative grids; centres otherwise), with the
-            # route decided once so xy, xx and yy share one measure.
-            P_xy *= _nested_attr_matrix(dens_x, dens_y, a, route, taus,
-                                        truncation_sigmas=_ts_ma)
+            # route decided once so xy, xx and yy share one measure, each
+            # matrix on the common scale (_nested_attr_matrix_common).
+            if not self_only:
+                P_xy *= _nested_attr_matrix_common(
+                    dens_x, dens_y, a, route, taus,
+                    truncation_sigmas=_ts_ma)
             if _form_xx:
-                P_xx *= _nested_attr_matrix(dens_x, dens_x, a, route, taus,
-                                            truncation_sigmas=_ts_ma)
+                P_xx *= _nested_attr_matrix_common(dens_x, dens_x, a, route,
+                                                   taus,
+                                                   truncation_sigmas=_ts_ma)
             if _form_yy:
-                P_yy *= _nested_attr_matrix(dens_y, dens_y, a, route, taus,
-                                            truncation_sigmas=_ts_ma)
+                P_yy *= _nested_attr_matrix_common(dens_y, dens_y, a, route,
+                                                   taus,
+                                                   truncation_sigmas=_ts_ma)
             continue
 
         # Ordered flat ([exch]=0, r>1, not nested): the materialised centres,
@@ -3031,7 +3108,8 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
         cx = _closed_form_attr_centres(dens_x, a)
         cy = _closed_form_attr_centres(dens_y, a)
         wrap_a = _declared_wrap(dens_x, dens_y, a)
-        P_xy *= _closed_form_attr_matrix_from(cx, cy, _ts_ma, wrap_a)
+        if not self_only:
+            P_xy *= _closed_form_attr_matrix_from(cx, cy, _ts_ma, wrap_a)
         if _form_xx:
             P_xx *= _closed_form_attr_matrix_from(cx, cx, _ts_ma, wrap_a)
         if _form_yy:
@@ -3062,7 +3140,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
     # nested density agrees with this route to floating point in every mode
     # (``tests/test_nested_measure_rule.py``), so the choice between them is
     # a matter of cost and of per-attribute measure control, not of shape.
-    return float(P_xy.sum()), ip_xx, ip_yy
+    return (None if self_only else float(P_xy.sum())), ip_xx, ip_yy
 
 
 #: Cache-key prefixes of the routes that memoise a self inner product
@@ -3190,8 +3268,8 @@ def _sim_maet_ma_centres(dens_x, dens_y, *, verbose: bool = True,
     A = int(dens_x.n_attrs)
     r_vec = np.atleast_1d(dens_x.r)
     sigma = np.atleast_1d(dens_x.sigma)
-    is_rel = np.atleast_1d(dens_x.is_rel)
-    is_per = np.atleast_1d(dens_x.is_per)
+    rel = np.atleast_1d(dens_x.rel)
+    per = np.atleast_1d(dens_x.per)
     period = np.atleast_1d(dens_x.period)
     inner_r = _inner_r_vec(dens_x)
     n_jx, n_jy = dens_x.n_j, dens_y.n_j
@@ -3200,7 +3278,7 @@ def _sim_maet_ma_centres(dens_x, dens_y, *, verbose: bool = True,
         return _ip_core_ma(
             dx.u_perm, dx.w_j, nx,
             dy.u_perm, dy.w_j, ny,
-            A, r_vec, sigma, is_rel, is_per, period,
+            A, r_vec, sigma, rel, per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             inner_r=inner_r,
@@ -3245,15 +3323,15 @@ def _sim_maet_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
 
     ``need_xx=False`` skips <X,X> when it is neither memoised nor
     consumed by the caller's normalisation (``'oneSidedDenom'``); the
-    triple's first self slot is then ``None``. Both self inner products
+    triple's first self entry is then ``None``. Both self inner products
     are memoised on their densities (``_self_ip_cache``), so a sweep of
     many queries against one context pays each self term once.
     """
     A = dens_x.n_attrs
     r_vec = dens_x.r
     sigma = dens_x.sigma
-    is_rel = dens_x.is_rel
-    is_per = dens_x.is_per
+    rel = dens_x.rel
+    per = dens_x.per
     period = dens_x.period
 
     n_jx, n_kx = dens_x.n_j, dens_x.n_k
@@ -3281,7 +3359,7 @@ def _sim_maet_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
     ip_xy = _ip_core_ma(
         dens_x.u_perm, dens_x.w_j, n_jx,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
-        A, r_vec, sigma, is_rel, is_per, period,
+        A, r_vec, sigma, rel, per, period,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         inner_r=inner_r,
@@ -3293,7 +3371,7 @@ def _sim_maet_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
         ip_xx = _ip_core_ma(
             dens_x.u_perm, dens_x.w_j, n_jx,
             dens_x.v_comb, dens_x.wv_comb, n_kx,
-            A, r_vec, sigma, is_rel, is_per, period,
+            A, r_vec, sigma, rel, per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             inner_r=inner_r,
@@ -3308,7 +3386,7 @@ def _sim_maet_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
         ip_yy = _ip_core_ma(
             dens_y.u_perm, dens_y.w_j, n_jy,
             dens_y.v_comb, dens_y.wv_comb, n_ky,
-            A, r_vec, sigma, is_rel, is_per, period,
+            A, r_vec, sigma, rel, per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             inner_r=inner_r,
@@ -3322,7 +3400,7 @@ def _sim_maet_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
 
 
 # -------------------------------------------------------------------
-def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
+def _ip_via_helper(U, wU, V, wV, r, sigma, rel, per, period,
                    truncation_sigmas=None, kernel_precision=None,
                    wrap_a='full-image'):
     """Route the centres-IP through :func:`gaussian_kernel_sum`.
@@ -3335,8 +3413,8 @@ def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
     Supports abs (per and non-per) and rel-non-periodic. The rel+per
     pairwise-wrap form is not yet supported by the helper.
     """
-    kw = dict(is_rel=bool(is_rel), r=int(r),
-              is_per=bool(is_per), period=float(period),
+    kw = dict(rel=bool(rel), r=int(r),
+              per=bool(per), period=float(period),
               wrap=str(wrap_a))
     if truncation_sigmas is not None:
         kw["truncation_sigmas"] = float(truncation_sigmas)
@@ -3356,10 +3434,10 @@ def _cos_sim_raw_single_multiset_batch(
     p_mat_b: np.ndarray,
     sigma: float,
     r: int,
-    is_rel: bool,
-    is_per: bool,
+    rel: bool,
+    per: bool,
     period: float,
-    is_exch=None,
+    exch=None,
     *,
     weights_a: np.ndarray | None = None,
     weights_b: np.ndarray | None = None,
@@ -3388,7 +3466,7 @@ def _cos_sim_raw_single_multiset_batch(
     ----------
     p_mat_a, p_mat_b : 2-D arrays
         Multiset positions per row. NaN entries are ignored.
-    sigma, r, is_rel, is_per, period :
+    sigma, r, rel, per, period :
         Tensor parameters.
     weights_a, weights_b : 2-D arrays or None
         Weights matching the corresponding ``p_mat_*``.
@@ -3420,7 +3498,7 @@ def _cos_sim_raw_single_multiset_batch(
     # ordered densities. Reject it rather than return a wrong answer.
     # Order-aware batched dedup is a tracked follow-up; for now use the
     # scalar or density-list forms for ordered densities.
-    if (is_exch is not None) and (not bool(np.all(is_exch))) and r > 1:
+    if (exch is not None) and (not bool(np.all(exch))) and r > 1:
         raise NotImplementedError(
             "sim_maet batched (2-D) input does not yet support "
             "[exch]=0 (ordered) densities at r > 1: the batched dedup "
@@ -3485,7 +3563,7 @@ def _cos_sim_raw_single_multiset_batch(
 
         ka, kb, ca_p_arr, ca_w_arr, cb_p_arr, cb_w_arr = _pair_canonical_key(
             pa_valid, wa_valid, pb_valid, wb_valid,
-            sigma=sigma, r=r, is_rel=is_rel, is_per=is_per, period=period,
+            sigma=sigma, r=r, rel=rel, per=per, period=period,
             precision=precision,
         )
 
@@ -3504,8 +3582,8 @@ def _cos_sim_raw_single_multiset_batch(
         if use_spec:
             p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
         dens_cache_a[ka] = build_maet(
-            p_arr, w_arr, sigma, r, is_rel, is_per, period,
-            True if is_exch is None else is_exch, verbose=False
+            p_arr, w_arr, sigma, r, rel, per, period,
+            True if exch is None else exch, verbose=False
         )
 
     dens_cache_b: dict[tuple, object] = {}
@@ -3513,8 +3591,8 @@ def _cos_sim_raw_single_multiset_batch(
         if use_spec:
             p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
         dens_cache_b[kb] = build_maet(
-            p_arr, w_arr, sigma, r, is_rel, is_per, period,
-            True if is_exch is None else is_exch, verbose=False
+            p_arr, w_arr, sigma, r, rel, per, period,
+            True if exch is None else exch, verbose=False
         )
 
     n_unique_a = len(dens_cache_a)
@@ -3526,16 +3604,16 @@ def _cos_sim_raw_single_multiset_batch(
             f"sim_maet: {n_rows} rows, {n_valid} valid, "
             f"{n_unique_a} unique A-sets, {n_unique_b} unique B-sets."
         )
-        if is_rel:
+        if rel:
             print(
                 "  Canonicalization: A-sets and B-sets independently "
                 "normalized for transposition"
-                + (" and octave equivalence." if is_per else ".")
+                + (" and octave equivalence." if per else ".")
             )
         else:
             print(
                 "  Canonicalization: joint co-transposition"
-                + (" with octave equivalence" if is_per else "")
+                + (" with octave equivalence" if per else "")
                 + "; B-set counts reflect position relative to A."
             )
         print(

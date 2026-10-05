@@ -163,6 +163,28 @@ class TestBitIdentity:
         serial = evaluated(dens, points, 1)
         assert np.array_equal(serial, evaluated(dens, points, 4))
 
+    @pytest.mark.parametrize('per', [False, True])
+    def test_the_culled_joint_centres_path_agrees_with_the_serial_path(
+            self, fixed_chunk, threads, monkeypatch, per):
+        """An onset at r = 1 puts the density on the joint-centres path,
+        culled on the onset, whose groups of queries run in the pool.
+        Beside it a pitch, periodic in the second case, where its wrapped
+        kernel is evaluated pair by pair inside the pool."""
+        import mpt._tensor.eval as ev
+        monkeypatch.setattr(ev, "_MA_CULL_MODE", "always")
+        rng = np.random.default_rng(4)
+        n = 10_000
+        p = [rng.uniform(0.0, 10.0, (1, n)), rng.uniform(0.0, PERIOD, (1, n))]
+        dens = mpt.build_maet(p, None, [0.3, SIGMA], [1, 1], [False, False],
+                              [False, per], [0.0, PERIOD if per else 0.0],
+                              verbose=False)
+        points = np.vstack([rng.uniform(0.0, 10.0, 2_000),
+                            rng.uniform(0.0, PERIOD, 2_000)])
+        serial = evaluated(dens, points, 1)
+        assert np.array_equal(serial, evaluated(dens, points, 4))
+        mpt.set_default(kernel_threads=4)
+        assert kernel_thread_count(n * 2_000 // 10) > 1
+
     def test_the_wrapped_kernel_agrees_elementwise(self, threads):
         from mpt._wrapped_kernel import wrapped_gaussian_1d
         d = np.random.default_rng(1).uniform(-3 * PERIOD, 3 * PERIOD,

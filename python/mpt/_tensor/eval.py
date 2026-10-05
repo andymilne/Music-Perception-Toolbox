@@ -1642,7 +1642,11 @@ def _ma_cull_plan(centres, x_list, n_j, n_q, dim_per, sigma, rel, per,
     dense evaluation costs ``n_j * n_q``; the culled one costs the sort
     plus ``_MA_CULL_PAIR_COST`` per pair it keeps. An estimate from the
     spread alone rules out a sort that cannot pay; after the sort the
-    pairs are counted exactly.
+    pairs are counted exactly. The decision does not read the thread
+    count, although the culled evaluation runs on the kernel thread pool
+    and the dense one does not: culled and dense values agree only to
+    summation order, and a decision that moved with the thread count
+    would make the values move with it.
     """
     mode = _MA_CULL_MODE
     if mode == "never" or n_j == 0 or n_q == 0:
@@ -1715,9 +1719,18 @@ def _ma_eval_culled(plan, centres, w_j, x_list, n_q, A, dim_per, r_vec,
 
     The centres are permuted once into the plan's order, so that each
     query's centres are the contiguous run ``lo:hi``. Queries are taken
-    in their own order, in groups whose pairs fit ``chunk_bytes``, and
+    in their own order, in groups whose pairs fit the chunk budget, and
     each group's pairs are evaluated as one flat list by
     :func:`_ma_eval_full`.
+
+    Groups are independent: each writes only its own queries' values,
+    and a query's value is the sum over its own pairs in an order that
+    does not depend on the group it falls in. The groups therefore run
+    on the shared kernel thread pool with bit-identical results. Threads
+    hold their groups at the same time, so the budget is divided among
+    them and the peak transient is what it was serially; a group is also
+    held to a thread's share of the pairs, so that no thread is left
+    without one.
     """
     order, lo, hi = plan
     cent = [c[:, order] for c in centres]
@@ -1733,31 +1746,41 @@ def _ma_eval_culled(plan, centres, w_j, x_list, n_q, A, dim_per, r_vec,
     if total == 0:
         return vals
     max_dim = int(max(dim_per)) if A > 0 else 1
-    group_pairs = max(1, int(chunk_bytes // ((2 * max_dim + 4) * 8)))
+    n_threads = kernel_thread_count(total)
+    budget = chunk_bytes / max(1, n_threads)
+    group_pairs = max(1, int(budget // ((2 * max_dim + 4) * 8)))
+    if n_threads > 1:
+        group_pairs = min(group_pairs, max(1, -(-total // n_threads)))
     # Group boundaries: after the query at which the running pair count
     # first reaches each multiple of group_pairs.
     cuts = np.searchsorted(cum, np.arange(group_pairs, total, group_pairs),
                            side="left") + 1
     bounds = np.unique(np.concatenate(([0], cuts, [int(n_q)])))
-    for g0, g1 in zip(bounds[:-1].tolist(), bounds[1:].tolist()):
-        cnt = counts[g0:g1]
-        n_pairs = int(cnt.sum())
-        if n_pairs == 0:
-            continue
-        q_idx = np.repeat(np.arange(g1 - g0), cnt)
-        start = np.cumsum(cnt) - cnt
-        c_idx = lo[g0:g1][q_idx] + (np.arange(n_pairs) - start[q_idx])
-        vals[g0:g1] = _ma_eval_full(
-            cent, w, 0, [xa[:, g0:g1] for xa in x_list], g1 - g0,
-            A, dim_per, r_vec, sigma,
-            rel, per, period,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            inner_r=inner_r,
-            wrap=wrap,
-            value_tables=tables,
-            pairs=(c_idx, q_idx),
-        )
+    groups = list(zip(bounds[:-1].tolist(), bounds[1:].tolist()))
+
+    def _evaluate_groups(span):
+        for g0, g1 in groups[span[0]:span[1]]:
+            cnt = counts[g0:g1]
+            n_pairs = int(cnt.sum())
+            if n_pairs == 0:
+                continue
+            q_idx = np.repeat(np.arange(g1 - g0), cnt)
+            start = np.cumsum(cnt) - cnt
+            c_idx = lo[g0:g1][q_idx] + (np.arange(n_pairs) - start[q_idx])
+            vals[g0:g1] = _ma_eval_full(
+                cent, w, 0, [xa[:, g0:g1] for xa in x_list], g1 - g0,
+                A, dim_per, r_vec, sigma,
+                rel, per, period,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+                inner_r=inner_r,
+                wrap=wrap,
+                value_tables=tables,
+                pairs=(c_idx, q_idx),
+            )
+
+    run_in_kernel_threads(_evaluate_groups,
+                          split_ranges(len(groups), n_threads))
     return vals
 
 

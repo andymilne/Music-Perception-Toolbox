@@ -19,7 +19,7 @@ function bytes = estimateMaJointWorkingSetBytes(rVec, kVec, isRel, isExch, ...
 %   (larger) count. NEVENTS (default 1) is the number of events whose
 %   joint tuple sets are held at once: N on the joint-centres path,
 %   which materialises every event's joint tuple set together (taken
-%   where an attribute is at r <= 1 or carries a kernel covariance), and
+%   where an attribute is at r = 1 or carries a kernel covariance), and
 %   1 on the factored routes, which take a density event by event.
 %
 %   Twin of python _estimate_ma_joint_working_set_bytes.

@@ -1358,6 +1358,21 @@ _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 5.52e-05
 #: nonzero. Same term, per-language magnitude.
 _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 1.296e-06
 
+#: Möbius, per call of the single-multiset evaluator. The factored
+#: evaluator calls it once per event and attribute, and each call pays a
+#: fixed overhead (argument handling, the per-attribute set-up) that the
+#: single-multiset calibration cannot separate from ``MOBIUS_SETUP_MS``,
+#: since there the call is made once. The estimate takes it out of the
+#: per-call setup and charges it per event and attribute, so that a
+#: single multiset is priced exactly as before. Measured October 2026 on
+#: the maintainer's VM, as the residual of the factored evaluator over
+#: the estimate without it, per event and attribute, on twelve
+#: multi-event cells (r = 1 attributes of 2 to 20 values, and r = 1
+#: beside r = 2; N = 50 to 3000): median 16 us, range 11 to 26 us. Not
+#: in the single-multiset calibration grid, so not refitted by
+#: ``tools/fit_ma_eval_cost.py``.
+_MA_COST_MOBIUS_PER_EVENT_ATTR_MS = 0.016
+
 #: Spectral (Fourier) strategy inside the Möbius relative evaluator,
 #: per tuple size. ``PER_MODE`` is the K-free per-query slope against
 #: the mode count (window/sigma); ``PERIODIC_K`` is the additional
@@ -1500,10 +1515,19 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, rel,
     return min(n_joint * max(D, 1) * 2 * 8 * max(int(n_events), 1), 1 << 60)
 
 
+def _joint_no_larger_than_values(k_vec) -> bool:
+    """At r = 1 on every attribute: is the joint set per event no
+    larger than the values, ``prod_a K_a <= sum_a K_a``?"""
+    prod = 1
+    for k in k_vec:
+        prod *= max(int(k), 1)
+    return prod <= sum(max(int(k), 1) for k in k_vec)
+
+
 def _joint_path_events(dens) -> int:
     """Events whose joint tuple sets the evaluation holds at once.
 
-    The joint-centres path, taken where an attribute is at ``r <= 1`` or
+    The joint-centres path, taken where an attribute is at ``r = 1`` or
     carries a kernel covariance, materialises every event's joint tuple
     set together, so its working set is N times one event's. The
     factored routes take a density event by event, and a single multiset
@@ -1556,6 +1580,14 @@ _MA_COST_NONLINEAR_NAMES = (
 )
 
 
+#: Cost constants measured on multi-event densities, outside the
+#: single-multiset calibration grid: carried in the constants dict, held
+#: fixed by a refit.
+_MA_COST_MULTI_EVENT_NAMES = (
+    "MOBIUS_PER_EVENT_ATTR_MS",
+)
+
+
 def _ma_cost_constants(overrides=None):
     """The calibrated cost constants as a plain ``{name: value}`` dict.
 
@@ -1566,7 +1598,8 @@ def _ma_cost_constants(overrides=None):
     """
     g = globals()
     C = {n: g["_MA_COST_" + n]
-         for n in _MA_COST_LINEAR_NAMES + _MA_COST_NONLINEAR_NAMES}
+         for n in (_MA_COST_LINEAR_NAMES + _MA_COST_NONLINEAR_NAMES
+                   + _MA_COST_MULTI_EVENT_NAMES)}
     if overrides:
         C.update(overrides)
     return C
@@ -1845,16 +1878,17 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     # The factored Möbius evaluator calls the single-multiset evaluator
     # once per event and attribute (an attribute at r = 1 included: its
     # per-event factor is a kernel sum over K values), so everything but
-    # the per-call setup is paid N times.
-    mobius_ms = C["MOBIUS_SETUP_MS"]
+    # the per-call setup is paid N times, and each call carries its own
+    # overhead (MOBIUS_PER_EVENT_ATTR_MS, taken out of the per-call setup
+    # so that a single multiset is priced as calibrated).
+    mobius_ms = C["MOBIUS_SETUP_MS"] - C["MOBIUS_PER_EVENT_ATTR_MS"]
     per_event_ms = 0.0
     for a in flat_attrs:
         r_a, K_a = r_vec[a], k_vec[a]
-        if r_a < 1:
-            continue
         B_r = float(_BELL_NUMBERS.get(r_a, float("inf")))
         ops = float(2 ** r_a - 1) * r_a * K_a
-        per_event_ms += C["MOBIUS_SETUP_PER_BELL_MS"] * B_r
+        per_event_ms += (C["MOBIUS_PER_EVENT_ATTR_MS"]
+                         + C["MOBIUS_SETUP_PER_BELL_MS"] * B_r)
         per_query_ms = C["MOBIUS_QUERY_PER_OP_MS"] * ops
         if rel[a] and r_a >= 2:
             # The spectral (Fourier) strategy engages inside the mobius
@@ -2222,8 +2256,10 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
 
     Hard rules first, in order: a user override is honoured
     (``'mobius'`` is refused on an ordered attribute); an ordered
-    (``[exch] = 0``) attribute at ``r > 1``, or ``r <= 1`` on every
-    attribute, keeps the joint-centres path; a density nested
+    (``[exch] = 0``) attribute at ``r > 1``, or ``r = 1`` on every
+    attribute with a joint set per event no larger than the values
+    (``prod_a K_a <= sum_a K_a``), keeps the joint-centres path; a
+    density nested
     throughout is decided on its own cost row (``_nested_eval_costs_ms``),
     and a nested attribute in a mixed density adds that row to the
     shared comparison; an
@@ -2296,10 +2332,20 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
             return "mobius", "cost model (per-level Möbius cheaper)"
         return "centres", "cost model (tag-tree centres cheaper)"
 
-    # ---- Hard rule: r <= 1 on every attribute => Möbius is degenerate
-    # (one singleton partition); centres is trivially cheap. ----
-    if all(r_vec[a] <= 1 for a in range(A)):
-        return "centres", "all r <= 1"
+    # ---- Hard rule: r = 1 on every attribute, and the joint set no
+    # larger than the values => centres. At r = 1 the joint-centres path
+    # holds prod_a K_a centres per event and the factored Möbius
+    # evaluator sums over sum_a K_a values; where the product is no
+    # larger than the sum (a single multiset, an event list, one
+    # attribute with many values beside scalars), the joint path does no
+    # more work and, vectorised over events where the factored evaluator
+    # loops over them, is the cheaper. Where several attributes hold many
+    # values the product outgrows the sum, and the cost model decides
+    # (measured: two attributes of 50 values, 200 events, centres
+    # 267 ms against Möbius 28 ms). ----
+    if (all(r_vec[a] == 1 for a in range(A))
+            and _joint_no_larger_than_values(k_vec)):
+        return "centres", "r = 1, joint set no larger than the values"
 
     # ---- Hard rule per attribute: feasibility forces the single-image
     # centres route, because the Möbius method is beyond its shipped

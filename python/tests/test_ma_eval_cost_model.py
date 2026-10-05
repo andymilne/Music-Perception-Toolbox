@@ -272,6 +272,36 @@ def test_ma_cost_model_routes_onsets_and_chords_to_the_joint_path():
         assert chosen == "centres", (N, reason)
 
 
+def test_r1_rule_keeps_centres_only_where_the_joint_set_is_no_larger():
+    """At r = 1 on every attribute the joint-centres path holds
+    prod_a K_a centres per event and the factored Möbius evaluator sums
+    over sum_a K_a values. A single multiset, an event list, or one
+    attribute of many values beside scalars keeps centres by rule;
+    several attributes of many values go to the cost model, which picks
+    Möbius where the product has outgrown the sum. Measured October 2026
+    on the maintainer's VM (two attributes, 200 events, 200 queries):
+    K = 4 each, centres 6 against Möbius 17 ms; K = 50 each, 267
+    against 28 ms."""
+    g = np.random.default_rng(0)
+
+    def dens(Ks, N, sigma=3.0):
+        ps = [g.uniform(0, 100, (k, N)) for k in Ks]
+        A = len(Ks)
+        return build_maet(ps, None, [sigma] * A, [1] * A, [False] * A,
+                          [False] * A, [0.0] * A, verbose=False)
+
+    rule = "r = 1, joint set no larger than the values"
+    assert _select_ma_eval(dens([12], 1), 200, method="auto")[1] == rule
+    assert _select_ma_eval(dens([1, 1, 1], 500), 200,
+                           method="auto")[1] == rule
+    assert _select_ma_eval(dens([6, 1], 500), 200, method="auto")[1] == rule
+    chosen, reason = _select_ma_eval(dens([4, 4], 200), 200, method="auto")
+    assert reason.startswith("cost model") and chosen == "centres"
+    chosen, reason = _select_ma_eval(dens([50, 50], 200), 200,
+                                     method="auto")
+    assert reason.startswith("cost model") and chosen == "mobius"
+
+
 def test_ma_cost_model_diverts_infeasible_centres_to_mobius():
     """At a shape where the joint tuple set is far too large to
     materialise, the model must pick Möbius --- the centres route would

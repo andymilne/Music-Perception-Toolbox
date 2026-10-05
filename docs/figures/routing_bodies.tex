@@ -79,7 +79,7 @@
       [{\textit{$c_\mathrm{M}<c_\mathrm{C}$}\\per-level M\"obius}, leaf]
       [{\textit{else}\\tag-tree centres}, leaf]]
     [{2b. \textit{mixed} (nested $\otimes$ flat):\\priced at rule 6}]
-    [{3. $r_a = 1$ on every attribute} [{centres}, leaf]]
+    [{3. $r_a = 1$ on every attribute\\and $\prod_a K_a \le \sum_a K_a$} [{centres}, leaf]]
     [{4. $r>10$ (flat attribute)} [{centres; feasibility guard\\joint working set $>$ budget $\to$ error}, leaf]]
     [{5. rel-per and $\sigma/P>\mathrm{thr}(t_s)$}
       [{\textit{wrap='single-image'}\\centres}, leaf] [{\textit{wrap='full-image'}\\M\"obius}, leaf]]
@@ -88,7 +88,7 @@
   [{\textbf{centres branch}}
     [{single multiset: kernel sum\\1-D vectorized | bucketed | circular | exact chunks\\chunk: $\theta$ product ($L>0$) | tabulated $\theta$ | nearest-image $Q$}, leaf]
     [{MA, all $r\ge2$, no kernel covariance: factored\\(per-attribute kernel sums)}, leaf]
-    [{MA otherwise: joint tuple centres\\(tabulated $\theta$ when values repeat)}, leaf]]
+    [{MA otherwise: joint tuple centres, culled on one\\coordinate where that pays (tabulated $\theta$ when values repeat)}, leaf]]
   [{\textbf{M\"obius branch}}
     [{absolute: partition sum, reduction rule}, leaf]
     [{relative: $u$-grid; direct | factored | Fourier ($2\le r\le4$)\\(periodic: factored and Fourier only when window\\and query span fit in half the circle)}, leaf]

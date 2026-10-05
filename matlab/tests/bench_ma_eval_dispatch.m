@@ -22,6 +22,13 @@
 
 fprintf('\n=== MA eval dispatch calibration (centres vs factored Möbius) ===\n\n');
 
+% Dispatch announcements are gated by showHints, not by the per-call
+% 'verbose' argument, so each timed call would print one and the printing
+% would be timed with the work. Off for the run, restored afterwards.
+bed_prevHints = mptDefaults('showHints');
+mptDefaults('showHints', false);
+bed_restoreHints = onCleanup(@() mptDefaults('showHints', bed_prevHints));
+
 nQ    = 200;
 nReps = 5;
 rng(0, 'twister');
@@ -61,9 +68,15 @@ grid = {
   {'r1+rel r3 N300', [0.3 15], [1 3], [false true], [false false], [0 0], [1 4], 300}
   {'r1+r3 K10 N20', [15 15], [1 3], [false false], [false false], [0 0], [10 10], 20}
   {'r1+r2 K12 N50', [15 15], [1 2], [false false], [false false], [0 0], [12 12], 50}
+  {'r1x2 K4 N200',  [3 3],   [1 1], [false false], [false false], [0 0], [4 4],   200}
+  {'r1x2 K8 N200',  [3 3],   [1 1], [false false], [false false], [0 0], [8 8],   200}
+  {'r1x2 K20 N200', [3 3],   [1 1], [false false], [false false], [0 0], [20 20], 200}
+  {'r1x2 K20 N200 narrow', [0.3 0.3], [1 1], [false false], [false false], [0 0], [20 20], 200}
+  {'r1x2 K50 N200', [3 3],   [1 1], [false false], [false false], [0 0], [50 50], 200}
+  {'r1x3 K4 N200',  [3 3 3], [1 1 1], [false false false], [false false false], [0 0 0], [4 4 4], 200}
 };
 
-fprintf('%-16s %8s %8s %9s %9s %9s %9s %8s %8s %6s\n', ...
+fprintf('%-22s %8s %8s %9s %9s %9s %9s %8s %8s %6s\n', ...
     'cell', 'orbit', 'joint', 'cen_ms', 'mob_ms', 'pred_cen', ...
     'pred_mob', 'faster', 'predict', 'o/j');
 fprintf('%s\n', repmat('-', 1, 104));
@@ -122,7 +135,7 @@ for gi = 1:numel(grid)
     tested = tested + 1;
     if ~ok, mismatch = mismatch + 1; end
 
-    fprintf(['%-16s %8d %8d %9.2f %9.2f %9.2f %9.2f %8s %8s %6.2f' ...
+    fprintf(['%-22s %8d %8d %9.2f %9.2f %9.2f %9.2f %8s %8s %6.2f' ...
              '  %s\n'], label, orbit, joint, tCen * 1e3, tMob * 1e3, ...
         predCen, predMob, faster, pred, orbit / joint, ...
         tern(ok, '', '<-- MISPICK'));
@@ -139,6 +152,8 @@ fprintf(['\nThis audits the shipped fit; it does not produce one. The ' ...
          'ratio; the empirical\ncrossover is where ''faster'' flips. ' ...
          'NaN predictions mark cells the model\ndecides structurally ' ...
          'rather than by cost estimation.\n\n']);
+
+clear bed_restoreHints bed_prevHints
 
 % ---- helpers ----
 function t = timeMethod(fn, nReps)

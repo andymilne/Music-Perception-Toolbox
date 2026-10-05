@@ -143,6 +143,33 @@ end
 results{end+1, 1} = 'cost model: onsets beside chord pitches take the joint-centres path';
 results{end, 2} = ok;
 
+%% ---- The r = 1 rule keeps centres only where the joint set is no larger ----
+% At r = 1 on every attribute the joint-centres path holds prod_a K_a
+% centres per event and the factored Möbius evaluator sums over sum_a K_a
+% values. A single multiset, an event list, or one attribute of many
+% values beside scalars keeps centres by rule; several attributes of many
+% values go to the cost model, which picks Möbius where the product has
+% outgrown the sum. Twin of the Python
+% test_r1_rule_keeps_centres_only_where_the_joint_set_is_no_larger.
+rng(0, 'twister');
+cmRule = 'r = 1, joint set no larger than the values';
+cmMk1 = @(Ks, n) buildMaet( ...
+    arrayfun(@(k) 100 * rand(k, n), Ks, 'UniformOutput', false), ...
+    arrayfun(@(k) ones(k, n), Ks, 'UniformOutput', false), ...
+    3 * ones(1, numel(Ks)), ones(1, numel(Ks)), false(1, numel(Ks)), ...
+    false(1, numel(Ks)), zeros(1, numel(Ks)), 'verbose', false);
+[~, r1] = internal.selectMaEval(cmMk1(12, 1), 200);
+[~, r2] = internal.selectMaEval(cmMk1([1 1 1], 500), 200);
+[~, r3] = internal.selectMaEval(cmMk1([6 1], 500), 200);
+[c4, r4] = internal.selectMaEval(cmMk1([4 4], 200), 200);
+[c5, r5] = internal.selectMaEval(cmMk1([50 50], 200), 200);
+results{end+1, 1} = 'cost model: r = 1 rule keeps centres where the joint set is no larger';
+results{end, 2} = strcmp(r1, cmRule) && strcmp(r2, cmRule) && strcmp(r3, cmRule);
+results{end+1, 1} = 'cost model: r = 1 with several many-valued attributes is priced, not ruled';
+results{end, 2} = strncmp(r4, 'cost model', 10) && strncmp(r5, 'cost model', 10) ...
+    && strcmp(c5, 'mobius');
+clear cmRule cmMk1 r1 r2 r3 r4 r5 c4 c5
+
 %% ---- The event-by-event routes scale with the event count ----
 % The factored centres route and the factored Möbius evaluator take a
 % density event by event, so beyond the per-call setup their cost is N

@@ -516,10 +516,11 @@ nQ = size(X, 2);
 % === single multiset dispatch — two orthogonal axes ===
 %
 % Routing axis (forced vs discretionary):
-%   - Explicit method override or hard rules (r <= 1) force
-%     the routing inline, with no dispatcher function call.
-%   - Otherwise the unified dispatcher runs, with prescreen and (if
-%     needed) probe.
+%   - An explicit method override forces the routing inline, with no
+%     dispatcher function call.
+%   - Otherwise 'auto' consults internal.selectMaEval, the probe-free
+%     cost model shared with the multi-attribute path (its hard rules
+%     included).
 %
 % Execution axis (default kwargs vs feature kwargs):
 %   - When the resolved truncationSigmas is Inf AND the resolved

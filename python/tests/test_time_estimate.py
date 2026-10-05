@@ -34,6 +34,7 @@ from mpt._tensor.dispatch import (
     _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS,
     _MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS,
     _MA_COST_CENTRES_SETUP_MS,
+    _MA_COST_MOBIUS_PER_EVENT_ATTR_MS,
     _MA_COST_MOBIUS_SETUP_MS,
     _ma_eval_costs_ms,
     _predict_ma_eval_cost_ms,
@@ -157,7 +158,9 @@ class TestCullingCorrection:
     def test_event_by_event_routes_scale_with_the_event_count(self, r_vec):
         # The factored centres route and the factored Möbius evaluator
         # take a density event by event, so beyond the per-call setup
-        # their cost is N times one event's. The joint-centres path
+        # their cost is N times one event's (the Möbius evaluator's
+        # per-call overhead is charged per event and attribute, out of
+        # its per-call setup). The joint-centres path
         # (taken here at r = [1, 2]) holds N times the joint centres, so
         # its per-centre terms scale by N and its per-query base does
         # not. Every event holds the same values, so the spreads, and
@@ -173,8 +176,8 @@ class TestCullingCorrection:
 
         c1, m1 = _ma_eval_costs_ms(dens(1), nq)
         c5, m5 = _ma_eval_costs_ms(dens(5), nq)
-        assert (m5 - _MA_COST_MOBIUS_SETUP_MS) == pytest.approx(
-            5 * (m1 - _MA_COST_MOBIUS_SETUP_MS), rel=1e-12)
+        once = _MA_COST_MOBIUS_SETUP_MS - _MA_COST_MOBIUS_PER_EVENT_ATTR_MS
+        assert (m5 - once) == pytest.approx(5 * (m1 - once), rel=1e-12)
         fixed = _MA_COST_CENTRES_SETUP_MS
         if r_vec[0] == 1:
             fixed += nq * _MA_COST_CENTRES_QUERY_BASE_MS

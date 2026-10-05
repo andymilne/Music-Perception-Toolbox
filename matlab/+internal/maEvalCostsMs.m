@@ -178,6 +178,23 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % node cost absorbs it, so its twin constant is ~0.
     MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 3.232e-05;   % was 3.516e-5
 
+    % Möbius, per call of the single-multiset evaluator. The factored
+    % evaluator calls it once per event and attribute, and each call pays
+    % a fixed overhead that the single-multiset calibration cannot
+    % separate from MA_COST_MOBIUS_SETUP_MS, since there the call is made
+    % once. The estimate takes it out of the per-call setup and charges
+    % it per event and attribute, so that a single multiset is priced
+    % exactly as before. Measured October 2026 on the maintainer's Mac
+    % (bench_ma_eval_dispatch) as the residual of the factored evaluator
+    % over the estimate without it, per event and attribute: 40-42 us on
+    % the cells of an onset at r = 1 beside three pitches at r = 2
+    % (N = 30, 300, 3000); 84-200 us where an attribute at r >= 2 holds
+    % 6 to 12 values, where part of the residual is per-query work. The
+    % lower value is taken. Not in the single-multiset calibration grid,
+    % so not refitted from it. Twin of the Python
+    % _MA_COST_MOBIUS_PER_EVENT_ATTR_MS (16 us there).
+    MA_COST_MOBIUS_PER_EVENT_ATTR_MS = 0.040;
+
     BELL = [1 2 5 15 52 203 877 4140 21147 115975];  % B_1..B_10
 
     A       = double(dens.nAttrs);
@@ -316,21 +333,21 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % The factored Möbius evaluator calls the single-multiset evaluator
     % once per event and attribute (an attribute at r = 1 included: its
     % per-event factor is a kernel sum over K values), so everything but
-    % the per-call setup is paid N times.
-    mobiusMs = MA_COST_MOBIUS_SETUP_MS;
+    % the per-call setup is paid N times, and each call carries its own
+    % overhead (MA_COST_MOBIUS_PER_EVENT_ATTR_MS, taken out of the
+    % per-call setup so that a single multiset is priced as calibrated).
+    mobiusMs = MA_COST_MOBIUS_SETUP_MS - MA_COST_MOBIUS_PER_EVENT_ATTR_MS;
     perEventMs = 0;
     for a = flatAttrs
         r_a = rVec(a); K_a = kVec(a);
-        if r_a < 1
-            continue;
-        end
         if r_a <= numel(BELL)
             B_r = BELL(r_a);
         else
             B_r = Inf;
         end
         ops = (2^r_a - 1) * r_a * K_a;
-        perEventMs = perEventMs + MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r;
+        perEventMs = perEventMs + MA_COST_MOBIUS_PER_EVENT_ATTR_MS ...
+            + MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r;
         perQueryMs = MA_COST_MOBIUS_QUERY_PER_OP_MS * ops;
         if isRel(a) && r_a >= 2
             % The spectral (Fourier) strategy engages inside the mobius

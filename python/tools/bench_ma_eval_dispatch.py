@@ -67,6 +67,14 @@ GRID = [
     ("r1+rel r3 N300", [0.3, 15], [1, 3], [0, 1], [0, 0], [0, 0], [1, 4], 300),
     ("r1+r3 K10 N20", [15, 15], [1, 3], [0, 0], [0, 0], [0, 0], [10, 10], 20),
     ("r1+r2 K12 N50", [15, 15], [1, 2], [0, 0], [0, 0], [0, 0], [12, 12], 50),
+    ("r1x2 K4 N200", [3, 3], [1, 1], [0, 0], [0, 0], [0, 0], [4, 4], 200),
+    ("r1x2 K8 N200", [3, 3], [1, 1], [0, 0], [0, 0], [0, 0], [8, 8], 200),
+    ("r1x2 K20 N200", [3, 3], [1, 1], [0, 0], [0, 0], [0, 0], [20, 20], 200),
+    ("r1x2 K20 N200 narrow", [0.3, 0.3], [1, 1], [0, 0], [0, 0], [0, 0],
+     [20, 20], 200),
+    ("r1x2 K50 N200", [3, 3], [1, 1], [0, 0], [0, 0], [0, 0], [50, 50], 200),
+    ("r1x3 K4 N200", [3, 3, 3], [1, 1, 1], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+     [4, 4, 4], 200),
 ]
 
 
@@ -85,7 +93,7 @@ def main():
     mpt.set_default(show_hints=False)
     try:
         rng = np.random.default_rng(0)
-        print(f"{'cell':18s} {'orbit':>8s} {'joint':>9s} {'cen_ms':>9s} "
+        print(f"{'cell':22s} {'orbit':>8s} {'joint':>9s} {'cen_ms':>9s} "
               f"{'mob_ms':>9s} {'pred_cen':>9s} {'pred_mob':>9s} "
               f"{'faster':>8s} {'predict':>8s} {'regret':>7s}")
         print("-" * 104)
@@ -116,7 +124,7 @@ def main():
             within = abs(t_c - t_m) / max(min(t_c, t_m), 1e-9) < 0.25
             ok = pred == faster or within
             mispicks += 0 if ok else 1
-            print(f"{label:18s} {orbit:8d} {joint:9d} {t_c:9.2f} {t_m:9.2f} "
+            print(f"{label:22s} {orbit:8d} {joint:9d} {t_c:9.2f} {t_m:9.2f} "
                   f"{pc:9.2f} {pm:9.2f} {faster:>8s} {pred:>8s} "
                   f"{regret:7.2f}{'' if ok else '  <-- MISPICK'}",
                   flush=True)

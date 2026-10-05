@@ -17,7 +17,8 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 %   Hard rules (in order):
 %     - ordered ([exch]=0) attribute -> centres (no orbit to collapse)
 %     - nested attributes           -> their own cost row (INTERNAL.NESTEDEVALCOSTSMS)
-%     - all r <= 1                  -> centres (Möbius degenerate)
+%     - r = 1 on every attribute, and the joint set per event no
+%       larger than the values (prod_a K_a <= sum_a K_a) -> centres
 %     - feasibility bound on any attribute forces the
 %       single-image centres route, GUARDED: if its joint tuple set is
 %       infeasible to materialise it raises mpt:dispatch:singleImageInfeasible
@@ -141,10 +142,19 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         return;
     end
 
-    % ---- Hard rule: all r <= 1 -> centres (Möbius degenerate). ----
-    if all(rVec <= 1)
+    % ---- Hard rule: r = 1 on every attribute, and the joint set no
+    % larger than the values -> centres. At r = 1 the joint-centres path
+    % holds prod_a K_a centres per event and the factored Möbius
+    % evaluator sums over sum_a K_a values; where the product is no
+    % larger than the sum (a single multiset, an event list, one
+    % attribute with many values beside scalars), the joint path does no
+    % more work and, vectorised over events where the factored evaluator
+    % loops over them, is the cheaper. Where several attributes hold many
+    % values the product outgrows the sum, and the cost model decides.
+    % Twin of the Python rule in _select_ma_eval. ----
+    if all(rVec == 1) && prod(max(kVec, 1)) <= sum(max(kVec, 1))
         chosen = 'centres';
-        routingReason = 'all r <= 1';
+        routingReason = 'r = 1, joint set no larger than the values';
         return;
     end
 
@@ -266,7 +276,7 @@ end
 function n = localJointPathEvents(dens, rVec)
 %LOCALJOINTPATHEVENTS  Events whose joint tuple sets the evaluation holds
 %   at once. The joint-centres path, taken where an attribute is at
-%   r <= 1 or carries a kernel covariance, materialises every event's
+%   r = 1 or carries a kernel covariance, materialises every event's
 %   joint tuple set together, so its working set is N times one event's.
 %   The factored routes take a density event by event, and a single
 %   multiset has one event; for those it is 1. Twin of the Python

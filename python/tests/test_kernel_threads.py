@@ -170,9 +170,11 @@ class TestBitIdentity:
     def test_the_culled_joint_centres_path_agrees_with_the_serial_path(
             self, fixed_chunk, threads, monkeypatch, per):
         """An onset at r = 1 puts the density on the joint-centres path,
-        culled on the onset, whose groups of queries run in the pool.
+        culled on the onset, whose blocks of queries run in the pool.
         Beside it a pitch, periodic in the second case, where its wrapped
-        kernel is evaluated pair by pair inside the pool."""
+        kernel is evaluated inside the pool. A block is held to a
+        thread's share of the pairs, so the blocks, and with them the
+        order of summation, depend on the thread count."""
         import mpt._tensor.eval as ev
         monkeypatch.setattr(ev, "_MA_CULL_MODE", "always")
         rng = np.random.default_rng(4)
@@ -184,7 +186,9 @@ class TestBitIdentity:
         points = np.vstack([rng.uniform(0.0, 10.0, 2_000),
                             rng.uniform(0.0, PERIOD, 2_000)])
         serial = evaluated(dens, points, 1)
-        assert np.array_equal(serial, evaluated(dens, points, 4))
+        threaded = evaluated(dens, points, 4)
+        assert np.max(np.abs(threaded - serial)) <= 1e-12 * np.max(serial)
+        assert np.max(serial) > 0
         mpt.set_default(kernel_threads=4)
         assert kernel_thread_count(n * 2_000 // 10) > 1
 

@@ -195,6 +195,16 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % _MA_COST_MOBIUS_PER_EVENT_ATTR_MS (16 us there).
     MA_COST_MOBIUS_PER_EVENT_ATTR_MS = 0.040;
 
+    % Joint-centres path, the cost of a pair of its dense broadcast as a
+    % share of MA_COST_CENTRES_QUERY_PER_JOINT_MS (a culled tuple of the
+    % single-multiset kernel, which the calibration grid measures). A
+    % pair in a culled query's run costs pairCost (internal.maCullPlan)
+    % times as much. The value is the one the path was priced at while
+    % its culled pairs were evaluated pair by pair, at 2.5 dense pairs
+    % each (so 1 / 2.5). Not in the single-multiset calibration grid, so
+    % not refitted from it. Twin of the Python _MA_COST_JOINT_DENSE_PAIR.
+    MA_COST_JOINT_DENSE_PAIR = 0.4;
+
     BELL = [1 2 5 15 52 203 877 4140 21147 115975];  % B_1..B_10
 
     A       = double(dens.nAttrs);
@@ -327,7 +337,8 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             + nQeff * (qBaseJoint + qPer * jointQ ...
                        * localJointShare(dens, flatAttrs, isRel, isPer, ...
                                          sigmaG, periodG, ...
-                                         MA_COST_CENTRES_CULL_C));
+                                         MA_COST_CENTRES_CULL_C, ...
+                                         MA_COST_JOINT_DENSE_PAIR));
     end
 
     % The factored Möbius evaluator calls the single-multiset evaluator
@@ -493,9 +504,10 @@ end
 
 
 function share = localJointShare(dens, flatAttrs, isRel, isPer, sigmaG, ...
-                                 periodG, cullC)
+                                 periodG, cullC, densePair)
 %LOCALJOINTSHARE  Per-query work of the joint-centres path, as a share of
-%   its centres, each counted at the cost of a culled tuple.
+%   its centres, each counted at the cost of a culled tuple of the
+%   single-multiset kernel.
 %
 %   The path culls on the one coordinate whose spread is widest against
 %   its window (internal.maCullPlan): a query meets
@@ -503,9 +515,9 @@ function share = localJointShare(dens, flatAttrs, isRel, isPer, sigmaG, ...
 %   sigma on a relative attribute, whose coordinates are differences)
 %   and span the spread of the values (the period on a periodic
 %   attribute). A periodic attribute evaluated on the full image is never
-%   culled on. Where culling would not pay the path runs dense, whose
-%   pairs cost 1 / C.pairCost of a culled one, so the share is capped
-%   there.
+%   culled on. A pair of the path's dense broadcast costs DENSEPAIR of
+%   such a tuple, and a pair in a culled query's run C.pairCost dense
+%   pairs; where culling would not pay, the path runs dense.
 %
 %   Twin of the Python _joint_share in _ma_eval_costs_ms.
     C = internal.maCullPlan('constants');
@@ -543,7 +555,7 @@ function share = localJointShare(dens, flatAttrs, isRel, isPer, sigmaG, ...
             share = min(share, cullC * h / span);
         end
     end
-    share = min(share, 1 / C.pairCost);
+    share = densePair * min(C.pairCost * share, 1);
 end
 
 

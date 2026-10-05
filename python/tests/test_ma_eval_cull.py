@@ -10,7 +10,10 @@ agreement on every kind of culling coordinate (absolute, periodic on a
 single image, relative, nested inner unit, kernel covariance), on the
 attributes that are never culled on (periodic on the full image), at
 the boundary of the window, across the wrap of a periodic coordinate,
-and across group and chunk boundaries; and that the decision to cull
+and across block and chunk boundaries; that the blocks of queries are
+the longest their three bounds allow, and that a block on a periodic
+coordinate holds no centre twice; that a window reaching round the
+cycle onto itself is not culled on; and that the decision to cull
 follows the kernel width. The MATLAB twin is
 ``tests/test_ma_eval_cull.m``.
 """
@@ -186,8 +189,8 @@ def test_periodic_window_wraps(monkeypatch):
     _assert_cull_matches_dense(dens, X, monkeypatch)
 
 
-def test_groups_and_chunks(monkeypatch):
-    # A tiny chunk budget splits the culled pairs into many groups and
+def test_blocks_and_chunks(monkeypatch):
+    # A tiny chunk budget splits the culled queries into many blocks and
     # the dense evaluation into many chunks; neither changes a value.
     mpt.set_default(truncation_sigmas=6.0)
     dens = SHAPES["absolute at r = 2"]
@@ -242,3 +245,77 @@ def test_decision_follows_the_kernel_width():
     order, lo, hi = plan
     assert np.mean(hi - lo) < 0.05 * narrow.n_j
     assert _plan(wide, X) is None
+
+
+def _block_ok(lo, hi, q, s, e, n_j, group_pairs, block_cost):
+    width = int(hi[q[e - 1]] - lo[q[s]])
+    pairs = width * (e - s)
+    own = int(np.sum(hi[q[s:e]] - lo[q[s:e]]))
+    return (width <= n_j and pairs <= group_pairs
+            and pairs - own <= block_cost)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_blocks_are_the_longest_their_bounds_allow(seed):
+    # Runs as a plan makes them: both ends non-decreasing in a key the
+    # queries do not arrive sorted by, some runs empty.
+    rng = np.random.default_rng(seed)
+    n_q, n_j = 400, 1000
+    key = rng.uniform(0.0, 1.0, n_q)
+    lo = np.floor(np.clip(key - 0.05, 0.0, 1.0) * n_j).astype(np.int64)
+    hi = np.floor(np.clip(key + 0.05, 0.0, 1.0) * n_j).astype(np.int64)
+    empty = rng.uniform(size=n_q) < 0.1
+    hi[empty] = lo[empty]
+    hi = np.maximum(hi, lo)
+    group_pairs, block_cost = int(rng.integers(500, 20000)), 600
+    q, starts = ev._ma_cull_blocks(lo, hi, n_j, group_pairs, block_cost)
+    assert sorted(q.tolist()) == np.flatnonzero(hi > lo).tolist()
+    assert np.all(np.diff(lo[q]) >= 0) and np.all(np.diff(hi[q]) >= 0)
+    ends = np.append(starts[1:], q.size)
+    for s, e in zip(starts.tolist(), ends.tolist()):
+        assert e - s == 1 or _block_ok(lo, hi, q, s, e, n_j, group_pairs,
+                                       block_cost)
+        if e < q.size:
+            assert not _block_ok(lo, hi, q, s, e + 1, n_j, group_pairs,
+                                 block_cost)
+
+
+def test_periodic_block_holds_no_centre_twice(monkeypatch):
+    # Few centres on a periodic coordinate, a window a third of the
+    # cycle wide, and no limit on a block's wasted pairs: a block's range
+    # of the plan's order, which repeats the centres near either end of
+    # the cycle, would otherwise cover some centres twice.
+    mpt.set_default(truncation_sigmas=6.0)
+    monkeypatch.setattr(ev, "_MA_CULL_BLOCK_COST", 10 ** 9)
+    rng = np.random.default_rng(9)
+    P, n = 1.0, 12
+    with pytest.warns(UserWarning, match="opted into the single-image"):
+        dens = _build([rng.uniform(0, P, (1, n)),
+                       rng.uniform(60, 72, (1, n))],
+                      [0.06, 2.0], [1, 1], [0, 0], [1, 0], [P, 0],
+                      wrap=["single-image", "full-image"])
+    X = np.vstack([rng.uniform(0, P, 200), rng.uniform(60, 72, 200)])
+    _assert_cull_matches_dense(dens, X, monkeypatch)
+
+
+def test_window_reaching_round_the_cycle_is_not_culled_on(monkeypatch):
+    # 2 k sigma falls short of the period by less than the margin that
+    # widens the window, so the widened window would reach round the
+    # cycle onto itself: the coordinate is a candidate, but the plan
+    # passes it over, even when culling is forced. The other attribute,
+    # periodic on the full image, is never a candidate.
+    mpt.set_default(truncation_sigmas=6.0)
+    monkeypatch.setattr(ev, "_MA_CULL_MODE", "always")
+    rng = np.random.default_rng(10)
+    P = 1.0
+    s = (0.5 * P - 1e-12) / 6.0
+    with pytest.warns(UserWarning, match="opted into the single-image"):
+        dens = _build([rng.uniform(0, P, (1, 50)),
+                       rng.uniform(0, 12, (1, 50))],
+                      [s, 0.3], [1, 1], [0, 0], [1, 1], [P, 12.0],
+                      wrap=["single-image", "full-image"])
+    X = np.vstack([rng.uniform(0, P, 40), rng.uniform(0, 12, 40)])
+    assert len(ev._ma_cull_candidates(
+        dens.dim_per_attr, dens.sigma, dens.rel, dens.per, dens.period,
+        None, dens.wrap, 6.0)) == 1
+    assert _plan(dens, X) is None

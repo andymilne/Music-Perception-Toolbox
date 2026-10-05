@@ -11,7 +11,10 @@
 %  relative, nested inner unit, kernel covariance), beside an attribute
 %  that is never culled on (periodic on the full image), at the boundary
 %  of the window, across the wrap of a periodic coordinate, and across
-%  group and chunk boundaries; and that the decision to cull follows the
+%  block and chunk boundaries; that the blocks of queries are the longest
+%  their three bounds allow, and that a block on a periodic coordinate
+%  holds no centre twice; that a window reaching round the cycle onto
+%  itself is not culled on; and that the decision to cull follows the
 %  kernel width. Mirror of Python tests/test_ma_eval_cull.py.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
@@ -151,8 +154,8 @@ mc_X = [0.1 * rand(1, 200), mc_P - 0.1 * rand(1, 200); 60 + 12 * rand(1, 400)];
 results{end + 1, 1} = 'ma_eval_cull: a periodic window wraps';
 results{end, 2} = mcCullMatchesDense(mc_d, mc_X, 1e-12, 'truncationSigmas', 6);
 
-% --- groups and chunks ---
-% A tiny chunk budget splits the culled pairs into many groups and the
+% --- blocks and chunks ---
+% A tiny chunk budget splits the culled queries into many blocks and the
 % dense evaluation into many chunks; neither changes a value.
 mc_d = mc_shapes(2).dens;
 mc_X = mcQueries(mc_d, 300, 6);
@@ -168,7 +171,7 @@ mc_culled = evalMaet(mc_d, mc_X, 'method', 'centres', 'truncationSigmas', 6, ...
                      'verbose', false);
 mptDefaults('kernelChunkBytes', mc_prevBytes);
 internal.maCullMode(mc_prevMode);
-results{end + 1, 1} = 'ma_eval_cull: chunks and groups do not change a value';
+results{end + 1, 1} = 'ma_eval_cull: chunks and blocks do not change a value';
 results{end, 2} = max(abs(mc_dense - mc_whole)) <= 1e-12 * max(abs(mc_whole)) ...
     && max(abs(mc_culled - mc_whole)) <= 1e-12 * max(abs(mc_whole));
 
@@ -210,10 +213,82 @@ results{end, 2} = ~isempty(mc_planN) && mean(mc_planN.hi - mc_planN.lo) < 0.05 *
 results{end + 1, 1} = 'ma_eval_cull: a wide kernel is evaluated dense';
 results{end, 2} = isempty(mc_planW);
 
+% --- the blocks are the longest their bounds allow ---
+% Runs as a plan makes them: both ends non-decreasing in a key the queries
+% do not arrive sorted by, some runs empty.
+for mc_seed = 0:3
+    rng(mc_seed, 'twister');
+    mc_nQ = 400;
+    mc_nJ = 1000;
+    mc_key = rand(1, mc_nQ);
+    mc_lo = floor(min(max(mc_key - 0.05, 0), 1) * mc_nJ);
+    mc_hi = floor(min(max(mc_key + 0.05, 0), 1) * mc_nJ);
+    mc_empty = rand(1, mc_nQ) < 0.1;
+    mc_hi(mc_empty) = mc_lo(mc_empty);
+    mc_gp = randi([500, 20000]);
+    [mc_q, mc_st] = internal.maCullPlan('blocks', mc_lo, mc_hi, mc_nJ, ...
+                                        mc_gp, 600);
+    mc_en = [mc_st(2:end) - 1, numel(mc_q)];
+    mc_ok = isequal(sort(mc_q), find(mc_hi > mc_lo)) ...
+        && all(diff(mc_lo(mc_q)) >= 0) && all(diff(mc_hi(mc_q)) >= 0);
+    for mc_b = 1:numel(mc_st)
+        mc_s = mc_st(mc_b);
+        mc_e = mc_en(mc_b);
+        mc_ok = mc_ok && (mc_e == mc_s || mcBlockOk(mc_lo, mc_hi, mc_q, ...
+            mc_s, mc_e, mc_nJ, mc_gp, 600));
+        if mc_e < numel(mc_q)
+            mc_ok = mc_ok && ~mcBlockOk(mc_lo, mc_hi, mc_q, mc_s, ...
+                mc_e + 1, mc_nJ, mc_gp, 600);
+        end
+    end
+    results{end + 1, 1} = sprintf(['ma_eval_cull: the blocks are the ' ...
+        'longest their bounds allow, seed %d'], mc_seed);
+    results{end, 2} = mc_ok;
+end
+
+% --- a periodic block holds no centre twice ---
+% Few centres on a periodic coordinate, a window a third of the cycle
+% wide, and no limit on a block's wasted pairs: a block's range of the
+% plan's order, which repeats the centres near either end of the cycle,
+% would otherwise cover some centres twice.
+rng(9, 'twister');
+mc_absWarn = warning('off', 'buildMaet:absPerSingleImage');
+mc_d = buildMaet({rand(1, 12), 60 + 12 * rand(1, 12)}, ...
+    {ones(1, 12), ones(1, 12)}, [0.06 2], [1 1], [false false], ...
+    [true false], [1 0], 'wrap', {'single-image', 'full-image'}, ...
+    'verbose', false);
+warning(mc_absWarn);
+mc_X = [rand(1, 200); 60 + 12 * rand(1, 200)];
+mc_prevOv = internal.maCullPlan('override', struct('blockCost', 1e9));
+results{end + 1, 1} = 'ma_eval_cull: a periodic block holds no centre twice';
+results{end, 2} = mcCullMatchesDense(mc_d, mc_X, 1e-12, 'truncationSigmas', 6);
+internal.maCullPlan('override', mc_prevOv);
+
+% --- a window reaching round the cycle onto itself is not culled on ---
+% 2 k sigma falls short of the period by less than the margin that
+% widens the window, so the widened window would reach round the cycle
+% onto itself: the plan passes the coordinate over, even when culling is
+% forced. The other attribute, periodic on the full image, is never a
+% candidate.
+rng(10, 'twister');
+mc_absWarn = warning('off', 'buildMaet:absPerSingleImage');
+mc_d = buildMaet({rand(1, 50), 12 * rand(1, 50)}, ...
+    {ones(1, 50), ones(1, 50)}, [(0.5 - 1e-12) / 6, 0.3], [1 1], ...
+    [false false], [true true], [1 12], ...
+    'wrap', {'single-image', 'full-image'}, 'verbose', false);
+warning(mc_absWarn);
+internal.maCullMode('always');
+mc_plan = mcPlan(mc_d, [rand(1, 40); 12 * rand(1, 40)], 6);
+internal.maCullMode(mc_prevMode);
+results{end + 1, 1} = 'ma_eval_cull: a window reaching round the cycle is not culled on';
+results{end, 2} = isempty(mc_plan);
+
 clear mc_N mc_on mc_one mc_shapes mc_A mc_Sig mc_specs mc_w mc_k mc_i mc_d ...
       mc_X mc_kr mc_sr mc_dm mc_c mc_pick mc_kb mc_sb mc_onb mc_offs mc_xs ...
       mc_P mc_ph mc_whole mc_prevBytes mc_dense mc_culled mc_v mc_plan ...
-      mc_onD mc_pD mc_narrow mc_wide mc_planN mc_planW p0 p1
+      mc_onD mc_pD mc_narrow mc_wide mc_planN mc_planW p0 p1 mc_seed ...
+      mc_nQ mc_nJ mc_key mc_lo mc_hi mc_empty mc_gp mc_q mc_st mc_en ...
+      mc_ok mc_b mc_s mc_e mc_absWarn mc_prevOv
 clear mc_restoreMode mc_prevMode
 
 if standalone
@@ -285,4 +360,14 @@ function plan = mcPlan(d, X, k)
     plan = internal.maCullPlan(dm.Centres, Xc, dm.nJ, size(X, 2), ...
         dm.dimPerAttr, dm.sigma, dm.rel, dm.per, dm.period, zeros(1, A), ...
         wrapCell, k, 'double');
+end
+
+
+function ok = mcBlockOk(lo, hi, q, s, e, nJ, groupPairs, blockCost)
+    % Whether the queries q(s:e) as one block meet the three bounds of
+    % internal.maCullPlan's blocks.
+    width = hi(q(e)) - lo(q(s));
+    pairs = width * (e - s + 1);
+    own = sum(hi(q(s:e)) - lo(q(s:e)));
+    ok = width <= nJ && pairs <= groupPairs && pairs - own <= blockCost;
 end

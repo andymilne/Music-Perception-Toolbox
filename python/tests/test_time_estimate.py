@@ -35,6 +35,7 @@ from mpt._tensor.dispatch import (
     _MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS,
     _MA_COST_CENTRES_SETUP_MS,
     _MA_COST_MOBIUS_PER_EVENT_ATTR_MS,
+    _MA_COST_JOINT_DENSE_PAIR,
     _MA_COST_MOBIUS_SETUP_MS,
     _ma_eval_costs_ms,
     _predict_ma_eval_cost_ms,
@@ -110,7 +111,8 @@ class TestCullingCorrection:
         # whose spread is widest against its window, so the share of the
         # joint centres a query meets is that coordinate's alone (a
         # relative attribute's window is sqrt(2) wider, its coordinates
-        # being differences), capped where culling would not pay.
+        # being differences). Each costs _MA_CULL_PAIR_COST pairs of the
+        # dense broadcast, capped where culling would not pay.
         K, nq = 12, 500
         spread, sigma = 1150.0, 20.0
         p = [np.linspace(0.0, spread, K).reshape(-1, 1)] * 2
@@ -119,10 +121,9 @@ class TestCullingCorrection:
             [0.0, 0.0], verbose=False,
         )
         joint = (2 * (K * (K - 1) // 2)) * K
-        share = min(
-            _MA_COST_CENTRES_CULL_C * np.sqrt(2.0) * sigma / spread,
-            _MA_COST_CENTRES_CULL_C * sigma / spread,
-            1.0 / _MA_CULL_PAIR_COST,
+        share = _MA_COST_JOINT_DENSE_PAIR * min(
+            _MA_CULL_PAIR_COST * _MA_COST_CENTRES_CULL_C * sigma / spread,
+            1.0,
         )
         expected = (
             _MA_COST_CENTRES_SETUP_MS
@@ -135,8 +136,8 @@ class TestCullingCorrection:
 
     def test_joint_path_share_is_capped_where_culling_would_not_pay(self):
         # A kernel wide against every spread leaves nothing to cull: the
-        # path runs dense, each pair costing 1 / _MA_CULL_PAIR_COST of a
-        # culled one.
+        # path runs dense, each pair costing _MA_COST_JOINT_DENSE_PAIR of
+        # a culled tuple of the single-multiset kernel.
         K, nq = 6, 100
         p = [np.linspace(0.0, 10.0, K).reshape(-1, 1)] * 2
         d = mpt.build_maet(
@@ -149,7 +150,7 @@ class TestCullingCorrection:
             + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint
             + nq * (_MA_COST_CENTRES_QUERY_BASE_MS
                     + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint
-                    / _MA_CULL_PAIR_COST)
+                    * _MA_COST_JOINT_DENSE_PAIR)
         )
         centres_ms, _ = _ma_eval_costs_ms(d, nq)
         assert centres_ms == pytest.approx(expected, rel=1e-12)

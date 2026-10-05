@@ -5,14 +5,20 @@ where an attribute is at r = 1 or carries a kernel covariance) holds a
 dense chunk to a cache-sized working set and culls on one coordinate
 where that pays (see ``_ma_cull_plan`` in ``mpt/_tensor/eval.py``). This
 script measures, on densities that take the path, the time per query of
-the dense evaluation at several chunk caps and of the culled evaluation,
-to check two constants on a given machine:
+the dense evaluation at several chunk caps and of the culled evaluation
+at several block costs, to check three constants on a given machine:
 
 * ``_MA_CACHE_CHUNK_BYTES`` (8 MB): the cap whose column is fastest;
-* ``_MA_CULL_PAIR_COST`` (2.5): the cost of a culled pair relative to a
-  dense one, printed as ``ratio`` (culled time per kept pair over dense
-  time per pair, at the 8 MB cap). Culling is chosen when the kept pairs,
-  at that cost, undercut the dense ones.
+* ``_MA_CULL_BLOCK_COST`` (4096): the fixed cost of a block of culled
+  queries, in pairs of the dense broadcast, the most pairs a block may
+  evaluate beyond its queries' own runs; the culled columns run at 1024,
+  4096 and 16384, and the middle one should be about the fastest;
+* ``_MA_CULL_PAIR_COST`` (1.25): the cost of a pair in a culled query's
+  run relative to a dense pair, the blocks' wasted pairs and fixed cost
+  spread over the runs, printed as ``ratio`` (culled time at the default
+  block cost per pair in the runs, over dense time per pair at the 8 MB
+  cap). Culling is chosen when the pairs in the runs, at that cost,
+  undercut the dense ones.
 
 HOW TO RUN
 ----------
@@ -32,6 +38,7 @@ from mpt._tensor.dispatch import _inner_r_vec
 
 N_Q = 500
 CAPS_MB = [1, 2, 4, 8, 16, 32]
+BLOCK_COSTS = [1024, 4096, 16384]
 
 
 def _time_ms(fn, repeats=5):
@@ -76,36 +83,43 @@ def _kept_pairs(d, X):
 
 def main():
     prev = (mpt.get_default("show_hints"), ev._MA_CULL_MODE,
-            ev._MA_CACHE_CHUNK_BYTES)
+            ev._MA_CACHE_CHUNK_BYTES, ev._MA_CULL_BLOCK_COST)
     mpt.set_default(show_hints=False, truncation_sigmas=6.0)
     try:
         rng = np.random.default_rng(0)
-        print("microseconds per query; dense at each chunk cap, culled, "
-              "auto, and the culled-to-dense pair-cost ratio")
+        print("microseconds per query; dense at each chunk cap, culled at "
+              "each block cost, auto, and the culled-to-dense pair-cost "
+              "ratio")
         print(f"{'cell':36s} " + " ".join(f"{c:>6d}MB" for c in CAPS_MB)
-              + "   culled     auto  ratio")
+              + " " + " ".join(f"{'b' + str(b):>8s}" for b in BLOCK_COSTS)
+              + "     auto  ratio")
         for label, d, X in _cells(rng):
-            def run(mode, cap):
+            def run(mode, cap, block=prev[3]):
                 ev._MA_CULL_MODE = mode
                 ev._MA_CACHE_CHUNK_BYTES = cap
+                ev._MA_CULL_BLOCK_COST = block
                 return mpt.eval_maet(d, X, method="centres", verbose=False)
             dense = [_time_ms(lambda c=c: run("never", c * 2 ** 20))
                      for c in CAPS_MB]
-            culled = _time_ms(lambda: run("always", 8 * 2 ** 20))
+            culled = [_time_ms(lambda b=b: run("always", 8 * 2 ** 20, b))
+                      for b in BLOCK_COSTS]
             auto = _time_ms(lambda: run("auto", 8 * 2 ** 20))
             ev._MA_CULL_MODE = "always"
             kept = _kept_pairs(d, X)
             dense8 = dense[CAPS_MB.index(8)]
-            ratio = (culled / kept) / (dense8 / (float(d.n_j) * X.shape[1]))
+            culled0 = _time_ms(lambda: run("always", 8 * 2 ** 20))
+            ratio = (culled0 / kept) / (dense8 / (float(d.n_j) * X.shape[1]))
             per_q = 1e3 / X.shape[1]
             print(f"{label:36s} "
                   + " ".join(f"{t * per_q:8.1f}" for t in dense)
-                  + f" {culled * per_q:8.1f} {auto * per_q:8.1f} {ratio:6.2f}",
+                  + " " + " ".join(f"{t * per_q:8.1f}" for t in culled)
+                  + f" {auto * per_q:8.1f} {ratio:6.2f}",
                   flush=True)
     finally:
         mpt.set_default(show_hints=prev[0])
         ev._MA_CULL_MODE = prev[1]
         ev._MA_CACHE_CHUNK_BYTES = prev[2]
+        ev._MA_CULL_BLOCK_COST = prev[3]
 
 
 if __name__ == "__main__":

@@ -1373,6 +1373,18 @@ _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 1.296e-06
 #: ``tools/fit_ma_eval_cost.py``.
 _MA_COST_MOBIUS_PER_EVENT_ATTR_MS = 0.016
 
+#: Joint-centres path, the cost of a pair of its dense broadcast as a
+#: share of ``CENTRES_QUERY_PER_JOINT_MS`` (a culled tuple of the
+#: single-multiset kernel, which the calibration grid measures). A pair
+#: in a culled query's run costs ``_MA_CULL_PAIR_COST`` times as much.
+#: The value is the one the path was priced at while its culled pairs
+#: were evaluated pair by pair, at 2.5 dense pairs each (so 1 / 2.5),
+#: with which the October 2026 dispatch audit found no mispick on the
+#: joint path that the culled share did not explain. Not in the
+#: single-multiset calibration grid, so not refitted by
+#: ``tools/fit_ma_eval_cost.py``.
+_MA_COST_JOINT_DENSE_PAIR = 0.4
+
 #: Spectral (Fourier) strategy inside the Möbius relative evaluator,
 #: per tuple size. ``PER_MODE`` is the K-free per-query slope against
 #: the mode count (window/sigma); ``PERIODIC_K`` is the additional
@@ -1585,6 +1597,7 @@ _MA_COST_NONLINEAR_NAMES = (
 #: fixed by a refit.
 _MA_COST_MULTI_EVENT_NAMES = (
     "MOBIUS_PER_EVENT_ATTR_MS",
+    "JOINT_DENSE_PAIR",
 )
 
 
@@ -1786,7 +1799,8 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
 
     def _joint_share():
         """Per-query work of the joint-centres path, as a share of its
-        centres, each counted at the cost of a culled tuple.
+        centres, each counted at the cost of a culled tuple of the
+        single-multiset kernel.
 
         The path culls on the one coordinate whose spread is widest
         against its window (``mpt._tensor.eval._ma_cull_plan``): a query
@@ -1794,10 +1808,10 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         (``sqrt(2) sigma`` on a relative attribute, whose coordinates
         are differences) and ``span`` the spread of the values (the
         period on a periodic attribute). A periodic attribute evaluated
-        on the full image is never culled on. Where culling would not
-        pay the path runs dense, whose pairs cost
-        ``1 / _MA_CULL_PAIR_COST`` of a culled one, so the share is
-        capped there.
+        on the full image is never culled on. A pair of the path's dense
+        broadcast costs ``JOINT_DENSE_PAIR`` of such a tuple, and a pair
+        in a culled query's run ``_MA_CULL_PAIR_COST`` dense pairs; where
+        culling would not pay, the path runs dense.
         """
         from .eval import _MA_CULL_PAIR_COST
         wrap = getattr(dens, "wrap", None)
@@ -1814,7 +1828,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
             span = period[a] if per[a] else _attr_spread(a)
             if span > 0:
                 share = min(share, C["CENTRES_CULL_C"] * h / span)
-        return min(share, 1.0 / _MA_CULL_PAIR_COST)
+        return C["JOINT_DENSE_PAIR"] * min(_MA_CULL_PAIR_COST * share, 1.0)
 
     # Three centres routes, mirroring the evaluator that actually runs.
     # A single multiset (A = N = 1) takes the single-multiset kernel. The

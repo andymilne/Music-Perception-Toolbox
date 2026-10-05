@@ -1019,10 +1019,10 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     % Peak memory per chunk is dominated by the largest per-attribute
     % (dim_a, N_J, nQc) difference tensor, its square, and the
     % summed/exponentiated intermediate co-resident during chunk eval.
-    % Chunks are held to a cache-sized working set, the memory budget
-    % remaining the ceiling; culling evaluates each query against only
-    % the centres within the truncation width on one coordinate. See
-    % internal.maCullPlan for both.
+    % Chunks and blocks are held to a cache-sized working set, the memory
+    % budget remaining the ceiling; culling evaluates each query against
+    % little more than the centres within the truncation width on one
+    % coordinate. See internal.maCullPlan for both.
     [plan, cullC] = internal.maCullPlan(Centres, Xc, N_J, nQ, ...
         dimPerAttr, sigmaG, isRelG, isPerG, periodG, innerR, wrapCell, ...
         truncResolved, qDtype);
@@ -1043,8 +1043,12 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     if ~isempty(plan)
         % The centres, weights, and table indices permuted once into the
         % plan's order, so that each query's centres are one contiguous
-        % run; queries are taken in their own order, in groups whose
-        % pairs fit the chunk, each group's pairs as one flat list.
+        % run. The queries are taken in blocks of neighbours on the
+        % culling coordinate, and each block is evaluated densely over
+        % the range its runs cover: a slice of the centres, the sum over
+        % them a matrix-vector product, nothing gathered pair by pair. A
+        % centre in the range but outside a query's own run lies beyond
+        % the truncation width and contributes nothing.
         CentP = cell(1, A);
         for a = 1:A
             CentP{a} = Centres{a}(:, plan.order);
@@ -1056,42 +1060,31 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 tableP{a}{2} = tableP{a}{2}(:, plan.order);
             end
         end
-        counts = plan.hi - plan.lo;
-        cum = cumsum(counts);
         vals = zeros(1, nQ);
-        total = 0;
-        if ~isempty(cum)
-            total = cum(end);
-        end
-        if total > 0
-            groupPairs = max(1, floor(chunkBytes ...
-                                      / ((2 * max(dimPerAttr) + 4) * 8)));
-            % Group boundaries: after the query at which the running pair
-            % count first reaches each multiple of groupPairs.
-            cuts = internal.maCullPlan('countBelow', cum, ...
-                groupPairs:groupPairs:(total - 1), false) + 1;
-            bounds = unique([0, cuts, nQ]);
-            for g = 1:numel(bounds) - 1
-                g0 = bounds(g);
-                g1 = bounds(g + 1);
-                cnt = counts(g0 + 1:g1);
-                nP = sum(cnt);
-                if nP == 0
-                    continue;
+        groupPairs = max(1, floor(chunkBytes ...
+                                  / ((2 * max(dimPerAttr) + 2) * 8)));
+        [qB, startsB] = internal.maCullPlan('blocks', plan.lo, plan.hi, ...
+            N_J, groupPairs, cullC.blockCost);
+        endsB = [startsB(2:end) - 1, numel(qB)];
+        CentB = cell(1, A);
+        Xb = cell(1, A);
+        for b = 1:numel(startsB)
+            qb = qB(startsB(b):endsB(b));
+            a0 = plan.lo(qb(1)) + 1;
+            a1 = plan.hi(qb(end));
+            tableB = tableP;
+            for a = 1:A
+                CentB{a} = CentP{a}(:, a0:a1);
+                Xb{a} = Xc{a}(:, qb);
+                if ~isempty(tableB{a})
+                    tableB{a}{2} = tableP{a}{2}(:, a0:a1);
                 end
-                qIdx = repelem(1:(g1 - g0), cnt);
-                start = cumsum(cnt) - cnt;
-                cIdx = plan.lo(g0 + qIdx) + ((1:nP) - start(qIdx));
-                Xg = cell(1, A);
-                for a = 1:A
-                    Xg{a} = Xc{a}(:, g0 + 1:g1);
-                end
-                vals(g0 + 1:g1) = maetEvalFull(Xg, g1 - g0, CentP, wP, ...
-                    tableP, cIdx, qIdx);
             end
+            vals(qb) = maetEvalFull(Xb, numel(qb), CentB, wP(a0:a1), ...
+                tableB);
         end
     elseif bytesNeeded <= chunkBytes
-        vals = maetEvalFull(Xc, nQ, Centres, wJ, absPerTable, [], []);
+        vals = maetEvalFull(Xc, nQ, Centres, wJ, absPerTable);
     else
         chunkSize = max(1, floor(chunkBytes / max(bytesPerCol, 1)));
         vals = zeros(1, nQ);
@@ -1103,7 +1096,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 Xc_c{a} = Xc{a}(:, idx);
             end
             vals(idx) = maetEvalFull(Xc_c, numel(idx), Centres, wJ, ...
-                absPerTable, [], []);
+                absPerTable);
         end
     end
 
@@ -1116,20 +1109,14 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     %  Inner helper: full MAET evaluation (single chunk)
     % =====================================================================
 
-    function v = maetEvalFull(Xchunk, nQc, Cent, w, tables, cIdx, qIdx)
-        % With cIdx and qIdx empty, every centre meets every query,
-        % through the broadcast (dim_a, nJ, nQc) differences. Otherwise
-        % only the listed (centre, query) pairs are evaluated, as one
-        % flat list, and each query's value is the sum over its pairs:
-        % the culled evaluation. The truncation is a post-filter on the
-        % summed exponent.
-        paired = ~isempty(qIdx);
+    function v = maetEvalFull(Xchunk, nQc, Cent, w, tables)
+        % Every centre meets every query, through the broadcast
+        % (dim_a, nJ, nQc) differences; the culled evaluation passes a
+        % contiguous range of the centres and the block of queries whose
+        % runs it covers. The truncation is a post-filter on the summed
+        % exponent.
         nJc = numel(w);
-        if paired
-            shapeQ = [numel(qIdx), 1];
-        else
-            shapeQ = [nJc, nQc];
-        end
+        shapeQ = [nJc, nQc];
         Q_total = zeros(shapeQ, qDtype);
         % Abs-per full-image contribution accumulates multiplicatively as
         % a product of per-attribute per-coordinate theta products rather than
@@ -1166,12 +1153,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                         - reshape(Xa(k, :), 1, []), ...
                         double(sigmaG(a)), double(periodG(a)), ...
                         truncResolved, 2);
-                    if paired
-                        thetaK = tableK(uInv(k, cIdx) ...
-                                        + (qIdx - 1) * size(tableK, 1));
-                    else
-                        thetaK = tableK(uInv(k, :), :);
-                    end
+                    thetaK = tableK(uInv(k, :), :);
                     if isempty(factorA)
                         factorA = thetaK;
                     else
@@ -1187,11 +1169,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 continue;
             end
 
-            if paired
-                D_a = Ca(:, cIdx) - Xa(:, qIdx);
-            else
-                D_a = reshape(Ca, da, nJc, 1) - reshape(Xa, da, 1, nQc);
-            end
+            D_a = reshape(Ca, da, nJc, 1) - reshape(Xa, da, 1, nQc);
             if innerR(a) > 0
                 % Inner [rel] unit: block-diagonal metric over event blocks
                 % (reduced convention; pairwise wrap inside the helper).
@@ -1256,16 +1234,8 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             E = E .* absPerFactor;
         end
 
-        if paired
-            % Each product is formed at the working precision, as on the
-            % dense branch; the sum over a query's pairs is accumulated
-            % in double.
-            wq = cast(w(cIdx), qDtype);
-            v = accumarray(qIdx(:), double(wq(:) .* E(:)), [nQc, 1]).';
-        else
-            wJq = cast(w(:).', qDtype);
-            v = double(wJq * E);
-        end
+        wJq = cast(w(:).', qDtype);
+        v = double(wJq * E);
     end
 
     function Q_a = qInnerBlocksReducedLocal(D_a, rIn, a, Pg)

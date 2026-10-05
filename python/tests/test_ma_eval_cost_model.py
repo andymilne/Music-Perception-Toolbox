@@ -382,6 +382,32 @@ def test_joint_working_set_ordered_attr_counts_combinations():
     assert b_ord_full == 1 * 11 * 2 * 8
 
 
+def test_joint_working_set_counts_every_event_on_the_joint_path():
+    """The joint-centres path, taken where an attribute is at r = 1,
+    holds every event's joint tuple set at once, so its working set is N
+    times one event's; the factored routes take a density event by
+    event, so theirs is one event's whatever N is."""
+    from mpt._tensor.dispatch import (_estimate_ma_joint_working_set_bytes,
+                                      _joint_path_events)
+    one = _estimate_ma_joint_working_set_bytes([1, 2], [1, 3], [False, False])
+    assert _estimate_ma_joint_working_set_bytes(
+        [1, 2], [1, 3], [False, False], n_events=500) == 500 * one
+    g = np.random.default_rng(0)
+    mixed = build_maet([g.uniform(0, 100, (1, 500)),
+                        g.uniform(0, 100, (3, 500))], None, [1.0, 1.0],
+                       [1, 2], [False, False], [False, False], [0., 0.],
+                       verbose=False)
+    factored = build_maet([g.uniform(0, 100, (3, 500)),
+                           g.uniform(0, 100, (3, 500))], None, [1.0, 1.0],
+                          [2, 2], [False, False], [False, False], [0., 0.],
+                          verbose=False)
+    single = build_maet([g.uniform(0, 100, (3, 1))], None, [1.0], [1],
+                        [False], [False], [0.], verbose=False)
+    assert _joint_path_events(mixed) == 500
+    assert _joint_path_events(factored) == 1
+    assert _joint_path_events(single) == 1
+
+
 def test_ma_eval_ordered_r11_routes_centres_and_evaluates():
     """A bound ordered 11-tuple (one tuple per event) routes to the
     centres path on the ordered hard rule -- before the feasibility

@@ -1459,7 +1459,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
 
 
 def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, rel,
-                                         exch_vec=None) -> int:
+                                         exch_vec=None, n_events=1) -> int:
     """Estimate the multi-attribute joint-centres working set in bytes.
 
     The multi-attribute centres path materialises the *joint* tuple
@@ -1473,7 +1473,9 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, rel,
     guard. Used only to detect when a convention- or precision-forced
     centres pick would be infeasible, so an over-count is the right
     bias. ``exch_vec`` omitted treats every attribute as unordered, the
-    conservative (larger) count.
+    conservative (larger) count. ``n_events`` is the number of events
+    whose joint tuple sets are held at once (see
+    :func:`_joint_path_events`).
     """
     A = len(r_vec)
     n_joint = 1
@@ -1495,7 +1497,22 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, rel,
         # anything past the budget is already "infeasible".
         if n_joint * max(D, 1) * 8 > (1 << 60):
             return 1 << 60
-    return n_joint * max(D, 1) * 2 * 8
+    return min(n_joint * max(D, 1) * 2 * 8 * max(int(n_events), 1), 1 << 60)
+
+
+def _joint_path_events(dens) -> int:
+    """Events whose joint tuple sets the evaluation holds at once.
+
+    The joint-centres path, taken where an attribute is at ``r <= 1`` or
+    carries a kernel covariance, materialises every event's joint tuple
+    set together, so its working set is N times one event's. The
+    factored routes take a density event by event, and a single multiset
+    has one event; for those the count is 1.
+    """
+    r_vec = [int(v) for v in np.atleast_1d(dens.r)]
+    joint = (getattr(dens, "kernel_cov", None) is not None
+             or any(r_a < 2 for r_a in r_vec))
+    return int(max(int(getattr(dens, "n", 1)), 1)) if joint else 1
 
 
 
@@ -2310,7 +2327,8 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
         # refused here), so raise rather than OOM.
         joint_ws = _estimate_ma_joint_working_set_bytes(
             r_vec, k_vec, rel,
-            exch_vec=getattr(dens, "exch", None))
+            exch_vec=getattr(dens, "exch", None),
+            n_events=_joint_path_events(dens))
         if joint_ws > _DISPATCH_MEM_BUDGET:
             raise SingleImageInfeasibleError(
                 f"eval_maet requires the single-image centres route "
@@ -2355,7 +2373,8 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # a joint working set above the soft budget. Below it the comparison
     # is a pure time comparison and the cheaper estimate wins.
     joint_ws = _estimate_ma_joint_working_set_bytes(
-        r_vec, k_vec, rel, exch_vec=getattr(dens, "exch", None))
+        r_vec, k_vec, rel, exch_vec=getattr(dens, "exch", None),
+        n_events=_joint_path_events(dens))
     safety = (_MA_MOBIUS_SAFETY
               if joint_ws > _CENTRES_WORKING_SET_SOFT_BUDGET
               else _MA_MOBIUS_SAFETY_SMALL)

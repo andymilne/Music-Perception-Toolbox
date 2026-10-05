@@ -167,7 +167,8 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         % Centres is the only route; guard against OOM (no cheaper
         % all-image fallback here).
         jointWs = internal.estimateMaJointWorkingSetBytes( ...
-            rVec, kVec, isRel, logical(dens.exch(:).'));
+            rVec, kVec, isRel, logical(dens.exch(:).'), ...
+            localJointPathEvents(dens, rVec));
         if jointWs > internal.dispatchMemBudget()
             error('mpt:dispatch:singleImageInfeasible', ...
                 ['evalMaet requires the single-image centres route ' ...
@@ -245,7 +246,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
             exchArg = [];
         end
         jointWsSafety = internal.estimateMaJointWorkingSetBytes( ...
-            rVec, kVec, isRel, exchArg);
+            rVec, kVec, isRel, exchArg, localJointPathEvents(dens, rVec));
         if jointWsSafety > CENTRES_WORKING_SET_SOFT_BUDGET
             safety = MA_MOBIUS_SAFETY;
         else
@@ -258,5 +259,21 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
             chosen = 'centres';
             routingReason = 'cost model (joint centres cheaper)';
         end
+    end
+end
+
+
+function n = localJointPathEvents(dens, rVec)
+%LOCALJOINTPATHEVENTS  Events whose joint tuple sets the evaluation holds
+%   at once. The joint-centres path, taken where an attribute is at
+%   r <= 1 or carries a kernel covariance, materialises every event's
+%   joint tuple set together, so its working set is N times one event's.
+%   The factored routes take a density event by event, and a single
+%   multiset has one event; for those it is 1. Twin of the Python
+%   _joint_path_events.
+    if any(rVec < 2) || internal.densityHasKernelCov(dens)
+        n = max(double(dens.N), 1);
+    else
+        n = 1;
     end
 end

@@ -91,6 +91,14 @@ results{end+1, 1} = 'OOM guard: ordered attr counts combinations';
 results{end, 2} = abs(b_ord - nchoosek(20, 11) * 11 * 2 * 8) < 0.5 ...
     && b_ordFull == 1 * 11 * 2 * 8 && b_ord < b_huge;
 
+% 6b. The joint-centres path holds every event's joint tuple set at
+%     once, so its working set is NEVENTS times one event's (twin of the
+%     Python test_joint_working_set_counts_every_event_on_the_joint_path).
+b_one  = internal.estimateMaJointWorkingSetBytes([1 2], [1 3], [false false]);
+b_many = internal.estimateMaJointWorkingSetBytes([1 2], [1 3], [false false], [], 500);
+results{end+1, 1} = 'OOM guard: joint working set counts every event';
+results{end, 2} = b_many == 500 * b_one && b_one > 0;
+
 % 7. A bound ordered 9-tuple density (three attributes, one read
 %    relative; one tuple per attribute per event) must pass
 %    auto-dispatch -- its enumerated tuple set is one tuple per

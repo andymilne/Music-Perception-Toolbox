@@ -27,30 +27,46 @@ nReps = 5;
 rng(0, 'twister');
 
 % Shape grid spanning the crossover: single- and multi-attribute,
-% absolute and relative, small-to-moderate K. Large-K cells omit the
-% centres timing (it is infeasible there -- exactly why the model must
-% pick Möbius; feasibility is covered by the cost-model test).
-%   {label, sigma, r, rel, per, period, K}
+% absolute and relative, small-to-moderate K, one event and many. Large-K
+% cells omit the centres timing (it is infeasible there -- exactly why
+% the model must pick Möbius; feasibility is covered by the cost-model
+% test). The cells with an attribute at r = 1 take the joint-centres
+% path, culled on that attribute where its kernel is narrow against its
+% spread; the cells with N > 1 check the pricing of the routes that take
+% a density event by event. K is one value for every attribute, or one
+% per attribute; values are uniform on [0, 100].
+%   {label, sigma, r, rel, per, period, K, N}
 grid = {
-  {'A1 r2 K6',   30,      2,     false,         false,         0,       6}
-  {'A1 r2 K10',  30,      2,     false,         false,         0,       10}
-  {'A1 r2 K20',  30,      2,     false,         false,         0,       20}
-  {'A1 r3 K6',   30,      3,     false,         false,         0,       6}
-  {'A1 r3 K8',   30,      3,     false,         false,         0,       8}
-  {'A1 r3 K12',  30,      3,     false,         false,         0,       12}
-  {'A2 r2 K5',   [30 25], [2 2], [false false], [false false], [0 0],   5}
-  {'A2 r2 K8',   [30 25], [2 2], [false false], [false false], [0 0],   8}
-  {'A2 r2 K12',  [30 25], [2 2], [false false], [false false], [0 0],   12}
-  {'A2 r3 K6',   [30 25], [3 3], [false false], [false false], [0 0],   6}
-  {'A2 r3 K10',  [30 25], [3 3], [false false], [false false], [0 0],   10}
-  {'A1 rel r2 K8',  30,   2,     true,          false,         0,       8}
-  {'A1 rel r3 K8',  30,   3,     true,          false,         0,       8}
+  {'A1 r2 K6',   30,      2,     false,         false,         0,       6,  1}
+  {'A1 r2 K10',  30,      2,     false,         false,         0,       10, 1}
+  {'A1 r2 K20',  30,      2,     false,         false,         0,       20, 1}
+  {'A1 r3 K6',   30,      3,     false,         false,         0,       6,  1}
+  {'A1 r3 K8',   30,      3,     false,         false,         0,       8,  1}
+  {'A1 r3 K12',  30,      3,     false,         false,         0,       12, 1}
+  {'A2 r2 K5',   [30 25], [2 2], [false false], [false false], [0 0],   5,  1}
+  {'A2 r2 K8',   [30 25], [2 2], [false false], [false false], [0 0],   8,  1}
+  {'A2 r2 K12',  [30 25], [2 2], [false false], [false false], [0 0],   12, 1}
+  {'A2 r3 K6',   [30 25], [3 3], [false false], [false false], [0 0],   6,  1}
+  {'A2 r3 K10',  [30 25], [3 3], [false false], [false false], [0 0],   10, 1}
+  {'A1 rel r2 K8',  30,   2,     true,          false,         0,       8,  1}
+  {'A1 rel r3 K8',  30,   3,     true,          false,         0,       8,  1}
+  {'A2 r2 K6 N20',  [30 25], [2 2], [false false], [false false], [0 0], 6,  20}
+  {'A2 r2 K12 N20', [30 25], [2 2], [false false], [false false], [0 0], 12, 20}
+  {'A2 r3 K8 N20',  [30 25], [3 3], [false false], [false false], [0 0], 8,  20}
+  {'A2 rel r2 K8 N10', [30 25], [2 2], [true true], [false false], [0 0], 8, 10}
+  {'r1+r2 N30',     [0.3 15], [1 2], [false false], [false false], [0 0], [1 3], 30}
+  {'r1+r2 N300',    [0.3 15], [1 2], [false false], [false false], [0 0], [1 3], 300}
+  {'r1+r2 N3000',   [0.3 15], [1 2], [false false], [false false], [0 0], [1 3], 3000}
+  {'r1+r2 wide N300', [5 15], [1 2], [false false], [false false], [0 0], [1 3], 300}
+  {'r1+rel r3 N300', [0.3 15], [1 3], [false true], [false false], [0 0], [1 4], 300}
+  {'r1+r3 K10 N20', [15 15], [1 3], [false false], [false false], [0 0], [10 10], 20}
+  {'r1+r2 K12 N50', [15 15], [1 2], [false false], [false false], [0 0], [12 12], 50}
 };
 
-fprintf('%-14s %8s %8s %9s %9s %9s %9s %8s %8s %6s\n', ...
+fprintf('%-16s %8s %8s %9s %9s %9s %9s %8s %8s %6s\n', ...
     'cell', 'orbit', 'joint', 'cen_ms', 'mob_ms', 'pred_cen', ...
     'pred_mob', 'faster', 'predict', 'o/j');
-fprintf('%s\n', repmat('-', 1, 102));
+fprintf('%s\n', repmat('-', 1, 104));
 
 % Global warm-up before timing. MATLAB pays one-time costs on the first
 % use of each path within a run --- function compilation, +mobius
@@ -76,21 +92,22 @@ mismatch = 0; tested = 0;
 
 for gi = 1:numel(grid)
     c = grid{gi};
-    [label, sig, rv, rel, per, P, K] = c{:};
+    [label, sig, rv, rel, per, P, K, N] = c{:};
     A = numel(sig);
+    if isscalar(K), K = repmat(K, 1, A); end
     pas = cell(A, 1);
-    for a = 1:A, pas{a} = 100 * rand(K, 1); end
+    for a = 1:A, pas{a} = 100 * rand(K(a), N); end
     wpas = repmat({[]}, A, 1);
     dens = buildMaet(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
     xq = 100 * rand(dens.dim, nQ);
 
     [pred, ~, predCen, predMob] = internal.selectMaEval(dens, nQ);
 
-    % op-counts
-    joint = 1; orbit = 0;
+    % op-counts, over all N events
+    joint = N; orbit = 0;
     for a = 1:A
-        joint = joint * factorial(rv(a)) * nchoosek(K, rv(a));
-        orbit = orbit + BELL(rv(a)) * rv(a) * K;
+        joint = joint * factorial(rv(a)) * nchoosek(K(a), rv(a));
+        orbit = orbit + N * BELL(rv(a)) * rv(a) * K(a);
     end
 
     % time centres (guarded: skip if it would be hopeless)
@@ -105,13 +122,13 @@ for gi = 1:numel(grid)
     tested = tested + 1;
     if ~ok, mismatch = mismatch + 1; end
 
-    fprintf(['%-14s %8d %8d %9.2f %9.2f %9.2f %9.2f %8s %8s %6.2f' ...
+    fprintf(['%-16s %8d %8d %9.2f %9.2f %9.2f %9.2f %8s %8s %6.2f' ...
              '  %s\n'], label, orbit, joint, tCen * 1e3, tMob * 1e3, ...
         predCen, predMob, faster, pred, orbit / joint, ...
         tern(ok, '', '<-- MISPICK'));
 end
 
-fprintf('%s\n', repmat('-', 1, 102));
+fprintf('%s\n', repmat('-', 1, 104));
 fprintf('mispicks outside 25%% noise band: %d / %d\n', mismatch, tested);
 fprintf(['\nThis audits the shipped fit; it does not produce one. The ' ...
          'calibration harness is\nbench_ma_eval_calibration.m, whose CSV ' ...

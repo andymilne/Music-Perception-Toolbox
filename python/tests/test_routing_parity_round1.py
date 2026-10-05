@@ -66,11 +66,12 @@ def _nested(values, sigma, *, rel=True, per=True, wrap='full-image',
 
 
 def _flat(seed, sigma, r=2, *, rel=False, per=True, wrap='full-image',
-          K=5, N=2):
+          K=5, N=2, exch=True):
     rng = np.random.default_rng(seed)
     p = np.sort(rng.uniform(0.0, P, size=(K, N)), axis=0)
     return build_maet([p], None, [sigma], [r], [rel], [per],
-                          [P if per else 0.0], wrap=[wrap], verbose=False)
+                          [P if per else 0.0], [exch], wrap=[wrap],
+                          verbose=False)
 
 
 # --------------------------------------------------------------- A-1 / B-1
@@ -246,8 +247,14 @@ def test_eval_single_precision_is_honoured_on_both_routes(method):
 
 def test_entropy_list_form_forwards_the_width():
     """A relative density reaches the grid evaluator, where the width
-    matters; the list form must give the scalar form's number."""
-    d = _flat(4, 0.5, r=2, rel=True, per=False, K=5, N=2)
+    matters; the list form must give the scalar form's number.
+
+    The attribute is ordered, so the centres route is taken by a hard
+    rule (an ordered attribute has no orbit to collapse), and on that
+    route the width governs the value. Exchangeable, so small a shape is
+    a near tie in the cost model between centres and Möbius, and the
+    Möbius route's relative evaluator is not governed by the width."""
+    d = _flat(4, 0.5, r=2, rel=True, per=False, K=5, N=2, exch=False)
     kw = dict(method="shannon", n_points_per_dim=64, x_min=-6.0, x_max=6.0,
               verbose=False)
     scalar = entropy_maet(d, truncation_sigmas=1.5, **kw)

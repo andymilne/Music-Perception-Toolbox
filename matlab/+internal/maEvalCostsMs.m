@@ -6,7 +6,12 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
 %   machine: the joint-centres path and the factored Möbius evaluator.
 %
 %   Depends only on the density shape (r_a, K_a, N), the geometry, and
-%   the query count NQ --- no probe, no timing. Shared by the eval path
+%   the query count NQ --- no probe, no timing. The constants are
+%   calibrated on single multisets (A = N = 1); the routes that take a
+%   density event by event (the factored centres route and the factored
+%   Möbius evaluator, each a loop over events calling the single-multiset
+%   kernel or evaluator per attribute) are priced at N times that
+%   per-event cost, the per-call setup once. Shared by the eval path
 %   selector INTERNAL.SELECTMAEVAL, which compares the two, and by
 %   EXPLAINDISPATCH, which reports both estimates even where a hard rule
 %   settled the route without consulting them. One implementation
@@ -194,6 +199,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % spread is unknown at selection time, so the source spread stands in
     % for the alignment window). ----
     nQeff = max(double(nQ), 1);
+    nEvents = max(double(dens.N), 1);
     % Nested attributes are estimated by internal.nestedEvalCostsMs; here
     % they are skipped (their r is the leaf-position total, not a flat order).
     flatAttrs = 1:A;
@@ -217,17 +223,32 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
         jointTuples = jointTuples * factorial(r_a) * localComb(K_a, r_a);
     end
 
-    % The factored centres route (all r_a >= 2, scalar sigma) never
-    % materialises the joint tuple set: cost is the SUM of per-attribute
-    % tuple counts through the culled per-attribute kernels, plus a small
-    % per-attribute per-query overhead (bucket lookup and gather). The
-    % joint-materialisation cost estimation applies only where that route is
-    % unsupported (any r_a < 2, or a matrix kernel covariance), mirroring
-    % localMaEvalFactored's support predicate. Non-periodic attributes
-    % take the bucket-grid culling factor min(1, c*sigma/spread);
-    % periodic ones run dense (the pairwise wrap is not a
-    % tail-truncatable ball).
-    factoredSupported = (A > 1) && all(rVec(flatAttrs) >= 2) ...
+    % Three centres routes, mirroring the evaluator that actually runs. A
+    % single multiset (A = N = 1) takes the single-multiset kernel. The
+    % factored centres route (all r_a >= 2, scalar sigma) never
+    % materialises the joint tuple set: event by event, its cost is the
+    % SUM of per-attribute tuple counts through the culled per-attribute
+    % kernels, plus a small per-attribute per-query overhead (bucket
+    % lookup and gather), mirroring localMaEvalFactored's support
+    % predicate. Where that route is unsupported (any r_a < 2, or a
+    % matrix kernel covariance) the joint-centres path runs: all
+    % N * prod_a T_a joint centres at once, culled on one coordinate
+    % (localJointShare). Non-periodic attributes take the bucket-grid
+    % culling factor min(1, c*sigma/spread); periodic ones run dense (the
+    % pairwise wrap is not a tail-truncatable ball).
+    anyPer = false;
+    anyRelPer = false;
+    for a = flatAttrs
+        anyPer = anyPer || isPer(a);
+        anyRelPer = anyRelPer || (isPer(a) && isRel(a));
+    end
+    if anyPer
+        qBaseJoint = MA_COST_CENTRES_QUERY_BASE_PER_MS;
+    else
+        qBaseJoint = MA_COST_CENTRES_QUERY_BASE_MS;
+    end
+    singleMultiset = (A == 1) && (nEvents == 1);
+    factoredSupported = ~singleMultiset && all(rVec(flatAttrs) >= 2) ...
         && ~internal.densityHasKernelCov(dens);
     % Culled fraction for attribute A: the surviving share of its tuple
     % set per query. Dimensionless, in (0, 1].
@@ -236,7 +257,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
                                    MA_COST_CENTRES_CULL_C);
 
     if factoredSupported
-        centresMs = MA_COST_CENTRES_SETUP_MS;
+        perEventMs = 0;
         for a = flatAttrs
             r_a = rVec(a); K_a = kVec(a);
             T_a = factorial(r_a) * localComb(K_a, r_a);
@@ -252,29 +273,18 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
                 MA_COST_CENTRES_QUERY_JOINT_EXP_PER, ...
                 MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS, ...
                 MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER);
-            centresMs = centresMs ...
+            perEventMs = perEventMs ...
                 + MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a ...
                 + nQeff * (MA_COST_CENTRES_FACTORED_QUERY_BASE_MS ...
                            + qBase + qPer * T_q * cullOf(a));
         end
-    else
-        % Joint materialisation. The per-query term takes the geometry of
-        % the widest-culling attribute: the joint tuple set is the
-        % product across attributes, and a query reaches a joint centre
-        % only if it reaches that centre in every attribute, so the
-        % joint culled fraction is the product of the per-attribute ones.
+        centresMs = MA_COST_CENTRES_SETUP_MS + nEvents * perEventMs;
+    elseif singleMultiset
+        % The single-multiset kernel culls in the attribute's own
+        % dimension (the volume ratio of localCentresCull).
         cullJoint = 1.0;
-        anyPer = false;
-        anyRelPer = false;
         for a = flatAttrs
             cullJoint = cullJoint * cullOf(a);
-            anyPer = anyPer || isPer(a);
-            anyRelPer = anyRelPer || (isPer(a) && isRel(a));
-        end
-        if anyPer
-            qBase = MA_COST_CENTRES_QUERY_BASE_PER_MS;
-        else
-            qBase = MA_COST_CENTRES_QUERY_BASE_MS;
         end
         [qPer, jointQ] = localCentresQuerySlope( ...
             jointTuples, anyPer, anyRelPer, ...
@@ -285,14 +295,34 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER);
         centresMs = MA_COST_CENTRES_SETUP_MS ...
             + MA_COST_CENTRES_CALL_PER_JOINT_MS * jointTuples ...
-            + nQeff * (qBase + qPer * jointQ * cullJoint);
+            + nQeff * (qBaseJoint + qPer * jointQ * cullJoint);
+    else
+        nJoint = nEvents * jointTuples;
+        [qPer, jointQ] = localCentresQuerySlope( ...
+            nJoint, anyPer, anyRelPer, ...
+            MA_COST_CENTRES_QUERY_PER_JOINT_MS, ...
+            MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS, ...
+            MA_COST_CENTRES_QUERY_JOINT_EXP_PER, ...
+            MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS, ...
+            MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER);
+        centresMs = MA_COST_CENTRES_SETUP_MS ...
+            + MA_COST_CENTRES_CALL_PER_JOINT_MS * nJoint ...
+            + nQeff * (qBaseJoint + qPer * jointQ ...
+                       * localJointShare(dens, flatAttrs, isRel, isPer, ...
+                                         sigmaG, periodG, ...
+                                         MA_COST_CENTRES_CULL_C));
     end
 
+    % The factored Möbius evaluator calls the single-multiset evaluator
+    % once per event and attribute (an attribute at r = 1 included: its
+    % per-event factor is a kernel sum over K values), so everything but
+    % the per-call setup is paid N times.
     mobiusMs = MA_COST_MOBIUS_SETUP_MS;
+    perEventMs = 0;
     for a = flatAttrs
         r_a = rVec(a); K_a = kVec(a);
-        if r_a < 2
-            continue;  % r_a <= 1: a plain kernel sum either way
+        if r_a < 1
+            continue;
         end
         if r_a <= numel(BELL)
             B_r = BELL(r_a);
@@ -300,9 +330,9 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             B_r = Inf;
         end
         ops = (2^r_a - 1) * r_a * K_a;
-        mobiusMs = mobiusMs + MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r;
+        perEventMs = perEventMs + MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r;
         perQueryMs = MA_COST_MOBIUS_QUERY_PER_OP_MS * ops;
-        if isRel(a)
+        if isRel(a) && r_a >= 2
             % The spectral (Fourier) strategy engages inside the mobius
             % relative evaluator for r_a in 2..4 above its query
             % thresholds (see the gate in mobius.evalOrbitRel); where it
@@ -354,7 +384,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
                     fourMs = fourMs + FOUR_PERIODIC_K_MS(r_a - 1) * K_a ...
                         * (windowF / max(sigmaG(a), 1e-12)) * nQeff;
                 end
-                mobiusMs = mobiusMs + MA_COST_MOBIUS_SETUP_MS + fourMs;
+                perEventMs = perEventMs + MA_COST_MOBIUS_SETUP_MS + fourMs;
                 continue;
             end
             sps = internal.resolveSamplesPerSigma([], r_a, []);
@@ -377,12 +407,13 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
                     MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS * B_r);
             end
             % Tabulation setup is paid once per call, not per query.
-            mobiusMs = mobiusMs ...
+            perEventMs = perEventMs ...
                 + MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS * K_a * N_u;
             perQueryMs = N_u * nodeMs;
         end
-        mobiusMs = mobiusMs + perQueryMs * nQeff;
+        perEventMs = perEventMs + perQueryMs * nQeff;
     end
+    mobiusMs = mobiusMs + nEvents * perEventMs;
 end
 
 function [slope, Tq] = localCentresQuerySlope(T, isPerA, isRelA, ...
@@ -441,6 +472,61 @@ function cullA = localCentresCull(dens, a, isPerA, sigmaA, r_a, isRelA, cullC)
         dim = 1;
     end
     cullA = min(1.0, (cullC * double(sigmaA) / spread) ^ dim);
+end
+
+
+function share = localJointShare(dens, flatAttrs, isRel, isPer, sigmaG, ...
+                                 periodG, cullC)
+%LOCALJOINTSHARE  Per-query work of the joint-centres path, as a share of
+%   its centres, each counted at the cost of a culled tuple.
+%
+%   The path culls on the one coordinate whose spread is widest against
+%   its window (internal.maCullPlan): a query meets
+%   min(1, cullC * h / span) of the centres, with h = sigma (sqrt(2)
+%   sigma on a relative attribute, whose coordinates are differences)
+%   and span the spread of the values (the period on a periodic
+%   attribute). A periodic attribute evaluated on the full image is never
+%   culled on. Where culling would not pay the path runs dense, whose
+%   pairs cost 1 / C.pairCost of a culled one, so the share is capped
+%   there.
+%
+%   Twin of the Python _joint_share in _ma_eval_costs_ms.
+    C = internal.maCullPlan('constants');
+    if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+        wrapCell = dens.wrap;
+    else
+        wrapCell = repmat({'full-image'}, 1, double(dens.nAttrs));
+    end
+    share = 1.0;
+    for a = flatAttrs
+        if dens.dimPerAttr(a) == 0 || sigmaG(a) <= 0
+            continue;
+        end
+        if isPer(a) && ~isRel(a) && strcmp(char(wrapCell{a}), 'full-image')
+            continue;
+        end
+        h = sigmaG(a);
+        if isRel(a)
+            h = h * sqrt(2);
+        end
+        if isPer(a)
+            span = periodG(a);
+        else
+            span = 0.0;
+            if isfield(dens, 'pAttr') && a <= numel(dens.pAttr) ...
+                    && ~isempty(dens.pAttr{a})
+                arr = double(dens.pAttr{a}(:));
+                arr = arr(~isnan(arr));
+                if ~isempty(arr)
+                    span = max(arr) - min(arr);
+                end
+            end
+        end
+        if span > 0
+            share = min(share, cullC * h / span);
+        end
+    end
+    share = min(share, 1 / C.pairCost);
 end
 
 

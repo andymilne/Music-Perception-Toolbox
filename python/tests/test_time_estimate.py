@@ -1,8 +1,10 @@
 """Tests for the self-calibrated up-front evaluation time estimate.
 
 Covers the machine-scale calibration, the culling correction on the
-single-multiset centres cost (gated away from the multi-attribute
-path), the once-per-top-level-call emission latch, and its gating by
+centres cost (per attribute on the single-multiset kernel and the
+factored centres route, on one coordinate on the joint-centres path),
+the scaling with the number of events, the once-per-top-level-call
+emission latch, and its gating by
 ``show_hints`` and the threshold. Timing-based assertions use generous
 bounds --- the estimate is a cancel prompt, not a precise figure, and
 wall-clock timing is load-sensitive.
@@ -14,6 +16,7 @@ import pytest
 import mpt
 from mpt._defaults import _dispatch_scope, _TIME_WARN_EMITTED
 from mpt._tensor import _timeest
+from mpt._tensor.eval import _MA_CULL_PAIR_COST
 from mpt._tensor._timeest import (
     _estimate_eval_seconds,
     _maybe_warn_eval_time,
@@ -31,6 +34,7 @@ from mpt._tensor.dispatch import (
     _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS,
     _MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS,
     _MA_COST_CENTRES_SETUP_MS,
+    _MA_COST_MOBIUS_SETUP_MS,
     _ma_eval_costs_ms,
     _predict_ma_eval_cost_ms,
     _select_ma_eval,
@@ -99,13 +103,13 @@ class TestCullingCorrection:
         centres_ms, _ = _ma_eval_costs_ms(d, nq)
         assert centres_ms == pytest.approx(expected, rel=1e-12)
 
-    def test_multi_attribute_joint_fallback_culls_per_attribute(self):
+    def test_multi_attribute_joint_path_culls_on_one_coordinate(self):
         # With an r = 1 attribute the factored route is unsupported and
-        # the joint-materialisation fallback runs. It evaluates through
-        # the same truncated kernel, so it is culled too: a query
-        # reaches a joint centre only if it reaches that centre in every
-        # attribute, making the joint share the product of the
-        # per-attribute shares.
+        # the joint-centres path runs. It culls on the one coordinate
+        # whose spread is widest against its window, so the share of the
+        # joint centres a query meets is that coordinate's alone (a
+        # relative attribute's window is sqrt(2) wider, its coordinates
+        # being differences), capped where culling would not pay.
         K, nq = 12, 500
         spread, sigma = 1150.0, 20.0
         p = [np.linspace(0.0, spread, K).reshape(-1, 1)] * 2
@@ -114,18 +118,67 @@ class TestCullingCorrection:
             [0.0, 0.0], verbose=False,
         )
         joint = (2 * (K * (K - 1) // 2)) * K
-        # Both attributes occupy one dimension: r = 2 relative reduces to
-        # one, and r = 1 absolute is one already.
-        cull_a = min(1.0, (_MA_COST_CENTRES_CULL_C * sigma / spread) ** 1)
+        share = min(
+            _MA_COST_CENTRES_CULL_C * np.sqrt(2.0) * sigma / spread,
+            _MA_COST_CENTRES_CULL_C * sigma / spread,
+            1.0 / _MA_CULL_PAIR_COST,
+        )
         expected = (
             _MA_COST_CENTRES_SETUP_MS
             + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint
             + nq * (_MA_COST_CENTRES_QUERY_BASE_MS
-                    + _MA_COST_CENTRES_QUERY_PER_JOINT_MS
-                    * joint * cull_a * cull_a)
+                    + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint * share)
         )
         centres_ms, _ = _ma_eval_costs_ms(d, nq)
         assert centres_ms == pytest.approx(expected, rel=1e-12)
+
+    def test_joint_path_share_is_capped_where_culling_would_not_pay(self):
+        # A kernel wide against every spread leaves nothing to cull: the
+        # path runs dense, each pair costing 1 / _MA_CULL_PAIR_COST of a
+        # culled one.
+        K, nq = 6, 100
+        p = [np.linspace(0.0, 10.0, K).reshape(-1, 1)] * 2
+        d = mpt.build_maet(
+            p, None, [50.0, 50.0], [2, 1], [False, False], [False, False],
+            [0.0, 0.0], verbose=False,
+        )
+        joint = 2 * (K * (K - 1) // 2) * K
+        expected = (
+            _MA_COST_CENTRES_SETUP_MS
+            + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint
+            + nq * (_MA_COST_CENTRES_QUERY_BASE_MS
+                    + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint
+                    / _MA_CULL_PAIR_COST)
+        )
+        centres_ms, _ = _ma_eval_costs_ms(d, nq)
+        assert centres_ms == pytest.approx(expected, rel=1e-12)
+
+    @pytest.mark.parametrize("r_vec", [[2, 2], [1, 2]])
+    def test_event_by_event_routes_scale_with_the_event_count(self, r_vec):
+        # The factored centres route and the factored Möbius evaluator
+        # take a density event by event, so beyond the per-call setup
+        # their cost is N times one event's. The joint-centres path
+        # (taken here at r = [1, 2]) holds N times the joint centres, so
+        # its per-centre terms scale by N and its per-query base does
+        # not. Every event holds the same values, so the spreads, and
+        # with them the culled shares, do not change with N.
+        nq = 200
+
+        def dens(N):
+            pas = [np.tile(np.linspace(0.0, 100.0, 4).reshape(-1, 1), (1, N))
+                   for _ in range(2)]
+            return mpt.build_maet(pas, None, [3.0, 3.0], r_vec,
+                                  [False, False], [False, False],
+                                  [0.0, 0.0], verbose=False)
+
+        c1, m1 = _ma_eval_costs_ms(dens(1), nq)
+        c5, m5 = _ma_eval_costs_ms(dens(5), nq)
+        assert (m5 - _MA_COST_MOBIUS_SETUP_MS) == pytest.approx(
+            5 * (m1 - _MA_COST_MOBIUS_SETUP_MS), rel=1e-12)
+        fixed = _MA_COST_CENTRES_SETUP_MS
+        if r_vec[0] == 1:
+            fixed += nq * _MA_COST_CENTRES_QUERY_BASE_MS
+        assert (c5 - fixed) == pytest.approx(5 * (c1 - fixed), rel=1e-12)
 
     def test_predict_returns_chosen_path_cost(self):
         d = _single(30, 1150.0, 20.0)

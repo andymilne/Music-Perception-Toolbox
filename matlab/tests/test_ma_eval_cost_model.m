@@ -120,6 +120,53 @@ end
 results{end+1, 1} = 'cost model: the removed verbose argument raises';
 results{end, 2} = ok;
 
+%% ---- Onsets beside a chord's pitches take the joint-centres path ----
+% Onsets at r = 1 beside a chord's pitches at r = 2 take the joint-centres
+% path, culled on the onset. The factored Möbius evaluator calls the
+% single-multiset evaluator once per event and attribute, so its cost
+% grows with the event count however cheap each call is, while the
+% joint-centres path meets each query with only the events near it.
+% Measured October 2026 on the maintainer's VM (Python): 0.15 against
+% 3.9 ms at N = 30, 0.61 against 39 ms at N = 300, and 6.2 against
+% 362 ms at N = 3000. Twin of the Python
+% test_ma_cost_model_routes_onsets_and_chords_to_the_joint_path.
+rng(0, 'twister');
+ok = true;
+for cmN = [30 300 3000]
+    cmOn = sort(100 * rand(1, cmN));
+    cmPitch = 1200 * rand(3, cmN);
+    densOC = buildMaet({cmOn, cmPitch}, {ones(1, cmN), ones(3, cmN)}, ...
+        [0.3 15], [1 2], [false false], [false false], [0 0], ...
+        'verbose', false);
+    ok = ok && strcmp(internal.selectMaEval(densOC, 200), 'centres');
+end
+results{end+1, 1} = 'cost model: onsets beside chord pitches take the joint-centres path';
+results{end, 2} = ok;
+
+%% ---- The event-by-event routes scale with the event count ----
+% The factored centres route and the factored Möbius evaluator take a
+% density event by event, so beyond the per-call setup their cost is N
+% times one event's; the joint-centres path (r = [1 2]) holds N times the
+% joint centres. Every event holds the same values, so the spreads, and
+% with them the culled shares, do not change with N. The setup terms are
+% read off the estimates at N = 1 and N = 2.
+for cmR = {[2 2], [1 2]}
+    cmMk = @(n) buildMaet( ...
+        {repmat(linspace(0, 100, 4).', 1, n), repmat(linspace(0, 100, 4).', 1, n)}, ...
+        {ones(4, n), ones(4, n)}, [3 3], cmR{1}, [false false], ...
+        [false false], [0 0], 'verbose', false);
+    [c1, m1] = internal.maEvalCostsMs(cmMk(1), 200);
+    [c2, m2] = internal.maEvalCostsMs(cmMk(2), 200);
+    [c5, m5] = internal.maEvalCostsMs(cmMk(5), 200);
+    % Linear in N: the increment from 1 to 5 events is four times the
+    % increment from 1 to 2.
+    okM = abs((m5 - m1) - 4 * (m2 - m1)) <= 1e-12 * m5;
+    okC = abs((c5 - c1) - 4 * (c2 - c1)) <= 1e-12 * c5;
+    results{end+1, 1} = sprintf('cost model: estimates linear in the event count, r = [%d %d]', cmR{1});
+    results{end, 2} = okM && okC && m2 > m1 && c2 > c1;
+end
+clear cmN cmOn cmPitch densOC cmR cmMk c1 c2 c5 m1 m2 m5 okM okC
+
 %% ---- Standalone reporting ----
 if standalone
     nFail = 0;

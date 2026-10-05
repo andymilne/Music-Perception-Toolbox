@@ -1652,7 +1652,12 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     multi-attribute density, in milliseconds on the calibration machine.
 
     Depends only on the density shape ``(r_a, K_a, N)``, the geometry,
-    and the query count ``n_q`` --- no probe, no timing. Shared by the
+    and the query count ``n_q`` --- no probe, no timing. The constants
+    are calibrated on single multisets (``A = N = 1``); the routes that
+    take a density event by event (the factored centres route and the
+    factored Möbius evaluator, each a loop over events calling the
+    single-multiset kernel or evaluator per attribute) are priced at N
+    times that per-event cost, the per-call setup once. Shared by the
     eval path selector :func:`_select_ma_eval` (which compares the two)
     and by the up-front time estimate (which scales the chosen one by a
     per-session machine factor). Keeping one implementation guarantees
@@ -1677,6 +1682,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
     n_q_eff = float(max(int(n_q), 1))
+    n_events = float(max(int(getattr(dens, "n", 1)), 1))
     # Nested attributes are estimated by _nested_eval_costs_ms; here they
     # are skipped (their r is the leaf-position total, not a flat order).
     nested = getattr(dens, "nested", None) or [None] * A
@@ -1696,13 +1702,16 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     # so the near-centre fraction is min(1, c * sigma / spread). The
     # multi-attribute factored centres route evaluates each attribute
     # through the same culled kernel, so the reduction applies per
-    # attribute there; the joint-materialisation fallback and the periodic
-    # single-multiset route run dense (the pairwise wrap is not a
-    # tail-truncatable ball) and take no such reduction.
+    # attribute there; the periodic single-multiset route runs dense (the
+    # pairwise wrap is not a tail-truncatable ball) and takes no such
+    # reduction. The joint-centres path culls on one coordinate instead
+    # (see _joint_share below).
     def _attr_spread(a):
+        # Absent values (NaN) are skipped, as MATLAB's max and min skip them.
         p_attr = getattr(dens, "p_attr", None)
         if p_attr is not None and a < len(p_attr) and p_attr[a] is not None:
             arr = np.asarray(p_attr[a], dtype=np.float64)
+            arr = arr[~np.isnan(arr)]
             if arr.size:
                 return float(np.max(arr) - np.min(arr))
         return 0.0
@@ -1725,25 +1734,65 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         dim = max(1, int(r_vec[a]) - (1 if rel[a] else 0))
         return min(1.0, (C["CENTRES_CULL_C"] * sigma[a] / spread) ** dim)
 
-    # The factored centres route (all r_a >= 2, scalar sigma) never
-    # materialises the joint tuple set: cost is the SUM of per-attribute
-    # tuple counts through the culled per-attribute kernels, plus a small
-    # per-attribute per-query overhead (bucket lookup and gather). The
-    # joint-materialisation cost estimation applies only where that route is
-    # unsupported (any r_a < 2, or a matrix kernel covariance), mirroring
-    # the support predicate of the evaluator that actually runs.
+    def _joint_share():
+        """Per-query work of the joint-centres path, as a share of its
+        centres, each counted at the cost of a culled tuple.
+
+        The path culls on the one coordinate whose spread is widest
+        against its window (``mpt._tensor.eval._ma_cull_plan``): a query
+        meets ``min(1, c * h / span)`` of the centres, with ``h = sigma``
+        (``sqrt(2) sigma`` on a relative attribute, whose coordinates
+        are differences) and ``span`` the spread of the values (the
+        period on a periodic attribute). A periodic attribute evaluated
+        on the full image is never culled on. Where culling would not
+        pay the path runs dense, whose pairs cost
+        ``1 / _MA_CULL_PAIR_COST`` of a culled one, so the share is
+        capped there.
+        """
+        from .eval import _MA_CULL_PAIR_COST
+        wrap = getattr(dens, "wrap", None)
+        dim_per = [int(v) for v in np.atleast_1d(dens.dim_per_attr)]
+        share = 1.0
+        for a in flat_attrs:
+            if dim_per[a] == 0 or sigma[a] <= 0:
+                continue
+            wrap_a = (str(wrap[a]) if wrap is not None and a < len(wrap)
+                      else 'full-image')
+            if per[a] and not rel[a] and wrap_a == 'full-image':
+                continue
+            h = sigma[a] * (np.sqrt(2.0) if rel[a] else 1.0)
+            span = period[a] if per[a] else _attr_spread(a)
+            if span > 0:
+                share = min(share, C["CENTRES_CULL_C"] * h / span)
+        return min(share, 1.0 / _MA_CULL_PAIR_COST)
+
+    # Three centres routes, mirroring the evaluator that actually runs.
+    # A single multiset (A = N = 1) takes the single-multiset kernel. The
+    # factored centres route (all r_a >= 2, scalar sigma) never
+    # materialises the joint tuple set: event by event, its cost is the
+    # SUM of per-attribute tuple counts through the culled per-attribute
+    # kernels, plus a small per-attribute per-query overhead (bucket
+    # lookup and gather). Where that route is unsupported (any r_a < 2,
+    # or a matrix kernel covariance) the joint-centres path runs: all
+    # N * prod_a T_a joint centres at once, culled on one coordinate.
+    any_per = any(bool(per[a]) for a in flat_attrs)
+    any_rel_per = any(bool(per[a]) and bool(rel[a])
+                      for a in flat_attrs)
+    q_base = (C["CENTRES_QUERY_BASE_PER_MS"] if any_per
+              else C["CENTRES_QUERY_BASE_MS"])
+    single_multiset = A == 1 and n_events == 1.0
     factored_supported = (
-        A > 1
+        not single_multiset
         and all(r_vec[a] >= 2 for a in flat_attrs)
         and getattr(dens, "kernel_cov", None) is None
     )
     if factored_supported:
-        centres_ms = C["CENTRES_SETUP_MS"]
+        per_event_ms = 0.0
         for a in flat_attrs:
             r_a, K_a = r_vec[a], k_vec[a]
             T_a = float(factorial(r_a)) * float(_math_comb(K_a, r_a))
             q_slope, T_q = _centres_query_slope(C, T_a, per[a], rel[a])
-            centres_ms += (
+            per_event_ms += (
                 C["CENTRES_CALL_PER_JOINT_MS"] * T_a
                 + n_q_eff * (
                     C["CENTRES_FACTORED_QUERY_BASE_MS"]
@@ -1752,18 +1801,13 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
                     + q_slope * T_q * _attr_cull(a)
                 )
             )
-    else:
-        # Joint materialisation. A query reaches a joint centre only if
-        # it reaches that centre in every attribute, so the joint culled
-        # fraction is the product of the per-attribute ones.
+        centres_ms = C["CENTRES_SETUP_MS"] + n_events * per_event_ms
+    elif single_multiset:
+        # The single-multiset kernel culls in the attribute's own
+        # dimension (the volume ratio of _attr_cull).
         cull_joint = 1.0
         for a in flat_attrs:
             cull_joint *= _attr_cull(a)
-        any_per = any(bool(per[a]) for a in flat_attrs)
-        any_rel_per = any(bool(per[a]) and bool(rel[a])
-                          for a in flat_attrs)
-        q_base = (C["CENTRES_QUERY_BASE_PER_MS"] if any_per
-                  else C["CENTRES_QUERY_BASE_MS"])
         q_per_joint, joint_q = _centres_query_slope(
             C, joint_tuples, any_per, any_rel_per)
         centres_ms = (
@@ -1771,17 +1815,31 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
             + C["CENTRES_CALL_PER_JOINT_MS"] * joint_tuples
             + n_q_eff * (q_base + q_per_joint * joint_q * cull_joint)
         )
+    else:
+        n_joint = n_events * joint_tuples
+        q_per_joint, joint_q = _centres_query_slope(
+            C, n_joint, any_per, any_rel_per)
+        centres_ms = (
+            C["CENTRES_SETUP_MS"]
+            + C["CENTRES_CALL_PER_JOINT_MS"] * n_joint
+            + n_q_eff * (q_base + q_per_joint * joint_q * _joint_share())
+        )
 
+    # The factored Möbius evaluator calls the single-multiset evaluator
+    # once per event and attribute (an attribute at r = 1 included: its
+    # per-event factor is a kernel sum over K values), so everything but
+    # the per-call setup is paid N times.
     mobius_ms = C["MOBIUS_SETUP_MS"]
+    per_event_ms = 0.0
     for a in flat_attrs:
         r_a, K_a = r_vec[a], k_vec[a]
-        if r_a < 2:
-            continue  # r_a <= 1: a plain kernel sum either way
+        if r_a < 1:
+            continue
         B_r = float(_BELL_NUMBERS.get(r_a, float("inf")))
         ops = float(2 ** r_a - 1) * r_a * K_a
-        mobius_ms += C["MOBIUS_SETUP_PER_BELL_MS"] * B_r
+        per_event_ms += C["MOBIUS_SETUP_PER_BELL_MS"] * B_r
         per_query_ms = C["MOBIUS_QUERY_PER_OP_MS"] * ops
-        if rel[a]:
+        if rel[a] and r_a >= 2:
             # The spectral (Fourier) strategy engages inside the mobius
             # relative evaluator for r_a in 2..4 above its query
             # thresholds (see the gate in mpt._mobius.eval_orbit_rel);
@@ -1817,6 +1875,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
             p_a = getattr(dens, "p_attr", None)
             if p_a is not None and a < len(p_a) and p_a[a] is not None:
                 arr = np.asarray(p_a[a], dtype=np.float64)
+                arr = arr[~np.isnan(arr)]
                 if arr.size:
                     spread = float(np.max(arr) - np.min(arr))
             if per[a] and period[a] > 0:
@@ -1848,7 +1907,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
                 if per[a] and _FOUR_PER_PERIODIC_K_MS.get(r_a, 0.0):
                     four_ms += (_FOUR_PER_PERIODIC_K_MS[r_a] * k_vec[a]
                                 * (window / max(sigma[a], 1e-12)) * n_q_eff)
-                mobius_ms += C["MOBIUS_SETUP_MS"] + four_ms
+                per_event_ms += C["MOBIUS_SETUP_MS"] + four_ms
                 continue
             from .._defaults import resolve_samples_per_sigma
             sps = float(resolve_samples_per_sigma(None, r_a, None))
@@ -1861,6 +1920,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
                 p_a = getattr(dens, "p_attr", None)
                 if p_a is not None and a < len(p_a) and p_a[a] is not None:
                     arr = np.asarray(p_a[a], dtype=np.float64)
+                    arr = arr[~np.isnan(arr)]
                     if arr.size:
                         spread = float(np.max(arr) - np.min(arr))
                 window = 2.0 * spread + 16.0 * sigma[a]
@@ -1871,9 +1931,10 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
                     C["MOBIUS_REL_NODE_FACTORED_PER_BELL_MS"] * B_r,
                 )
             # Tabulation setup is paid once per call, not per query.
-            mobius_ms += C["MOBIUS_REL_TABULATION_PER_NODE_MS"] * K_a * n_u
+            per_event_ms += C["MOBIUS_REL_TABULATION_PER_NODE_MS"] * K_a * n_u
             per_query_ms = n_u * node_ms
-        mobius_ms += per_query_ms * n_q_eff
+        per_event_ms += per_query_ms * n_q_eff
+    mobius_ms += n_events * per_event_ms
 
     return centres_ms, mobius_ms
 

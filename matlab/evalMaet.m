@@ -976,36 +976,123 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     % unsupported (any r_a < 2, or a matrix-valued kernel covariance),
     % so a second attempt could only return empty.
 
-    % --- Estimated computation time (use total dim as a conservative proxy) ---
-    nPairs = double(N_J) * double(nQ);
-    estimateCompTime(nPairs, dim, 'evalMaet (MAET)', verbose);
-
-    % --- Core evaluation with memory-aware chunking ---
-    % Peak memory per chunk is dominated by the largest per-attribute
-    % (dim_a x nJ x nQc) difference tensor plus the (nJ x nQc)
-    % accumulator. Use (maxDim + 1) * nJ * 8 bytes as the per-column
-    % cost to size the chunk.
-
-    % Peak per-chunk memory is dominated by the largest per-attribute
-    % (dim_a, N_J, nQc) difference tensor, its square, and the
-    % summed/exponentiated intermediate co-resident during chunk eval.
-    bytesPerCol = (2 * max(dimPerAttr) + 2) * double(N_J) * 8;
-    memLimit = internal.kernelChunkBytesResolved();
-    bytesNeeded = bytesPerCol * double(nQ);
+    % Precision of the accumulation ('single' casts; 'double' is a
+    % no-op), the wrap convention of each attribute (an absent field
+    % means full-image), and the truncation width. internal.accuracyFloor
+    % maps the Inf "exact" sentinel to the finite accuracy-floor width
+    % (mirroring the single-multiset path and simMaet; it honours a
+    % temporary epsilon override for arbitrary precision), consults the
+    % global mptDefaults for an empty ([]) knob, and passes finite widths
+    % through. The truncation below therefore always applies --- there
+    % is no untruncated fast path.
+    if ~isempty(kernelPrecision) && strcmp(kernelPrecision, 'single')
+        qDtype = 'single';
+    else
+        qDtype = 'double';
+    end
+    if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+        wrapCell = dens.wrap;
+    else
+        wrapCell = repmat({'full-image'}, 1, A);
+    end
+    truncResolved = internal.accuracyFloor('resolve', truncationSigmas);
 
     % Distinct-value tables for the abs-per full-image branch, one per
-    % attribute, filled on first use and reused across query chunks: the
-    % centres do not vary from chunk to chunk, so the sort that finds
-    % their distinct values is paid once per call. absPerTableDone
-    % records the attributes already considered, so an attribute the
-    % predicate declines is not reconsidered on every chunk.
-    absPerTable     = cell(1, A);
-    absPerTableDone = false(1, A);
+    % attribute, built once per call on the cast centres: the centres do
+    % not vary from chunk to chunk, so the sort that finds their distinct
+    % values is paid once, and whether it pays is decided on the whole
+    % call's query count.
+    absPerTable = cell(1, A);
+    for a = 1:A
+        if dimPerAttr(a) > 0 && innerR(a) == 0 && isPerG(a) ...
+                && ~isRelG(a) && strcmp(char(wrapCell{a}), 'full-image')
+            Ca = cast(Centres{a}, qDtype);
+            if internal.tupleValuesRepeat(Ca, nQ)
+                [uV, ~, uI] = unique(Ca(:));
+                absPerTable{a} = {uV, reshape(uI, dimPerAttr(a), N_J)};
+            end
+        end
+    end
 
-    if bytesNeeded <= memLimit
-        vals = maetEvalFull(Xc, nQ);
+    % --- Core evaluation: culled where it pays, else in dense chunks ---
+    % Peak memory per chunk is dominated by the largest per-attribute
+    % (dim_a, N_J, nQc) difference tensor, its square, and the
+    % summed/exponentiated intermediate co-resident during chunk eval.
+    % Chunks are held to a cache-sized working set, the memory budget
+    % remaining the ceiling; culling evaluates each query against only
+    % the centres within the truncation width on one coordinate. See
+    % internal.maCullPlan for both.
+    [plan, cullC] = internal.maCullPlan(Centres, Xc, N_J, nQ, ...
+        dimPerAttr, sigmaG, isRelG, isPerG, periodG, innerR, wrapCell, ...
+        truncResolved, qDtype);
+    bytesPerCol = (2 * max(dimPerAttr) + 2) * double(N_J) * 8;
+    chunkBytes = min(internal.kernelChunkBytesResolved(), ...
+                     cullC.cacheChunkBytes);
+    bytesNeeded = bytesPerCol * double(nQ);
+
+    % --- Estimated computation time, in pairs of the dense evaluation ---
+    % (total dim as a conservative proxy for the work per pair)
+    if isempty(plan)
+        nPairs = double(N_J) * double(nQ);
     else
-        chunkSize = max(1, floor(memLimit / max(bytesPerCol, 1)));
+        nPairs = cullC.pairCost * sum(plan.hi - plan.lo);
+    end
+    estimateCompTime(nPairs, dim, 'evalMaet (MAET)', verbose);
+
+    if ~isempty(plan)
+        % The centres, weights, and table indices permuted once into the
+        % plan's order, so that each query's centres are one contiguous
+        % run; queries are taken in their own order, in groups whose
+        % pairs fit the chunk, each group's pairs as one flat list.
+        CentP = cell(1, A);
+        for a = 1:A
+            CentP{a} = Centres{a}(:, plan.order);
+        end
+        wP = wJ(plan.order);
+        tableP = absPerTable;
+        for a = 1:A
+            if ~isempty(tableP{a})
+                tableP{a}{2} = tableP{a}{2}(:, plan.order);
+            end
+        end
+        counts = plan.hi - plan.lo;
+        cum = cumsum(counts);
+        vals = zeros(1, nQ);
+        total = 0;
+        if ~isempty(cum)
+            total = cum(end);
+        end
+        if total > 0
+            groupPairs = max(1, floor(chunkBytes ...
+                                      / ((2 * max(dimPerAttr) + 4) * 8)));
+            % Group boundaries: after the query at which the running pair
+            % count first reaches each multiple of groupPairs.
+            cuts = internal.maCullPlan('countBelow', cum, ...
+                groupPairs:groupPairs:(total - 1), false) + 1;
+            bounds = unique([0, cuts, nQ]);
+            for g = 1:numel(bounds) - 1
+                g0 = bounds(g);
+                g1 = bounds(g + 1);
+                cnt = counts(g0 + 1:g1);
+                nP = sum(cnt);
+                if nP == 0
+                    continue;
+                end
+                qIdx = repelem(1:(g1 - g0), cnt);
+                start = cumsum(cnt) - cnt;
+                cIdx = plan.lo(g0 + qIdx) + ((1:nP) - start(qIdx));
+                Xg = cell(1, A);
+                for a = 1:A
+                    Xg{a} = Xc{a}(:, g0 + 1:g1);
+                end
+                vals(g0 + 1:g1) = maetEvalFull(Xg, g1 - g0, CentP, wP, ...
+                    tableP, cIdx, qIdx);
+            end
+        end
+    elseif bytesNeeded <= chunkBytes
+        vals = maetEvalFull(Xc, nQ, Centres, wJ, absPerTable, [], []);
+    else
+        chunkSize = max(1, floor(chunkBytes / max(bytesPerCol, 1)));
         vals = zeros(1, nQ);
         for c = 1:chunkSize:nQ
             cEnd = min(c + chunkSize - 1, nQ);
@@ -1014,7 +1101,8 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             for a = 1:A
                 Xc_c{a} = Xc{a}(:, idx);
             end
-            vals(idx) = maetEvalFull(Xc_c, numel(idx));
+            vals(idx) = maetEvalFull(Xc_c, numel(idx), Centres, wJ, ...
+                absPerTable, [], []);
         end
     end
 
@@ -1027,42 +1115,33 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     %  Inner helper: full MAET evaluation (single chunk)
     % =====================================================================
 
-    function v = maetEvalFull(Xchunk, nQc)
-        % Resolve the truncation width once up front: internal.accuracyFloor
-        % maps the Inf "exact" sentinel to the finite accuracy-floor width
-        % (mirroring the single-multiset path and simMaet; it honours
-        % a temporary epsilon override for arbitrary precision), consults
-        % the global mptDefaults for an empty ([]) knob, and passes finite
-        % widths through. The post-filter truncation below therefore always
-        % applies --- there is no untruncated fast path.
-        truncResolved = internal.accuracyFloor('resolve', truncationSigmas);
-
-        % Precision: 'single' casts the accumulation; 'double' is a no-op.
-        if ~isempty(kernelPrecision) && strcmp(kernelPrecision, 'single')
-            qDtype = 'single';
+    function v = maetEvalFull(Xchunk, nQc, Cent, w, tables, cIdx, qIdx)
+        % With cIdx and qIdx empty, every centre meets every query,
+        % through the broadcast (dim_a, nJ, nQc) differences. Otherwise
+        % only the listed (centre, query) pairs are evaluated, as one
+        % flat list, and each query's value is the sum over its pairs:
+        % the culled evaluation. The truncation is a post-filter on the
+        % summed exponent.
+        paired = ~isempty(qIdx);
+        nJc = numel(w);
+        if paired
+            shapeQ = [numel(qIdx), 1];
         else
-            qDtype = 'double';
+            shapeQ = [nJc, nQc];
         end
-        Q_total = zeros(N_J, nQc, qDtype);
+        Q_total = zeros(shapeQ, qDtype);
         % Abs-per full-image contribution accumulates multiplicatively as
         % a product of per-attribute per-coordinate theta products rather than
         % additively into Q_total. Kept as [] until the first abs-per
         % full-image attribute is encountered.
         absPerFactor = [];
 
-        % Honour dens.wrap per attribute; absent field defaults to full-image.
-        if isfield(dens, 'wrap') && ~isempty(dens.wrap)
-            wrapCell = dens.wrap;
-        else
-            wrapCell = repmat({'full-image'}, 1, A);
-        end
-
         for a = 1:A
             da = dimPerAttr(a);
             if da == 0
                 continue;
             end
-            Ca = cast(Centres{a}, qDtype);
+            Ca = cast(Cent{a}, qDtype);
             Xa = cast(Xchunk{a}, qDtype);
             Pg = cast(periodG(a), qDtype);
 
@@ -1076,21 +1155,9 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             % tolerance. It also avoids the da x N_J x nQc difference
             % array entirely.
             if innerR(a) == 0 && isPerG(a) && ~isRelG(a) ...
-                    && strcmp(char(wrapCell{a}), 'full-image')
-                if ~absPerTableDone(a)
-                    absPerTableDone(a) = true;
-                    % Decided on the whole call's query count, not this
-                    % chunk's: the table serves every chunk.
-                    if internal.tupleValuesRepeat(Ca, nQ)
-                        [uV, ~, uI] = unique(Ca(:));
-                        absPerTable{a} = {uV, reshape(uI, da, N_J)};
-                    end
-                end
-            end
-            if innerR(a) == 0 && isPerG(a) && ~isRelG(a) ...
-                    && ~isempty(absPerTable{a})
-                uVals = absPerTable{a}{1};
-                uInv  = absPerTable{a}{2};
+                    && ~isempty(tables{a})
+                uVals = tables{a}{1};
+                uInv  = tables{a}{2};
                 factorA = [];
                 for k = 1:da
                     tableK = internal.wrappedGaussian1d( ...
@@ -1098,14 +1165,19 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                         - reshape(Xa(k, :), 1, []), ...
                         double(sigmaG(a)), double(periodG(a)), ...
                         truncResolved, 2);
-                    thetaK = tableK(uInv(k, :), :);
+                    if paired
+                        thetaK = tableK(uInv(k, cIdx) ...
+                                        + (qIdx - 1) * size(tableK, 1));
+                    else
+                        thetaK = tableK(uInv(k, :), :);
+                    end
                     if isempty(factorA)
                         factorA = thetaK;
                     else
                         factorA = factorA .* thetaK;
                     end
                 end
-                factorA = cast(reshape(factorA, N_J, nQc), qDtype);
+                factorA = cast(reshape(factorA, shapeQ), qDtype);
                 if isempty(absPerFactor)
                     absPerFactor = factorA;
                 else
@@ -1114,11 +1186,16 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 continue;
             end
 
-            D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
+            if paired
+                D_a = Ca(:, cIdx) - Xa(:, qIdx);
+            else
+                D_a = reshape(Ca, da, nJc, 1) - reshape(Xa, da, 1, nQc);
+            end
             if innerR(a) > 0
                 % Inner [rel] unit: block-diagonal metric over event blocks
                 % (reduced convention; pairwise wrap inside the helper).
-                Q_a = qInnerBlocksReducedLocal(D_a, innerR(a), a, Pg);
+                Q_a = reshape(qInnerBlocksReducedLocal(D_a, innerR(a), ...
+                                                       a, Pg), shapeQ);
                 Q_total = Q_total + Q_a / (2 * cast(sigmaG(a), qDtype)^2);
                 continue;
             end
@@ -1131,7 +1208,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                     theta = internal.wrappedGaussian1d( ...
                         D_a, double(sigmaG(a)), double(periodG(a)), ...
                         truncResolved, 2);
-                    factorA = reshape(prod(theta, 1), N_J, nQc);
+                    factorA = reshape(prod(theta, 1), shapeQ);
                     factorA = cast(factorA, qDtype);
                     if isempty(absPerFactor)
                         absPerFactor = factorA;
@@ -1148,21 +1225,21 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                     % Pairs with the implicit position 0 vectorised;
                     % the within-reduced-block pairs looped.
                     position0Wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
-                    Q_a = reshape(sum(position0Wrapped .^ 2, 1), N_J, nQc);
+                    Q_a = reshape(sum(position0Wrapped .^ 2, 1), shapeQ);
                     for i = 1:da
                         for j = i+1:da
-                            delta = reshape(D_a(i, :, :) - D_a(j, :, :), N_J, nQc);
+                            delta = reshape(D_a(i, :, :) - D_a(j, :, :), shapeQ);
                             delta = delta - Pg .* floor(delta / Pg + 0.5);
                             Q_a = Q_a + delta.^2;
                         end
                     end
                     Q_a = Q_a / cast(r_(a), qDtype);
                 else
-                    Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
-                        - reshape(sum(D_a, 1).^2, N_J, nQc) / cast(r_(a), qDtype);
+                    Q_a = reshape(sum(D_a.^2, 1), shapeQ) ...
+                        - reshape(sum(D_a, 1).^2, shapeQ) / cast(r_(a), qDtype);
                 end
             else
-                Q_a = reshape(sum(D_a.^2, 1), N_J, nQc);
+                Q_a = reshape(sum(D_a.^2, 1), shapeQ);
             end
             Q_total = Q_total + Q_a / (2 * cast(sigmaG(a), qDtype)^2);
         end
@@ -1178,8 +1255,16 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             E = E .* absPerFactor;
         end
 
-        wJq = cast(wJ(:).', qDtype);
-        v = double(wJq * E);
+        if paired
+            % Each product is formed at the working precision, as on the
+            % dense branch; the sum over a query's pairs is accumulated
+            % in double.
+            wq = cast(w(cIdx), qDtype);
+            v = accumarray(qIdx(:), double(wq(:) .* E(:)), [nQc, 1]).';
+        else
+            wJq = cast(w(:).', qDtype);
+            v = double(wJq * E);
+        end
     end
 
     function Q_a = qInnerBlocksReducedLocal(D_a, rIn, a, Pg)

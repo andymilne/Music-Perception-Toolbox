@@ -248,6 +248,30 @@ def test_ma_cost_model_rel_ma_crossover_placed_correctly(A, r, K, seed, expect):
     )
 
 
+def test_ma_cost_model_routes_onsets_and_chords_to_the_joint_path():
+    """Onsets at r = 1 beside a chord's pitches at r = 2 take the
+    joint-centres path, culled on the onset.
+
+    The factored Möbius evaluator calls the single-multiset evaluator
+    once per event and attribute, so its cost grows with the event
+    count however cheap each call is, while the joint-centres path
+    meets each query with only the events near it. Measured October
+    2026 on the maintainer's VM (onsets over 100 at sigma 0.3, three
+    pitches per event over 1200 at sigma 15, 200 queries): 0.15 against
+    3.9 ms at N = 30, 0.61 against 39 ms at N = 300, and 6.2 against
+    362 ms at N = 3000.
+    """
+    g = np.random.default_rng(0)
+    for N in (30, 300, 3000):
+        on = np.sort(g.uniform(0, 100, N))[None, :]
+        pitch = g.uniform(0, 1200, (3, N))
+        dens = build_maet([on, pitch], None, [0.3, 15.0], [1, 2],
+                          [False, False], [False, False], [0., 0.],
+                          verbose=False)
+        chosen, reason = _select_ma_eval(dens, 200, method="auto")
+        assert chosen == "centres", (N, reason)
+
+
 def test_ma_cost_model_diverts_infeasible_centres_to_mobius():
     """At a shape where the joint tuple set is far too large to
     materialise, the model must pick Möbius --- the centres route would

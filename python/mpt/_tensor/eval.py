@@ -1088,13 +1088,15 @@ def _eval_maet_ma(
     if n_q == 0:
         return np.zeros(0, dtype=np.float64)
 
-    # --- Core evaluation with memory-aware chunking ---
+    # --- Core evaluation: culled where it pays, else in dense chunks ---
     # Peak per-chunk memory is dominated by the largest per-attribute
     # (dim_a, nJ, nQc) difference tensor, its square, and the
     # summed/exponentiated intermediate co-resident during chunk eval.
+    # Chunks are held to a cache-sized working set, the memory budget
+    # remaining the ceiling (see _MA_CACHE_CHUNK_BYTES).
     max_dim_a = int(max(dim_per)) if A > 0 else 1
     bytes_per_col = (2 * max_dim_a + 2) * int(n_j) * 8
-    mem_limit = kernel_chunk_bytes_resolved()
+    chunk_bytes = min(kernel_chunk_bytes_resolved(), _MA_CACHE_CHUNK_BYTES)
 
     bytes_needed = bytes_per_col * int(n_q)
     inner_r = _inner_r_vec(dens)
@@ -1109,7 +1111,23 @@ def _eval_maet_ma(
     _value_tables = _ma_value_tables(
         centres, A, dim_per, rel, per, inner_r, _wrap_dens,
         np.float32 if _kp == "single" else np.float64, n_q)
-    if bytes_needed <= mem_limit:
+    plan = _ma_cull_plan(
+        centres, x_list, int(n_j), int(n_q), dim_per, sigma, rel, per,
+        period, inner_r, _wrap_dens, truncation_sigmas,
+        np.float32 if _kp == "single" else np.float64)
+    if plan is not None:
+        vals = _ma_eval_culled(
+            plan, centres, w_j, x_list, int(n_q),
+            A, dim_per, r_vec, sigma,
+            rel, per, period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            inner_r=inner_r,
+            wrap=_wrap_dens,
+            value_tables=_value_tables,
+            chunk_bytes=chunk_bytes,
+        )
+    elif bytes_needed <= chunk_bytes:
         vals = _ma_eval_full(
             centres, w_j, n_j, x_list, n_q,
             A, dim_per, r_vec, sigma,
@@ -1121,7 +1139,7 @@ def _eval_maet_ma(
             value_tables=_value_tables,
         )
     else:
-        chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
+        chunk_size = max(1, int(chunk_bytes // max(bytes_per_col, 1)))
         vals = np.zeros(n_q, dtype=np.float64)
         for c_start in range(0, n_q, chunk_size):
             c_end = min(c_start + chunk_size, n_q)
@@ -1354,6 +1372,7 @@ def _ma_eval_full(
     inner_r=None,
     wrap=None,
     value_tables=None,
+    pairs=None,
 ):
     """Single-chunk MAET evaluation.
 
@@ -1362,8 +1381,14 @@ def _ma_eval_full(
     Geometry (``sigma``, ``rel``, ``per``, ``period``) is
     per-attribute, indexed directly by ``a``.
 
-    Every centre meets every query, and truncation is a post-filter on
-    the summed exponent. It always applies: :func:`eval_maet` resolves
+    With ``pairs=None`` every centre meets every query, through the
+    broadcast ``(dim_a, n_j, n_qc)`` differences. With ``pairs=(c_idx,
+    q_idx)`` only the listed (centre, query) pairs are evaluated, as one
+    flat list, and each query's value is the sum over its pairs; this
+    serves :func:`_ma_eval_culled`, and ``n_j`` is then unused.
+
+    Truncation is a post-filter on the summed exponent. It always
+    applies: :func:`eval_maet` resolves
     ``truncation_sigmas`` to a finite width before this is called
     (``inf`` to the accuracy-floor width), so there is no untruncated
     fast path.
@@ -1384,7 +1409,12 @@ def _ma_eval_full(
     # ---- Precision casting and post-filter truncation. ----
     dtype = np.float32 if kernel_precision == "single" else np.float64
 
-    q_total = np.zeros((int(n_j), int(n_qc)), dtype=dtype)
+    if pairs is None:
+        shape = (int(n_j), int(n_qc))
+    else:
+        c_idx, q_idx = pairs
+        shape = (int(c_idx.size),)
+    q_total = np.zeros(shape, dtype=dtype)
     # Abs-per full-image factor accumulator: product over abs-per
     # attributes of prod_slots theta(d). Stays 1 when every abs-per
     # attribute has L=0 (the small-sigma/P regime), preserving the
@@ -1425,7 +1455,10 @@ def _ma_eval_full(
                     float(sigma[a]), float(period[a]),
                     truncation_sigmas, exponent_denominator=2,
                 )
-                theta_k = table_k[inv[k], :]
+                if pairs is None:
+                    theta_k = table_k[inv[k], :]
+                else:
+                    theta_k = table_k[inv[k][c_idx], q_idx]
                 factor_a = (theta_k if factor_a is None
                             else factor_a * theta_k)
             factor_a = factor_a.astype(dtype, copy=False)
@@ -1433,7 +1466,10 @@ def _ma_eval_full(
                               else abs_per_factor * factor_a)
             continue
 
-        d_a = c_a[:, :, None] - x_a[:, None, :]
+        if pairs is None:
+            d_a = c_a[:, :, None] - x_a[:, None, :]
+        else:
+            d_a = c_a[:, c_idx] - x_a[:, q_idx]
 
         if r_in > 0:
             # Inner [rel] unit: block-diagonal metric over event blocks
@@ -1491,9 +1527,238 @@ def _ma_eval_full(
     if abs_per_factor is not None:
         e = e * abs_per_factor.astype(dtype, copy=False)
 
-    result = w_j.astype(dtype, copy=False) @ e
-    return result.astype(np.float64, copy=False)
+    if pairs is None:
+        result = w_j.astype(dtype, copy=False) @ e
+        return result.astype(np.float64, copy=False)
+    return np.bincount(q_idx, weights=w_j.astype(dtype, copy=False)[c_idx] * e,
+                       minlength=int(n_qc))
 
+
+
+# ---- Joint-centres path: cache-sized chunks and culling -----------------
+#
+# The joint-centres path pairs every joint centre with every query, so
+# its cost is n_j * n_q however narrow the kernel. Two measures keep it
+# down.
+#
+# * Cache-sized chunks. A dense chunk's working set is held to
+#   ``_MA_CACHE_CHUNK_BYTES``, the ``kernel_chunk_bytes`` budget remaining
+#   the ceiling: a block sized from the memory budget alone is
+#   memory-bound.
+# * Culling. Where one coordinate of the joint space bounds the exponent
+#   from below (a *culling coordinate*), each query meets only the
+#   centres within the truncation width on that coordinate. The centres
+#   are sorted on it once per call, each query's centres are then one
+#   contiguous run of the sorted order, and the (centre, query) pairs in
+#   those runs are evaluated as one flat list.
+#
+# Which coordinates bound the exponent. The exponent is the sum over
+# attributes of Q_a / (2 sigma_a^2), every term nonnegative, and a pair
+# whose exponent exceeds k^2 / 2 (k = truncation_sigmas) is set to zero.
+#
+# * Absolute attribute: Q_a = sum_j d_j^2 >= d_j^2 for each coordinate
+#   j, so |d_j| > k sigma_a puts the pair beyond the truncation width. An
+#   attribute with a kernel covariance arrives whitened, as an absolute
+#   attribute with sigma = 1, and is no different.
+# * Periodic absolute attribute, single image: the same, with d_j the
+#   wrapped difference, so the window is taken on the circle.
+# * Relative attribute, flat or a nested inner unit: the coordinates held
+#   are the differences D_j = d_{j+1} - d_0 from position 0, and Q_a is
+#   the sum over all pairs of positions of the squared (wrapped, if
+#   periodic) difference, divided by r. The pair (0, j+1) contributes
+#   D_j^2, and each of the r - 2 other positions contributes two pairs
+#   whose differences sum to D_j, so whose squares sum to at least
+#   D_j^2 / 2 (a wrapped difference obeys the triangle inequality); hence
+#   Q_a >= D_j^2 / 2, and the window is sqrt(2) k sigma_a.
+# * Periodic absolute attribute, full image: not a culling coordinate.
+#   Its wrapped Gaussian is evaluated untruncated, so a centre beyond the
+#   window still contributes, if below the accuracy floor.
+#
+# A culled pair is one that the truncation would have set to zero, so
+# the result is the dense result summed in a different order. The window
+# is widened by a small margin so that rounding in the exponent cannot
+# keep a pair the window excluded.
+
+#: Cache-scale cap, in bytes, on the working set of a dense chunk and of
+#: a group of culled pairs.
+_MA_CACHE_CHUNK_BYTES = 8 * 2 ** 20
+#: Relative costs for the decision to cull, in units of one pair of the
+#: dense broadcast: a pair evaluated in the flat list, and sorting the
+#: centres, per centre and per factor of two in their number.
+_MA_CULL_PAIR_COST = 2.5
+_MA_CULL_SORT_COST = 1.0
+#: Relative widening of the culling window, by working precision.
+_MA_CULL_MARGIN = {np.dtype(np.float64): 1e-9, np.dtype(np.float32): 1e-4}
+#: 'auto' culls where the estimate favours it; 'never' and 'always'
+#: force the choice, for testing.
+_MA_CULL_MODE = "auto"
+
+
+def _ma_cull_candidates(dim_per, sigma, rel, per, period, inner_r, wrap,
+                        k_trunc):
+    """Culling coordinates of the joint space.
+
+    Returns ``(a, j, h, P)`` for each: the attribute, the row within that
+    attribute's centres, the window half-width, and the period (0 when
+    the attribute is not periodic). See the comment above for which
+    coordinates qualify and why.
+    """
+    out = []
+    for a in range(len(dim_per)):
+        da = int(dim_per[a])
+        if da == 0:
+            continue
+        r_in = 0 if inner_r is None else int(inner_r[a])
+        wrap_a = 'full-image'
+        if wrap is not None and a < len(wrap):
+            wrap_a = str(wrap[a])
+        is_rel = bool(rel[a]) or r_in > 0
+        is_per = bool(per[a])
+        if is_per and not is_rel and wrap_a == 'full-image':
+            continue
+        h = float(k_trunc) * float(sigma[a])
+        if is_rel:
+            h *= math.sqrt(2.0)
+        P = float(period[a]) if is_per else 0.0
+        if not h > 0.0 or (is_per and not 2.0 * h < P):
+            continue
+        for j in range(da):
+            out.append((a, j, h, P))
+    return out
+
+
+def _ma_cull_plan(centres, x_list, n_j, n_q, dim_per, sigma, rel, per,
+                  period, inner_r, wrap, k_trunc, dtype):
+    """Choose a culling coordinate and find each query's run of centres.
+
+    Returns ``None`` where the dense evaluation is expected to be no
+    slower, or ``(order, lo, hi)``: the permutation of the centres that
+    sorts the culling coordinate (with the centres near either end
+    repeated across the wrap when that coordinate is periodic), and each
+    query's run ``order[lo:hi]``.
+
+    The coordinate is the one whose centres spread furthest relative to
+    its window. Costs are counted in pairs of the dense broadcast: the
+    dense evaluation costs ``n_j * n_q``; the culled one costs the sort
+    plus ``_MA_CULL_PAIR_COST`` per pair it keeps. An estimate from the
+    spread alone rules out a sort that cannot pay; after the sort the
+    pairs are counted exactly.
+    """
+    mode = _MA_CULL_MODE
+    if mode == "never" or n_j == 0 or n_q == 0:
+        return None
+    cands = _ma_cull_candidates(dim_per, sigma, rel, per, period, inner_r,
+                                wrap, k_trunc)
+    if not cands:
+        return None
+
+    def key(arr):
+        return np.asarray(arr).astype(dtype, copy=False).astype(np.float64)
+
+    best = None
+    for a, j, h, P in cands:
+        if P > 0.0:
+            ratio = P / (2.0 * h)
+        else:
+            c = key(centres[a][j])
+            finite = c[np.isfinite(c)]
+            if finite.size == 0:
+                continue
+            ratio = (float(finite.max()) - float(finite.min())) / (2.0 * h)
+        if best is None or ratio > best[0]:
+            best = (ratio, a, j, h, P)
+    if best is None:
+        return None
+    ratio, a, j, h, P = best
+
+    dense = float(n_j) * float(n_q)
+    sort = _MA_CULL_SORT_COST * float(n_j) * math.log2(max(n_j, 2))
+    if mode != "always":
+        share = min(1.0, 1.0 / ratio) if ratio > 0.0 else 1.0
+        if sort + _MA_CULL_PAIR_COST * share * dense >= dense:
+            return None
+
+    kc = key(centres[a][j])
+    kx = key(x_list[a][j])
+    eps = float(np.finfo(dtype).eps)
+    scale = P
+    for v in (kc, kx):
+        fv = np.abs(v[np.isfinite(v)])
+        if fv.size:
+            scale = max(scale, float(fv.max()))
+    hm = h * (1.0 + _MA_CULL_MARGIN[np.dtype(dtype)]) + 8.0 * eps * scale
+    if P > 0.0:
+        kc = np.mod(kc, P)
+        kx = np.mod(kx, P)
+    order = np.argsort(kc, kind="stable")
+    s = kc[order]
+    if P > 0.0:
+        pre = s > P - hm
+        suf = s < hm
+        s = np.concatenate((s[pre] - P, s, s[suf] + P))
+        order = np.concatenate((order[pre], order, order[suf]))
+    lo = np.searchsorted(s, kx - hm, side="left")
+    hi = np.searchsorted(s, kx + hm, side="right")
+    hi = np.maximum(hi, lo)
+    if mode != "always":
+        kept = float(np.sum(hi - lo))
+        if sort + _MA_CULL_PAIR_COST * kept >= dense:
+            return None
+    return order, lo, hi
+
+
+def _ma_eval_culled(plan, centres, w_j, x_list, n_q, A, dim_per, r_vec,
+                    sigma, rel, per, period, *, truncation_sigmas,
+                    kernel_precision, inner_r, wrap, value_tables,
+                    chunk_bytes):
+    """Evaluate the (centre, query) pairs kept by :func:`_ma_cull_plan`.
+
+    The centres are permuted once into the plan's order, so that each
+    query's centres are the contiguous run ``lo:hi``. Queries are taken
+    in their own order, in groups whose pairs fit ``chunk_bytes``, and
+    each group's pairs are evaluated as one flat list by
+    :func:`_ma_eval_full`.
+    """
+    order, lo, hi = plan
+    cent = [c[:, order] for c in centres]
+    w = w_j[order]
+    tables = None
+    if value_tables is not None:
+        tables = [None if t is None else (t[0], t[1][:, order])
+                  for t in value_tables]
+    counts = (hi - lo).astype(np.int64)
+    vals = np.zeros(int(n_q), dtype=np.float64)
+    cum = np.cumsum(counts)
+    total = int(cum[-1]) if cum.size else 0
+    if total == 0:
+        return vals
+    max_dim = int(max(dim_per)) if A > 0 else 1
+    group_pairs = max(1, int(chunk_bytes // ((2 * max_dim + 4) * 8)))
+    # Group boundaries: after the query at which the running pair count
+    # first reaches each multiple of group_pairs.
+    cuts = np.searchsorted(cum, np.arange(group_pairs, total, group_pairs),
+                           side="left") + 1
+    bounds = np.unique(np.concatenate(([0], cuts, [int(n_q)])))
+    for g0, g1 in zip(bounds[:-1].tolist(), bounds[1:].tolist()):
+        cnt = counts[g0:g1]
+        n_pairs = int(cnt.sum())
+        if n_pairs == 0:
+            continue
+        q_idx = np.repeat(np.arange(g1 - g0), cnt)
+        start = np.cumsum(cnt) - cnt
+        c_idx = lo[g0:g1][q_idx] + (np.arange(n_pairs) - start[q_idx])
+        vals[g0:g1] = _ma_eval_full(
+            cent, w, 0, [xa[:, g0:g1] for xa in x_list], g1 - g0,
+            A, dim_per, r_vec, sigma,
+            rel, per, period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            inner_r=inner_r,
+            wrap=wrap,
+            value_tables=tables,
+            pairs=(c_idx, q_idx),
+        )
+    return vals
 
 
 def _neighbour_offsets(dim):

@@ -178,7 +178,15 @@ for rp1_m = {'centres', 'mobius'}
 end
 
 % --- A-9: entropy list form forwards the width (relative density, grid) ---
-dR = rp1Flat(4, 0.5, 2, true, false, 'full-image', 0, 5, 2);
+% The attribute is ordered, so the centres route is taken by a hard rule
+% (an ordered attribute has no orbit to collapse), and on that route the
+% width governs the value. Exchangeable, so small a shape is a near tie in
+% the cost model between centres and Möbius, and the Möbius route's
+% relative evaluator is not governed by the width.
+rng(4, 'twister');
+rp1_pR = sort(12.0 * rand(5, 2), 1);
+dR = buildMaet({rp1_pR}, {[]}, 0.5, 2, true, false, 0, false, ...
+                  'wrap', {'full-image'}, 'verbose', false);
 hScalar = entropyMaet(dR, 'method', 'shannon', 'nPointsPerDim', 64, ...
     'xMin', -6, 'xMax', 6, 'truncationSigmas', 1.5, 'verbose', false);
 hList = entropyMaet({dR}, 'method', 'shannon', 'nPointsPerDim', 64, ...

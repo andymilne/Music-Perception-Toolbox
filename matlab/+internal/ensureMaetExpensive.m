@@ -14,6 +14,19 @@ function dens = ensureMaetExpensive(dens)
 %   directly on the cheap fields and skip this helper; pairwise/centre
 %   consumers prepend a single call to it.
 %
+%   The build is made once per density. A density is a struct, passed by
+%   value, so the fields cannot be left on the caller's struct; buildMaet
+%   instead gives a lazy density a handle (internal.MaetCache, in the
+%   field lazyCache) that every copy of the struct shares. The first call
+%   stores the full density there, and later calls, on the struct or any
+%   copy of it, return what it holds without building again, as Python
+%   keeps the fields on the density object. The cache records the fields
+%   the build reads and is used only while they are unchanged, so a copy
+%   whose values, weights, geometry, wrap, names, or kernel covariance
+%   have been edited is rebuilt rather than given stale fields; the
+%   rebuild then replaces what the cache holds. A struct without the
+%   field is built on every call, as before.
+%
 %   Cheap fields (always present after buildMaet):
 %     tag 'MaetDensity' (single-multiset is the A = N = 1 corner):
 %       nAttrs, N, r, K, pAttr,
@@ -40,6 +53,18 @@ function dens = ensureMaetExpensive(dens)
     % Already populated: return as-is.
     if isfield(dens, 'Centres') && ~isempty(dens.Centres)
         return
+    end
+
+    % Built before, by a call on this struct or a copy of it, from the
+    % same inputs: return that build.
+    cache = [];
+    if isfield(dens, 'lazyCache') && isa(dens.lazyCache, 'internal.MaetCache')
+        cache = dens.lazyCache;
+        inputs = localBuildInputs(dens);
+        if cache.filled && isequaln(cache.inputs, inputs)
+            dens = cache.dens;
+            return
+        end
     end
 
     % Forward the stored exch flag so an ordered ([exch]=0) density does
@@ -112,5 +137,25 @@ function dens = ensureMaetExpensive(dens)
     if hadCov
         dens.kernelCov = savedCov;
         dens.kernelChol = savedChol;
+    end
+
+    if ~isempty(cache)
+        cache.inputs = inputs;
+        cache.dens = dens;
+        cache.filled = true;
+    end
+end
+
+
+function inputs = localBuildInputs(dens)
+%LOCALBUILDINPUTS  The fields of a skinny density that the build above
+%   reads, and so all that its result depends on.
+    names = {'tag', 'pAttr', 'w', 'sigma', 'r', 'rel', 'per', 'period', ...
+             'exch', 'nested', 'names', 'kernelCov', 'kernelChol', 'wrap'};
+    inputs = struct();
+    for i = 1:numel(names)
+        if isfield(dens, names{i})
+            inputs.(names{i}) = dens.(names{i});
+        end
     end
 end

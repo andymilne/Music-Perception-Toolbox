@@ -35,6 +35,12 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % timed: 1.007 (3 cells beyond 1.3x, worst 1.94x) against 1.018 (9,
     % worst 3.9x) for the July values. Previous values kept in the
     % comments beside each constant so the refit reverts in one edit.
+    % The grid times lazy densities, which before October 2026 built their
+    % joint fields again on every centres call; a lazy density now keeps
+    % them after the first call (internal.MaetCache). The dispatch audit
+    % run after that change (bench_ma_eval_dispatch, 30 cells) measured
+    % single-multiset centres at 0.5--1.5 times these estimates and found
+    % the same routes as before, so the constants were not refitted.
     % Absolute values are machine-specific;
     % selection depends only on their ratios. Python carries its own
     % constants (same functional form, per-language calibration). The two

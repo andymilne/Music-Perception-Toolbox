@@ -121,6 +121,10 @@ function dens = buildMaet(varargin)
 %       .wv_comb       = 1 x nK, per-tuple weight products (comb side)
 %       .eventOfJ      = 1 x nJ, event index for each perm-side tuple
 %       .eventOfK      = 1 x nK, event index for each comb-side tuple
+%       .lazyCache     = (a lazy density, in place of .nJ to .eventOfK)
+%                        an internal.MaetCache, the handle shared by every
+%                        copy of the struct in which the first consumer
+%                        that needs those fields stores them
 %
 %   Column j in Centres{a}, U_perm{a}, wJ, and eventOfJ all refer to the
 %   same global perm-side tuple. Similarly for column k across V_comb{a},
@@ -135,7 +139,11 @@ function dens = buildMaet(varargin)
 %                 method's centres-array footprint at high r would
 %                 dominate memory if eagerly built; deferring lets
 %                 calls that route via Möbius skip the centres array
-%                 entirely. Pass 'lazy', false to materialise the
+%                 entirely. The first consumer that needs the fields
+%                 builds them and stores them in the density's lazyCache
+%                 (internal.MaetCache), a handle shared by every copy of
+%                 the struct, so they are built once rather than on
+%                 every call. Pass 'lazy', false to materialise the
 %                 expensive fields up front --- required by external
 %                 code that reads U_perm / wJ directly without going
 %                 through evalMaet / simMaet / entropyMaet.
@@ -960,6 +968,10 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     end
 
     if lazy
+        % Where the per-tuple fields will be kept once a consumer builds
+        % them: a handle, so that every copy of this struct sees them
+        % (see internal.ensureMaetExpensive).
+        dens.lazyCache = internal.MaetCache();
         if verbose
             fprintf(['buildMaet (MAET): skinny density (%d attributes, ' ...
                      '%d events); per-tuple fields populated ' ...

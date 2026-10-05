@@ -26,12 +26,12 @@
 %      clear all; rehash; bench_ma_joint_cull
 %  Each cell is the minimum of five runs after a warm-up.
 %
-%  Each density is materialized ('lazy', false) before it is timed. A
-%  density is passed by value, so evalMaet on a lazy one rebuilds its
-%  joint fields on every call (Python builds them once per density);
-%  left lazy, every timing would carry the build, the same in each
-%  column, and the ratio would be inflated most where the kept pairs are
-%  fewest.
+%  Each density is materialized ('lazy', false) before it is timed, so
+%  that every column times the evaluation alone. A lazy density would do
+%  as well now, building its joint fields on the warm-up call and keeping
+%  them in its lazyCache (internal.MaetCache); before that cache, it
+%  rebuilt them on every call, every column carried the build, and the
+%  ratio was inflated most where the kept pairs are fewest.
 
 bj_capsMB = [1 2 4 8];
 bj_blockCosts = [1024 4096 16384];

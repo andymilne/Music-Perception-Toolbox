@@ -47,6 +47,16 @@ musically distinct tolerances:
                 (infinite-sd_shift) limit: graded tempo TOLERANCE
                 tends to exact tempo INVARIANCE.
 
+A logarithm needs a positive interval. Every IOI in this demo is
+positive, but an IOI of zero -- two onsets at the same time, when each
+note is its own event -- has no logarithm, and something must be done
+with it before the logs are taken. demo_repetition_handling.py meets
+the same problem in pitch, where a repeated note's step is zero, and
+compares three treatments: drop the event, gather it into the event
+before it, or gather it and count what was gathered. They carry over to
+onsets, where gathering simultaneous notes into one event is how the
+toolbox already holds a chord.
+
 The demo searches a monophonic onset stream for a long-short-short
 motif. The stream contains variations of the motif at different tempos,
 some with small onset-timing perturbations as well, plus two foils.

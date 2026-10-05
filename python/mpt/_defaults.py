@@ -8,9 +8,9 @@ always override the defaults set here.
 elementwise Gaussian work may be spread over. That work is the bulk of
 every evaluation route and is perfectly parallel in the evaluation
 points, so threading it scales nearly linearly until memory bandwidth
-saturates. The partition preserves each point's own arithmetic order,
-so the results are bit-identical at any thread count; only the time
-changes. ``'auto'`` follows ``OMP_NUM_THREADS`` when the environment
+saturates. Each point's value is a sum over its own terms, so the
+results agree to rounding at any thread count, and on most routes bit
+for bit; only the time changes. ``'auto'`` follows ``OMP_NUM_THREADS`` when the environment
 sets it and otherwise takes the core count capped at eight; 1 runs
 serially. Set it to 1 when parallelising at a higher level — a
 ``multiprocessing`` pool, ``joblib``, or a cluster job array — since

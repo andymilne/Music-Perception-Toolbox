@@ -1127,26 +1127,17 @@ def _eval_maet_ma(
             value_tables=_value_tables,
             chunk_bytes=chunk_bytes,
         )
-    elif bytes_needed <= chunk_bytes:
-        vals = _ma_eval_full(
-            centres, w_j, n_j, x_list, n_q,
-            A, dim_per, r_vec, sigma,
-            rel, per, period,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            inner_r=inner_r,
-            wrap=_wrap_dens,
-            value_tables=_value_tables,
-        )
     else:
-        chunk_size = max(1, int(chunk_bytes // max(bytes_per_col, 1)))
-        vals = np.zeros(n_q, dtype=np.float64)
-        for c_start in range(0, n_q, chunk_size):
-            c_end = min(c_start + chunk_size, n_q)
-            n_qc = c_end - c_start
-            x_chunk = [xa[:, c_start:c_end] for xa in x_list]
-            vals[c_start:c_end] = _ma_eval_full(
-                centres, w_j, n_j, x_chunk, n_qc,
+        # Each query's value is a sum over every centre, independent of
+        # the other queries, so contiguous spans of the query range go to
+        # the shared kernel thread pool. Threads hold their chunks at the
+        # same time, so the budget is divided among them and the peak
+        # transient is what it was serially; the chunk is then capped
+        # again so that no thread is left without one.
+        n_threads = kernel_thread_count(int(n_j) * int(n_q))
+        if bytes_needed <= chunk_bytes and n_threads <= 1:
+            vals = _ma_eval_full(
+                centres, w_j, n_j, x_list, n_q,
                 A, dim_per, r_vec, sigma,
                 rel, per, period,
                 truncation_sigmas=truncation_sigmas,
@@ -1155,6 +1146,32 @@ def _eval_maet_ma(
                 wrap=_wrap_dens,
                 value_tables=_value_tables,
             )
+        else:
+            chunk_size = max(1, int((chunk_bytes / max(1, n_threads))
+                                    // max(bytes_per_col, 1)))
+            if n_threads > 1:
+                chunk_size = min(chunk_size,
+                                 max(1, -(-int(n_q) // n_threads)))
+            vals = np.zeros(n_q, dtype=np.float64)
+
+            def _evaluate_span(bounds):
+                lo, hi = bounds
+                for c_start in range(lo, hi, chunk_size):
+                    c_end = min(c_start + chunk_size, hi)
+                    x_chunk = [xa[:, c_start:c_end] for xa in x_list]
+                    vals[c_start:c_end] = _ma_eval_full(
+                        centres, w_j, n_j, x_chunk, c_end - c_start,
+                        A, dim_per, r_vec, sigma,
+                        rel, per, period,
+                        truncation_sigmas=truncation_sigmas,
+                        kernel_precision=kernel_precision,
+                        inner_r=inner_r,
+                        wrap=_wrap_dens,
+                        value_tables=_value_tables,
+                    )
+
+            run_in_kernel_threads(_evaluate_span,
+                                  split_ranges(int(n_q), max(1, n_threads)))
 
     # --- Normalisation (shared with the factored path) ---
     return _ma_eval_normalize(dens, vals, normalize)
@@ -1643,10 +1660,9 @@ def _ma_cull_plan(centres, x_list, n_j, n_q, dim_per, sigma, rel, per,
     plus ``_MA_CULL_PAIR_COST`` per pair it keeps. An estimate from the
     spread alone rules out a sort that cannot pay; after the sort the
     pairs are counted exactly. The decision does not read the thread
-    count, although the culled evaluation runs on the kernel thread pool
-    and the dense one does not: culled and dense values agree only to
-    summation order, and a decision that moved with the thread count
-    would make the values move with it.
+    count: both evaluations run on the kernel thread pool and gain from
+    it about equally (measured on the maintainer's Mac, 2--3.6 times
+    culled and 2--2.8 times dense at four threads).
     """
     mode = _MA_CULL_MODE
     if mode == "never" or n_j == 0 or n_q == 0:

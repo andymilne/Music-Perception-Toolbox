@@ -1335,7 +1335,7 @@ Four settings trade accuracy, speed, and memory in the evaluation of Gaussian ke
 | `truncationSigmas` | 6 | yes | Kernel contributions beyond this many σ are skipped. The worst-case error is about 1e-3 at 4, 1e-5 at 5, 2e-8 at 6, and 1e-10 at 7; `Inf` gives the toolbox's accuracy floor of 1e-12, at a width of about 7.43σ. |
 | `kernelPrecision` | `'double'` | yes | `'single'` computes kernel matrices in single precision, often about twice as fast, to about 7 significant figures. The Möbius inner product ignores it, since its alternating sum would magnify the rounding. |
 | `kernelChunkBytes` | `'auto'` | no | The memory for each chunk of a large kernel computation; `'auto'` is half the available memory. Lower it to reduce peak memory; the result is unchanged. |
-| `kernel_threads` (Python only) | `'auto'` | no | Threads for the kernel arithmetic; `'auto'` takes `OMP_NUM_THREADS`, or else the number of cores up to eight. Results are identical at any count. Set it to 1 when parallelizing at a higher level, such as a process pool or a job array. MATLAB threads this arithmetic itself. |
+| `kernel_threads` (Python only) | `'auto'` | no | Threads for the kernel arithmetic; `'auto'` takes `OMP_NUM_THREADS`, or else the number of cores up to eight. Results agree to rounding at any count. Set it to 1 when parallelizing at a higher level, such as a process pool or a job array. MATLAB threads this arithmetic itself. |
 
 A value given in a call overrides the toolbox default (§11.4), which overrides the factory default.
 

@@ -7,7 +7,10 @@ query's accumulation runs over its own centres in an order set by the
 bucket lattice, which is pitched on the centres alone -- so the split
 changes the schedule and nothing else. What is pinned here is that
 identity, across the routes that carry it, together with the resolution
-rules for the default.
+rules for the default. The toolbox promises agreement to rounding, not
+identity: the dense joint-centres path, whose chunk shape follows the
+thread count, may sum a matrix product in a different order, and is
+held to agreement at 1e-12.
 
 The bit-identity assertions pin ``kernel_chunk_bytes`` to a fixed value.
 That is not a threading matter: the factory ``'auto'`` resolves against
@@ -184,6 +187,27 @@ class TestBitIdentity:
         assert np.array_equal(serial, evaluated(dens, points, 4))
         mpt.set_default(kernel_threads=4)
         assert kernel_thread_count(n * 2_000 // 10) > 1
+
+    def test_the_dense_joint_centres_path_agrees_with_the_serial_path(
+            self, fixed_chunk, threads, monkeypatch):
+        """With culling off the joint-centres path runs dense, in spans
+        of queries on the pool, each chunk a matrix product over every
+        centre."""
+        import mpt._tensor.eval as ev
+        monkeypatch.setattr(ev, "_MA_CULL_MODE", "never")
+        rng = np.random.default_rng(5)
+        n = 5_000
+        p = [rng.uniform(0.0, 10.0, (1, n)), rng.uniform(0.0, PERIOD, (3, n))]
+        dens = mpt.build_maet(p, None, [0.3, SIGMA], [1, 2], [False, True],
+                              [False, False], [0.0, 0.0], verbose=False)
+        points = np.vstack([rng.uniform(0.0, 10.0, 1_000),
+                            rng.uniform(-PERIOD, PERIOD, 1_000)])
+        serial = evaluated(dens, points, 1)
+        threaded = evaluated(dens, points, 4)
+        assert np.max(np.abs(threaded - serial)) <= 1e-12 * np.max(serial)
+        assert np.max(serial) > 0
+        mpt.set_default(kernel_threads=4)
+        assert kernel_thread_count(dens.n_j * 1_000) > 1
 
     def test_the_wrapped_kernel_agrees_elementwise(self, threads):
         from mpt._wrapped_kernel import wrapped_gaussian_1d

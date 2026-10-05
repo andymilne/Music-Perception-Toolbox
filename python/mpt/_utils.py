@@ -547,8 +547,10 @@ def with_kernel_chunk_bytes_pin(func):
 # outweighs the gain, and the partition is by contiguous ranges of
 # points so that every element's arithmetic — the image sum inside the
 # wrapped kernel, the accumulation over a query's own centres — keeps
-# the order it has serially. Results are therefore bit-identical to the
-# serial path at any thread count.
+# the order it has serially. Results therefore agree with the serial
+# path to rounding at any thread count, and on most routes bit for bit;
+# where a route's chunk shape follows the thread count, a matrix product
+# may sum in a different order.
 #
 # MATLAB needs no equivalent: its elementwise transcendental functions
 # are threaded by the runtime, and inside parfor each worker is already

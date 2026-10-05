@@ -4,8 +4,9 @@
 %
 % A demo of the Music Perception Toolbox reproducing the analysis from the
 % JMM article's Online Supplement. Data come from jmm.derivations (the
-% rule-labelled derivations of Ren, Rammos, and Rohrmeier 2024, which you
-% supply); the figures stay on screen unless SAVE_FIGURES is set.
+% rule-labelled derivations of Ren, Rammos, and Rohrmeier 2024, which are
+% not distributed with the toolbox and must be supplied; see Data below);
+% the figures stay on screen unless SAVE_FIGURES is set.
 %
 % Analysis 4.1: an expert harmonic analysis, supplied as input, carried
 % into the framework, and operated on by it.
@@ -46,9 +47,11 @@
 %                 distance sLevel, so that depth enters the comparison
 %                 itself rather than being ignored;
 %   marginals     unrolled into one event per (chord, position) across
-%                 the whole corpus, each weighted 1/m with m the number
-%                 of surface chords its node governs, the label marginal
-%                 returns the corpus's rule frequencies, and carrying each
+%                 the whole corpus, with label and level as attributes,
+%                 each event weighted 1/m with m the number of surface
+%                 chords its node governs, the label marginal returns the
+%                 corpus's rule frequencies, the joint marginal of label
+%                 and level each rule's depth profile, and carrying each
 %                 chord's quality alongside gives the joint distribution
 %                 of rule and surface.
 %
@@ -59,6 +62,7 @@
 %     label       (V-1, 2)          0.1 (or 0.3)   no    no    nested
 %     label       (V, 2)            0.1            no    no    nested, with level
 %     label       V-1               0.1            no    no    unrolled
+%     level       1                 0.1            no    no    unrolled
 %     quality     Q-1               0.1            no    no    unrolled
 %
 %     V is the number of rule labels in the alphabet, so a label is a
@@ -67,8 +71,14 @@
 %     Estimator: one-sided similarity for retrieval and the marginals,
 %     cosine for the reduction.
 %
-% Data: jmm.derivations (from your own copy of ParseTrees.json at
-% data/ParseTrees.json). Toolbox: simplexVertices, packPreMaet, flatSpecs,
+% Data: jmm.derivations, which reads the file ParseTrees.json of Ren,
+% Rammos, and Rohrmeier (2024). It must be supplied: download
+% experiment/DataSet/Harmony/ParseTrees.json from the authors' repository,
+% https://github.com/ren-zeng/formal-modeling-of-structural-repetition
+% (direct link: https://raw.githubusercontent.com/ren-zeng/formal-modeling-of-structural-repetition/main/experiment/DataSet/Harmony/ParseTrees.json),
+% and save it as matlab/demos/jmm/data/ParseTrees.json.
+%
+% Toolbox: simplexVertices, packPreMaet, flatSpecs,
 % bindAttributes, bindEvents ('groupBy'), selectPreMaet, buildMaet,
 % simMaet, showPreMaet. Runtime: a few seconds.
 
@@ -95,6 +105,7 @@ TUNE = '(Valid)Solar';            % Miles Davis, as the corpus names it
 CONTROL = '(Valid)Interplay';     % holds no instance of the query
 SIGMA_LABEL = 0.1;                % a label either matches or does not
 SIGMA_WIDE = 0.3;                 % wide enough for a substitution to count
+SIGMA_LEVEL = 0.1;                % one level apart is no match
 R_OUTER = 2;                      % an ordered pair of path positions
 QUERY = {'V_I', 'Descending5th'};         % a dominant prepared by fifths
 QUERY_LEVELS = [3 4];                     % where it first occurs in Solar
@@ -103,6 +114,7 @@ REDUCTION_LEVEL = 3;              % paths are graded, and cut, beyond this
 G_VALUES = [1.0 0.5 0.2 0.0];     % the grading's decay per level
 S_RATIOS = [0.0 0.2 0.5 1.0 3.0]; % sLevel / sigma
 DOMINANT_SEVENTH = 'Maj Min Min'; % a major third, then two minor thirds
+PROFILE_RULE = 'V_I';             % the rule whose depth profile is read
 
 C_TUNE = [0.122 0.306 0.722];
 C_QUERY = [0.761 0.314 0.031];
@@ -204,20 +216,25 @@ end
 
 % --- marginals, on the unrolled encoding -------------------------------------
 % The unrolled encoding makes one event of each (chord, position) of every
-% derivation in the corpus, the label and the chord's quality becoming two
-% flat attributes, each holding its simplex coordinates read whole and in
-% order. Weighting each event 1/m, with m the number of surface chords its
-% node governs, gives every rule application unit total weight, so the
-% one-sided similarity of the corpus against a one-event query holding a
-% label (retrieval, as above, now of single positions) is that rule's
-% frequency in the corpus. At unit weights, the same reading against a
-% (label, quality) query, divided by the reading against the label alone,
-% is the share of that quality among the chords the rule governs.
+% derivation in the corpus, the label, the level, and the chord's quality
+% becoming three flat attributes: the label and the quality each hold
+% their simplex coordinates, read whole and in order, and the level holds
+% the position's depth. Weighting each event 1/m, with m the number of
+% surface chords its node governs, gives every rule application unit total
+% weight, so the one-sided similarity of the corpus against a one-event
+% query holding a label (retrieval, as above, now of single positions) is
+% that rule's frequency in the corpus; against a query holding a label and
+% a level, it is the number of that rule's applications at that level, the
+% rule's depth profile. At unit weights, the reading against a (label,
+% quality) query, divided by the reading against the label alone, is the
+% share of that quality among the chords the rule governs.
 corpus = jmm.derivations();
 U = struct('rules', {unique(corpus.label)}, ...
-           'qualities', {unique(corpus.quality)}, 'sigma', SIGMA_LABEL);
+           'qualities', {unique(corpus.quality)}, 'sigma', SIGMA_LABEL, ...
+           'sigmaLevel', SIGMA_LEVEL);
 
-byRule = localLabelsOnly(localEncodeUnrolled(corpus, U, 1 ./ corpus.governed));
+weightedPm = localEncodeUnrolled(corpus, U, 1 ./ corpus.governed);
+byRule = localLabelsOnly(weightedPm);
 freq = zeros(1, numel(U.rules));
 for iR = 1:numel(U.rules)
     freq(iR) = simMaet(byRule, ...
@@ -232,14 +249,30 @@ for iR = order
     fprintf('  %-15s %7.1f\n', U.rules{iR}, freq(iR));
 end
 
+byLevel = localMarginal(weightedPm, {'label', 'level'});
+levels = 1:max(corpus.level);
+profile = zeros(size(levels));
+for iL = levels
+    profile(iL) = simMaet(byLevel, ...
+        localMarginal(localPosition(PROFILE_RULE, DOMINANT_SEVENTH, U, iL), ...
+                      {'label', 'level'}), ...
+        'normalize', 'oneSidedDenom', 'verbose', false);
+end
+fprintf(['depth profile of %s, read from the label-by-level marginal ' ...
+         '(levels with at least one application):\n'], PROFILE_RULE);
+for iL = levels(profile >= 0.5)
+    fprintf('  level %-3d %7.1f\n', iL, profile(iL));
+end
+fprintf('  total     %7.1f  (its frequency above)\n', sum(profile));
+
 plainPm = localEncodeUnrolled(corpus, U, []);
-jointDens = buildMaet(plainPm, 'verbose', false);
+jointDens = localMarginal(plainPm, {'label', 'quality'});
 byLabel = localLabelsOnly(plainPm);
 fprintf(['share of the dominant-seventh quality (%s) among the chords a ' ...
          'rule governs:\n'], DOMINANT_SEVENTH);
 for rule = {'V_I', 'Repeat'}
     qPm = localPosition(rule{1}, DOMINANT_SEVENTH, U);
-    both = simMaet(jointDens, buildMaet(qPm, 'verbose', false), ...
+    both = simMaet(jointDens, localMarginal(qPm, {'label', 'quality'}), ...
                    'normalize', 'oneSidedDenom', 'verbose', false);
     alone = simMaet(byLabel, localLabelsOnly(qPm), ...
                     'normalize', 'oneSidedDenom', 'verbose', false);
@@ -354,24 +387,29 @@ end
 
 function pm = localEncodeUnrolled(t, U, weights)
 %LOCALENCODEUNROLLED  A table of path positions as the unrolled pre-MAET,
-%   one event per (chord, position): its label and its chord's quality,
-%   each one attribute holding a simplex vertex, read whole and in order.
-%   weights (empty for unit weights) is carried by the first coordinate.
+%   one event per (chord, position): its label, its level, and its chord's
+%   quality, the label and the quality each one attribute holding a
+%   simplex vertex, read whole and in order. weights (empty for unit
+%   weights) is carried by the first coordinate.
     label = localSimplexRows(t.label, U.rules);
+    level = {double(t.level(:)).'};
     quality = localSimplexRows(t.quality, U.qualities);
     namesLabel = arrayfun(@(i) sprintf('rule%d', i), 1:numel(label), ...
                           'UniformOutput', false);
     namesQuality = arrayfun(@(i) sprintf('quality%d', i), 1:numel(quality), ...
                             'UniformOutput', false);
-    values = [label, quality];
+    values = [label, level, quality];
+    sigma = [repmat(U.sigma, 1, numel(label)), U.sigmaLevel, ...
+             repmat(U.sigma, 1, numel(quality))];
     w = [];
     if ~isempty(weights)
         w = [{double(weights(:)).'}, ...
              repmat({ones(1, height(t))}, 1, numel(values) - 1)];
     end
     pm = packPreMaet(values, w, ...
-                     flatSpecs(values, 'sigma', U.sigma, 'per', false, ...
-                               'period', 0, 'names', [namesLabel, namesQuality]));
+                     flatSpecs(values, 'sigma', sigma, 'per', false, ...
+                               'period', 0, ...
+                               'names', [namesLabel, {'level'}, namesQuality]));
     pm = bindAttributes(pm, namesLabel, 'name', 'label', ...
                         'r', numel(namesLabel), 'exch', false);
     pm = bindAttributes(pm, namesQuality, 'name', 'quality', ...
@@ -379,15 +417,25 @@ function pm = localEncodeUnrolled(t, U, weights)
 end
 
 
-function pm = localPosition(label, quality, U)
-%LOCALPOSITION  A one-event query: one position, its label and its chord's
-%   quality.
-    pm = localEncodeUnrolled(table({label}, {quality}, ...
-                                   'VariableNames', {'label', 'quality'}), U, []);
+function pm = localPosition(label, quality, U, level)
+%LOCALPOSITION  A one-event query: one position, its label, its level
+%   (default 1), and its chord's quality.
+    if nargin < 4
+        level = 1;
+    end
+    pm = localEncodeUnrolled(table({label}, level, {quality}, ...
+        'VariableNames', {'label', 'level', 'quality'}), U, []);
+end
+
+
+function dens = localMarginal(pm, attributes)
+%LOCALMARGINAL  The density of the named attributes alone.
+    dens = buildMaet(selectPreMaet(pm, 'attributes', attributes), ...
+                     'verbose', false);
 end
 
 
 function dens = localLabelsOnly(pm)
 %LOCALLABELSONLY  The density of the label attribute alone.
-    dens = buildMaet(selectPreMaet(pm, 'attributes', {'label'}), 'verbose', false);
+    dens = localMarginal(pm, {'label'});
 end

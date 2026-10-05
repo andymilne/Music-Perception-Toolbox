@@ -49,8 +49,12 @@ article encoded them.
 * **Ren, Rammos, and Rohrmeier (2024): derivations** (`jmm.derivations`): the
   rule-labelled parses of the Jazz Harmony Treebank, read from
   `data/ParseTrees.json` as a table of path positions. The file is not
-  distributed; download `ParseTrees.json` from the authors' repository
-  and place it at that path, or pass the path to `jmm.derivations`.
+  distributed with the toolbox and must be supplied: download
+  `experiment/DataSet/Harmony/ParseTrees.json` from the authors'
+  repository, <https://github.com/ren-zeng/formal-modeling-of-structural-repetition>
+  ([direct link](https://raw.githubusercontent.com/ren-zeng/formal-modeling-of-structural-repetition/main/experiment/DataSet/Harmony/ParseTrees.json)), and save it as
+  `matlab/demos/jmm/data/ParseTrees.json`, or pass its path to
+  `jmm.derivations`.
 
 ## Scripts
 
@@ -72,7 +76,7 @@ document carries it.
 | `demo_jmm_3_1_texture.m` | Analysis 3.1 — article §4.3.1 | How does the pooled texture's local entropy track the phase, at a fusing and a resolving time kernel? | `preMaetFromAttrTable`, `sweptEntropy` (`'method', 'renyi2'`) |
 | `demo_jmm_3_2_diff.m` | Analysis 3.2 — supplement §9 | Does joint differencing of pitch and time expose the accelerandi of the phasing voice at the timing JND? | `preMaetFromAttrTable`, `differenceEvents`, `selectPreMaet`, `buildMaet`, `evalMaet`, `sweptEntropy` (`'method', 'renyi2'`) |
 | `demo_jmm_3_3_xcorr.m` | Analysis 3.3 — supplement §10 | Can the running phase between the pianos be read as the ridge of a lag cross-correlogram? | `preMaetFromAttrTable`, `packPreMaet`, `buildMaet`, `sweepSimMaet` (`'normalize', 'oneSidedDenom'`) |
-| `demo_jmm_4_1_parse.m` | Analysis 4.1 — supplement §11 | What can the framework do with an expert analysis it is given? A rule-labelled derivation carried as a nested multiset: retrieval of a configuration, partial match on the label simplex, reduction by graded weights, and depth as a further coordinate; then, unrolled to one event per path position across the corpus, rule frequencies and rule–quality shares read as marginals. | `simplexVertices`, `packPreMaet`, `flatSpecs`, `bindAttributes`, `bindEvents` (`'groupBy'`), `selectPreMaet`, `buildMaet`, `simMaet` (`'normalize', 'oneSidedDenom'`) |
+| `demo_jmm_4_1_parse.m` | Analysis 4.1 — supplement §11 | What can the framework do with an expert analysis it is given? A rule-labelled derivation carried as a nested multiset: retrieval of a configuration, partial match on the label simplex, reduction by graded weights, and depth as a further coordinate; then, unrolled to one event per path position across the corpus, rule frequencies, depth profiles, and rule–quality shares read as marginals. | `simplexVertices`, `packPreMaet`, `flatSpecs`, `bindAttributes`, `bindEvents` (`'groupBy'`), `selectPreMaet`, `buildMaet`, `simMaet` (`'normalize', 'oneSidedDenom'`) |
 
 The Python demo's `sim_maet(..., mode='cartesian')` (the full
 N × N matrix in one call) has no MATLAB counterpart; the MATLAB scripts

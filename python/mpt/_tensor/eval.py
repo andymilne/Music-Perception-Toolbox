@@ -147,7 +147,7 @@ def eval_maet(*args,
         FP-noise tolerance for canonical-form dedup. Raw single-multiset batched
         only.
     method : {'auto', 'centres', 'mobius'}, default 'auto'
-        Single-multiset-path evaluation strategy. ``'auto'`` lets the dispatcher
+        Evaluation strategy. ``'auto'`` lets the dispatcher
         choose between the centres-array path and the Möbius point
         evaluator, weighing both wall time and the centres working-set
         memory (see :func:`mpt._tensor.dispatch._select_ma_eval`). The
@@ -169,8 +169,10 @@ def eval_maet(*args,
         the dispatcher crosses over to Möbius as ``K`` or the batch
         size grows.
         ``'centres'`` forces the centres path; ``'mobius'`` forces the
-        Möbius method. Currently a no-op on the MA path (there is no MA
-        Möbius point evaluator yet; MA eval always uses centres).
+        Möbius method. On a multi-attribute density the same choice is
+        between the joint-centres path and the factored Möbius evaluator,
+        which takes each attribute's density by the Möbius method and
+        their product per event.
     verbose : bool, default True
         Print progress.
 
@@ -207,9 +209,7 @@ def eval_maet(*args,
     What is *not* currently caught: a finite, but slightly inaccurate
     output from accumulated Möbius per-term error. None has been
     observed in extensive testing, but a sum-level cancellation
-    diagnostic that would close this residual gap is planned. See
-    :func:`sim_maet` Notes for the parallel discussion on the
-    inner-product path.
+    diagnostic that would close this residual gap is planned.
 
     See Also
     --------
@@ -1362,12 +1362,11 @@ def _ma_eval_full(
     Geometry (``sigma``, ``rel``, ``per``, ``period``) is
     per-attribute, indexed directly by ``a``.
 
-    Untruncated-double bypass: when the resolved ``truncation_sigmas``
-    is Inf and the resolved ``kernel_precision`` is 'double', runs the
-    inline accumulation inline with no cast machinery and no
-    post-filter branching. This
-    keeps default-mode calls at inline cost; the feature kwargs
-    only impose their cost when explicitly requested.
+    Every centre meets every query, and truncation is a post-filter on
+    the summed exponent. It always applies: :func:`eval_maet` resolves
+    ``truncation_sigmas`` to a finite width before this is called
+    (``inf`` to the accuracy-floor width), so there is no untruncated
+    fast path.
     """
     # ---- Resolve precision from defaults ----
     # ``truncation_sigmas`` is already resolved to a finite width at

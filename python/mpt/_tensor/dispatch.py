@@ -2144,8 +2144,11 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
 
     Hard rules first, in order: a user override is honoured
     (``'mobius'`` is refused on an ordered attribute); an ordered
-    (``[exch] = 0``) attribute at ``r > 1``, a nested attribute, or
-    ``r <= 1`` on every attribute keeps the joint-centres path; an
+    (``[exch] = 0``) attribute at ``r > 1``, or ``r <= 1`` on every
+    attribute, keeps the joint-centres path; a density nested
+    throughout is decided on its own cost row (``_nested_eval_costs_ms``),
+    and a nested attribute in a mixed density adds that row to the
+    shared comparison; an
     attribute whose ``r_a`` exceeds the feasible orbit bound forces the
     joint-centres path (guarded by ``_DISPATCH_MEM_BUDGET``, since no
     cheaper route exists there); and a periodic-relative attribute whose

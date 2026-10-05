@@ -3,8 +3,9 @@ supplied parse carried as a nested multiset.
 
 A demo of the Music Perception Toolbox reproducing the analysis from the
 JMM article's Online Supplement. Data come from jmm_data (the
-rule-labelled derivations of Ren, Rammos, and Rohrmeier 2024, which you
-supply); the figures stay on screen unless SAVE_FIGURES is set.
+rule-labelled derivations of Ren, Rammos, and Rohrmeier 2024, which are
+not distributed with the toolbox and must be supplied; see Data below);
+the figures stay on screen unless SAVE_FIGURES is set.
 
 Analysis 4.1: an expert harmonic analysis, supplied as input, carried
 into the framework, and operated on by it.
@@ -45,9 +46,11 @@ unrolled encoding:
                 distance s_level, so that depth enters the comparison
                 itself rather than being ignored;
   marginals     unrolled into one event per (chord, position) across
-                the whole corpus, each weighted 1/m with m the number of
-                surface chords its node governs, the label marginal
-                returns the corpus's rule frequencies, and carrying each
+                the whole corpus, with label and level as attributes,
+                each event weighted 1/m with m the number of surface
+                chords its node governs, the label marginal returns the
+                corpus's rule frequencies, the joint marginal of label
+                and level each rule's depth profile, and carrying each
                 chord's quality alongside gives the joint distribution
                 of rule and surface.
 
@@ -58,6 +61,7 @@ Pre-MAET structure::
     label      (V-1, 2)          0.1 (or 0.3)   no   no   nested
     label      (V, 2)            0.1            no   no   nested, with level
     label      V-1               0.1            no   no   unrolled
+    level      1                 0.1            no   no   unrolled
     quality    Q-1               0.1            no   no   unrolled
 
     V is the number of rule labels in the alphabet, so a label is a
@@ -66,8 +70,14 @@ Pre-MAET structure::
     Estimator: one-sided similarity for retrieval and the marginals,
     cosine for the reduction.
 
-Data: ``jmm_data.derivations`` (from your own copy of ParseTrees.json at
-``data/ParseTrees.json``). Toolbox: ``simplex_vertices``,
+Data: ``jmm_data.derivations``, which reads the file ``ParseTrees.json``
+of Ren, Rammos, and Rohrmeier (2024). It must be supplied: download
+``experiment/DataSet/Harmony/ParseTrees.json`` from the authors'
+repository, https://github.com/ren-zeng/formal-modeling-of-structural-repetition
+(direct link: https://raw.githubusercontent.com/ren-zeng/formal-modeling-of-structural-repetition/main/experiment/DataSet/Harmony/ParseTrees.json),
+and save it as ``python/demos/jmm/data/ParseTrees.json``.
+
+Toolbox: ``simplex_vertices``,
 ``pack_pre_maet``, ``flat_specs``, ``bind_attributes``, ``bind_events``
 (``group_by``), ``select_pre_maet``, ``build_maet``, ``sim_maet``,
 ``show_pre_maet``. Runtime: a few seconds.
@@ -97,6 +107,7 @@ TUNE = '(Valid)Solar'            # Miles Davis, as the corpus names it
 CONTROL = '(Valid)Interplay'     # holds no instance of the query
 SIGMA_LABEL = 0.1                # a label either matches or does not
 SIGMA_WIDE = 0.3                 # wide enough for a substitution to count
+SIGMA_LEVEL = 0.1                # one level apart is no match
 R_OUTER = 2                      # an ordered pair of path positions
 QUERY = ['V_I', 'Descending5th']         # a dominant prepared by fifths
 QUERY_LEVELS = [3.0, 4.0]                # where it first occurs in Solar
@@ -105,6 +116,7 @@ REDUCTION_LEVEL = 3              # paths are graded, and cut, beyond this
 G_VALUES = [1.0, 0.5, 0.2, 0.0]  # the grading's decay per level
 S_RATIOS = [0.0, 0.2, 0.5, 1.0, 3.0]     # s_level / sigma
 DOMINANT_SEVENTH = 'Maj Min Min'         # a major third, then two minor thirds
+PROFILE_RULE = 'V_I'                     # the rule whose depth profile is read
 
 C_TUNE = '#1f4eb8'
 C_QUERY = '#c25008'
@@ -247,15 +259,18 @@ for ratio, s in zip(S_RATIOS, depth):
 
 # --- marginals, on the unrolled encoding ----------------------------------
 # The unrolled encoding makes one event of each (chord, position) of every
-# derivation in the corpus, the label and the chord's quality becoming two
-# flat attributes, each holding its simplex coordinates read whole and in
-# order. Weighting each event 1/m, with m the number of surface chords its
-# node governs, gives every rule application unit total weight, so the
-# one-sided similarity of the corpus against a one-event query holding a
-# label (retrieval, as above, now of single positions) is that rule's
-# frequency in the corpus. At unit weights, the same reading against a
-# (label, quality) query, divided by the reading against the label alone,
-# is the share of that quality among the chords the rule governs.
+# derivation in the corpus, the label, the level, and the chord's quality
+# becoming three flat attributes: the label and the quality each hold
+# their simplex coordinates, read whole and in order, and the level holds
+# the position's depth. Weighting each event 1/m, with m the number of
+# surface chords its node governs, gives every rule application unit total
+# weight, so the one-sided similarity of the corpus against a one-event
+# query holding a label (retrieval, as above, now of single positions) is
+# that rule's frequency in the corpus; against a query holding a label and
+# a level, it is the number of that rule's applications at that level, the
+# rule's depth profile. At unit weights, the reading against a (label,
+# quality) query, divided by the reading against the label alone, is the
+# share of that quality among the chords the rule governs.
 corpus = jmm_data.derivations()
 RULES = sorted(set(corpus['label']))
 QUALITIES = sorted(set(corpus['quality']))
@@ -263,40 +278,52 @@ QUALITIES = sorted(set(corpus['quality']))
 
 def encode_unrolled(table, weights=None):
     """A table of path positions as the unrolled pre-MAET, one event per
-    (chord, position): its label and its chord's quality, each one
-    attribute holding a simplex vertex, read whole and in order."""
+    (chord, position): its label, its level, and its chord's quality, the
+    label and the quality each one attribute holding a simplex vertex,
+    read whole and in order."""
     label = simplex_rows(table['label'], RULES)
+    level = [table['level'].to_numpy(dtype=float)[None, :]]
     quality = simplex_rows(table['quality'], QUALITIES)
     names_label = [f'rule{i + 1}' for i in range(len(label))]
     names_quality = [f'quality{i + 1}' for i in range(len(quality))]
-    values = label + quality
+    values = label + level + quality
+    sigma = ([SIGMA_LABEL] * len(label) + [SIGMA_LEVEL]
+             + [SIGMA_LABEL] * len(quality))
     w = None
     if weights is not None:
         w = ([np.asarray(weights, dtype=float)[None, :]]
              + [np.ones((1, len(table)))] * (len(values) - 1))
     pm = pack_pre_maet(values, w,
-                       flat_specs(values, sigma=SIGMA_LABEL, per=False,
+                       flat_specs(values, sigma=sigma, per=False,
                                   period=0.0,
-                                  names=names_label + names_quality))
+                                  names=names_label + ['level']
+                                  + names_quality))
     pm = bind_attributes(pm, attributes=names_label, name='label',
                          r=len(names_label), exch=False)
     return bind_attributes(pm, attributes=names_quality, name='quality',
                            r=len(names_quality), exch=False)
 
 
-def position(label, quality=DOMINANT_SEVENTH):
-    """A one-event query: one position, its label and its chord's quality."""
-    return encode_unrolled(pd.DataFrame({'label': [label],
+def position(label, quality=DOMINANT_SEVENTH, level=1):
+    """A one-event query: one position, its label, its level, and its
+    chord's quality."""
+    return encode_unrolled(pd.DataFrame({'label': [label], 'level': [level],
                                          'quality': [quality]}))
+
+
+def marginal(pm, attributes):
+    """The density of the named attributes alone."""
+    return build_maet(select_pre_maet(pm, attributes=attributes),
+                      verbose=False)
 
 
 def labels_only(pm):
     """The density of the label attribute alone."""
-    return build_maet(select_pre_maet(pm, attributes=['label']),
-                      verbose=False)
+    return marginal(pm, ['label'])
 
 
-by_rule = labels_only(encode_unrolled(corpus, 1.0 / corpus['governed']))
+weighted = encode_unrolled(corpus, 1.0 / corpus['governed'])
+by_rule = labels_only(weighted)
 frequency = {rule: float(sim_maet(by_rule, labels_only(position(rule)),
                                   normalize='oneSidedDenom', verbose=False))
              for rule in RULES}
@@ -306,13 +333,26 @@ print('rule frequencies, read from the label marginal:')
 for rule in sorted(RULES, key=frequency.get, reverse=True):
     print(f'  {rule:<15} {frequency[rule]:7.1f}')
 
+by_level = marginal(weighted, ['label', 'level'])
+profile = {level: float(sim_maet(
+               by_level,
+               marginal(position(PROFILE_RULE, level=level), ['label', 'level']),
+               normalize='oneSidedDenom', verbose=False))
+           for level in range(1, int(corpus['level'].max()) + 1)}
+print(f'depth profile of {PROFILE_RULE}, read from the label-by-level '
+      f'marginal (levels with at least one application):')
+for level, count in profile.items():
+    if count >= 0.5:
+        print(f'  level {level:<3} {count:7.1f}')
+print(f'  total     {sum(profile.values()):7.1f}  (its frequency above)')
+
 plain = encode_unrolled(corpus)
-joint = build_maet(plain, verbose=False)
+joint = marginal(plain, ['label', 'quality'])
 by_label = labels_only(plain)
 print(f'share of the dominant-seventh quality ({DOMINANT_SEVENTH}) among '
       f'the chords a rule governs:')
 for rule in ('V_I', 'Repeat'):
-    both = sim_maet(joint, build_maet(position(rule), verbose=False),
+    both = sim_maet(joint, marginal(position(rule), ['label', 'quality']),
                     normalize='oneSidedDenom', verbose=False)
     alone = sim_maet(by_label, labels_only(position(rule)),
                      normalize='oneSidedDenom', verbose=False)

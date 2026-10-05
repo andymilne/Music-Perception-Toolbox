@@ -19,7 +19,10 @@ function t = derivations(tunes, jsonPath)
 %
 %   The derivations are the parses of Ren, Rammos, and Rohrmeier (2024)
 %   over the Jazz Harmony Treebank. They are not part of the toolbox
-%   distribution: download ParseTrees.json and place it in data/.
+%   distribution and must be supplied: download
+%   experiment/DataSet/Harmony/ParseTrees.json from the authors'
+%   repository, https://github.com/ren-zeng/formal-modeling-of-structural-repetition,
+%   and save it as matlab/demos/jmm/data/ParseTrees.json.
 %
 %   See also JMM.ACKNOWLEDGEMENT, JMM.DATADIR.
     if nargin < 1; tunes = {}; end

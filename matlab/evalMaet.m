@@ -193,7 +193,9 @@ function vals = evalMaet(varargin)
 %                 'mobius' forces the Möbius point evaluator (faster
 %                 at r >= 3 since it bypasses the (dim, n_j) centres
 %                 tensor whose memory and runtime scale as K!/(K-r)!).
-%                 No-op on the MA path (MA always uses centres). See
+%                 On a multi-attribute density the same choice is
+%                 between the joint-centres path and the factored
+%                 Möbius evaluator (mobius.evalMaOrbit). See
 %                 User Guide §11.1 ("Method selection").
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                 wide mptDefaults('truncationSigmas') setting for this

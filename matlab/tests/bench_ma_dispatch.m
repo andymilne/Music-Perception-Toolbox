@@ -3,7 +3,7 @@
 %  'mobius', and 'auto' on MA densities and checks that 'auto' tracks
 %  the faster method and that the two methods agree numerically.
 %
-%  Workload: N events, each with two attributes — a scalar onset
+%  Workload: two attributes over N events — a scalar onset
 %  (K = 1, r = 1, absolute, non-periodic, sigma = 15) and a K-pitch
 %  chord (r = 2 or 3, sigma = 6, period 1200). The pitch attribute's
 %  rel/per flags sweep the four mode combinations. The scalar r = 1

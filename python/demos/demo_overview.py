@@ -226,10 +226,11 @@ print("  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.")
 #  2. Multi-attribute expectation tensors  (User Guide §3.3, §6-§8)
 # ===================================================================
 
-# A MAET takes a sequence of events, each carrying several attributes
-# -- here pitch and onset -- and builds one density over all of them
-# jointly. The melody below is two cycles of the son clave, each note a
-# diatonic pitch; the second cycle is the first transposed up a fifth.
+# A MAET takes several attributes -- here pitch and onset -- whose
+# values are tied together in a sequence of events, and builds one
+# density over all of them jointly. The melody below is two cycles
+# of the son clave, each note a diatonic pitch; the second cycle is
+# the first transposed up a fifth.
 #
 #   cycle 1   C  D  E  G  E   at onsets  0  3  6 10 12
 #   cycle 2   G  A  B  D  B   at onsets 16 19 22 26 28

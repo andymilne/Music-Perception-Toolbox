@@ -2246,10 +2246,16 @@ def simplex_vertices(N: int, edge_length: float = 1.0) -> np.ndarray:
     attribute (voice identity, instrument, articulation, etc.) for the
     multi-attribute expectation tensor (MAET) framework. Each level is
     represented by an (N-1)-dimensional coordinate vector --- a row of
-    the returned array --- and the categorical attribute group then
-    carries N-1 coordinate sub-attributes sharing a single sigma.
-    Because all vertices are pairwise equidistant, no level is
-    privileged over any other, in contrast to dummy or treatment coding.
+    the returned array --- carried as one attribute whose tuple is the
+    N-1 coordinates, read whole and in order (r = N-1, exch = False),
+    with one sigma. Because all vertices are pairwise equidistant, no
+    level is privileged over any other, in contrast to dummy or
+    treatment coding. The sigma, relative to the edge length, sets how
+    distinct the levels are: small, and events at different levels
+    barely match; large, and the levels blur together. The ``'simplex'``
+    role of :func:`pre_maet_from_attr_table` builds such an attribute
+    from a categorical column, and :func:`bind_attributes` joins
+    coordinates held as separate attributes into one.
 
     Construction: take the N standard basis vectors of R^N (which lie
     on the hyperplane sum(x) = 1 and are pairwise equidistant), centre

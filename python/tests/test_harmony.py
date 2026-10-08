@@ -97,6 +97,38 @@ class TestHarmony:
         i_max = int(np.argmax(vp_w))
         assert abs(vp_p[i_max] - 0.0) < 5.0
 
+    def test_template_harmonicity_single_tone_matches_closed_form(self):
+        """A single tone against the default template (36 harmonics,
+        weights 1/n) has hMax equal to the cosine of a Gaussian with
+        the template's density, w_1 / sqrt(w' G w), where G holds the
+        Gaussian inner products exp(-(h_i - h_j)^2 / (4 sigma^2)) of
+        the partials. Both densities' lowest Gaussians must be
+        evaluated whole for this to hold."""
+        sigma = 12.0
+        n = np.arange(1, 37)
+        h = 1200.0 * np.log2(n)
+        w = 1.0 / n
+        G = np.exp(-(h[:, None] - h[None, :]) ** 2 / (4.0 * sigma ** 2))
+        expected = w[0] / np.sqrt(w @ G @ w)
+        h_max, _ = mpt.template_harmonicity([400.0], None, sigma,
+                                            verbose=False)
+        assert h_max == pytest.approx(expected, rel=1e-6)
+
+    def test_virtual_pitches_peaks_fall_on_chord_notes(self):
+        """For pure tones narrower than an octave, each note can be the
+        template's fundamental, with no other note on a partial, so
+        the three strongest peaks lie exactly on the notes and are
+        equal in height, the lowest note's included."""
+        chord = np.array([6000.0, 6400.0, 6700.0])
+        vp_p, vp_w = mpt.virtual_pitches(chord, None, 12, verbose=False)
+        vp_p = np.asarray(vp_p)
+        vp_w = np.asarray(vp_w)
+        peaks = [j for j in range(1, len(vp_w) - 1)
+                 if vp_w[j] >= vp_w[j - 1] and vp_w[j] > vp_w[j + 1]]
+        top = sorted(peaks, key=lambda j: -vp_w[j])[:3]
+        np.testing.assert_allclose(np.sort(vp_p[top]), chord, atol=0.5)
+        np.testing.assert_allclose(vp_w[top], vp_w[top[0]], rtol=1e-6)
+
 
 # ===================================================================
 #  Input validation

@@ -51,7 +51,10 @@ def _template_xcorr_chord_side(
     tmpl_norm_sq : float
         ``sum(tmpl_vals ** 2)`` (caller pre-computes once per batch).
     margin : float
-        Grid margin in cents (typically ``4 * sigma``).
+        Grid margin in cents (typically ``4 * sigma``), applied below
+        the lowest pitch and above the highest. The template's grid
+        must start at the same ``-margin``, so that each lag index maps
+        to the same pitch offset.
     step : float
         Grid spacing in cents (typically 1).
     truncation_sigmas, kernel_precision : forwarded to ``eval_maet``.
@@ -65,7 +68,7 @@ def _template_xcorr_chord_side(
     chord_dens = build_maet(
         chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
     )
-    x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
+    x_chord = np.arange(-margin, np.max(chord_p) + margin + step, step)
     chord_vals = eval_maet(
         chord_dens, x_chord, verbose=False,
         truncation_sigmas=truncation_sigmas,
@@ -473,7 +476,13 @@ def template_harmonicity(
     template (a single complex tone). Two complementary measures:
 
     - *h_max*: maximum normalised cross-correlation (Milne, 2013).
-      Cosine similarity at the best-matching transposition.
+      Cosine similarity at the best-matching transposition. With pure
+      tones (``chord_spectrum=None``) and the default template, whose
+      partials' weights fall as 1/n, placing the template's
+      fundamental on one note outweighs any match of notes spanning
+      less than an octave to higher partials, so such chords score the
+      same whenever they have the same number of notes. Give the tones
+      a spectrum with ``chord_spectrum`` to compare them.
     - *h_entropy*: Shannon entropy of the cross-correlation treated
       as a probability distribution (Harrison & Pearce, 2020).
 
@@ -608,7 +617,7 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
         chord_p, chord_w = p.copy(), w.copy()
 
     margin = 4 * sigma
-    x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
+    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + resolution, resolution)
 
     tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
@@ -653,7 +662,7 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
     )
     margin = 4 * sigma
-    x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
+    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + resolution, resolution)
     tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,
                               truncation_sigmas=truncation_sigmas,
                               kernel_precision=kernel_precision)
@@ -1172,9 +1181,10 @@ def virtual_pitches(
     - 2-D ``P`` (shape ``(M, K)``): batched chords, returns
       ``(vp_p_list, vp_w_list)`` where each is a length-``M`` list of
       1-D arrays. Profile lengths can differ between rows because the
-      cross-correlation grid extends to ``max(chord_p) + margin``,
-      which depends on each chord. NaN-padded rows are accepted; rows
-      with no valid pitches return empty arrays in both lists.
+      cross-correlation grid spans the chord's range plus a margin
+      on either side, which depends on each chord. NaN-padded rows
+      are accepted; rows with no valid pitches return empty arrays in
+      both lists.
 
     Parameters
     ----------
@@ -1275,7 +1285,7 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
 
     margin = 4 * sigma
     step = resolution
-    x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
+    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + step, step)
 
     tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
@@ -1332,7 +1342,7 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
     )
     margin = 4 * sigma
     step = resolution
-    x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
+    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + step, step)
     tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,
                               truncation_sigmas=truncation_sigmas,
                               kernel_precision=kernel_precision)

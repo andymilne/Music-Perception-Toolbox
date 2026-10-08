@@ -12,7 +12,7 @@ function xcorr_norm = templateXcorrChordSide( ...
 %
 %   Builds a 1-D absolute non-periodic expectation tensor from
 %   (chord_p, chord_w) under Gaussian smoothing sigma, evaluates it
-%   on the grid 0:step:(max(chord_p) + margin), convolves with the
+%   on the grid -margin:step:(max(chord_p) + margin), convolves with the
 %   reverse of the supplied template values, and normalises by
 %   sqrt(sum(chord_vals.^2) * tmpl_norm_sq) so each lag is a cosine
 %   similarity in [0, 1].
@@ -30,7 +30,11 @@ function xcorr_norm = templateXcorrChordSide( ...
 %     sigma            - Gaussian smoothing width (cents).
 %     tmpl_vals        - Pre-evaluated template values on its own grid.
 %     tmpl_norm_sq     - sum(tmpl_vals.^2) (caller pre-computes once).
-%     margin           - Grid margin in cents (typically 4 * sigma).
+%     margin           - Grid margin in cents (typically 4 * sigma),
+%                        applied below the lowest pitch and above the
+%                        highest. The template's grid must start at the
+%                        same -margin, so that each lag index maps to
+%                        the same pitch offset.
 %     step             - Grid spacing in cents (typically 1).
 %     truncationSigmas - Forwarded to evalMaet.
 %     kernelPrecision  - Forwarded to evalMaet.
@@ -43,7 +47,7 @@ function xcorr_norm = templateXcorrChordSide( ...
 
     chord_dens = buildMaet(chord_p, chord_w, sigma, 1, false, ...
         false, 1200, 'verbose', false);
-    x_chord = 0:step:(max(chord_p) + margin);
+    x_chord = -margin:step:(max(chord_p) + margin);
     chord_vals = evalMaet(chord_dens, x_chord, ...
         'truncationSigmas', truncationSigmas, ...
         'kernelPrecision', kernelPrecision, ...

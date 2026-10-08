@@ -5,15 +5,11 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma, Name, Value)
 %
-%   For batched processing , p may also be a 2-D nRows-by-K
+%   For batched processing, p may also be a 2-D nRows-by-K
 %   matrix with both dimensions > 1; rows are then treated as separate
 %   multisets and the function returns hMax and hEntropy each as an
 %   nRows-by-1 column vector. NaN-padded rows are accepted; rows with
-%   fewer than 1 valid pitch return NaN. See the formulation note in
-%   `template_harmonicity_formulation_review.md` for limitations of
-%   the hMax and hEntropy measures (interval-multiset symmetry of
-%   chord inversions, single-pitch / H1 hijacking at high spectrum
-%   weights, high-harmonic-density hijacking at low rho with large N).
+%   fewer than 1 valid pitch return NaN.
 %
 %   Measures the harmonicity of a weighted pitch multiset by
 %   cross-correlating its spectral expectation tensor with a harmonic
@@ -26,7 +22,14 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %                transposition. Values range from 0 (no match) to 1
 %                (perfect harmonic series). A multiset whose partials
 %                align closely with a harmonic series at some
-%                transposition will score high.
+%                transposition will score high. With pure tones (no
+%                'chordSpectrum') and the default template, whose
+%                partials' weights fall as 1/n, placing the template's
+%                fundamental on one note outweighs any match of notes
+%                spanning less than an octave to higher partials, so
+%                such chords score the same whenever they have the
+%                same number of notes. Give the tones a spectrum with
+%                'chordSpectrum' to compare them.
 %
 %     hEntropy — Normalized Shannon entropy of the cross-correlation
 %                treated as a probability distribution (Harrison 2020).
@@ -237,8 +240,8 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
     % (1-D absolute density of spectral components).
 
     margin = 4 * sigma;
-    x_tmpl  = 0:step:(max(tmpl_p) + margin);
-    x_chord = 0:step:(max(chord_p) + margin);
+    x_tmpl  = -margin:step:(max(tmpl_p) + margin);
+    x_chord = -margin:step:(max(chord_p) + margin);
 
     % Time estimate (kernel cost only; conv() and other overheads not
     % included, so this is a lower bound). Pair count is the sum of
@@ -377,7 +380,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
     % --- Build template once for the whole batch -----------------
     [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
     margin = 4 * sigma;
-    x_tmpl = 0:step:(max(tmpl_p) + margin);
+    x_tmpl = -margin:step:(max(tmpl_p) + margin);
     tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
         false, 1200, 'verbose', false);
     tmpl_vals = evalMaet(tmpl_dens, x_tmpl, ...

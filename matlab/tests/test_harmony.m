@@ -159,6 +159,34 @@ results{end,2}   = abs(vp_p1(i_max1) - 400) < 5;
 results{end+1,1} = 'virtualPitches: octave peak at lower note';
 results{end,2}   = abs(vp_p2(i_max2)) < 5;
 
+% -- templateHarmonicity: a single tone against the default template
+% (36 harmonics, weights 1/n) has hMax = w_1 / sqrt(w' G w), with G the
+% Gaussian inner products exp(-(h_i - h_j)^2 / (4 sigma^2)) of the
+% partials; this needs both densities' lowest Gaussians whole --
+nH = (1:36)';
+hH = 1200 * log2(nH);
+wH = 1 ./ nH;
+GH = exp(-(hH - hH').^2 / (4 * 12^2));
+hMaxExpected = wH(1) / sqrt(wH' * GH * wH);
+hMax1 = templateHarmonicity(400, [], 12, 'verbose', false);
+results{end+1,1} = 'templateHarmonicity: single tone matches closed form';
+results{end,2}   = abs(hMax1 - hMaxExpected) <= 1e-6 * hMaxExpected;
+
+% -- virtualPitches: for pure tones narrower than an octave, the three
+% strongest peaks lie exactly on the notes and are equal in height,
+% the lowest note's included --
+chordVP = [6000, 6400, 6700];
+[vp_p3, vp_w3] = virtualPitches(chordVP, [], 12, 'verbose', false);
+vp_w3 = vp_w3(:);
+vp_p3 = vp_p3(:);
+isPk = [false; vp_w3(2:end-1) >= vp_w3(1:end-2) & vp_w3(2:end-1) > vp_w3(3:end); false];
+pkIdx = find(isPk);
+[~, ordPk] = sort(vp_w3(pkIdx), 'descend');
+topPk = pkIdx(ordPk(1:3));
+results{end+1,1} = 'virtualPitches: pure-tone peaks fall on the chord notes';
+results{end,2}   = all(abs(sort(vp_p3(topPk))' - chordVP) <= 0.5) ...
+    && all(abs(vp_w3(topPk) - vp_w3(topPk(1))) <= 1e-6 * vp_w3(topPk(1)));
+
 % --- v3 unified dispatch: harmony wrappers batched mode ---
 
 % tensorHarmonicity: 2-D matrix dispatch returns column vector

@@ -111,7 +111,7 @@ class TestOperators:
 
     def test_weight_events(self):
         p, w, sp = _pm()
-        kw = dict(input_attr=1, target_attr=1, centre=1.5, shape=0.0, sd=1.0,
+        kw = dict(input_attr=1, target_attr=1, align_at=1.5, shape=0.0, sd=1.0,
                   drop_input_attr=False)
         a = mpt.weight_events(mpt.pack_pre_maet(p, w, sp), specs=sp, **kw)
         b = mpt.weight_events(p, w, specs=sp, **kw)

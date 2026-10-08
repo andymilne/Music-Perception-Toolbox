@@ -768,29 +768,58 @@ class TestDifferentialTruncationSigmasContract:
 
 
 def test_spectral_entropy_discrete_grid_is_resolution_based():
-    """The discrete spectral entropies are computed on the grid the
-    consonance literature used, 0 : resolution : max + 4 sigma (default
-    1 cent), not on a fixed point count. A discrete entropy depends on
-    its grid: the fixed 1200-point grid gave 0.643 for this triad where
-    the 1-cent grid gives 0.729, the value the published method yields.
-    The reference below is that method written out (point-sampled
-    density, N counting every bin); the cell-mass form agrees with it
-    to ~1e-4, the difference between a mass and a point sample at 1
-    cent."""
+    """The discrete spectral entropies are computed on a grid of spacing
+    ``resolution`` (default 1 cent) from -k*sigma to max + k*sigma, k the
+    resolved truncation_sigmas, so every partial's Gaussian lies whole on
+    it; the point count follows the span. The reference below is that
+    method written out (point-sampled density, N counting every bin);
+    the cell-mass form agrees with it to ~1e-4 at 1 cent. With per=True
+    the grid is one period."""
     import numpy as np
+    import pytest
     from mpt import spectral_entropy, build_maet, eval_maet
+    from mpt._defaults import truncation_radius
     p = np.array([0.0, 400.0, 700.0]); sigma = 12.0
+    m = truncation_radius(None, sigma)
     d = build_maet(p, np.ones(3), sigma, 1, False, False, 1200,
                        verbose=False)
-    x = np.arange(0.0, p.max() + 4 * sigma + 1.0, 1.0)
+    x = np.arange(-m, p.max() + m + 1.0, 1.0)
     t = eval_maet(d, x[None, :], verbose=False)
     q = t / t.sum(); n_bins = q.size; q = q[q > 0]
     h_ref = -(q * np.log2(q)).sum()
     h = spectral_entropy(p, None, sigma, method="shannon", verbose=False)
     assert abs(h - h_ref) < 2e-3
-    hn = spectral_entropy(p, None, sigma, method="normalized", verbose=False)
+    with pytest.warns(UserWarning, match="normalized"):
+        hn = spectral_entropy(p, None, sigma, method="normalized",
+                              verbose=False)
     assert abs(hn - h_ref / np.log2(n_bins)) < 2e-4
     # A coarser grid is a different discrete measure, by design exposed.
-    hc = spectral_entropy(p, None, sigma, method="normalized",
-                          resolution=5.0, verbose=False)
+    with pytest.warns(UserWarning):
+        hc = spectral_entropy(p, None, sigma, method="normalized",
+                              resolution=5.0, verbose=False)
     assert abs(hc - hn) > 0.02
+    # Periodic: one period of 1200 points; octave displacement is
+    # invisible, and the normalized form does not warn.
+    dp = build_maet(p, np.ones(3), sigma, 1, False, True, 1200,
+                    verbose=False)
+    tp = eval_maet(dp, np.arange(1200.0)[None, :], verbose=False)
+    qp = tp / tp.sum(); qp = qp[qp > 0]
+    hp_ref = -(qp * np.log2(qp)).sum()
+    hp = spectral_entropy(p, None, sigma, method="shannon", per=True,
+                          verbose=False)
+    assert abs(hp - hp_ref) < 2e-3
+    hp2 = spectral_entropy([0.0, 1600.0, 700.0], None, sigma,
+                           method="shannon", per=True, verbose=False)
+    assert abs(hp2 - hp) < 1e-9
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        hpn = spectral_entropy(p, None, sigma, method="normalized",
+                               per=True, verbose=False)
+    assert abs(hpn - hp / np.log2(1200)) < 1e-9
+    for meth in ("differential", "renyi2"):
+        a = spectral_entropy(p, None, sigma, method=meth, per=True,
+                             verbose=False)
+        b = spectral_entropy([0.0, 1600.0, 700.0], None, sigma,
+                             method=meth, per=True, verbose=False)
+        assert abs(a - b) < 1e-6

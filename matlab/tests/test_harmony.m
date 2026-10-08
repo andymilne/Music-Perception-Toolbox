@@ -109,8 +109,68 @@ results{end,2}   = isequaln(H_ee_v, H_ee_q);
 [hMax, hEnt] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', false);
 results{end+1,1} = 'templateHarmonicity: hMax in (0,1]';
 results{end,2}   = hMax > 0 && hMax <= 1;
-results{end+1,1} = 'templateHarmonicity: hEntropy in (0,1]';
-results{end,2}   = hEnt > 0 && hEnt <= 1;
+results{end+1,1} = 'templateHarmonicity: hEntropy finite';
+results{end,2}   = isfinite(hEnt);
+
+% -- templateHarmonicity: 'differential' (default) is the discrete
+% entropy plus log_b(resolution); 'normalized' divides the discrete
+% entropy by log_b(N) and, on pitch, warns that N depends on the span --
+[~, thD] = templateHarmonicity([0, 400, 700], [], 12, 'resolution', 2, ...
+    'verbose', false);
+[~, thS] = templateHarmonicity([0, 400, 700], [], 12, 'resolution', 2, ...
+    'method', 'shannon', 'verbose', false);
+results{end+1,1} = 'templateHarmonicity: differential == shannon + log2(resolution)';
+results{end,2}   = abs(thD - (thS + log2(2))) < 1e-12;
+thWarnId = 'templateHarmonicity:normalizedNonPeriodic';
+thWarnPrev = warning('off', thWarnId);
+lastwarn('', '');
+[~, thN] = templateHarmonicity([0, 400, 700], [], 12, ...
+    'method', 'normalized', 'verbose', false);
+[~, thLastId] = lastwarn();
+results{end+1,1} = 'templateHarmonicity: normalized on pitch warns, in (0,1]';
+results{end,2}   = strcmp(thLastId, thWarnId) && thN > 0 && thN <= 1;
+lastwarn('', '');
+templateHarmonicity([0, 400, 700], [], 12, 'method', 'normalized', ...
+    'per', true, 'verbose', false);
+[~, thLastId] = lastwarn();
+results{end+1,1} = 'templateHarmonicity: normalized on pitch class does not warn';
+results{end,2}   = isempty(thLastId);
+warning(thWarnPrev);
+thErrId = '';
+try
+    templateHarmonicity([0, 400, 700], [], 12, 'normalize', true);
+catch thErr
+    thErrId = thErr.identifier;
+end
+results{end+1,1} = 'templateHarmonicity: ''normalize'' raises a migration error';
+results{end,2}   = strcmp(thErrId, 'templateHarmonicity:normalizeRemoved');
+
+% -- templateHarmonicity: with 'per' true, moving a note by an octave
+% changes nothing --
+specPer = {'harmonic', 12, 'powerlaw', 1};
+[thA1, thA2] = templateHarmonicity([0, 400, 700], [], 12, 'per', true, ...
+    'chordSpectrum', specPer, 'verbose', false);
+[thB1, thB2] = templateHarmonicity([0, 1600, 700], [], 12, 'per', true, ...
+    'chordSpectrum', specPer, 'verbose', false);
+thC1 = templateHarmonicity([0, 1600, 700], [], 12, ...
+    'chordSpectrum', specPer, 'verbose', false);
+results{end+1,1} = 'templateHarmonicity per: octave-invariant';
+results{end,2}   = abs(thA1 - thB1) <= 1e-9 * thA1 ...
+    && abs(thA2 - thB2) <= 1e-9 * abs(thA2) && abs(thC1 - thA1) > 1e-3;
+
+% -- templateHarmonicity per: batched rows equal scalar calls, including
+% rotations of one pitch-class set (shared canonical key) --
+P_thp = [0, 400, 700; 400, 700, 1200; 0, 300, 700];
+[thPb1, thPb2] = templateHarmonicity(P_thp, [], 12, 'per', true, ...
+    'chordSpectrum', specPer, 'verbose', false);
+thPbOk = true;
+for thR = 1:3
+    [s1, s2] = templateHarmonicity(P_thp(thR, :), [], 12, 'per', true, ...
+        'chordSpectrum', specPer, 'verbose', false);
+    thPbOk = thPbOk && abs(thPb1(thR) - s1) < 1e-9 && abs(thPb2(thR) - s2) < 1e-9;
+end
+results{end+1,1} = 'templateHarmonicity per: batched matches scalar';
+results{end,2}   = thPbOk;
 
 % -- templateHarmonicity: hEntropy lower for octave than for cluster --
 [~, hEnt_oct] = templateHarmonicity([0, 1200], [], 12, 'verbose', false);
@@ -186,6 +246,35 @@ topPk = pkIdx(ordPk(1:3));
 results{end+1,1} = 'virtualPitches: pure-tone peaks fall on the chord notes';
 results{end,2}   = all(abs(sort(vp_p3(topPk))' - chordVP) <= 0.5) ...
     && all(abs(vp_w3(topPk) - vp_w3(topPk(1))) <= 1e-6 * vp_w3(topPk(1)));
+
+% -- virtualPitches per: the profile covers one period in ascending
+% pitch class, and a pure-tone chord's three strongest virtual pitch
+% classes lie at its notes' pitch classes (within a few cents: on the
+% circle, other partials' near-coincidences pull each peak slightly) --
+[vpP_p, vpP_w] = virtualPitches(chordVP, [], 12, 'per', true, 'verbose', false);
+vpP_w = vpP_w(:);
+nVP = numel(vpP_w);
+isPkP = vpP_w >= circshift(vpP_w, 1) & vpP_w > circshift(vpP_w, -1);
+pkP = find(isPkP);
+[~, ordP] = sort(vpP_w(pkP), 'descend');
+topP = pkP(ordP(1:3));
+results{end+1,1} = 'virtualPitches per: one period, peaks on the pitch classes';
+results{end,2}   = nVP == 1200 && all(diff(vpP_p) > 0) && vpP_p(1) == 0 ...
+    && all(abs(sort(vpP_p(topP))' - [0, 400, 700]) <= 3);
+
+% -- virtualPitches per: batched rows equal scalar calls, including two
+% rotations of one pitch-class set (whose lowest pitches differ) --
+P_vpp = [0, 400, 700; 400, 700, 1200];
+[vpPb_p, vpPb_w] = virtualPitches(P_vpp, [], 12, 'per', true, 'verbose', false);
+vpPbOk = true;
+for vpR = 1:2
+    [s_p, s_w] = virtualPitches(P_vpp(vpR, :), [], 12, 'per', true, ...
+        'verbose', false);
+    vpPbOk = vpPbOk && isequal(vpPb_p{vpR}(:), s_p(:)) ...
+        && max(abs(vpPb_w{vpR}(:) - s_w(:))) < 1e-12;
+end
+results{end+1,1} = 'virtualPitches per: batched matches scalar (rotations)';
+results{end,2}   = vpPbOk;
 
 % --- v3 unified dispatch: harmony wrappers batched mode ---
 

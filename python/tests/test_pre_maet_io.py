@@ -110,7 +110,7 @@ class TestOperatorRules:
                     mpt.translate_attributes(p, None, [5.0],
                                              specs=sp)["specs"],
                     mpt.weight_events(p, None, input_attr=0, target_attr=0,
-                                      centre=62.0, sd=2.0, shape=0.0,
+                                      align_at=62.0, sd=2.0, shape=0.0,
                                       drop_input_attr=False,
                                       specs=sp)["specs"]):
             assert out[0]["sigma"] == 0.5

@@ -1,14 +1,14 @@
 function pm = weightEvents(varargin)
 %WEIGHTEVENTS Apply a per-event weight via an input-to-target window factor.
 %
-%   PM = weightEvents(PM0, inputAttr, targetAttr, centre, shape, ...
+%   PM = weightEvents(PM0, inputAttr, targetAttr, alignAt, shape, ...
 %       'sd', s,     'dropInputAttr', tf)
-%   PM = weightEvents(pAttr, wAttr, inputAttr, targetAttr, centre, shape, ...
+%   PM = weightEvents(pAttr, wAttr, inputAttr, targetAttr, alignAt, shape, ...
 %       'width', L,  'dropInputAttr', tf)
 %   is a per-event preprocessing helper for multi-attribute tensor input.
 %   It reads one value per event from inputAttr (where an event holds
-%   several, the one 'locate' picks), evaluates the profile shape centred
-%   at centre, and writes the resulting (1, N)
+%   several, the one 'locate' picks), evaluates the profile shape with its
+%   reference value (delta = 0) aligned at alignAt, and writes the resulting (1, N)
 %   per-event factor into the weight entry of targetAttr, multiplied into
 %   any existing weight already there. targetAttr may differ from inputAttr
 %   (the typical case --- e.g., time-driven windowing of pitch events) or
@@ -64,13 +64,13 @@ function pm = weightEvents(varargin)
 %                  'edges' is 'closed'.
 %
 %   For a periodic input attribute (per = true), the difference delta = v
-%   - centre is wrapped to [-P/2, P/2] before applying h; the stored values
+%   - alignAt is wrapped to [-P/2, P/2] before applying h; the stored values
 %   in pAttr are not modified.
 %
 %   The per-event factor is broadcast across the target attribute's
 %   K_target values, so every value of every event sees the same factor.
 %
-%   Factor entries whose distance from the centre exceeds the global
+%   Factor entries whose distance from alignAt exceeds the global
 %   truncationSigmas cutoff (i.e., |delta| > truncationSigmas * s, where s
 %   is the kernel's standard deviation, equal to 'sd' or 'width' / (2 *
 %   sqrt(3))) are hard-zeroed. The threshold is the same one the IP /
@@ -97,19 +97,24 @@ function pm = weightEvents(varargin)
 %     targetAttr   Scalar integer in [1, A]. The attribute whose
 %                  weight entry receives the factor. May equal
 %                  inputAttr.
-%     centre       Scalar finite double. Window centre c.
+%     alignAt      Scalar finite double, in the input attribute's units:
+%                  the value at which the profile's reference value
+%                  (delta = 0) is placed (the centre of a symmetric
+%                  window, the edge of a one-sided exponential). NaN for
+%                  the serial-position profiles, which anchor
+%                  themselves.
 %     shape        The profile. One of three kinds:
 %                    - a scalar double in [0, 1]: the shape parameter
 %                      gamma of the rectangle-Gaussian family, taking
 %                      exactly one of 'sd' or 'width';
 %                    - 'exponential', 'exponentialBefore', or
 %                      'exponentialAfter': exponential decay away from
-%                      the centre, in both directions or in one, scaled
+%                      alignAt, in both directions or in one, scaled
 %                      by 'sd' or 'decayRate';
 %                    - 'exponentialFromStart', 'exponentialFromEnd',
 %                      'uShape', or 'uAsym': serial-position profiles,
 %                      anchored at the first and last events' values
-%                      rather than at a centre, which must be NaN. The
+%                      rather than at alignAt, which must be NaN. The
 %                      first two decay away from one anchor; 'uShape'
 %                      mixes both at one rate and 'uAsym' at two.
 %                      Applied to an event-number attribute, dropped
@@ -118,7 +123,7 @@ function pm = weightEvents(varargin)
 %                      elapsed time;
 %                    - a function handle f(delta) returning one
 %                      non-negative factor per event, where delta is
-%                      the centred input values. It carries its own
+%                      the input values minus alignAt. It carries its own
 %                      scale, so neither 'sd' nor 'width' is accepted,
 %                      and the kernel truncation is not applied to it.
 %
@@ -128,7 +133,7 @@ function pm = weightEvents(varargin)
 %                  through unchanged except that dropInputAttr=true drops
 %                  the input attribute's entry. Not otherwise consulted;
 %                  the window is computed from the input attribute's
-%                  values, centre, shape, sd/width, and (for a periodic
+%                  values, alignAt, shape, sd/width, and (for a periodic
 %                  input) per/period.
 %     sd           Scalar positive double. Profile standard deviation.
 %                  For a numeric shape, exactly one of 'sd' or 'width'
@@ -191,14 +196,14 @@ end
 
 
 function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
-    pAttr, w, specsPm, inputAttr, targetAttr, centre, shape, nvArgs)
+    pAttr, w, specsPm, inputAttr, targetAttr, alignAt, shape, nvArgs)
     arguments
         pAttr cell
         w
         specsPm
         inputAttr (1,1) double {mustBeInteger, mustBePositive}
         targetAttr (1,1) double {mustBeInteger, mustBePositive}
-        centre (1,1) double
+        alignAt (1,1) double
         shape
         nvArgs.specs = []
         nvArgs.sd (1,1) double = NaN
@@ -289,21 +294,21 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
               inputAttr);
     end
 
-    % --- Validate the profile, its scale, centre, and period ---
+    % --- Validate the profile, its scale, alignAt, and period ---
     prof = internal.resolveProfile(shape, nvArgs.sd, nvArgs.width, ...
         nvArgs.decayRate, nvArgs.decayRateStart, nvArgs.decayRateEnd, ...
         nvArgs.alpha, 'weightEvents');
     closed = internal.resolveEdges(nvArgs.edges, prof, 'weightEvents');
     if strcmp(prof.kind, 'anchored')
-        if ~isnan(centre)
-            error('weightEvents:centreWithAnchoredProfile', ...
+        if ~isnan(alignAt)
+            error('weightEvents:alignAtWithAnchoredProfile', ...
                   ['Profile ''%s'' anchors itself at the first and ' ...
-                   'last events'' values, so centre does not apply; ' ...
+                   'last events'' values, so alignAt does not apply; ' ...
                    'pass NaN.'], char(shape));
         end
-    elseif ~isfinite(centre)
-        error('weightEvents:badCentre', ...
-              'centre must be finite; got %g.', centre);
+    elseif ~isfinite(alignAt)
+        error('weightEvents:badAlignAt', ...
+              'alignAt must be finite; got %g.', alignAt);
     end
     if per && period <= 0
         error('weightEvents:badPeriod', ...
@@ -314,7 +319,7 @@ function [pAttrOut, wOut, specsOut] = localWeightEvents( ...
     % Each event is represented by one value: its only value, or, where it
     % holds several (a bound super-event's onsets), the one locate picks.
     valRow = internal.locateRow(pAttr{inputAttr}, nvArgs.locate);   % (1, N)
-    factor = internal.weightFactor(valRow, centre, prof, per, period, ...
+    factor = internal.weightFactor(valRow, alignAt, prof, per, period, ...
         closed);
 
     % --- Normalise w to length-A cell; multiply factor into target entry ---

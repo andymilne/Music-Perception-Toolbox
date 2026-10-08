@@ -21,10 +21,10 @@ IDX = np.array([[1.0, 2.0, 3.0, 4.0]])
 PITCH = np.array([[60.0, 62.0, 64.0, 65.0]])
 
 
-def _weights(shape, centre=None, **kw):
+def _weights(shape, align_at=None, **kw):
     """Profile applied to pitch through an event-number attribute."""
     pm = mpt.pack_pre_maet([PITCH, IDX])
-    out = mpt.weight_events(pm, 1, 0, centre, shape,
+    out = mpt.weight_events(pm, 1, 0, align_at, shape,
                             drop_input_attr=True, **kw)
     return np.asarray(out["w_attr"][0]).ravel()
 
@@ -74,12 +74,12 @@ def test_u_asym_rates_fall_back_to_decay_rate():
 
 def test_exponential_before_matches_the_anchored_form_at_the_last_event():
     np.testing.assert_allclose(
-        _weights("exponentialBefore", centre=4.0),
+        _weights("exponentialBefore", align_at=4.0),
         _weights("exponentialFromEnd"))
 
 
 def test_exponential_after_is_zero_below_its_centre():
-    got = _weights("exponentialAfter", centre=2.0)
+    got = _weights("exponentialAfter", align_at=2.0)
     assert got[0] == 0.0
     np.testing.assert_allclose(got[1:], np.exp(-np.array([0.0, 1.0, 2.0])))
 
@@ -87,7 +87,7 @@ def test_exponential_after_is_zero_below_its_centre():
 def test_two_sided_exponential_holds_its_standard_deviation():
     # The Laplace standard deviation is tau * sqrt(2), so sd fixes the
     # variance as it does across the convolution family.
-    got = _weights("exponential", centre=2.0, sd=1.0)
+    got = _weights("exponential", align_at=2.0, sd=1.0)
     d = IDX.ravel() - 2.0
     np.testing.assert_allclose(got, np.exp(-np.abs(d) * np.sqrt(2.0)))
 
@@ -95,14 +95,14 @@ def test_two_sided_exponential_holds_its_standard_deviation():
 # --- callables --------------------------------------------------------
 
 def test_a_callable_supplies_any_profile():
-    got = _weights(lambda d: np.exp(0.5 * d) * (d <= 0), centre=4.0)
+    got = _weights(lambda d: np.exp(0.5 * d) * (d <= 0), align_at=4.0)
     np.testing.assert_allclose(got, np.exp(0.5 * np.array([-3.0, -2.0, -1.0, 0.0])))
 
 
 def test_a_callable_is_exempt_from_the_kernel_truncation():
     # A profile that grows with distance would be zeroed by the window
     # truncation; it survives, because an arbitrary profile need not decay.
-    got = _weights(lambda d: 1.0 + np.abs(d), centre=1.0)
+    got = _weights(lambda d: 1.0 + np.abs(d), align_at=1.0)
     np.testing.assert_allclose(got, 1.0 + np.abs(IDX.ravel() - 1.0))
 
 
@@ -110,7 +110,7 @@ def test_a_callable_is_exempt_from_the_kernel_truncation():
 
 def test_a_centre_is_refused_by_the_anchored_profiles():
     with pytest.raises(ValueError, match="anchors itself"):
-        _weights("exponentialFromEnd", centre=4.0)
+        _weights("exponentialFromEnd", align_at=4.0)
 
 
 def test_width_is_refused_by_the_named_profiles():
@@ -130,12 +130,12 @@ def test_asymmetric_rates_are_refused_by_the_one_rate_profiles():
 
 def test_a_rate_is_refused_by_the_numeric_family():
     with pytest.raises(TypeError, match="rectangle-Gaussian"):
-        _weights(0.0, centre=2.0, decay_rate=1.0)
+        _weights(0.0, align_at=2.0, decay_rate=1.0)
 
 
 def test_a_scale_is_refused_with_a_callable():
     with pytest.raises(TypeError, match="carries its own scale"):
-        _weights(lambda d: np.ones_like(d), centre=2.0, sd=1.0)
+        _weights(lambda d: np.ones_like(d), align_at=2.0, sd=1.0)
 
 
 def test_an_unknown_profile_name_is_refused():
@@ -145,9 +145,9 @@ def test_an_unknown_profile_name_is_refused():
 
 def test_a_callable_must_return_one_non_negative_factor_per_event():
     with pytest.raises(ValueError, match="one factor per event"):
-        _weights(lambda d: np.ones(2), centre=2.0)
+        _weights(lambda d: np.ones(2), align_at=2.0)
     with pytest.raises(ValueError, match="non-negative"):
-        _weights(lambda d: -np.ones_like(d), centre=2.0)
+        _weights(lambda d: -np.ones_like(d), align_at=2.0)
 
 
 # --- composition ------------------------------------------------------

@@ -278,7 +278,7 @@ fprintf('=== 5. weightEvents (W) ===\n');
 % (demo_sweptSimilarity, sections 5 to 8; jmm/demo_jmm_1_1_entropy).
 pmW = weightEvents(pm, 2, 2, 6, 0, 'sd', 2, 'dropInputAttr', false);
 
-fprintf(['  inputAttr = 2 (time); targetAttr = 2; centre = 6; sd = 2; ' ...
+fprintf(['  inputAttr = 2 (time); targetAttr = 2; alignAt = 6; sd = 2; ' ...
     'shape = 0 (Gaussian)\n']);
 showPreMaet(pmW, 'decimals', 3);
 fprintf('\n');

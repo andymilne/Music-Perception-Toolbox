@@ -1248,7 +1248,7 @@ def weight_events(
     w_attr=None,
     input_attr=None,
     target_attr=None,
-    centre=None,
+    align_at=None,
     shape=None,
     *,
     specs=None,
@@ -1333,7 +1333,7 @@ def weight_events(
 
     The window is peak-normalised so :math:`h(0) = 1`. For a periodic
     input group (``per=True``), the difference
-    :math:`\delta = v - \text{centre}` is wrapped to
+    :math:`\delta = v - \text{align\_at}` is wrapped to
     :math:`[-P/2, P/2]` before applying :math:`h`; the stored values
     in ``p_attr`` are not modified.
 
@@ -1341,7 +1341,7 @@ def weight_events(
     ``K_target`` values, so every value of every event sees the same
     factor.
 
-    Factor entries whose distance from the centre exceeds the global
+    Factor entries whose distance from ``align_at`` exceeds the global
     ``truncation_sigmas`` cutoff (i.e., :math:`|\delta| > \text{
     truncation\_sigmas} \cdot s`, where :math:`s` is the kernel's
     standard deviation, equal to ``sd`` or ``width / (2 sqrt(3))``)
@@ -1373,7 +1373,7 @@ def weight_events(
         unchanged, except that ``drop_input_attr=True`` drops the input
         attribute's entry. ``weight_events`` does not otherwise consult
         the specs; the window is computed from the input attribute's
-        values, ``centre``, ``shape``, ``sd``/``width``, and (for a
+        values, ``align_at``, ``shape``, ``sd``/``width``, and (for a
         periodic input) ``per``/``period``.
     input_attr : int
         Index of the attribute supplying the window's values. Must
@@ -1385,15 +1385,19 @@ def weight_events(
         weight entry. Must satisfy ``0 <= target_attr < A``. May equal
         ``input_attr``. ``K_target`` may be any positive integer; the
         factor broadcasts across values.
-    centre : float
-        Window centre, in the input attribute's units.
+    align_at : float or None
+        The value, in the input attribute's units, at which the
+        profile's reference value (:math:`\delta = 0`) is placed: the
+        centre of a symmetric window, the edge of a one-sided
+        exponential. ``None`` for the serial-position profiles, which
+        anchor themselves.
     shape : float
         Shape parameter :math:`\gamma \in [0, 1]`. ``0`` is pure
         Gaussian; ``1`` is pure rectangle; intermediate values
         interpolate via the fixed-variance convolution family.
     per : bool, keyword-only, default False
         Whether the input attribute is periodic. If ``True``,
-        :math:`\delta = v - \text{centre}` is wrapped to
+        :math:`\delta = v - \text{align\_at}` is wrapped to
         :math:`[-P/2, P/2]` before evaluating :math:`h`.
     period : float, keyword-only, default 0.0
         Period of the input attribute. Used only when
@@ -1454,9 +1458,9 @@ def weight_events(
     --------
     build_maet, difference_events, bind_events, translate_attributes
     """
-    (p_attr, w_attr, (input_attr, target_attr, centre, shape),
+    (p_attr, w_attr, (input_attr, target_attr, align_at, shape),
      specs) = shift_lead(
-        p_attr, w_attr, [input_attr, target_attr, centre, shape], specs,
+        p_attr, w_attr, [input_attr, target_attr, align_at, shape], specs,
         func="weight_events")
     w = w_attr
     # --- Normalise p_attr ---
@@ -1553,9 +1557,9 @@ def weight_events(
             f"drop_input_attr=False, or choose a different target_attr."
         )
 
-    # --- Validate centre, the profile and its scale, per, period ---
-    centre_f = (float("nan") if centre is None
-                else _scalarize(centre, "centre", dtype=float))
+    # --- Validate align_at, the profile and its scale, per, period ---
+    align_f = (float("nan") if align_at is None
+               else _scalarize(align_at, "align_at", dtype=float))
     profile = _resolve_profile(
         shape, sd=sd, width=width, decay_rate=decay_rate,
         decay_rate_start=decay_rate_start, decay_rate_end=decay_rate_end,
@@ -1565,13 +1569,13 @@ def weight_events(
     period_f = _scalarize(period, "period", dtype=float)
 
     if profile.kind == "anchored":
-        if centre is not None and np.isfinite(centre_f):
+        if align_at is not None and np.isfinite(align_f):
             raise ValueError(
                 f"Profile {shape!r} anchors itself at the first and last "
-                f"events' values, so centre does not apply; pass None."
+                f"events' values, so align_at does not apply; pass None."
             )
-    elif not np.isfinite(centre_f):
-        raise ValueError(f"centre must be finite; got {centre_f}.")
+    elif not np.isfinite(align_f):
+        raise ValueError(f"align_at must be finite; got {align_f}.")
     if is_per_b and period_f <= 0:
         raise ValueError(
             f"period must be > 0 when per is True; got {period_f}."
@@ -1581,7 +1585,7 @@ def weight_events(
     # Each event is represented by one value: its only value, or, where it
     # holds several (a bound super-event's onsets), the one `locate` picks.
     val_row = _locate_row(p_attr[input_attr_int], locate)  # (1, N)
-    factor = _weight_factor(val_row, centre_f, profile, per=is_per_b,
+    factor = _weight_factor(val_row, align_f, profile, per=is_per_b,
                             period=period_f, closed=closed)
 
     # --- Normalise w to length-A list; multiply factor into target entry ---

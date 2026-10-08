@@ -283,13 +283,13 @@ def test_weight_events_default_inf_resolves_to_accuracy_floor():
         mpt.set_default(truncation_sigmas=float('inf'))
         _, w_out_inf, _ = unpack_pre_maet(weight_events(
             p_attr, w_init, input_attr=1, target_attr=0,
-            centre=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
+            align_at=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
             drop_input_attr=True,
         ))
         mpt.set_default(truncation_sigmas=accuracy_floor_sigmas())
         _, w_out_floor, _ = unpack_pre_maet(weight_events(
             p_attr, w_init, input_attr=1, target_attr=0,
-            centre=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
+            align_at=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
             drop_input_attr=True,
         ))
     finally:
@@ -311,7 +311,7 @@ def test_weight_events_truncation_gaussian():
     mpt.set_default(truncation_sigmas=3.0)
     _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
+        align_at=0.0, sd=1.0, shape=0.0, per=False, period=0.0,
         drop_input_attr=True,
     ))
     factor = w_out[0][0]
@@ -337,7 +337,7 @@ def test_weight_events_truncation_rectangle():
     mpt.set_default(truncation_sigmas=k)
     _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=width, shape=1.0, per=False, period=0.0,
+        align_at=0.0, sd=width, shape=1.0, per=False, period=0.0,
         drop_input_attr=True,
     ))
     factor = w_out[0][0]
@@ -355,13 +355,13 @@ def test_weight_events_truncation_general_shape():
     mpt.set_default(truncation_sigmas=float('inf'))
     _, w_ref, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=width, shape=gamma, per=False, period=0.0,
+        align_at=0.0, sd=width, shape=gamma, per=False, period=0.0,
         drop_input_attr=True,
     ))
     mpt.set_default(truncation_sigmas=k)
     _, w_trunc, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=width, shape=gamma, per=False, period=0.0,
+        align_at=0.0, sd=width, shape=gamma, per=False, period=0.0,
         drop_input_attr=True,
     ))
     delta = times[0]
@@ -386,7 +386,7 @@ def test_weight_events_truncation_periodic_after_wrap():
     mpt.set_default(truncation_sigmas=3.0)
     _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=1.0, shape=0.0,
+        align_at=0.0, sd=1.0, shape=0.0,
         per=True, period=10.0,
         drop_input_attr=True,
     ))
@@ -585,7 +585,7 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
         _, w, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=1,
-            centre=5.0, sd=1.0, shape=0.0,
+            align_at=5.0, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -690,7 +690,7 @@ def test_eval_ma_auto_prune_propagates_via_entropy_maet():
         _, w, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=1,
-            centre=5.0, sd=1.0, shape=0.0,
+            align_at=5.0, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))

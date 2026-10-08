@@ -11,9 +11,9 @@ This guide documents migration paths between major versions of the Music Percept
 
 v3.0.0 is a major release relative to the last public line (2.0.x). At the v2.0 calling conventions it is largely additive — `buildMaet`, `evalMaet`, `simMaet`, `entropyMaet`, and the circular, harmony, and structural families accept every v2.0 call unchanged — but a handful of defaults and one keyword have changed, so some v2.0 code needs attention. The breaking items, each detailed below, are:
 
-- the `normalize` kwarg is removed from `entropyMaet`, `spectralEntropy`, and `nTupleEntropy` in favour of a four-method `method` API, and `entropyMaet`'s default `method='shannon'` now returns raw $H$ rather than $H / \log_b N$;
+- the `normalize` kwarg is removed from `entropyMaet`, `spectralEntropy`, `templateHarmonicity`, and `nTupleEntropy` in favour of a `method` API, and `entropyMaet`'s default `method='shannon'` now returns raw $H$ rather than $H / \log_b N$;
 - `entropyMaet` requires an explicit `n_points_per_dim` for the discrete methods;
-- `spectralEntropy`'s default method is `'differential'`, a different quantity from the v2.0 normalised Shannon entropy;
+- `spectralEntropy`'s default method, and the default form of `templateHarmonicity`'s hEntropy, is `'differential'`, a different quantity from the v2.0 normalised Shannon entropy;
 - `nTupleEntropy` at `sigma > 0` reads `sigma` as positional uncertainty (`sigmaSpace = 'position'`) by default;
 - a periodic attribute's kernel sums every periodic image (`wrap='full-image'`), where v2.0 wrapped each difference to one image, and the discrete entropies integrate each grid cell's mass rather than sampling its centre;
 - kernel truncation defaults to `truncation_sigmas = 6`, so default-configured output is a ~6-significant-figure approximation of the v2.0 untruncated value (`Inf` restores it to within $10^{-12}$);
@@ -24,7 +24,7 @@ Everything else — multi-attribute expectation tensors, the pre-MAET preprocess
 
 ### `entropyMaet` / `entropy_maet` four-method API and `n_points_per_dim` default (breaking)
 
-The entropy API has been refactored into four distinct methods — `'shannon'` (raw discrete), `'normalized'` / `'normalised'` (the explicit name for $H / \log_b N$), `'differential'` (adaptive continuous $\hat h$), `'renyi2'` (analytical Rényi-2) — and the toolbox-wide default of `n_points_per_dim=1200` for `entropyMaet` has been dropped. Two breaking elements:
+The entropy API has been refactored into four distinct methods — `'shannon'` (raw discrete), `'normalized'` / `'normalised'` (the explicit name for $H / \log_b N$), `'differential'` (adaptive continuous $\hat h$), `'renyi2'` (analytical Rényi-2) — and the toolbox-wide default of `n_points_per_dim=1200` for `entropyMaet` has been dropped. Three breaking elements:
 
 1. **`n_points_per_dim` is now required for the discrete methods** (`'shannon'`, `'normalized'`). A missing value at these methods raises `TypeError` with a message pointing to either supplying an explicit grid or switching to a grid-free method (`'differential'` or `'renyi2'`). The continuous methods ignore `n_points_per_dim` and need no migration.
 
@@ -38,24 +38,29 @@ The entropy API has been refactored into four distinct methods — `'shannon'` (
    h = entropy_maet(dens, method='differential')
    ```
 
-2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. To reproduce the v2.0 default behaviour (the Pielou-style ratio in $[0, 1]$ on the 1-cent grid of Milne et al. 2017 and Smit et al. 2019, agreeing with those values to about 1e-4 because v3 integrates cell masses where v2.0 summed point samples), pass `method='normalized'`; the grid spacing is the new `resolution` keyword (default 1 cent):
+2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. The nearest equivalent of the v2.0 default (the Pielou-style ratio in $[0, 1]$) is `method='normalized'`, whose grid spacing is the new `resolution` keyword (default 1 cent). It is not identical: the grid now runs from kσ below the lowest partial to kσ above the highest (k the resolved `truncation_sigmas`), where v2.0.3 used `0 : 1 : max + 4σ` and so cut the lowest Gaussian in half, and v3 integrates cell masses where v2.0 summed point samples; values differ by about $10^{-3}$. On pitch it warns, since N, and with it the normalized value, depends on the span of each chord's spectrum; with `per=True` (pitch class, as in Milne et al., 2017) N is fixed by the period:
 
    ```python
    # v2.0 default (normalised Shannon in [0, 1])
    H = spectral_entropy(p, sigma=12)
 
-   # v3 — to reproduce the v2.0 default exactly
+   # v3 — nearest to the v2.0 default (warns: N depends on the span)
    H = spectral_entropy(p, sigma=12, method='normalized')
+
+   # v3 — normalized on pitch class, one period of N = 1200 points
+   H = spectral_entropy(p, sigma=12, method='normalized', per=True)
 
    # v3 default — the principled grid-independent differential entropy
    h = spectral_entropy(p, sigma=12)
    ```
 
-   The semantic shift is intentional. Differential entropy $\hat h$ is grid-independent and compares densities of different cardinality or spread on the same scale, whereas the normalised Shannon ratio is grid-dependent (its denominator $\log_b N$ depends on the discretisation). Cross-density comparisons published in the toolbox's existing literature (Milne et al. 2017, Smit et al. 2019) used the normalised form and are reproduced by `method='normalized'`; new analyses should generally prefer `method='differential'`.
+   The semantic shift is intentional. Differential entropy $\hat h$ is grid-independent and compares densities of different cardinality or spread on the same scale, whereas the normalised Shannon ratio is grid-dependent (its denominator $\log_b N$ depends on the discretisation and, on pitch, on the span). New analyses should generally prefer `method='differential'`, or `method='normalized'` with `per=True` where pitch class is the intended domain.
 
-### `normalize` kwarg removed from `entropyMaet`, `spectralEntropy`, and `nTupleEntropy`
+3. **`templateHarmonicity` / `template_harmonicity` hEntropy defaults to `method='differential'`**, the differential entropy of the cross-correlation profile in $\log_b$ cents, where v2.0 returned $H / \log_b N$ (`normalize=true`). The `normalize` keyword is replaced by `method` (see below); `method='normalized'` returns the v2.0 form, which also changes numerically with the grid fix described under *Numerical equivalence*, and warns on pitch for the same reason as `spectralEntropy`.
 
-The v2.0 `normalize` boolean is **removed** from all three entropy entry points. Pick the appropriate `method` instead: `'shannon'` for raw $H = -\sum q \log_b q$, `'normalized'` for $H/\log_b(N) \in [0, 1]$ (the v2.0 default behaviour). The continuous methods `'differential'` and `'renyi2'` have no $[0, 1]$ reference. Passing `normalize` to any of the three entry points raises a migration-error exception identifying the calling function and naming the replacement methods.
+### `normalize` kwarg removed from `entropyMaet`, `spectralEntropy`, `templateHarmonicity`, and `nTupleEntropy`
+
+The v2.0 `normalize` boolean is **removed** from these four entry points. Pick the appropriate `method` instead: `'shannon'` for raw $H = -\sum q \log_b q$, `'normalized'` for $H/\log_b(N) \in [0, 1]$ (the v2.0 default behaviour). The continuous methods `'differential'` and `'renyi2'` have no $[0, 1]$ reference. Passing `normalize` to any of them raises a migration-error exception identifying the calling function and naming the replacement methods.
 
 ```python
 # Python — v2.0
@@ -67,6 +72,7 @@ H, _ = n_tuple_entropy(p, period, n=2,
                        normalize=False)          # raw
 H_spec = spectral_entropy(p, sigma=12,
                           normalize=False)       # raw
+h_max, h_ent = template_harmonicity(p, sigma=12)  # H/log_b(N) (default)
 
 # Python — v3
 H = entropy_maet(T, method='shannon')        # raw
@@ -76,6 +82,8 @@ H, _ = n_tuple_entropy(p, period, n=2,
                        method='shannon')         # raw
 H_spec = spectral_entropy(p, sigma=12,
                           method='shannon')      # raw
+h_max, h_ent = template_harmonicity(p, sigma=12,
+                                    method='normalized')  # H/log_b(N)
 ```
 
 ```matlab
@@ -85,6 +93,7 @@ H = entropyMaet(T);                                           % H/log_b(N)
 H = entropyMaet(T, 'method', 'renyi2', 'normalize', false);   % renyi2
 [H, tuples] = nTupleEntropy(p, period, 2, 'normalize', false);   % raw
 H_spec = spectralEntropy(p, [], 12, 'normalize', false);         % raw
+[hMax, hEnt] = templateHarmonicity(p, [], 12);                   % H/log_b(N)
 
 % MATLAB — v3
 H = entropyMaet(T, 'method', 'shannon');                      % raw
@@ -92,11 +101,12 @@ H = entropyMaet(T, 'method', 'normalized');                   % H/log_b(N)
 H = entropyMaet(T, 'method', 'renyi2');                       % renyi2
 [H, tuples] = nTupleEntropy(p, period, 2, 'method', 'shannon');  % raw
 H_spec = spectralEntropy(p, [], 12, 'method', 'shannon');        % raw
+[hMax, hEnt] = templateHarmonicity(p, [], 12, 'method', 'normalized');  % H/log_b(N)
 ```
 
 The continuous methods (`'differential'`, `'renyi2'`) are rejected at `sigma=0` with an explicit error rather than silently producing $-\infty$.
 
-Note that the **default** of `entropy_maet` / `entropyMaet` is still `method='shannon'` but the semantics of `shannon` have changed: v2.0's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v3's `method='shannon'` returns raw $H$. To recover the v2.0 default value pass `method='normalized'` explicitly. The default of `n_tuple_entropy` already gives the v2.0 default value without changes (`'normalized'`); `spectral_entropy` defaults to `'differential'`, which gives the same ordering as the v2.0 normalised Shannon for consonance work, on a different scale (see above).
+Note that the **default** of `entropy_maet` / `entropyMaet` is still `method='shannon'` but the semantics of `shannon` have changed: v2.0's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v3's `method='shannon'` returns raw $H$. To recover the v2.0 default value pass `method='normalized'` explicitly. The default of `n_tuple_entropy` already gives the v2.0 default value without changes (`'normalized'`); `spectral_entropy` and `template_harmonicity`'s hEntropy default to `'differential'` (see above).
 
 ### `nTupleEntropy` at `sigma > 0`: `sigmaSpace` and the exact position model
 
@@ -167,6 +177,8 @@ mpt.set_default(truncation_sigmas=math.inf)
 - **Shipped orbit tables for $r \in \{2, \ldots, 8\}$.** Both Python and MATLAB ship pre-built tables for $r = 2$ through $r = 8$. The user-build path remains available for $r > 8$, gated by a cost-preview warning that prints the Bell-number scaling and estimated build time before construction begins. Set `MPT_NO_BUILD_WARN=1` (environment variable) to suppress the preview message in automation contexts. The user-build cache lives at `~/.mpt/orbit_tables/` (overridable via `MPT_CACHE_DIR`) and persists across sessions. The hard cap on $r$ is 12; beyond that, the build cost is prohibitive even for one-off use.
 
 - **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `simMaet`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.0 code requires no changes; the new default produces chunk sizes that differ from v2.0's fixed budget, so values differ from v2.0 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
+
+- **Pitch-class spectral measures.** `spectralEntropy`, `templateHarmonicity`, and `virtualPitches` take `per` (default false) and `period` (default 1200): with `per` true every partial is folded into one period and, for the template measures, the cross-correlation is circular. v2.0 code is unaffected.
 
 - **Pre-MAET preprocessing.** Events are carried, before any density is built, as a pre-MAET (`packPreMaet` / `pack_pre_maet`), and a set of primitives acts on it: `differenceEvents` (inter-event differences, with a `circular` flag), `bindEvents` (consecutive events bound into super-events), `translateAttributes` (an offset added to an attribute), `transformAttributes` (elementwise transforms and scale conversions, replacing `convertPitch`), and `weightEvents` (event weighting by a window on one attribute). `sweptSimilarity` / `sweptEntropy` compute a similarity or entropy profile across a list of sweep values, translating a query, aligning a window, or both, and `readScore` / `preMaetFromAttrTable` read MIDI and MusicXML. None of this touches v2.0 code; see User Guide §6 and §7.
 

@@ -870,7 +870,7 @@ class TestMAET:
         _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
-            centre=64.0, sd=3.0, shape=0.0,
+            align_at=64.0, sd=3.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -886,7 +886,7 @@ class TestMAET:
         _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
-            centre=64.0, sd=3.0, shape=1.0,
+            align_at=64.0, sd=3.0, shape=1.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -903,7 +903,7 @@ class TestMAET:
             _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=5.0, sd=2.0, shape=g,
+                align_at=5.0, sd=2.0, shape=g,
                 per=False, period=0.0,
                 drop_input_attr=False,
             ))
@@ -922,7 +922,7 @@ class TestMAET:
             _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=0.0, sd=width, shape=g,
+                align_at=0.0, sd=width, shape=g,
                 per=False, period=0.0,
                 drop_input_attr=False,
             ))
@@ -940,7 +940,7 @@ class TestMAET:
         out = mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
-            centre=1.5, sd=1.0, shape=0.0,
+            align_at=1.5, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         )
@@ -963,7 +963,7 @@ class TestMAET:
         _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, w_in,
             input_attr=0, target_attr=1,
-            centre=2.0, sd=1.0, shape=0.0,
+            align_at=2.0, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -978,7 +978,7 @@ class TestMAET:
         _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
-            centre=1.0, sd=1.0, shape=0.0,    # Gaussian on time at t=1
+            align_at=1.0, sd=1.0, shape=0.0,    # Gaussian on time at t=1
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -1001,7 +1001,7 @@ class TestMAET:
         _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, w_in,
             input_attr=1, target_attr=0,
-            centre=0.0, sd=1.0, shape=0.0,
+            align_at=0.0, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -1019,7 +1019,7 @@ class TestMAET:
         _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
-            centre=0.0, sd=2.0, shape=0.0,
+            align_at=0.0, sd=2.0, shape=0.0,
             per=True, period=12.0,
             drop_input_attr=False,
         ))
@@ -1034,7 +1034,7 @@ class TestMAET:
         _, w_out, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, w_in,
             input_attr=0, target_attr=0,
-            centre=2.0, sd=1.0, shape=0.0,
+            align_at=2.0, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -1053,7 +1053,7 @@ class TestMAET:
         p1, w1, g1 = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
-            centre=1.0, sd=1.0, shape=0.0,
+            align_at=1.0, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -1061,7 +1061,7 @@ class TestMAET:
         _, w2, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p1, w1,
             input_attr=2, target_attr=0,
-            centre=0.5, sd=0.5, shape=0.0,
+            align_at=0.5, sd=0.5, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
@@ -1080,7 +1080,7 @@ class TestMAET:
         p_out, w_out, g_out = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
-            centre=1.0, sd=1.0, shape=0.0,
+            align_at=1.0, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=True,
         ))
@@ -1100,7 +1100,7 @@ class TestMAET:
         p_out, w_out, s_out = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=1, target_attr=0,
-            centre=3.5, sd=1.0, shape=0.0,
+            align_at=3.5, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=True,
         ))
@@ -1123,7 +1123,7 @@ class TestMAET:
         p_out, w_out, s_out = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=2,
-            centre=1.5, sd=1.0, shape=0.0,
+            align_at=1.5, sd=1.0, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=True,
         ))
@@ -1144,7 +1144,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, sd=1.0, shape=0.0,
+                align_at=1.0, sd=1.0, shape=0.0,
                 per=False, period=0.0,
                 drop_input_attr=True,
             )
@@ -1156,7 +1156,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, sd=1.0, shape=0.0,
+                align_at=1.0, sd=1.0, shape=0.0,
                 per=False, period=0.0,
             )
 
@@ -1166,7 +1166,7 @@ class TestMAET:
         profile evaluated there."""
         p = [np.array([[60.0, 62.0],
                        [64.0, 65.0]])]   # K = 2
-        kw = dict(input_attr=0, target_attr=0, centre=62.0, sd=2.0,
+        kw = dict(input_attr=0, target_attr=0, align_at=62.0, sd=2.0,
                   shape=0.0, per=False, period=0.0,
                   drop_input_attr=False)
         for locate, loc in (("centroid", [62.0, 63.5]),
@@ -1186,7 +1186,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, sd=0.0, shape=0.5,
+                align_at=1.0, sd=0.0, shape=0.5,
                 per=False, period=0.0,
                 drop_input_attr=False,
             )
@@ -1197,7 +1197,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, sd=-1.0, shape=0.5,
+                align_at=1.0, sd=-1.0, shape=0.5,
                 per=False, period=0.0,
                 drop_input_attr=False,
             )
@@ -1209,7 +1209,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, sd=1.0, shape=1.5,
+                align_at=1.0, sd=1.0, shape=1.5,
                 per=False, period=0.0,
                 drop_input_attr=False,
             )
@@ -1217,7 +1217,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, sd=1.0, shape=-0.1,
+                align_at=1.0, sd=1.0, shape=-0.1,
                 per=False, period=0.0,
                 drop_input_attr=False,
             )
@@ -1228,7 +1228,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=2, target_attr=0,
-                centre=1.0, sd=1.0, shape=0.0,
+                align_at=1.0, sd=1.0, shape=0.0,
                 per=False, period=0.0,
                 drop_input_attr=False,
             )
@@ -1239,7 +1239,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=3,
-                centre=1.0, sd=1.0, shape=0.0,
+                align_at=1.0, sd=1.0, shape=0.0,
                 per=False, period=0.0,
                 drop_input_attr=False,
             )
@@ -1250,7 +1250,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, sd=1.0, shape=0.0,
+                align_at=1.0, sd=1.0, shape=0.0,
                 per=True, period=0.0,
                 drop_input_attr=False,
             )
@@ -1267,14 +1267,14 @@ class TestMAET:
         _, w_after_t, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p_t, None,
             input_attr=0, target_attr=0,
-            centre=c, sd=width, shape=gamma,
+            align_at=c, sd=width, shape=gamma,
             per=False, period=0.0,
             drop_input_attr=False,
         ))
         _, w_first, _ = mpt.unpack_pre_maet(mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
-            centre=c - mu, sd=width, shape=gamma,
+            align_at=c - mu, sd=width, shape=gamma,
             per=False, period=0.0,
             drop_input_attr=False,
         ))

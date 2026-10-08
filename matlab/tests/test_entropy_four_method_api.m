@@ -226,9 +226,15 @@ H_seDiff = spectralEntropy(majorTriad, [], 12, 'method', 'differential', ...
 results{end+1,1} = 'spectralEntropy: default == differential';
 results{end,2}   = abs(H_seDef - H_seDiff) < 1e-14;
 
-% --- All four methods run ---
+% --- All four methods run; 'normalized' on pitch warns ---
+seWarnId = 'spectralEntropy:normalizedNonPeriodic';
+seWarnPrev = warning('off', seWarnId);
+lastwarn('', '');
 H_seNorm = spectralEntropy(majorTriad, [], 12, 'method', 'normalized', ...
                             'verbose', false);
+[~, seLastId] = lastwarn();
+results{end+1,1} = 'spectralEntropy: normalized on pitch warns';
+results{end,2}   = strcmp(seLastId, seWarnId);
 H_seShan = spectralEntropy(majorTriad, [], 12, 'method', 'shannon', ...
                             'verbose', false);
 H_seRny = spectralEntropy(majorTriad, [], 12, 'method', 'renyi2', ...
@@ -237,20 +243,22 @@ results{end+1,1} = 'spectralEntropy: all four methods return finite values';
 results{end,2}   = isfinite(H_seDiff) && isfinite(H_seNorm) ...
                    && isfinite(H_seShan) && isfinite(H_seRny);
 
-% --- The discrete grid is 0 : resolution : max + 4 sigma (default 1 cent),
-%     the grid of the consonance literature, not a fixed point count.
+% --- The discrete grid has spacing 'resolution' (default 1 cent) and
+%     runs from -k*sigma to max + k*sigma, k the resolved
+%     truncationSigmas, so every partial's Gaussian lies whole on it.
 %     Reference: that method written out (point-sampled density, N
 %     counting every bin); the cell-mass form agrees to ~1e-4. ---
 seRefDens = buildMaet(majorTriad, ones(1, 3), 12, 1, false, false, 1200, ...
                          'verbose', false);
-seRefX = 0:1:(max(majorTriad) + 4 * 12);
+seM = internal.accuracyFloor('resolve', mptDefaults('truncationSigmas')) * 12;
+seRefX = -seM:1:(max(majorTriad) + seM);
 seRefT = evalMaet(seRefDens, seRefX, 'verbose', false);
 seRefQ = seRefT(:) / sum(seRefT(:)); seRefN = numel(seRefQ);
 seRefQ = seRefQ(seRefQ > 0);
 seRefH = -sum(seRefQ .* log2(seRefQ));
-results{end+1,1} = 'spectralEntropy: shannon on the 1-cent grid matches the published method (2e-3)';
+results{end+1,1} = 'spectralEntropy: shannon on the 1-cent grid matches the reference (2e-3)';
 results{end,2}   = abs(H_seShan - seRefH) < 2e-3;
-results{end+1,1} = 'spectralEntropy: normalized on the 1-cent grid matches the published method (2e-4)';
+results{end+1,1} = 'spectralEntropy: normalized on the 1-cent grid matches the reference (2e-4)';
 results{end,2}   = abs(H_seNorm - seRefH / log2(seRefN)) < 2e-4;
 H_seCoarse = spectralEntropy(majorTriad, [], 12, 'method', 'normalized', ...
                              'resolution', 5, 'verbose', false);
@@ -266,6 +274,39 @@ results{end,2}   = abs(H_seNorm - H_seUK) < 1e-14;
 % --- 'normalized' in [0, 1] ---
 results{end+1,1} = 'spectralEntropy: normalized in [0,1]';
 results{end,2}   = H_seNorm >= 0 && H_seNorm <= 1;
+warning(seWarnPrev);
+
+% --- Periodic ('per' true): one period of 1200 points; an octave
+%     displacement is invisible, and 'normalized' does not warn. ---
+seRefDensP = buildMaet(majorTriad, ones(1, 3), 12, 1, false, true, 1200, ...
+                         'verbose', false);
+seRefTP = evalMaet(seRefDensP, 0:1199, 'verbose', false);
+seRefQP = seRefTP(:) / sum(seRefTP(:)); seRefQP = seRefQP(seRefQP > 0);
+seRefHP = -sum(seRefQP .* log2(seRefQP));
+H_seP = spectralEntropy(majorTriad, [], 12, 'method', 'shannon', ...
+                        'per', true, 'verbose', false);
+results{end+1,1} = 'spectralEntropy per: shannon matches the one-period reference (2e-3)';
+results{end,2}   = abs(H_seP - seRefHP) < 2e-3;
+H_seP2 = spectralEntropy([0, 1600, 700], [], 12, 'method', 'shannon', ...
+                         'per', true, 'verbose', false);
+results{end+1,1} = 'spectralEntropy per: shannon octave-invariant';
+results{end,2}   = abs(H_seP2 - H_seP) < 1e-9;
+lastwarn('', '');
+H_sePN = spectralEntropy(majorTriad, [], 12, 'method', 'normalized', ...
+                         'per', true, 'verbose', false);
+[~, seLastId] = lastwarn();
+results{end+1,1} = 'spectralEntropy per: normalized == shannon / log2(1200), no warning';
+results{end,2}   = abs(H_sePN - H_seP / log2(1200)) < 1e-9 && isempty(seLastId);
+sePerOk = true;
+for seMeth = {'differential', 'renyi2'}
+    seA = spectralEntropy(majorTriad, [], 12, 'method', seMeth{1}, ...
+                        'per', true, 'verbose', false);
+    seB = spectralEntropy([0, 1600, 700], [], 12, 'method', seMeth{1}, ...
+                        'per', true, 'verbose', false);
+    sePerOk = sePerOk && abs(seA - seB) < 1e-6;
+end
+results{end+1,1} = 'spectralEntropy per: differential and renyi2 octave-invariant';
+results{end,2}   = sePerOk;
 
 % --- JI lower entropy than EDO under differential (with partials) ---
 spec_h = {'harmonic', 12, 'powerlaw', 1};

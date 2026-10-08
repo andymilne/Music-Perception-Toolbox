@@ -30,7 +30,81 @@ class TestHarmony:
     def test_template_harmonicity_returns_two(self):
         h_max, h_ent = mpt.template_harmonicity([0, 400, 700], None, 12)
         assert 0 < h_max <= 1
-        assert 0 < h_ent <= 1
+        assert np.isfinite(h_ent)
+
+    def test_template_harmonicity_entropy_methods(self):
+        """'differential' (default) is the discrete entropy plus
+        log_b(resolution); 'normalized' divides the discrete entropy by
+        log_b(N) and, on pitch, warns that N depends on the span."""
+        chord = [0, 400, 700]
+        _, h_d = mpt.template_harmonicity(chord, None, 12, resolution=2.0,
+                                          verbose=False)
+        _, h_s = mpt.template_harmonicity(chord, None, 12, resolution=2.0,
+                                          method="shannon", verbose=False)
+        assert h_d == pytest.approx(h_s + np.log2(2.0), abs=1e-12)
+        with pytest.warns(UserWarning, match="normalized"):
+            _, h_n = mpt.template_harmonicity(chord, None, 12,
+                                              method="normalized",
+                                              verbose=False)
+        assert 0 < h_n <= 1
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            mpt.template_harmonicity(chord, None, 12, method="normalized",
+                                     per=True, verbose=False)
+        with pytest.raises(TypeError, match="normalize"):
+            mpt.template_harmonicity(chord, None, 12, normalize=True)
+
+    def test_template_harmonicity_periodic_is_octave_invariant(self):
+        """With per=True, moving a note by an octave changes nothing."""
+        spec = ["harmonic", 12, "powerlaw", 1]
+        a = mpt.template_harmonicity([0, 400, 700], None, 12, per=True,
+                                     chord_spectrum=spec, verbose=False)
+        b = mpt.template_harmonicity([0, 1600, 700], None, 12, per=True,
+                                     chord_spectrum=spec, verbose=False)
+        np.testing.assert_allclose(a, b, rtol=1e-9)
+        c = mpt.template_harmonicity([0, 1600, 700], None, 12,
+                                     chord_spectrum=spec, verbose=False)
+        assert abs(c[0] - a[0]) > 1e-3
+
+    def test_virtual_pitches_periodic_peaks_on_pitch_classes(self):
+        """With per=True the profile covers one period in ascending
+        pitch class, and a pure-tone chord's three strongest virtual
+        pitch classes lie at its notes' pitch classes (within a few
+        cents: on the circle, other partials' near-coincidences pull
+        each peak slightly)."""
+        chord = np.array([6000.0, 6400.0, 6700.0])
+        vp_p, vp_w = mpt.virtual_pitches(chord, None, 12, per=True,
+                                         verbose=False)
+        assert len(vp_p) == 1200
+        assert np.all(np.diff(vp_p) > 0) and vp_p[0] == 0.0
+        n = len(vp_w)
+        peaks = [j for j in range(n)
+                 if vp_w[j] >= vp_w[j - 1] and vp_w[j] > vp_w[(j + 1) % n]]
+        top = sorted(peaks, key=lambda j: -vp_w[j])[:3]
+        np.testing.assert_allclose(np.sort(vp_p[top]), [0.0, 400.0, 700.0],
+                                   atol=3.0)
+
+    def test_periodic_batched_matches_scalar(self):
+        """With per=True, batched rows equal scalar calls, including two
+        rotations of one pitch-class set (which share a periodic
+        canonical key but not a lowest pitch)."""
+        spec = ["harmonic", 12, "powerlaw", 1]
+        P = np.array([[0, 400, 700], [400, 700, 1200], [0, 300, 700]],
+                     dtype=float)
+        hb = mpt.template_harmonicity(P, None, 12, per=True,
+                                      chord_spectrum=spec, verbose=False)
+        vp_pb, vp_wb = mpt.virtual_pitches(P, None, 12, per=True,
+                                           verbose=False)
+        for i in range(3):
+            hs = mpt.template_harmonicity(P[i], None, 12, per=True,
+                                          chord_spectrum=spec,
+                                          verbose=False)
+            assert hb[0][i] == pytest.approx(hs[0], abs=1e-9)
+            assert hb[1][i] == pytest.approx(hs[1], abs=1e-9)
+            vp_ps, vp_ws = mpt.virtual_pitches(P[i], None, 12, per=True,
+                                               verbose=False)
+            np.testing.assert_array_equal(vp_pb[i], vp_ps)
+            np.testing.assert_allclose(vp_wb[i], vp_ws, atol=1e-12)
 
     def test_template_harmonicity_hEntropy_octave_below_cluster(self):
         """hEntropy is lower (more peaked cross-correlation = more

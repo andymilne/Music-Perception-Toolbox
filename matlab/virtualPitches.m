@@ -30,6 +30,12 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %   maximum of vp_w; hEntropy is the entropy of vp_w treated as a
 %   probability distribution).
 %
+%   With 'per' true, chord and template are folded into one 'period'
+%   (each partial's Gaussian summed over its periodic images) and the
+%   cross-correlation is circular, so the profile is one of virtual
+%   pitch classes: vp_p is 0:resolution:(period - resolution), one
+%   value per pitch class in ascending order.
+%
 %   The procedure is:
 %     1. Transpose the multiset so the lowest pitch is 0 (internal).
 %     2. Build the template: add harmonics to a single pitch at 0
@@ -39,8 +45,12 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %        use the chord's pitches and weights as given (suitable for
 %        empirical spectral peaks, e.g., from audioPeaks).
 %     4. Evaluate both as 1-D absolute expectation tensors (r = 1,
-%        rel = false) on a fine grid.
-%     5. Cross-correlate the two density vectors.
+%        rel = false) on a grid of spacing 'resolution': non-periodic,
+%        from k*sigma below the lowest partial to k*sigma above the
+%        highest (k the resolved 'truncationSigmas'); periodic, one
+%        period.
+%     5. Cross-correlate the two density vectors (circularly when
+%        'per' is true).
 %     6. Normalize by the geometric mean of their energies (giving
 %        cosine similarity at each lag).
 %     7. Map each lag to a pitch value in the input coordinate system.
@@ -74,6 +84,10 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %                       complex tone, pass the same (or different)
 %                       spectral arguments:
 %                         'chordSpectrum', {'harmonic', 36, 'powerlaw', 1}
+%     'per'           — Logical (default: false). If true, work on
+%                       pitch class with period 'period' (see above).
+%     'period'        — Period in cents when 'per' is true (default:
+%                       1200, the octave). 'resolution' must divide it.
 %     'resolution'    — Grid spacing in cents (default: 1). Finer
 %                       resolution improves pitch accuracy but
 %                       increases computation time and output length.
@@ -82,8 +96,9 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %                       for this call. Passes through to the kernel
 %                       evaluator on the centres path; skips Gaussian
 %                       contributions whose centre-to-query distance
-%                       exceeds k*sigma. [] (default) means use the
-%                       global default (factory: Inf).
+%                       exceeds k*sigma, and sets the grid margin
+%                       k*sigma (see step 4). Default: the global
+%                       mptDefaults('truncationSigmas').
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                       default. Override the toolbox-wide
 %                       kernelPrecision setting for this call. 'single'
@@ -95,9 +110,10 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %
 %   Outputs:
 %     vp_p — Pitch values in cents (column vector), in the same
-%            absolute coordinate system as the input p. Each value is
-%            the candidate fundamental pitch for the corresponding
-%            element of vp_w.
+%            absolute coordinate system as the input p (with 'per'
+%            true, pitch classes in [0, period)). Each value is the
+%            candidate fundamental for the corresponding element of
+%            vp_w.
 %     vp_w — Virtual pitch weights (column vector, same length as
 %            vp_p). These are the normalized cross-correlation values
 %            (cosine similarity at each lag), non-negative. The
@@ -150,6 +166,8 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {'harmonic', 36, 'powerlaw', 1}
         nvArgs.chordSpectrum = {}
+        nvArgs.per (1,1) logical = false
+        nvArgs.period (1,1) double {mustBePositive} = 1200
         nvArgs.resolution (1,1) {mustBePositive} = 1
         nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
             = mptDefaults('truncationSigmas')
@@ -223,7 +241,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
     % as-is (default) or enriched via addSpectra if 'chordSpectrum'
     % is provided.
 
-    [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
+    [tmpl_p, ~] = addSpectra(0, 1, specArgs{:});
 
     if isempty(chordSpecArgs)
         chord_p = p;
@@ -232,38 +250,40 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         [chord_p, chord_w] = addSpectra(p, w, chordSpecArgs{:});
     end
 
-    % === Build template tensor and evaluate on grid ===
-    % r = 1, rel = false: intrinsic to the virtual-pitch definition
-    % (1-D absolute density of spectral components).
-
-    margin = internal.accuracyFloor('resolve', nvArgs.truncationSigmas) * sigma;
-    x_tmpl  = -margin:step:(max(tmpl_p) + margin);
-    x_chord = -margin:step:(max(chord_p) + margin);
-
-    % Time estimate (kernel cost only; conv() and other overheads
+    % === Time estimate ===
+    % Kernel cost only (the cross-correlation and other overheads are
     % not included, so this is a lower bound). Pair count is the sum
     % of the two evalMaet workloads.
-    nPairs = double(numel(chord_p)) * double(numel(x_chord)) ...
-           + double(numel(tmpl_p))  * double(numel(x_tmpl));
+    if nvArgs.per
+        nGrid = numel(internal.periodicGrid(nvArgs.period, step));
+        nPairs = double(numel(chord_p) + numel(tmpl_p)) * double(nGrid);
+    else
+        margin0 = internal.accuracyFloor('resolve', nvArgs.truncationSigmas) * sigma;
+        nPairs = double(numel(chord_p)) * double(floor((max(chord_p) + 2*margin0) / step) + 1) ...
+               + double(numel(tmpl_p))  * double(floor((max(tmpl_p) + 2*margin0) / step) + 1);
+    end
     estimateCompTime(nPairs, 1, 'virtualPitches', nvArgs.verbose);
 
-    tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
-        false, 1200, 'verbose', false);
-    tmpl_vals = evalMaet(tmpl_dens, x_tmpl, ...
-        'truncationSigmas', nvArgs.truncationSigmas, ...
-        'kernelPrecision', nvArgs.kernelPrecision, ...
-        'verbose', false);
-    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+    % === Template evaluated on its grid ===
+    % r = 1, rel = false: intrinsic to the virtual-pitch definition
+    % (1-D absolute density of spectral components).
+    [tmpl_vals, tmpl_norm_sq, margin] = internal.templateValues( ...
+        specArgs, sigma, step, nvArgs.per, nvArgs.period, ...
+        nvArgs.truncationSigmas, nvArgs.kernelPrecision);
     N_tmpl = numel(tmpl_vals);
 
     [vp_w, N_xcorr] = localVPChordOnly( ...
         chord_p, chord_w, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        nvArgs.truncationSigmas, nvArgs.kernelPrecision);
+        nvArgs.truncationSigmas, nvArgs.kernelPrecision, ...
+        nvArgs.per, nvArgs.period);
 
     % Map lag indices to pitch values in the input coordinate system.
-    lag_indices = (0:N_xcorr - 1)' - (N_tmpl - 1);
-    vp_p = lag_indices * step + pOffset;
+    [vp_p, order] = internal.profilePitches(N_xcorr, N_tmpl, step, ...
+        pOffset, nvArgs.per, nvArgs.period);
+    if ~isempty(order)
+        vp_w = vp_w(order);
+    end
 
 end
 
@@ -275,13 +295,13 @@ end
 function [vp_w, N_xcorr] = localVPChordOnly( ...
     chord_p, chord_w, sigma, ...
     tmpl_vals, tmpl_norm_sq, margin, step, ...
-    truncationSigmas, kernelPrecision)
+    truncationSigmas, kernelPrecision, per, period)
 %LOCALVPCHORDONLY Chord-side normalized cross-correlation.
 %
 %   Returns the offset-independent half-cosine-similarity profile vp_w
 %   and the cross-correlation length N_xcorr. The caller is
-%   responsible for reconstructing vp_p = (0:N_xcorr-1) - (N_tmpl-1)
-%   in step units plus the per-row pitch offset; that arithmetic is
+%   responsible for reconstructing vp_p (internal.profilePitches)
+%   from the per-row pitch offset; that arithmetic is
 %   row-dependent and so is not part of what gets cached when this
 %   helper is called from the batched path.
 %
@@ -293,7 +313,7 @@ function [vp_w, N_xcorr] = localVPChordOnly( ...
     vp_w = internal.templateXcorrChordSide( ...
         chord_p, chord_w, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        truncationSigmas, kernelPrecision);
+        truncationSigmas, kernelPrecision, per, period);
     N_xcorr = numel(vp_w);
 end
 
@@ -341,6 +361,8 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
     step          = nvArgs.resolution;
     truncationSigmas = nvArgs.truncationSigmas;
     kernelPrecision  = nvArgs.kernelPrecision;
+    per              = nvArgs.per;
+    period           = nvArgs.period;
 
     if ~iscell(specArgs)
         error('virtualPitches:badSpectrum', ...
@@ -352,16 +374,9 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
     end
 
     % --- Build template once for the whole batch -----------------
-    [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
-    margin = internal.accuracyFloor('resolve', truncationSigmas) * sigma;
-    x_tmpl = -margin:step:(max(tmpl_p) + margin);
-    tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
-        false, 1200, 'verbose', false);
-    tmpl_vals = evalMaet(tmpl_dens, x_tmpl, ...
-        'truncationSigmas', truncationSigmas, ...
-        'kernelPrecision', kernelPrecision, ...
-        'verbose', false);
-    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+    [tmpl_vals, tmpl_norm_sq, margin] = internal.templateValues( ...
+        specArgs, sigma, step, per, period, ...
+        truncationSigmas, kernelPrecision);
     N_tmpl = numel(tmpl_vals);
 
     % --- Up-front time estimate (matches main-loop cost) ---------
@@ -386,7 +401,7 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
             localBatchEvalOneVP(pValidS, wValidS, ...
                 chordSpecArgs, sigma, ...
                 tmpl_vals, tmpl_norm_sq, margin, step, ...
-                truncationSigmas, kernelPrecision);
+                truncationSigmas, kernelPrecision, per, period);
             warmupDone = true;
             break;
         end
@@ -407,7 +422,7 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
                 localBatchEvalOneVP(pValidS, wValidS, ...
                     chordSpecArgs, sigma, ...
                     tmpl_vals, tmpl_norm_sq, margin, step, ...
-                    truncationSigmas, kernelPrecision);
+                    truncationSigmas, kernelPrecision, per, period);
                 nValidCal = nValidCal + 1;
             end
             if nValidCal > 0
@@ -425,7 +440,10 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
     % virtualPitches is invariant under joint transposition up to a
     % shift of the output vp_p coordinate (rebuilt per row). The
     % offset-independent profile (vp_w_internal, N_xcorr) is cached;
-    % vp_p reconstruction uses the per-row pOffset.
+    % vp_p reconstruction uses the per-row pOffset. The key is taken
+    % non-periodically even when 'per' is true: two rotations of one
+    % pitch-class set share a periodic key but not a lowest pitch, so
+    % their profiles differ by a shift that pOffset does not supply.
     resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
     for k = 1:nRows
@@ -452,15 +470,19 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
             [vp_w_k, N_xcorr_k] = localBatchEvalOneVP( ...
                 pK, wK, chordSpecArgs, sigma, ...
                 tmpl_vals, tmpl_norm_sq, margin, step, ...
-                truncationSigmas, kernelPrecision);
+                truncationSigmas, kernelPrecision, per, period);
             resultCache(key) = struct('vp_w', vp_w_k, ...
                 'N_xcorr', N_xcorr_k);
         end
 
         % Reconstruct vp_p in the input coordinate system.
-        lag_indices = (0:N_xcorr_k - 1)' - (N_tmpl - 1);
-        vp_p{k} = lag_indices * step + pOffset;
-        vp_w{k} = vp_w_k;
+        [vp_p{k}, order] = internal.profilePitches(N_xcorr_k, N_tmpl, ...
+            step, pOffset, per, period);
+        if isempty(order)
+            vp_w{k} = vp_w_k;
+        else
+            vp_w{k} = vp_w_k(order);
+        end
 
         if nvArgs.verbose && showProgress ...
                 && (mod(k, progStride) == 0 || k == nRows)
@@ -485,7 +507,7 @@ end
 function [vp_w, N_xcorr] = localBatchEvalOneVP( ...
         pValid, wValid, chordSpecArgs, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        truncationSigmas, kernelPrecision)
+        truncationSigmas, kernelPrecision, per, period)
 %LOCALBATCHEVALONEVP Apply chord_spectrum and call chord-only.
 
     pShifted = pValid(:) - min(pValid);
@@ -499,5 +521,5 @@ function [vp_w, N_xcorr] = localBatchEvalOneVP( ...
     [vp_w, N_xcorr] = localVPChordOnly( ...
         chord_p, chord_w, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        truncationSigmas, kernelPrecision);
+        truncationSigmas, kernelPrecision, per, period);
 end

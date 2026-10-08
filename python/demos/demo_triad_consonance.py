@@ -259,28 +259,22 @@ if do_tmpl:
 # unbounded, and lower where the spectrum is more concentrated, so it is
 # plotted negated and peaks mark consonance.
 #
-# Milne et al. (2017) and Smit et al. (2019) used the grid-normalized
-# Shannon entropy H / log_b(N) in [0, 1], available as method='normalized'
-# and required to reproduce their absolute values. Its agreement with
-# Rényi-2 depends on the range of chords: over this demo's default grid
-# (29161 triads spanning two octaves at 10-cent steps) it is moderate
-# (Pearson 0.81, Spearman 0.56); over one octave at 25-cent steps (1225
-# triads) it is closer (Pearson 0.95, Spearman 0.81). On a
-# continuous domain that form is defined relative to its grid and does not
-# converge under refinement: H_disc and log N both grow like log(1/Delta)
-# as the cell width goes to zero, so the ratio tends to 1 for every
-# density. It is the apt measure where the values are inherently discrete
-# --- twelve pitch classes, sixteen metrical pulses, any fixed category
-# set --- since N is then fixed by the domain and H / log_b(N) is flatness
-# as a proportion of that domain's maximum.
+# Milne et al. (2017) computed spectral entropy on pitch class, every
+# partial folded into one octave with circular smoothing ('per' true,
+# period 1200). On pitch (the default) the grid methods depend on their
+# grid: 'normalized', H / log_b(N), divides by a log N that grows with the
+# span of each spectrum, so its values are not comparable across chords of
+# different span (a warning says so), and on a continuous domain it does
+# not converge under refinement, H_disc and log N both growing like
+# log(1/Delta) as the cell width goes to zero. It is the apt measure where
+# N is fixed by the domain: one period of pitch class, sixteen metrical
+# pulses, any fixed category set.
 #
-# Of the other two methods, 'shannon' is the unnormalized discrete entropy
-# H on the same grid as 'normalized', and 'differential' converges (nested
-# grids with Richardson extrapolation) but is much slower and impractical
-# at this grid size. Rényi-2 is the fastest of the four and tracks the
-# differential entropy far more closely than the normalized grid form does
-# (Spearman 0.92 against 0.33 over the default grid; 0.96 against 0.72
-# over the one-octave grid).
+# Of the other methods, 'shannon' is the unnormalized discrete entropy H,
+# and 'differential' (the default) converges (nested grids with Richardson
+# extrapolation) but is much slower at this number of chords. Rényi-2 is
+# the fastest of the four and, being a differential entropy, is free of
+# any grid.
 if do_spec_ent:
     chord_mat_se = np.column_stack([
         np.zeros(n_upper), int1_lin, int2_lin

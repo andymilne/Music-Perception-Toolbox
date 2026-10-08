@@ -10,38 +10,40 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %   uncertainty), the lower the entropy. Lower entropy therefore
 %   indicates greater consonance.
 %
-%   spectralEntropy is a thin wrapper around entropyMaet with
-%   r = 1, rel = false, per = false (1-D absolute non-periodic
-%   density). It applies addSpectra to enrich the pitches with
-%   partials (if a 'spectrum' argument is supplied), shifts the
-%   lowest pitch to 0, computes appropriate grid bounds where needed,
+%   spectralEntropy is a thin wrapper around entropyMaet with r = 1
+%   and rel = false, on pitch ('per' false, the default) or on pitch
+%   class ('per' true, each partial folded into one 'period', as
+%   Milne et al., 2017, computed it). It applies addSpectra to enrich
+%   the pitches with partials (if a 'spectrum' argument is supplied),
+%   shifts the lowest pitch to 0, computes grid bounds where needed,
 %   and delegates the entropy computation. Four methods are supported:
 %
 %     method='differential' (default) computes the adaptive
 %       differential entropy h_hat; grid-independent and the
 %       principled scale-free choice. Lower h_hat -> more consonant.
-%       Note: adaptive convergence (nested-grid doubling to a
+%       Adaptive convergence (nested-grid doubling to a
 %       truncation-sigma-anchored tolerance) costs several discrete
-%       passes per call --- typically 10-30x the cost of method=
-%       'normalized' on the same density at the default
-%       truncationSigmas (~ 6). Passing 'truncationSigmas', 3 loosens
-%       the convergence tolerance to exp(-9/2) ~= 1.1e-2 and brings
-%       differential to comparable cost to the discrete methods, at
-%       the expense of fifth-decimal drift in the returned value
-%       (consonance ordering is preserved). For consonance comparisons
-%       across many chords, prefer 'normalized' (faster and the
-%       method established in the consonance literature).
+%       passes per call, typically 10-30x the cost of the grid
+%       methods at the default truncationSigmas (~ 6). Passing
+%       'truncationSigmas', 3 loosens the tolerance to
+%       exp(-9/2) ~= 1.1e-2 and brings it to a comparable cost, at
+%       the expense of fifth-decimal drift (consonance ordering is
+%       preserved).
 %
 %     method='normalized' (alias 'normalised') computes the Pielou-
-%       style ratio H / log_b(N) in [0, 1]. Reproduces the values
-%       reported in Milne et al. (2017) and Smit et al. (2019).
-%       Computed on a grid of spacing 'resolution' cents (default 1)
-%       over [0, max(spec_p) + 4*sigma], the grid those papers used; a
-%       discrete entropy depends on its grid, so the spacing is part of
-%       the measure's definition and is exposed rather than fixed.
+%       style ratio H / log_b(N) in [0, 1], on a grid of spacing
+%       'resolution' cents (default 1). With 'per' true the grid is
+%       one period, so N is the same for every chord. With 'per'
+%       false the grid spans the spectrum plus k*sigma on either side
+%       (k the resolved 'truncationSigmas'), so N grows with the
+%       spectrum's span and normalized values are not comparable
+%       across chords of different span; a warning says so
+%       (spectralEntropy:normalizedNonPeriodic).
 %
 %     method='shannon' computes the raw discrete Shannon entropy
-%       H = -sum q log_b q on the same grid as 'normalized'.
+%       H = -sum q log_b q on the same grid as 'normalized'. A
+%       discrete entropy depends on its grid, so the spacing is part
+%       of the measure's definition.
 %
 %     method='renyi2' computes the analytical (grid-independent)
 %       Rényi-2 / collision entropy via the inner-product / Möbius
@@ -78,6 +80,13 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %     'method'     — One of {'differential' (default), 'normalized',
 %                    'shannon', 'renyi2'} (or the British alias
 %                    'normalised'). See above.
+%     'per'        — Logical (default: false). If true, the spectrum is
+%                    periodic with period 'period' (pitch class): every
+%                    partial is folded into one period and its Gaussian
+%                    summed over the periodic images.
+%     'period'     — Period in cents when 'per' is true (default: 1200,
+%                    the octave). 'resolution' must divide it for the
+%                    grid methods.
 %     'base'       — Logarithm base for entropy (default: 2, giving
 %                    bits). The base cancels for method='normalized'.
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
@@ -88,8 +97,9 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                    For method='differential' this also anchors the
 %                    convergence tolerance --- 'truncationSigmas', 3
 %                    is the recommended fast-path setting (see method
-%                    description above). [] (default) means use the
-%                    global default (factory: Inf).
+%                    description above), and sets the margin k*sigma
+%                    of the non-periodic grid. Default: the global
+%                    mptDefaults('truncationSigmas').
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                    default. Override the toolbox-wide
 %                    kernelPrecision setting for this call. Passes
@@ -107,8 +117,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %
 %   Output:
 %     H     — Spectral entropy. Scalar for a single chord, nRows-by-1
-%             vector for a batched input. Under method='normalized'
-%             (or 'shannon' divided by log_b(N) externally), lower
+%             vector for a batched input. Under every method, lower
 %             values indicate greater consonance.
 %
 %   Examples:
@@ -128,10 +137,11 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                         'method', 'differential', ...
 %                         'truncationSigmas', 3)
 %
-%     % Reproduce Smit et al. (2019) / Milne et al. (2017) values.
+%     % Normalized entropy on pitch class (one octave), the domain on
+%     % which Milne et al. (2017) computed spectral entropy.
 %     H = spectralEntropy(chord, [], 12, ...
 %                         'spectrum', {'harmonic', 24, 'powerlaw', 1}, ...
-%                         'method', 'normalized')
+%                         'method', 'normalized', 'per', true)
 %
 %     % Empirical peaks (no spectral enrichment — the default)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
@@ -158,6 +168,8 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
             {mustBeMember(nvArgs.method, ...
                 {'differential','shannon','normalized','normalised','renyi2'})} ...
             = 'differential'
+        nvArgs.per (1,1) logical = false
+        nvArgs.period (1,1) double {mustBePositive} = 1200
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.resolution (1,1) {mustBePositive} = 1
         nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
@@ -192,6 +204,16 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     % Canonicalise the British 'normalised' alias to 'normalized'.
     if strcmp(nvArgs.method, 'normalised')
         nvArgs.method = 'normalized';
+    end
+    if strcmp(nvArgs.method, 'normalized') && ~nvArgs.per
+        warning('spectralEntropy:normalizedNonPeriodic', ...
+            ['spectralEntropy: ''method'', ''normalized'' divides the ' ...
+             'entropy by log N, N the number of points of the ' ...
+             'spectrum''s grid. On a non-periodic grid N grows with ' ...
+             'the span of the chord (and with truncationSigmas), so ' ...
+             'normalized values are not comparable across chords of ' ...
+             'different span. Use ''method'', ''differential'', or ' ...
+             '''per'', true, for which N is fixed by the period.']);
     end
 
     % --- Batched dispatch ---
@@ -250,8 +272,13 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     % for the discrete (shannon, normalized) paths, at the grid size the
     % delegate will build.
     if any(strcmp(nvArgs.method, {'shannon', 'normalized'}))
-        nGrid = floor((max(spec_p) + 4 * sigma) / nvArgs.resolution ...
-                      + 1e-9) + 1;
+        if nvArgs.per
+            nGrid = numel(internal.periodicGrid(nvArgs.period, nvArgs.resolution));
+        else
+            margin = internal.accuracyFloor('resolve', nvArgs.truncationSigmas) * sigma;
+            nGrid = floor((max(spec_p) + 2 * margin) / nvArgs.resolution ...
+                          + 1e-9) + 1;
+        end
         nPairs = double(numel(spec_p)) * double(nGrid);
         estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
     end
@@ -267,23 +294,29 @@ end
 function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
 %LOCALSPECTRALENTROPYDELEGATE  Delegate to entropyMaet.
 %
-%   For 'shannon' and 'normalized', passes the grid
-%   0 : resolution : max(spec_p) + 4*sigma, as in the consonance
-%   literature this measure comes from; its point count follows the
-%   spectrum's span, so a wide spectrum is not sampled more coarsely
-%   than a narrow one.
-%   For 'differential', the span auto-derives from event centres
-%   +/- truncationSigmas * sigma and the grid is refined adaptively.
-%   For 'renyi2', no grid is constructed (analytical inner-product
-%   form).
+%   Grid methods ('shannon', 'normalized'): periodic, one period at
+%   spacing 'resolution'; non-periodic, from -k*sigma to
+%   max(spec_p) + k*sigma (k the resolved truncationSigmas), so that
+%   every partial's Gaussian lies whole on the grid, its point count
+%   following the spectrum's span so that a wide spectrum is not
+%   sampled more coarsely than a narrow one. 'differential' derives
+%   its span and grid adaptively; 'renyi2' is analytical and needs no
+%   grid.
 %
 %   Used by both the scalar path (called directly after spec_p,
 %   spec_w are prepared) and by the batched per-row path (called once
 %   per unique canonical chord via the row loop).
 
-    if strcmp(nvArgs.method, 'renyi2')
-        H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
-            'method', 'renyi2', ...
+    per = nvArgs.per;
+    if per
+        period = nvArgs.period;
+    else
+        period = 1200;
+    end
+
+    if any(strcmp(nvArgs.method, {'renyi2', 'differential'}))
+        H = entropyMaet(spec_p, spec_w, sigma, 1, false, per, period, ...
+            'method', nvArgs.method, ...
             'base', nvArgs.base, ...
             'truncationSigmas', nvArgs.truncationSigmas, ...
             'kernelPrecision', nvArgs.kernelPrecision, ...
@@ -291,39 +324,28 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
         return;
     end
 
-    if strcmp(nvArgs.method, 'differential')
-        H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
-            'method', 'differential', ...
-            'base', nvArgs.base, ...
-            'truncationSigmas', nvArgs.truncationSigmas, ...
-            'kernelPrecision', nvArgs.kernelPrecision, ...
-            'verbose', false);
-        return;
-    end
-
-    margin = 4 * sigma;
-    nPoints = floor((max(spec_p) + margin) / nvArgs.resolution + 1e-9) + 1;
-    xMax = (nPoints - 1) * nvArgs.resolution;
-
-    if strcmp(nvArgs.method, 'normalized')
-        H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
-            'method', 'normalized', ...
+    % Discrete methods: 'shannon' (raw H) or 'normalized' (H/log_b N).
+    if per
+        nPoints = numel(internal.periodicGrid(period, nvArgs.resolution));
+        H = entropyMaet(spec_p, spec_w, sigma, 1, false, true, period, ...
+            'method', nvArgs.method, ...
             'base', nvArgs.base, ...
             'nPointsPerDim', nPoints, ...
-            'xMin', 0, ...
-            'xMax', xMax, ...
             'truncationSigmas', nvArgs.truncationSigmas, ...
             'kernelPrecision', nvArgs.kernelPrecision, ...
             'verbose', false);
         return;
     end
 
-    % method == 'shannon': raw discrete H = -sum q log_b q.
+    margin = internal.accuracyFloor('resolve', nvArgs.truncationSigmas) * sigma;
+    nPoints = floor((max(spec_p) + 2 * margin) / nvArgs.resolution + 1e-9) + 1;
+    xMin = -margin;
+    xMax = xMin + (nPoints - 1) * nvArgs.resolution;
     H = entropyMaet(spec_p, spec_w, sigma, 1, false, false, 1200, ...
-        'method', 'shannon', ...
+        'method', nvArgs.method, ...
         'base', nvArgs.base, ...
         'nPointsPerDim', nPoints, ...
-        'xMin', 0, ...
+        'xMin', xMin, ...
         'xMax', xMax, ...
         'truncationSigmas', nvArgs.truncationSigmas, ...
         'kernelPrecision', nvArgs.kernelPrecision, ...
@@ -430,7 +452,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
     % --- Main loop with canonical-key cache ----------------------
     % spectralEntropy is invariant under joint transposition (lowest
     % pitch shifted to 0 internally), so the canonical key uses
-    % (rel=true, per=false).
+    % rel=true; with 'per' true, so is octave (period) equivalence.
     resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
     for k = 1:nRows
@@ -444,7 +466,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
             haveRowWeights, pK);
 
         key = internal.chordCanonicalKey(pK(:), wK(:), sigma, ...
-            1, true, false, 1200);
+            1, true, nvArgs.per, nvArgs.period);
 
         if isKey(resultCache, key)
             H(k) = resultCache(key);

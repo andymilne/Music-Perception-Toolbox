@@ -31,14 +31,18 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %                same number of notes. Give the tones a spectrum with
 %                'chordSpectrum' to compare them.
 %
-%     hEntropy — Normalized Shannon entropy of the cross-correlation
-%                treated as a probability distribution (Harrison 2020).
-%                A highly harmonic multiset produces a peaked
-%                cross-correlation (low entropy); an inharmonic multiset
-%                produces a flatter cross-correlation (high entropy).
-%                By default, the entropy is normalized to [0, 1] by
-%                dividing by log_base(N), removing the dependence on
-%                the arbitrary grid resolution.
+%     hEntropy — Entropy of the cross-correlation treated as a
+%                distribution over transpositions (Harrison 2020). A
+%                highly harmonic multiset produces a peaked
+%                cross-correlation (low entropy); an inharmonic
+%                multiset produces a flatter cross-correlation (high
+%                entropy). 'method' selects the form (see below).
+%
+%   The cross-correlation runs over pitch ('per' false, the default)
+%   or over pitch class ('per' true: chord and template are folded
+%   into one 'period', each partial's Gaussian summed over its
+%   periodic images, and the cross-correlation is circular, so the
+%   profile is one of virtual pitch classes).
 %
 %   The procedure is:
 %     1. Transpose the multiset so the lowest pitch is 0.
@@ -49,8 +53,12 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %        use the chord's pitches and weights as given (suitable for
 %        empirical spectral peaks, e.g., from audioPeaks).
 %     4. Evaluate both as 1-D absolute expectation tensors (r = 1,
-%        rel = false) on a fine grid.
-%     5. Cross-correlate the two density vectors.
+%        rel = false) on a grid of spacing 'resolution': non-periodic,
+%        from k*sigma below the lowest partial to k*sigma above the
+%        highest (k the resolved 'truncationSigmas'); periodic, one
+%        period.
+%     5. Cross-correlate the two density vectors (circularly when
+%        'per' is true).
 %     6. Normalize by the geometric mean of their energies (giving
 %        cosine similarity at each lag).
 %     7. Return the maximum (hMax) and the entropy (hEntropy).
@@ -83,13 +91,30 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %                       audioPeaks). To apply the same spectral model
 %                       as the template, pass the same arguments:
 %                         'chordSpectrum', {'harmonic', 36, 'powerlaw', 1}
-%     'normalize'     — Logical (default: true). If true, the entropy
-%                       is divided by log_base(N) to give a value in
-%                       [0, 1] that is independent of grid resolution.
-%                       Only affects hEntropy.
+%     'method'        — Form of hEntropy: 'differential' (default),
+%                       'shannon', or 'normalized' (alias
+%                       'normalised').
+%                       'differential': the differential entropy of
+%                       the profile as a density over transposition,
+%                       H + log_base(resolution), in log_base cents;
+%                       independent of the grid spacing and of how far
+%                       the profile extends.
+%                       'shannon': the discrete entropy H of the
+%                       profile on its grid.
+%                       'normalized': H / log_base(N) in [0, 1], N the
+%                       number of transpositions in the profile. With
+%                       'per' true, N is fixed by the period; with
+%                       'per' false, it grows with the chord's span
+%                       and with 'truncationSigmas', so values are not
+%                       comparable across chords of different span,
+%                       and a warning says so
+%                       (templateHarmonicity:normalizedNonPeriodic).
+%     'per'           — Logical (default: false). If true, work on
+%                       pitch class with period 'period' (see above).
+%     'period'        — Period in cents when 'per' is true (default:
+%                       1200, the octave). 'resolution' must divide it.
 %     'base'          — Logarithm base for entropy (default: 2, giving
-%                       bits). When 'normalize' is true, the base
-%                       cancels and has no effect on the result. Only
+%                       bits). It cancels for 'normalized'. Only
 %                       affects hEntropy.
 %     'resolution'    — Grid spacing in cents (default: 1). Finer
 %                       resolution improves accuracy but increases
@@ -99,8 +124,9 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %                       for this call. Passes through to the kernel
 %                       evaluator on the centres path; skips Gaussian
 %                       contributions whose centre-to-query distance
-%                       exceeds k*sigma. [] (default) means use the
-%                       global default (factory: Inf).
+%                       exceeds k*sigma, and sets the grid margin
+%                       k*sigma (see step 4). Default: the global
+%                       mptDefaults('truncationSigmas').
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                       default. Override the toolbox-wide
 %                       kernelPrecision setting for this call. 'single'
@@ -113,10 +139,10 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %   Outputs:
 %     hMax     — Maximum normalized cross-correlation (Milne 2013).
 %                Scalar in [0, 1].
-%     hEntropy — Shannon entropy of the normalized cross-correlation
-%                (Harrison 2020). When 'normalize' is true (default),
-%                scalar in [0, 1]; when false, in units determined by
-%                'base'.
+%     hEntropy — Entropy of the normalized cross-correlation
+%                (Harrison 2020), in the form set by 'method': log_base
+%                cents ('differential'), log_base units ('shannon'), or
+%                [0, 1] ('normalized').
 %
 %   Examples:
 %     % Harmonicity of a JI major triad (synthetic spectrum on chord)
@@ -137,9 +163,9 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %     [hMax, hEnt] = templateHarmonicity([0, 400, 700], [], 12, ...
 %                        'spectrum', {'harmonic', 64, 'powerlaw', 2})
 %
-%     % Unnormalized entropy
-%     [~, hEnt] = templateHarmonicity([0, 400, 700], [], 12, ...
-%                     'normalize', false)
+%     % On pitch class (octave-periodic), normalized entropy
+%     [hMax, hEnt] = templateHarmonicity([0, 400, 700], [], 12, ...
+%                     'per', true, 'method', 'normalized')
 %
 %   References:
 %     Milne, A. J. (2013). A computational model of the cognition of
@@ -157,7 +183,12 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {'harmonic', 36, 'powerlaw', 1}
         nvArgs.chordSpectrum = {}
-        nvArgs.normalize (1,1) logical = true
+        nvArgs.method (1,:) char ...
+            {mustBeMember(nvArgs.method, ...
+                {'differential','shannon','normalized','normalised'})} ...
+            = 'differential'
+        nvArgs.per (1,1) logical = false
+        nvArgs.period (1,1) double {mustBePositive} = 1200
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.resolution (1,1) {mustBePositive} = 1
         nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
@@ -166,10 +197,29 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
             {mustBeMember(nvArgs.kernelPrecision, {'double','single'})} ...
             = mptDefaults('kernelPrecision')
         nvArgs.verbose (1,1) logical = true
+        nvArgs.normalize = []  % sentinel: any value triggers migration error
     end
 
     % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
     guard = internal.callGuard(); %#ok<NASGU>
+
+    % The 'normalize' argument has been removed. Its empty default
+    % cannot be supplied by a caller, so any value here was passed
+    % explicitly.
+    if ~isempty(nvArgs.normalize)
+        error('templateHarmonicity:normalizeRemoved', ...
+              ['templateHarmonicity: the ''normalize'' argument has been ' ...
+               'removed. Use ''method'', ''normalized'' for H / log_b(N) ' ...
+               'in [0, 1] (the v2.0 default), ''method'', ''shannon'' ' ...
+               'for H, or ''method'', ''differential'' (the default).']);
+    end
+    nvArgs = rmfield(nvArgs, 'normalize');
+    if strcmp(nvArgs.method, 'normalised')
+        nvArgs.method = 'normalized';
+    end
+    if strcmp(nvArgs.method, 'normalized') && ~nvArgs.per && nargout > 1
+        localWarnNormalizedNonPeriodic();
+    end
 
     % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
@@ -226,7 +276,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
     % as-is (default) or enriched via addSpectra if 'chordSpectrum'
     % is provided.
 
-    [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
+    [tmpl_p, ~] = addSpectra(0, 1, specArgs{:});
 
     if isempty(chordSpecArgs)
         chord_p = p;
@@ -235,34 +285,32 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
         [chord_p, chord_w] = addSpectra(p, w, chordSpecArgs{:});
     end
 
-    % === Build template tensor and evaluate on grid ===
-    % r = 1, rel = false: intrinsic to the harmonicity definition
-    % (1-D absolute density of spectral components).
-
-    margin = internal.accuracyFloor('resolve', nvArgs.truncationSigmas) * sigma;
-    x_tmpl  = -margin:step:(max(tmpl_p) + margin);
-    x_chord = -margin:step:(max(chord_p) + margin);
-
-    % Time estimate (kernel cost only; conv() and other overheads not
-    % included, so this is a lower bound). Pair count is the sum of
-    % the two evalMaet workloads. dim = 1 since both densities use
+    % === Time estimate ===
+    % Kernel cost only (the cross-correlation and other overheads are
+    % not included, so this is a lower bound). Pair count is the sum
+    % of the two evalMaet workloads; dim = 1 since both densities use
     % r = 1, rel = false.
-    nPairs = double(numel(chord_p)) * double(numel(x_chord)) ...
-           + double(numel(tmpl_p))  * double(numel(x_tmpl));
+    if nvArgs.per
+        nGrid = numel(internal.periodicGrid(nvArgs.period, step));
+        nPairs = double(numel(chord_p) + numel(tmpl_p)) * double(nGrid);
+    else
+        margin0 = internal.accuracyFloor('resolve', nvArgs.truncationSigmas) * sigma;
+        nPairs = double(numel(chord_p)) * double(floor((max(chord_p) + 2*margin0) / step) + 1) ...
+               + double(numel(tmpl_p))  * double(floor((max(tmpl_p) + 2*margin0) / step) + 1);
+    end
     estimateCompTime(nPairs, 1, 'templateHarmonicity', nvArgs.verbose);
 
-    tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
-        false, 1200, 'verbose', false);
-    tmpl_vals = evalMaet(tmpl_dens, x_tmpl, ...
-        'truncationSigmas', nvArgs.truncationSigmas, ...
-        'kernelPrecision', nvArgs.kernelPrecision, ...
-        'verbose', false);
-    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+    % === Template evaluated on its grid ===
+    % r = 1, rel = false: intrinsic to the harmonicity definition
+    % (1-D absolute density of spectral components).
+    [tmpl_vals, tmpl_norm_sq, margin] = internal.templateValues( ...
+        specArgs, sigma, step, nvArgs.per, nvArgs.period, ...
+        nvArgs.truncationSigmas, nvArgs.kernelPrecision);
 
     [hMax, hEntropy] = localTemplateChordOnly( ...
         chord_p, chord_w, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        nvArgs.normalize, nvArgs.base, ...
+        nvArgs, ...
         nvArgs.truncationSigmas, nvArgs.kernelPrecision, ...
         nargout);
 
@@ -276,7 +324,7 @@ end
 function [hMax, hEntropy] = localTemplateChordOnly( ...
     chord_p, chord_w, sigma, ...
     tmpl_vals, tmpl_norm_sq, margin, step, ...
-    normalize, base, truncationSigmas, kernelPrecision, ...
+    opts, truncationSigmas, kernelPrecision, ...
     requestedNargout)
 %LOCALTEMPLATECHORDONLY Chord-side: cross-correlation, hMax, hEntropy.
 %
@@ -289,32 +337,24 @@ function [hMax, hEntropy] = localTemplateChordOnly( ...
 %   The build-eval-conv-normalise core is shared with virtualPitches
 %   via internal.templateXcorrChordSide; this wrapper adds
 %   templateHarmonicity-specific postprocessing (max, optional
-%   Harrison-2020 entropy of the profile).
+%   Harrison-2020 entropy of the profile). opts carries the fields
+%   method, base, per, and period.
 
     xcorr_norm = internal.templateXcorrChordSide( ...
         chord_p, chord_w, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        truncationSigmas, kernelPrecision);
+        truncationSigmas, kernelPrecision, opts.per, opts.period);
 
     % Milne 2013: maximum normalized cross-correlation.
     hMax = max(xcorr_norm);
 
-    % Harrison 2020: entropy of normalized cross-correlation. (The
-    % profile is treated as a probability distribution; this is a
-    % discrete-Shannon computation on a vector, not on an
-    % expectation-tensor density, so it does not delegate to
-    % entropyMaet.)
+    % Harrison 2020: entropy of the profile, treated as a
+    % distribution over transpositions (a computation on the profile,
+    % not on an expectation-tensor density, so it does not delegate to
+    % entropyMaet).
     if requestedNargout > 1
-        q = xcorr_norm(:);
-        N = numel(q);       % total bins (before removing zeros)
-        q = q / sum(q);     % normalize to probability distribution
-        q(q <= 0) = [];     % apply 0*log(0) = 0 convention
-
-        hEntropy = -sum(q .* (log(q) / log(base)));
-
-        if normalize
-            hEntropy = hEntropy / (log(N) / log(base));
-        end
+        hEntropy = internal.profileEntropy(xcorr_norm, opts.method, ...
+            opts.base, step);
     else
         hEntropy = [];
     end
@@ -363,8 +403,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
     specArgs      = nvArgs.spectrum;
     chordSpecArgs = nvArgs.chordSpectrum;
     step          = nvArgs.resolution;
-    normalize     = nvArgs.normalize;
-    base          = nvArgs.base;
+    opts          = nvArgs;
     truncationSigmas = nvArgs.truncationSigmas;
     kernelPrecision  = nvArgs.kernelPrecision;
 
@@ -378,16 +417,9 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
     end
 
     % --- Build template once for the whole batch -----------------
-    [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
-    margin = internal.accuracyFloor('resolve', truncationSigmas) * sigma;
-    x_tmpl = -margin:step:(max(tmpl_p) + margin);
-    tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
-        false, 1200, 'verbose', false);
-    tmpl_vals = evalMaet(tmpl_dens, x_tmpl, ...
-        'truncationSigmas', truncationSigmas, ...
-        'kernelPrecision', kernelPrecision, ...
-        'verbose', false);
-    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+    [tmpl_vals, tmpl_norm_sq, margin] = internal.templateValues( ...
+        specArgs, sigma, step, nvArgs.per, nvArgs.period, ...
+        truncationSigmas, kernelPrecision);
 
     % --- Up-front time estimate ----------------------------------
     % The kernel-only nPairs-based estimate underestimates the actual
@@ -428,7 +460,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
             localBatchEvalOneChord(pValidS, wValidS, ...
                 chordSpecArgs, sigma, ...
                 tmpl_vals, tmpl_norm_sq, margin, step, ...
-                normalize, base, truncationSigmas, kernelPrecision);
+                opts, truncationSigmas, kernelPrecision);
             warmupDone = true;
             break;
         end
@@ -449,7 +481,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
                 localBatchEvalOneChord(pValidS, wValidS, ...
                     chordSpecArgs, sigma, ...
                     tmpl_vals, tmpl_norm_sq, margin, step, ...
-                    normalize, base, truncationSigmas, kernelPrecision);
+                    opts, truncationSigmas, kernelPrecision);
                 nValidCal = nValidCal + 1;
             end
             if nValidCal > 0
@@ -466,8 +498,9 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
     % --- Main loop with canonical-key cache ----------------------
     % Template-harmonicity is invariant under joint transposition
     % (lowest pitch is shifted to 0 internally), so the canonical key
-    % uses (rel=true, per=false). Structurally-identical chords
-    % share one cached (hMax, hEntropy) result.
+    % uses rel=true; with 'per' true, so is octave (period)
+    % equivalence. Structurally-identical chords share one cached
+    % (hMax, hEntropy) result.
     resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
     for k = 1:nRows
@@ -481,7 +514,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
             haveRowWeights, pK);
 
         key = internal.chordCanonicalKey(pK(:), wK(:), sigma, ...
-            1, true, false, 1200);
+            1, true, opts.per, opts.period);
 
         if isKey(resultCache, key)
             cached = resultCache(key);
@@ -491,7 +524,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
             [hMaxK, hEntK] = localBatchEvalOneChord( ...
                 pK, wK, chordSpecArgs, sigma, ...
                 tmpl_vals, tmpl_norm_sq, margin, step, ...
-                normalize, base, truncationSigmas, kernelPrecision);
+                opts, truncationSigmas, kernelPrecision);
             hMax(k) = hMaxK;
             hEntropy(k) = hEntK;
             resultCache(key) = [hMaxK, hEntK];
@@ -520,7 +553,7 @@ end
 function [hMaxK, hEntK] = localBatchEvalOneChord( ...
         pValid, wValid, chordSpecArgs, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        normalize, base, truncationSigmas, kernelPrecision)
+        opts, truncationSigmas, kernelPrecision)
 %LOCALBATCHEVALONECHORD Apply chord_spectrum and call chord-only.
 %   Used by both the calibration pass and the main loop so the timed
 %   per-row work matches the per-row work the main loop pays.
@@ -536,6 +569,20 @@ function [hMaxK, hEntK] = localBatchEvalOneChord( ...
     [hMaxK, hEntK] = localTemplateChordOnly( ...
         chord_p, chord_w, sigma, ...
         tmpl_vals, tmpl_norm_sq, margin, step, ...
-        normalize, base, truncationSigmas, kernelPrecision, ...
+        opts, truncationSigmas, kernelPrecision, ...
         2);  % always compute both outputs in batched mode
+end
+
+
+function localWarnNormalizedNonPeriodic()
+%LOCALWARNNORMALIZEDNONPERIODIC Warn that a normalized entropy on a
+%non-periodic profile depends on the profile's extent.
+    warning('templateHarmonicity:normalizedNonPeriodic', ...
+        ['templateHarmonicity: ''method'', ''normalized'' divides the ' ...
+         'entropy by log N, N the number of points of the ' ...
+         'cross-correlation profile. On a non-periodic grid N grows ' ...
+         'with the span of the chord (and with truncationSigmas), so ' ...
+         'normalized values are not comparable across chords of ' ...
+         'different span. Use ''method'', ''differential'', or ' ...
+         '''per'', true, for which N is fixed by the period.']);
 end

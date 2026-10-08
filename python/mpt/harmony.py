@@ -24,9 +24,133 @@ from .tensor import _chord_canonical_key, build_maet, eval_maet
 # ===================================================================
 
 
+def _periodic_grid(period, step):
+    """Grid ``0, step, ..., period - step`` on one period.
+
+    ``step`` must divide ``period`` (to a relative tolerance of 1e-9),
+    so that the grid closes on itself and circular operations on it are
+    exact.
+    """
+    if not (period > 0):
+        raise ValueError("period must be positive.")
+    n = int(round(period / step))
+    if n < 2 or abs(n * step - period) > 1e-9 * period:
+        raise ValueError(
+            f"resolution ({step}) must divide the period ({period}) "
+            "when per=True."
+        )
+    return np.arange(n) * step
+
+
+def _template_values(spectrum, sigma, resolution, per, period,
+                     truncation_sigmas, kernel_precision):
+    """Evaluate the harmonic template on its grid.
+
+    Returns ``(tmpl_vals, tmpl_norm_sq, margin)``. Non-periodic: the
+    grid runs from ``-margin`` to the top partial plus ``margin``,
+    ``margin`` being the truncation radius ``k * sigma`` at the
+    resolved ``truncation_sigmas``. Periodic: the template is folded
+    into one period (each partial's Gaussian summed over its periodic
+    images) and evaluated on :func:`_periodic_grid`; ``margin`` is 0.
+    """
+    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
+    if per:
+        tmpl_dens = build_maet(
+            tmpl_p, tmpl_w, sigma, 1, False, True, period, verbose=False,
+        )
+        x_tmpl = _periodic_grid(period, resolution)
+        margin = 0.0
+    else:
+        tmpl_dens = build_maet(
+            tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
+        )
+        margin = truncation_radius(truncation_sigmas, sigma)
+        x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + resolution,
+                           resolution)
+    tmpl_vals = eval_maet(
+        tmpl_dens, x_tmpl, verbose=False,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+    return tmpl_vals, float(np.sum(tmpl_vals ** 2)), margin
+
+
+def _profile_pitches(n_xcorr, n_tmpl, step, p_offset, per, period):
+    """Candidate fundamentals of a cross-correlation profile.
+
+    Returns ``(vp_p, order)``. Non-periodic: lag ``k`` of the full
+    correlation places the template's fundamental at
+    ``(k - (n_tmpl - 1)) * step`` above the chord's lowest pitch, and
+    ``order`` is ``None``. Periodic: circular lag ``l`` places it at
+    ``l * step``; the values are taken modulo the period and sorted,
+    ``order`` being the permutation to apply to the profile.
+    """
+    if per:
+        vp = np.mod(np.arange(n_xcorr) * step + p_offset, period)
+        order = np.argsort(vp, kind="stable")
+        return vp[order], order
+    return (np.arange(n_xcorr) - (n_tmpl - 1)) * step + p_offset, None
+
+
+def _profile_entropy(profile, method, base, step):
+    """Entropy of a cross-correlation profile treated as a distribution.
+
+    ``'shannon'``: H = -sum q log_b q of the profile normalized to unit
+    sum. ``'normalized'``: H / log_b N, N the number of transpositions
+    in the profile. ``'differential'``: H + log_b(step), the
+    differential entropy of the profile as a density over transposition
+    in cents (in units of log_b cents); independent of the grid spacing
+    and of how far the profile extends beyond its support.
+    """
+    q = np.asarray(profile, dtype=np.float64).copy()
+    n = len(q)
+    total = np.sum(q)
+    if total > 0:
+        q = q / total
+    q = q[q > 0]
+    h = float(-np.sum(q * np.log(q)) / np.log(base))
+    if method == "normalized":
+        return h / (np.log(n) / np.log(base))
+    if method == "differential":
+        return h + float(np.log(step) / np.log(base))
+    return h
+
+
+_TEMPLATE_ENTROPY_METHODS = ("differential", "shannon", "normalized")
+
+
+def _template_entropy_method(method, fn):
+    """Validate the entropy method of the template measures."""
+    if not isinstance(method, str):
+        raise TypeError(f"{fn}: method must be a string.")
+    m = method.strip().lower()
+    if m == "normalised":
+        m = "normalized"
+    if m not in _TEMPLATE_ENTROPY_METHODS:
+        raise ValueError(
+            f"{fn}: method must be one of {_TEMPLATE_ENTROPY_METHODS} "
+            f"(or 'normalised'); got {method!r}."
+        )
+    return m
+
+
+def _warn_normalized_nonperiodic(fn, what):
+    """Warn that a normalized entropy on a non-periodic grid depends on
+    the grid's extent."""
+    warnings.warn(
+        f"{fn}: method='normalized' divides the entropy by log N, N the "
+        f"number of points of the {what}. On a non-periodic grid N grows "
+        "with the span of the chord (and with truncation_sigmas), so "
+        "normalized values are not comparable across chords of "
+        "different span. Use method='differential', or per=True, for "
+        "which N is fixed by the period.",
+        UserWarning, stacklevel=4,
+    )
+
+
 def _template_xcorr_chord_side(
     chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin, step,
-    truncation_sigmas, kernel_precision,
+    truncation_sigmas, kernel_precision, per=False, period=1200.0,
 ):
     """Build the chord density, evaluate it on the chord grid, and
     return the normalised cross-correlation against the pre-evaluated
@@ -59,24 +183,42 @@ def _template_xcorr_chord_side(
     step : float
         Grid spacing in cents (typically 1).
     truncation_sigmas, kernel_precision : forwarded to ``eval_maet``.
+    per, period : bool, float
+        If ``per``, the chord's spectrum is folded into one period and
+        evaluated on the template's periodic grid, and the
+        cross-correlation is circular.
 
     Returns
     -------
     ndarray
-        Normalised cross-correlation profile, length
-        ``len(chord_vals) + len(tmpl_vals) - 1``.
+        Normalised cross-correlation profile: length
+        ``len(chord_vals) + len(tmpl_vals) - 1`` (non-periodic), or one
+        value per grid point of the period (periodic).
     """
-    chord_dens = build_maet(
-        chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
-    )
-    x_chord = np.arange(-margin, np.max(chord_p) + margin + step, step)
+    if per:
+        chord_dens = build_maet(
+            chord_p, chord_w, sigma, 1, False, True, period, verbose=False,
+        )
+        x_chord = _periodic_grid(period, step)
+    else:
+        chord_dens = build_maet(
+            chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+        )
+        x_chord = np.arange(-margin, np.max(chord_p) + margin + step, step)
     chord_vals = eval_maet(
         chord_dens, x_chord, verbose=False,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
     )
 
-    xcorr = _sp_correlate(chord_vals, tmpl_vals, mode="full", method="auto")
+    if per:
+        n = len(chord_vals)
+        xcorr = np.fft.irfft(
+            np.fft.rfft(chord_vals) * np.conj(np.fft.rfft(tmpl_vals)), n=n,
+        )
+    else:
+        xcorr = _sp_correlate(chord_vals, tmpl_vals, mode="full",
+                              method="auto")
     norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
     if norm_factor > 0:
         return xcorr / norm_factor
@@ -96,6 +238,8 @@ def spectral_entropy(
     *,
     spectrum: list | None = None,
     method: str = "differential",
+    per: bool = False,
+    period: float = 1200.0,
     base: float = 2.0,
     resolution: float = 1.0,
     truncation_sigmas: float | None = None,
@@ -112,35 +256,35 @@ def spectral_entropy(
     indicates greater consonance.
 
     ``spectral_entropy`` is a thin wrapper around
-    :func:`~mpt.entropy_maet` with ``r=1``, ``rel=False``,
-    ``per=False`` (1-D absolute non-periodic density). It applies
-    :func:`~mpt.spectra.add_spectra` to enrich the pitches with
-    partials (if a ``spectrum`` argument is supplied), shifts the
-    lowest pitch to 0, computes appropriate grid bounds where needed,
+    :func:`~mpt.entropy_maet` with ``r=1`` and ``rel=False``, on pitch
+    (``per=False``, the default) or on pitch class (``per=True``,
+    each partial folded into one ``period``, as Milne et al., 2017,
+    computed it). It applies :func:`~mpt.spectra.add_spectra` to enrich
+    the pitches with partials (if a ``spectrum`` argument is supplied),
+    shifts the lowest pitch to 0, computes grid bounds where needed,
     and delegates the entropy computation. Four methods are supported:
 
     - ``method='differential'`` (default): adaptive evaluation of the
       differential entropy ĥ; grid-independent and the principled
-      scale-free choice. Lower ĥ → more consonant. Note: adaptive
-      convergence (nested-grid doubling to a truncation-sigma-anchored
-      tolerance) costs several discrete passes per call --- typically
-      10-30× the cost of ``method='normalized'`` at the default
-      ``truncation_sigmas`` (≈ 6). Passing ``truncation_sigmas=3``
-      loosens the tolerance to ``exp(-9/2) ≈ 1.1e-2`` and brings
-      differential to comparable cost to the discrete methods, at the
+      scale-free choice. Lower ĥ → more consonant. Adaptive convergence
+      (nested-grid doubling to a truncation-sigma-anchored tolerance)
+      costs several discrete passes per call, typically 10-30× the cost
+      of the grid methods at the default ``truncation_sigmas`` (≈ 6).
+      Passing ``truncation_sigmas=3`` loosens the tolerance to
+      ``exp(-9/2) ≈ 1.1e-2`` and brings it to a comparable cost, at the
       expense of fifth-decimal drift (consonance ordering is preserved).
-      For consonance comparisons across many chords, prefer
-      ``'normalized'`` (faster and the method established in the
-      consonance literature).
     - ``method='normalized'`` (alias ``'normalised'``): the Pielou-style
-      ratio ``H / log_b(N)`` in ``[0, 1]``, the method of Milne et al.
-      (2017) and Smit et al. (2019). Computed on a grid of spacing
-      ``resolution`` cents (default 1) over ``[0, max(spec_p) + 4*sigma]``,
-      the grid those papers used; a discrete entropy depends on its
-      grid, so the spacing is part of the measure's definition and is
-      exposed rather than fixed.
+      ratio ``H / log_b(N)`` in ``[0, 1]``, on a grid of spacing
+      ``resolution`` cents (default 1). With ``per=True`` the grid is one
+      period, so N is the same for every chord. With ``per=False`` the
+      grid spans the spectrum plus ``k * sigma`` on either side (``k``
+      the resolved ``truncation_sigmas``), so N grows with the
+      spectrum's span and normalized values are not comparable across
+      chords of different span; a warning says so.
     - ``method='shannon'``: raw discrete Shannon entropy
-      ``H = -Σ q log_b q`` on the same grid as ``'normalized'``.
+      ``H = -Σ q log_b q`` on the same grid as ``'normalized'``. A
+      discrete entropy depends on its grid, so the spacing is part of
+      the measure's definition.
     - ``method='renyi2'``: analytical (grid-independent) Rényi-2 /
       collision entropy via the inner-product / Möbius machinery.
 
@@ -178,6 +322,13 @@ def spectral_entropy(
     method : {'differential', 'normalized', 'shannon', 'renyi2'}
         Entropy variant (default ``'differential'``; ``'normalised'``
         accepted as an alias for ``'normalized'``). See above.
+    per : bool
+        If True, the spectrum is periodic with period ``period``
+        (pitch class): every partial is folded into one period and its
+        Gaussian summed over the periodic images. Default False.
+    period : float
+        Period in cents when ``per=True`` (default 1200, the octave).
+        ``resolution`` must divide it for the grid methods.
     base : float
         Logarithm base (default 2 = bits).
     verbose : bool
@@ -208,17 +359,20 @@ def spectral_entropy(
         )
 
     method = _canonicalize_method(method)
+    per = bool(per)
+    if method == "normalized" and not per:
+        _warn_normalized_nonperiodic("spectral_entropy", "spectrum's grid")
 
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _spectral_entropy_scalar(
             p_arr, w, sigma, spectrum, method, base, resolution,
-            truncation_sigmas, kernel_precision, verbose,
+            truncation_sigmas, kernel_precision, verbose, per, period,
         )
     if p_arr.ndim == 2:
         return _spectral_entropy_batched(
             p_arr, w, sigma, spectrum, method, base, resolution,
-            truncation_sigmas, kernel_precision, verbose,
+            truncation_sigmas, kernel_precision, verbose, per, period,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -228,15 +382,13 @@ def spectral_entropy(
 
 def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
                              resolution, truncation_sigmas,
-                             kernel_precision, verbose):
+                             kernel_precision, verbose, per=False,
+                             period=1200.0):
     """Single-chord scalar dispatch.
 
     Prepares ``(spec_p, spec_w)`` (transposition shift + optional
-    add_spectra) and delegates to :func:`entropy_maet`. For the
-    grid-based methods (``'shannon'`` and ``'normalized'``), the wrapper
-    passes the grid ``0 : resolution : max(spec_p) + 4*sigma``. For
-    ``'differential'`` the span and grid are derived adaptively. For
-    ``'renyi2'`` the analytical form is used and no grid is needed.
+    add_spectra) and delegates to :func:`entropy_maet`; see
+    :func:`_spectral_entropy_delegate` for the grids.
     """
     p = p.ravel()
     w = validate_weights(w, len(p))
@@ -249,27 +401,29 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
 
     return _spectral_entropy_delegate(
         spec_p, spec_w, sigma, method, base, resolution,
-        truncation_sigmas, kernel_precision,
+        truncation_sigmas, kernel_precision, per, period,
     )
 
 
 def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
                                resolution, truncation_sigmas,
-                               kernel_precision):
+                               kernel_precision, per=False, period=1200.0):
     """Delegate the entropy computation to entropy_maet.
 
     Used by both the scalar path and the batched per-row path.
 
-    For grid-based methods ('shannon', 'normalized'), supplies explicit
-    the grid ``0 : resolution : max(spec_p) + 4*sigma``. For
-    'differential', the span
-    auto-derives from event centres +/- ``truncation_sigmas * sigma``
-    and the grid is refined adaptively. For 'renyi2', no grid is
-    constructed (analytical inner-product form).
+    Grid methods ('shannon', 'normalized'): periodic, one period at
+    spacing ``resolution``; non-periodic, from ``-k*sigma`` to
+    ``max(spec_p) + k*sigma`` (``k`` the resolved ``truncation_sigmas``),
+    so that every partial's Gaussian lies whole on the grid.
+    'differential' derives its span and grid adaptively; 'renyi2' is
+    analytical and needs no grid.
     """
+    per_flag = bool(per)
+    per_period = float(period) if per_flag else 1200.0
     if method == "renyi2":
         return entropy_maet(
-            spec_p, spec_w, sigma, 1, False, False, 1200,
+            spec_p, spec_w, sigma, 1, False, per_flag, per_period,
             method="renyi2",
             base=base,
             truncation_sigmas=truncation_sigmas,
@@ -279,7 +433,7 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
 
     if method == "differential":
         return entropy_maet(
-            spec_p, spec_w, sigma, 1, False, False, 1200,
+            spec_p, spec_w, sigma, 1, False, per_flag, per_period,
             method="differential",
             base=base,
             truncation_sigmas=truncation_sigmas,
@@ -289,22 +443,34 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
 
     # Discrete methods: 'shannon' (raw H) or 'normalized' (H/log_b N).
     # Both share an explicit grid; the method kwarg selects the variant.
-    # The grid is 0 : resolution : max(spec_p) + 4 sigma, as in the
-    # consonance literature this measure comes from; its point count
-    # follows the spectrum's span, so a wide spectrum is not sampled
-    # more coarsely than a narrow one.
     if not (resolution > 0):
         raise ValueError("resolution must be positive (cents).")
-    margin = 4 * sigma
-    n_points = int(np.floor((float(np.max(spec_p)) + margin) / resolution
-                            + 1e-9)) + 1
-    x_max = (n_points - 1) * resolution
+    if per_flag:
+        n_points = len(_periodic_grid(per_period, resolution))
+        return entropy_maet(
+            spec_p, spec_w, sigma, 1, False, True, per_period,
+            method=method,
+            base=base,
+            n_points_per_dim=n_points,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=False,
+        )
+    # Non-periodic: the grid extends k*sigma beyond the lowest and the
+    # highest partial, so every Gaussian lies whole on it; its point
+    # count follows the spectrum's span, so a wide spectrum is not
+    # sampled more coarsely than a narrow one.
+    margin = truncation_radius(truncation_sigmas, sigma)
+    n_points = int(np.floor((float(np.max(spec_p)) + 2 * margin)
+                            / resolution + 1e-9)) + 1
+    x_min = -margin
+    x_max = x_min + (n_points - 1) * resolution
     return entropy_maet(
         spec_p, spec_w, sigma, 1, False, False, 1200,
         method=method,
         base=base,
         n_points_per_dim=n_points,
-        x_min=0.0, x_max=x_max,
+        x_min=x_min, x_max=x_max,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=False,
@@ -313,7 +479,8 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
 
 def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
                               resolution,
-                              truncation_sigmas, kernel_precision, verbose):
+                              truncation_sigmas, kernel_precision, verbose,
+                              per=False, period=1200.0):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     Returns ``(M,)``. Per-row chord-level dedup of the full
@@ -373,7 +540,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
             _spectral_entropy_scalar(
                 p_valid_s, w_valid_s, sigma, spectrum, method, base,
                 resolution, truncation_sigmas, kernel_precision,
-                verbose=False,
+                verbose=False, per=per, period=period,
             )
             warmup_done = True
             break
@@ -396,7 +563,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
                 _spectral_entropy_scalar(
                     p_valid_s, w_valid_s, sigma, spectrum, method,
                     base, resolution, truncation_sigmas, kernel_precision,
-                    verbose=False,
+                    verbose=False, per=per, period=period,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -424,12 +591,12 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
             w_valid = None
 
         # Canonical key: spectral_entropy transposes internally
-        # (p -= min), so transposition is part of the symmetry. r=1,
-        # rel=True (transposition-invariant after the internal
-        # shift), per=False.
+        # (p -= min), so transposition is part of the symmetry (r=1,
+        # rel=True); with per=True, so is octave (period) equivalence.
         key, _, _ = _chord_canonical_key(
             p_valid, w_valid,
-            sigma=sigma, r=1, rel=True, per=False, period=1200.0,
+            sigma=sigma, r=1, rel=True, per=bool(per),
+            period=float(period) if per else 1200.0,
         )
 
         if key in result_cache:
@@ -438,7 +605,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
             h = _spectral_entropy_scalar(
                 p_valid, w_valid, sigma, spectrum, method, base,
                 resolution, truncation_sigmas, kernel_precision,
-                verbose=False,
+                verbose=False, per=per, period=period,
             )
             result_cache[key] = h
             out[i] = h
@@ -463,12 +630,15 @@ def template_harmonicity(
     *,
     spectrum: list | None = None,
     chord_spectrum: list | None = None,
-    normalize: bool = True,
+    method: str = "differential",
+    per: bool = False,
+    period: float = 1200.0,
     base: float = 2.0,
     resolution: float = 1.0,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
+    **legacy_kwargs,
 ) -> tuple[float | np.ndarray, float | np.ndarray]:
     """Harmonicity via template cross-correlation.
 
@@ -484,8 +654,16 @@ def template_harmonicity(
       less than an octave to higher partials, so such chords score the
       same whenever they have the same number of notes. Give the tones
       a spectrum with ``chord_spectrum`` to compare them.
-    - *h_entropy*: Shannon entropy of the cross-correlation treated
-      as a probability distribution (Harrison & Pearce, 2020).
+    - *h_entropy*: entropy of the cross-correlation treated as a
+      distribution over transpositions (Harrison & Pearce, 2020): low
+      when one fit stands out, high when many compete. ``method``
+      selects the form (see below).
+
+    The cross-correlation runs over pitch (``per=False``, the default)
+    or over pitch class (``per=True``: chord and template are folded
+    into one ``period``, each partial's Gaussian summed over its
+    periodic images, and the cross-correlation is circular, so the
+    profile is one of virtual pitch classes).
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
@@ -509,8 +687,24 @@ def template_harmonicity(
     chord_spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra` for the
         chord. ``None`` = use pitches as given.
-    normalize : bool
-        If True (default), normalise entropy to [0, 1].
+    method : {'differential', 'shannon', 'normalized'}
+        Form of h_entropy. ``'differential'`` (default): the
+        differential entropy of the profile as a density over
+        transposition, ``H + log_b(resolution)``, in log_b cents;
+        independent of the grid spacing and of how far the profile
+        extends. ``'shannon'``: the discrete entropy ``H`` of the
+        profile on its grid. ``'normalized'`` (alias ``'normalised'``):
+        ``H / log_b(N)`` in [0, 1], N the number of transpositions in
+        the profile. With ``per=True`` N is fixed by the period; with
+        ``per=False`` it grows with the chord's span and with
+        ``truncation_sigmas``, so values are not comparable across
+        chords of different span, and a warning says so.
+    per : bool
+        If True, work on pitch class with period ``period`` (see above).
+        Default False.
+    period : float
+        Period in cents when ``per=True`` (default 1200, the octave).
+        ``resolution`` must divide it.
     base : float
         Logarithm base (default 2).
     resolution : float
@@ -533,6 +727,23 @@ def template_harmonicity(
     consonance in music perception and composition. *Psychological
     Review*, 127(2), 216–244.
     """
+    if "normalize" in legacy_kwargs:
+        raise TypeError(
+            "template_harmonicity: the 'normalize' argument has been "
+            "removed. Use method='normalized' for H / log_b(N) in [0, 1] "
+            "(the v2.0 default), method='shannon' for H, or "
+            "method='differential' (the default)."
+        )
+    if legacy_kwargs:
+        unknown = ", ".join(repr(k) for k in legacy_kwargs)
+        raise TypeError(
+            f"template_harmonicity: unexpected keyword argument(s): {unknown}"
+        )
+    method = _template_entropy_method(method, "template_harmonicity")
+    per = bool(per)
+    if method == "normalized" and not per:
+        _warn_normalized_nonperiodic("template_harmonicity",
+                                     "cross-correlation profile")
     if spectrum is None:
         spectrum = ["harmonic", 36, "powerlaw", 1]
 
@@ -540,14 +751,14 @@ def template_harmonicity(
     if p_arr.ndim == 1:
         return _template_harmonicity_scalar(
             p_arr, w, sigma, spectrum, chord_spectrum,
-            normalize, base, resolution,
-            truncation_sigmas, kernel_precision, verbose,
+            method, base, resolution,
+            truncation_sigmas, kernel_precision, verbose, per, period,
         )
     if p_arr.ndim == 2:
         return _template_harmonicity_batched(
             p_arr, w, sigma, spectrum, chord_spectrum,
-            normalize, base, resolution,
-            truncation_sigmas, kernel_precision, verbose,
+            method, base, resolution,
+            truncation_sigmas, kernel_precision, verbose, per, period,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -557,8 +768,8 @@ def template_harmonicity(
 
 def _template_harmonicity_chord_only(
     chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
-    resolution, normalize, base,
-    truncation_sigmas, kernel_precision,
+    resolution, method, base,
+    truncation_sigmas, kernel_precision, per=False, period=1200.0,
 ):
     """Compute (h_max, h_entropy) for one chord, given pre-built
     template evaluation and its norm-square.
@@ -578,38 +789,28 @@ def _template_harmonicity_chord_only(
     """
     xcorr_norm = _template_xcorr_chord_side(
         chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
-        resolution, truncation_sigmas, kernel_precision,
+        resolution, truncation_sigmas, kernel_precision, per, period,
     )
 
     h_max = float(np.max(xcorr_norm))
 
-    # Harrison-2020 entropy of the profile. (Treated as a probability
-    # distribution; this is a discrete-Shannon computation on a vector,
-    # not on an expectation-tensor density, so it does not delegate to
-    # entropy_maet.)
-    q = xcorr_norm.copy()
-    N = len(q)
-    total = np.sum(q)
-    if total > 0:
-        q = q / total
-    q = q[q > 0]
-    h_entropy = float(-np.sum(q * np.log(q) / np.log(base)))
-    if normalize:
-        h_entropy /= np.log(N) / np.log(base)
+    # Harrison-2020 entropy of the profile, treated as a distribution
+    # over transpositions (a computation on the profile, not on an
+    # expectation-tensor density, so it does not delegate to
+    # entropy_maet).
+    h_entropy = _profile_entropy(xcorr_norm, method, base, resolution)
 
     return h_max, h_entropy
 
 
 def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
-                                  normalize, base, resolution,
-                                  truncation_sigmas, kernel_precision, verbose):
+                                  method, base, resolution,
+                                  truncation_sigmas, kernel_precision, verbose,
+                                  per=False, period=1200.0):
     """Single-chord scalar dispatch."""
     p = p.ravel()
     w = validate_weights(w, len(p))
     p = p - np.min(p)
-
-    # Build template
-    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
 
     # Build chord spectrum
     if chord_spectrum is not None:
@@ -617,29 +818,22 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
     else:
         chord_p, chord_w = p.copy(), w.copy()
 
-    margin = truncation_radius(truncation_sigmas, sigma)
-    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + resolution, resolution)
-
-    tmpl_dens = build_maet(
-        tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
+    tmpl_vals, tmpl_norm_sq, margin = _template_values(
+        spectrum, sigma, resolution, per, period,
+        truncation_sigmas, kernel_precision,
     )
-    tmpl_vals = eval_maet(
-        tmpl_dens, x_tmpl, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-    tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
     return _template_harmonicity_chord_only(
         chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
-        resolution, normalize, base,
-        truncation_sigmas, kernel_precision,
+        resolution, method, base,
+        truncation_sigmas, kernel_precision, per, period,
     )
 
 
 def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
-                                   normalize, base, resolution,
-                                   truncation_sigmas, kernel_precision, verbose):
+                                   method, base, resolution,
+                                   truncation_sigmas, kernel_precision, verbose,
+                                   per=False, period=1200.0):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     The harmonic template is built once for the whole batch (it's
@@ -658,16 +852,10 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
     h_ent_out = np.full(M, np.nan)
 
     # Template (independent of chord) — built once.
-    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
-    tmpl_dens = build_maet(
-        tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
+    tmpl_vals, tmpl_norm_sq, margin = _template_values(
+        spectrum, sigma, resolution, per, period,
+        truncation_sigmas, kernel_precision,
     )
-    margin = truncation_radius(truncation_sigmas, sigma)
-    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + resolution, resolution)
-    tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,
-                              truncation_sigmas=truncation_sigmas,
-                              kernel_precision=kernel_precision)
-    tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
     # Up-front time estimate (printed once for the whole batch). The
     # kernel-only nPairs-based estimate (as used by estimateCompTime in
@@ -716,8 +904,8 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
                 chord_p_s, chord_w_s = p_shifted_s.copy(), w_valid_s.copy()
             _template_harmonicity_chord_only(
                 chord_p_s, chord_w_s, sigma, tmpl_vals, tmpl_norm_sq,
-                margin, resolution, normalize, base,
-                truncation_sigmas, kernel_precision,
+                margin, resolution, method, base,
+                truncation_sigmas, kernel_precision, per, period,
             )
             warmup_done = True
             break
@@ -743,8 +931,8 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
                         p_shifted_s.copy(), w_valid_s.copy()
                 _template_harmonicity_chord_only(
                     chord_p_s, chord_w_s, sigma, tmpl_vals, tmpl_norm_sq,
-                    margin, resolution, normalize, base,
-                    truncation_sigmas, kernel_precision,
+                    margin, resolution, method, base,
+                    truncation_sigmas, kernel_precision, per, period,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -773,10 +961,11 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
 
         # Canonical key. Template-harmonicity is invariant under joint
         # transposition (the function shifts so min = 0 anyway), so we
-        # use a relative, non-periodic canonical form.
+        # use a relative canonical form, periodic where per=True.
         key, p_canon, w_canon = _chord_canonical_key(
             p_valid, w_valid,
-            sigma=sigma, r=1, rel=True, per=False, period=1200.0,
+            sigma=sigma, r=1, rel=True, per=per,
+            period=float(period) if per else 1200.0,
         )
         if key in result_cache:
             h_max_out[i], h_ent_out[i] = result_cache[key]
@@ -790,8 +979,8 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
 
             h_max, h_ent = _template_harmonicity_chord_only(
                 chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
-                resolution, normalize, base,
-                truncation_sigmas, kernel_precision,
+                resolution, method, base,
+                truncation_sigmas, kernel_precision, per, period,
             )
 
             result_cache[key] = (h_max, h_ent)
@@ -1163,6 +1352,8 @@ def virtual_pitches(
     *,
     spectrum: list | None = None,
     chord_spectrum: list | None = None,
+    per: bool = False,
+    period: float = 1200.0,
     resolution: float = 1.0,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
@@ -1201,13 +1392,22 @@ def virtual_pitches(
     chord_spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra` for the
         chord. ``None`` = use pitches as given.
+    per : bool
+        If True, work on pitch class: chord and template are folded
+        into one ``period`` and the cross-correlation is circular, so
+        the profile gives virtual pitch classes, one per grid point of
+        the period, in ascending order from 0. Default False.
+    period : float
+        Period in cents when ``per=True`` (default 1200, the octave).
+        ``resolution`` must divide it.
     resolution : float
         Grid spacing in cents (default 1).
 
     Returns
     -------
     vp_p : np.ndarray or list of np.ndarray
-        Candidate pitch values in cents. Single ``ndarray`` in
+        Candidate pitch values in cents (pitch classes in
+        ``[0, period)`` when ``per=True``). Single ``ndarray`` in
         single-chord mode; list of ``M`` ``ndarray``s in batched mode
         (one per row, possibly differing in length).
     vp_w : np.ndarray or list of np.ndarray
@@ -1221,16 +1421,17 @@ def virtual_pitches(
     if spectrum is None:
         spectrum = ["harmonic", 36, "powerlaw", 1]
 
+    per = bool(per)
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _virtual_pitches_scalar(
             p_arr, w, sigma, spectrum, chord_spectrum, resolution,
-            truncation_sigmas, kernel_precision, verbose,
+            truncation_sigmas, kernel_precision, verbose, per, period,
         )
     if p_arr.ndim == 2:
         return _virtual_pitches_batched(
             p_arr, w, sigma, spectrum, chord_spectrum, resolution,
-            truncation_sigmas, kernel_precision, verbose,
+            truncation_sigmas, kernel_precision, verbose, per, period,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -1240,16 +1441,16 @@ def virtual_pitches(
 
 def _virtual_pitches_chord_only(
     chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin, step,
-    truncation_sigmas, kernel_precision,
+    truncation_sigmas, kernel_precision, per=False, period=1200.0,
 ):
     """Chord-side normalised cross-correlation, returning the profile
     and its length.
 
     Returns ``(vp_w, n_xcorr)`` — the offset-independent profile and
-    its length. The caller reconstructs ``vp_p = (np.arange(n_xcorr) -
-    (n_tmpl - 1)) * step + p_offset`` in the input coordinate system;
-    that arithmetic is row-dependent and so is not part of what gets
-    cached when this helper is called from the batched path.
+    its length. The caller reconstructs ``vp_p`` in the input coordinate
+    system with :func:`_profile_pitches`; that arithmetic is
+    row-dependent and so is not part of what gets cached when this
+    helper is called from the batched path.
 
     Hoisted from :func:`_virtual_pitches_scalar` so the batched
     dispatch can build the template once for the whole batch and
@@ -1263,13 +1464,14 @@ def _virtual_pitches_chord_only(
     """
     vp_w = _template_xcorr_chord_side(
         chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
-        step, truncation_sigmas, kernel_precision,
+        step, truncation_sigmas, kernel_precision, per, period,
     )
     return vp_w, len(vp_w)
 
 
 def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
-                            truncation_sigmas, kernel_precision, verbose):
+                            truncation_sigmas, kernel_precision, verbose,
+                            per=False, period=1200.0):
     """Single-chord scalar dispatch."""
     p = p.ravel()
     w = validate_weights(w, len(p))
@@ -1277,41 +1479,34 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
     p_offset = float(np.min(p))
     p = p - p_offset
 
-    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
-
     if chord_spectrum is not None:
         chord_p, chord_w = add_spectra(p, w, *chord_spectrum)
     else:
         chord_p, chord_w = p.copy(), w.copy()
 
-    margin = truncation_radius(truncation_sigmas, sigma)
     step = resolution
-    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + step, step)
-
-    tmpl_dens = build_maet(
-        tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
+    tmpl_vals, tmpl_norm_sq, margin = _template_values(
+        spectrum, sigma, step, per, period,
+        truncation_sigmas, kernel_precision,
     )
-    tmpl_vals = eval_maet(
-        tmpl_dens, x_tmpl, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-    tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
     n_tmpl = len(tmpl_vals)
 
     vp_w, n_xcorr = _virtual_pitches_chord_only(
         chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin, step,
-        truncation_sigmas, kernel_precision,
+        truncation_sigmas, kernel_precision, per, period,
     )
 
-    lag_indices = np.arange(n_xcorr) - (n_tmpl - 1)
-    vp_p = lag_indices * step + p_offset
+    vp_p, order = _profile_pitches(n_xcorr, n_tmpl, step, p_offset,
+                                   per, period)
+    if order is not None:
+        vp_w = vp_w[order]
 
     return vp_p, vp_w
 
 
 def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
-                             truncation_sigmas, kernel_precision, verbose):
+                             truncation_sigmas, kernel_precision, verbose,
+                             per=False, period=1200.0):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     Returns ``(vp_p_list, vp_w_list)`` — length-``M`` lists of 1-D
@@ -1337,18 +1532,12 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
     vp_w_list: list = [np.array([], dtype=np.float64) for _ in range(M)]
 
     # The harmonic template is shared across rows.
-    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
-    tmpl_dens = build_maet(
-        tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
-    )
-    margin = truncation_radius(truncation_sigmas, sigma)
     step = resolution
-    x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + step, step)
-    tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,
-                              truncation_sigmas=truncation_sigmas,
-                              kernel_precision=kernel_precision)
+    tmpl_vals, tmpl_norm_sq, margin = _template_values(
+        spectrum, sigma, step, per, period,
+        truncation_sigmas, kernel_precision,
+    )
     n_tmpl = len(tmpl_vals)
-    tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
     result_cache: dict = {}
 
@@ -1382,7 +1571,7 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
             _virtual_pitches_chord_only(
                 chord_p_s, chord_w_s, sigma,
                 tmpl_vals, tmpl_norm_sq, margin, step,
-                truncation_sigmas, kernel_precision,
+                truncation_sigmas, kernel_precision, per, period,
             )
             warmup_done = True
             break
@@ -1409,7 +1598,7 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
                 _virtual_pitches_chord_only(
                     chord_p_s, chord_w_s, sigma,
                     tmpl_vals, tmpl_norm_sq, margin, step,
-                    truncation_sigmas, kernel_precision,
+                    truncation_sigmas, kernel_precision, per, period,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -1440,7 +1629,10 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
         # rel mode. The vp_w profile depends only on the canonical
         # chord shape (and chord_spectrum, sigma, etc., which are
         # constant across the batch); vp_p reconstruction uses the
-        # per-row p_offset.
+        # per-row p_offset. The key is taken non-periodically even
+        # when per=True: two rotations of one pitch-class set share a
+        # periodic key but not a lowest pitch, so their profiles
+        # differ by a shift that p_offset does not supply.
         key, _, _ = _chord_canonical_key(
             p_valid, w_valid,
             sigma=sigma, r=1, rel=True, per=False, period=1200.0,
@@ -1459,13 +1651,14 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
             vp_w, n_xcorr = _virtual_pitches_chord_only(
                 chord_p, chord_w, sigma,
                 tmpl_vals, tmpl_norm_sq, margin, step,
-                truncation_sigmas, kernel_precision,
+                truncation_sigmas, kernel_precision, per, period,
             )
             result_cache[key] = (vp_w, n_xcorr)
 
-        lag_indices = np.arange(n_xcorr) - (n_tmpl - 1)
-        vp_p_list[i] = lag_indices * step + p_offset
-        vp_w_list[i] = vp_w
+        vp_p, order = _profile_pitches(n_xcorr, n_tmpl, step, p_offset,
+                                       per, period)
+        vp_p_list[i] = vp_p
+        vp_w_list[i] = vp_w if order is None else vp_w[order]
 
         if verbose and show_progress \
                 and ((i + 1) % prog_stride == 0 or i == M - 1):

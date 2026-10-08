@@ -56,7 +56,7 @@ def test_weight_events_requires_sd_or_width():
         weight_events(
             p_attr, w,
             input_attr=1, target_attr=0,
-            centre=0.5, shape=0.0,
+            align_at=0.5, shape=0.0,
             per=False, period=0.0,
             drop_input_attr=True,
         )
@@ -69,7 +69,7 @@ def test_weight_events_rejects_both_sd_and_width():
         weight_events(
             p_attr, w,
             input_attr=1, target_attr=0,
-            centre=0.5, shape=0.0,
+            align_at=0.5, shape=0.0,
             per=False, period=0.0,
             sd=1.0, width=1.0,
             drop_input_attr=True,
@@ -88,14 +88,14 @@ def test_weight_events_sd_and_width_yield_same_density_under_conversion():
     _, w_sd, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=2.0, shape=1.0,
+        align_at=2.0, shape=1.0,
         per=False, period=0.0,
         sd=s, drop_input_attr=True,
     ))
     _, w_width, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=2.0, shape=1.0,
+        align_at=2.0, shape=1.0,
         per=False, period=0.0,
         width=L, drop_input_attr=True,
     ))
@@ -105,14 +105,14 @@ def test_weight_events_sd_and_width_yield_same_density_under_conversion():
     _, w_sd_g, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=2.0, shape=0.0,
+        align_at=2.0, shape=0.0,
         per=False, period=0.0,
         sd=s, drop_input_attr=True,
     ))
     _, w_width_g, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=2.0, shape=0.0,
+        align_at=2.0, shape=0.0,
         per=False, period=0.0,
         width=L, drop_input_attr=True,
     ))
@@ -138,7 +138,7 @@ def test_weight_events_rect_width_is_full_support():
     _, w_out, _ = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=0.0, shape=1.0,
+        align_at=0.0, shape=1.0,
         per=False, period=0.0,
         width=L, drop_input_attr=True,
     ))
@@ -156,7 +156,7 @@ def test_weight_events_sd_rejects_nonpositive():
             weight_events(
                 p_attr, w,
                 input_attr=1, target_attr=0,
-                centre=0.5, shape=0.0,
+                align_at=0.5, shape=0.0,
                 per=False, period=0.0,
                 sd=bad, drop_input_attr=True,
             )
@@ -169,7 +169,7 @@ def test_weight_events_width_rejects_nonpositive():
             weight_events(
                 p_attr, w,
                 input_attr=1, target_attr=0,
-                centre=0.5, shape=0.0,
+                align_at=0.5, shape=0.0,
                 per=False, period=0.0,
                 width=bad, drop_input_attr=True,
             )
@@ -227,7 +227,7 @@ def test_differential_entropy_bounded_after_weight_events_truncation():
     p_w, w_w, g_w = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=c, shape=0.0,
+        align_at=c, shape=0.0,
         per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
     ))
@@ -264,7 +264,7 @@ def test_differential_entropy_matches_manual_prune():
     p_w, w_w, g_w = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=c, shape=0.0,
+        align_at=c, shape=0.0,
         per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
     ))
@@ -303,7 +303,7 @@ def test_shannon_grid_matches_manual_prune():
     p_w, w_w, g_w = unpack_pre_maet(weight_events(
         p_attr, w,
         input_attr=1, target_attr=0,
-        centre=c, shape=0.0,
+        align_at=c, shape=0.0,
         per=False, period=0.0,
         sd=1.0, drop_input_attr=True,
     ))

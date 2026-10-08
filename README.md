@@ -185,11 +185,15 @@ Music-Perception-Toolbox/
 
 ## Citation
 
-If you use this toolbox in published work, please cite:
+If you use this toolbox in published work, please cite the toolbox article:
+
+> Milne, A. J. (2026). The Music Perception Toolbox: Analytical methods for pitch and rhythm similarity, consonance, complexity, and structure. *Transactions of the International Society for Music Information Retrieval*, 9(1), 526–543.
+
+Where your work rests mainly on expectation tensors themselves, cite, instead or as well, the article that introduced them:
 
 > Milne, A. J., Sethares, W. A., Laney, R., & Sharp, D. B. (2011). Modelling the similarity of pitch collections with expectation tensors. *Journal of Mathematics and Music*, 5(1), 1–20.
 
-and the software itself using the DOI from Zenodo (see [CITATION.cff](CITATION.cff)). GitHub will also display a "Cite this repository" button from the CITATION.cff metadata.
+Please also cite the software itself using the DOI from Zenodo (see [CITATION.cff](CITATION.cff)). GitHub will also display a "Cite this repository" button from the CITATION.cff metadata.
 
 For functions related to balance, evenness, and rhythmic structure, additionally cite Milne, Bulger, & Herff (2017) and Milne & Herff (2020). For the rhythmic predictors, additionally cite Milne, Dean, & Bulger (2023). Full references are in the [User Guide](USER_GUIDE.md#14-references).
 

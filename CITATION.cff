@@ -5,8 +5,10 @@
 cff-version: 1.2.0
 title: Music Perception Toolbox
 message: >-
-  If you use this software, please cite it using the
-  metadata from this file.
+  If you use this software, please cite the toolbox article
+  (the preferred citation below) or, where your work rests
+  mainly on expectation tensors themselves, Milne, Sethares,
+  Laney, and Sharp (2011), listed first under references.
 type: software
 license: MIT
 repository-code: https://github.com/andymilne/Music-Perception-Toolbox
@@ -37,26 +39,42 @@ authors:
 preferred-citation:
   type: article
   title: >-
-    Modelling the similarity of pitch collections with
-    expectation tensors
+    The Music Perception Toolbox: Analytical methods for pitch
+    and rhythm similarity, consonance, complexity, and structure
   authors:
     - given-names: Andrew J.
       family-names: Milne
-    - given-names: William A.
-      family-names: Sethares
-    - given-names: Robin
-      family-names: Laney
-    - given-names: David B.
-      family-names: Sharp
-  journal: Journal of Mathematics and Music
-  volume: 5
+  journal: >-
+    Transactions of the International Society for Music
+    Information Retrieval
+  volume: 9
   issue: 1
-  start: 1
-  end: 20
-  year: 2011
-  doi: "10.1080/17459737.2011.573678"
+  start: 526
+  end: 543
+  year: 2026
 
 references:
+  - type: article
+    title: >-
+      Modelling the similarity of pitch collections with
+      expectation tensors
+    authors:
+      - given-names: Andrew J.
+        family-names: Milne
+      - given-names: William A.
+        family-names: Sethares
+      - given-names: Robin
+        family-names: Laney
+      - given-names: David B.
+        family-names: Sharp
+    journal: Journal of Mathematics and Music
+    volume: 5
+    issue: 1
+    start: 1
+    end: 20
+    year: 2011
+    doi: "10.1080/17459737.2011.573678"
+
   - type: article
     title: >-
       Exploring the space of perfectly balanced rhythms

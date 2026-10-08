@@ -281,11 +281,11 @@ print("=== 5. weight_events (W) ===")
 pmW = mpt.weight_events(
     pm,
     input_attr=1, target_attr=1,
-    centre=6.0, sd=2.0, shape=0.0,    # gamma = 0 -> pure Gaussian
+    align_at=6.0, sd=2.0, shape=0.0,    # gamma = 0 -> pure Gaussian
     drop_input_attr=False,
 )
 
-print("  input_attr = 1 (time); target_attr = 1; centre = 6; sd = 2; "
+print("  input_attr = 1 (time); target_attr = 1; align_at = 6; sd = 2; "
       "shape = 0 (Gaussian)")
 mpt.show_pre_maet(pmW, decimals=3)
 print()
@@ -413,7 +413,7 @@ width_w  = 2.0
 gamma_w  = 0.3
 w_path1 = mpt.weight_events(
     mpt.translate_attributes(pm, [mu_pitch, 0.0]),
-    input_attr=0, target_attr=0, centre=c_pitch, sd=width_w, shape=gamma_w,
+    input_attr=0, target_attr=0, align_at=c_pitch, sd=width_w, shape=gamma_w,
     drop_input_attr=False,
 )["w_attr"]
 
@@ -421,7 +421,7 @@ w_path1 = mpt.weight_events(
 # untouched).
 w_path2 = mpt.weight_events(
     pm,
-    input_attr=0, target_attr=0, centre=c_pitch - mu_pitch, sd=width_w,
+    input_attr=0, target_attr=0, align_at=c_pitch - mu_pitch, sd=width_w,
     shape=gamma_w, drop_input_attr=False,
 )["w_attr"]
 

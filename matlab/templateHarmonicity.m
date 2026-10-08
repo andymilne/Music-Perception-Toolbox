@@ -239,7 +239,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
     % r = 1, rel = false: intrinsic to the harmonicity definition
     % (1-D absolute density of spectral components).
 
-    margin = 4 * sigma;
+    margin = internal.accuracyFloor('resolve', nvArgs.truncationSigmas) * sigma;
     x_tmpl  = -margin:step:(max(tmpl_p) + margin);
     x_chord = -margin:step:(max(chord_p) + margin);
 
@@ -379,7 +379,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
 
     % --- Build template once for the whole batch -----------------
     [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
-    margin = 4 * sigma;
+    margin = internal.accuracyFloor('resolve', truncationSigmas) * sigma;
     x_tmpl = -margin:step:(max(tmpl_p) + margin);
     tmpl_dens = buildMaet(tmpl_p, tmpl_w, sigma, 1, false, ...
         false, 1200, 'verbose', false);

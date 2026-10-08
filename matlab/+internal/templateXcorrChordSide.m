@@ -30,7 +30,8 @@ function xcorr_norm = templateXcorrChordSide( ...
 %     sigma            - Gaussian smoothing width (cents).
 %     tmpl_vals        - Pre-evaluated template values on its own grid.
 %     tmpl_norm_sq     - sum(tmpl_vals.^2) (caller pre-computes once).
-%     margin           - Grid margin in cents (typically 4 * sigma),
+%     margin           - Grid margin in cents, the truncation radius
+%                        k * sigma at the resolved truncationSigmas k,
 %                        applied below the lowest pitch and above the
 %                        highest. The template's grid must start at the
 %                        same -margin, so that each lag index maps to

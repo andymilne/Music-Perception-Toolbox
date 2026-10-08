@@ -13,7 +13,7 @@ import numpy as np
 from scipy.signal import correlate as _sp_correlate
 
 from ._utils import maybe_print_batched_estimate, validate_weights
-from ._defaults import _with_dispatch_scope
+from ._defaults import _with_dispatch_scope, truncation_radius
 from .entropy import entropy_maet
 from .spectra import add_spectra
 from .tensor import _chord_canonical_key, build_maet, eval_maet
@@ -51,8 +51,9 @@ def _template_xcorr_chord_side(
     tmpl_norm_sq : float
         ``sum(tmpl_vals ** 2)`` (caller pre-computes once per batch).
     margin : float
-        Grid margin in cents (typically ``4 * sigma``), applied below
-        the lowest pitch and above the highest. The template's grid
+        Grid margin in cents, the truncation radius ``k * sigma`` at the
+        resolved ``truncation_sigmas`` ``k``, applied below the lowest
+        pitch and above the highest. The template's grid
         must start at the same ``-margin``, so that each lag index maps
         to the same pitch offset.
     step : float
@@ -616,7 +617,7 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
     else:
         chord_p, chord_w = p.copy(), w.copy()
 
-    margin = 4 * sigma
+    margin = truncation_radius(truncation_sigmas, sigma)
     x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + resolution, resolution)
 
     tmpl_dens = build_maet(
@@ -661,7 +662,7 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
     tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
     )
-    margin = 4 * sigma
+    margin = truncation_radius(truncation_sigmas, sigma)
     x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + resolution, resolution)
     tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,
                               truncation_sigmas=truncation_sigmas,
@@ -1283,7 +1284,7 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
     else:
         chord_p, chord_w = p.copy(), w.copy()
 
-    margin = 4 * sigma
+    margin = truncation_radius(truncation_sigmas, sigma)
     step = resolution
     x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + step, step)
 
@@ -1340,7 +1341,7 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
     tmpl_dens = build_maet(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
     )
-    margin = 4 * sigma
+    margin = truncation_radius(truncation_sigmas, sigma)
     step = resolution
     x_tmpl = np.arange(-margin, np.max(tmpl_p) + margin + step, step)
     tmpl_vals = eval_maet(tmpl_dens, x_tmpl, verbose=False,

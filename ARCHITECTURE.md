@@ -732,7 +732,7 @@ Write the MATLAB and Python implementations side-by-side. The function signature
 ### 9. Document
 
 - Per-function docstring: full NumPy-doc style in Python, full H1 style in MATLAB. Document every parameter, return value, and side effect.
-- USER_GUIDE entry: add to the appropriate section in §12 (function reference), and to the tables of §3.
+- USER_GUIDE entry: add to the appropriate section in §12 (function reference), and to the tables of §3. The guide divides the work: Part II explains each concept once, with examples; §12 gives each function's signature, one or two sentences of purpose and key options, and a pointer to its concept section; the help text is the complete reference; implementation internals (routing, cost models, thresholds) belong in this document.
 
 ### 10. Update CHANGELOG
 
@@ -740,7 +740,7 @@ Add a `### Added` entry to the unreleased section of `CHANGELOG.md`. If the new 
 
 ### 11. Demo
 
-If the measure has obvious teaching value, add a demo to `matlab/demos/` (and a Python counterpart) following the naming conventions (`demo_tonalityIndex.m` / `demo_tonality_index.py`). Include user-adjustable parameters at the top and prose comments oriented to learners.
+If the measure has obvious teaching value, add a demo to `matlab/demos/` (and a Python counterpart) following the naming conventions (`demo_tonalityIndex.m` / `demo_tonality_index.py`). Include user-adjustable parameters at the top and prose comments oriented to learners. Each subsection of the User Guide's §§3–11 ends with a `**Demos.**` line naming its demos as `demo_matlabName` / `demo_python_name.py` (part N: what it shows); when a demo is added, renamed, or renumbered, update those lines and the demo table of §13.
 
 ### 12. Architecture and routing documents
 

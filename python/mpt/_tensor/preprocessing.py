@@ -642,8 +642,8 @@ def bind_events(
     Cross-event preprocessing on the pre-MAET. For each input attribute
     *a*, a sliding window of width
     ``L_a`` (``bind_orders``) is laid across the events and the
-    ``L_a`` consecutive events are nested into a single output attribute
-    (toolbox spec §6.1): the bound events form an **ordered outer level**
+    ``L_a`` consecutive events are nested into a single output attribute:
+    the bound events form an **ordered outer level**
     (event order; ``exch_outer = 0`` by default, lossless), and each
     event's own element multiset is the **inner level**.
 
@@ -676,7 +676,7 @@ def bind_events(
 
     With the defaults and ``rel = [rel_in, 0]``, the outer ``r = L_a``
     reading is the tensor product of the events' inner densities --- it
-    reproduces the old separate-attribute binding (§6.5). The genuinely
+    reproduces the old separate-attribute binding. The genuinely
     new lever is ``rel_outer = 1`` on an absolute attribute, giving the
     global-transposition quotient ``rel = [0, 1]``.
 
@@ -1349,8 +1349,9 @@ def weight_events(
     kernels use: at that distance a Gaussian window's value is
     :math:`\exp(-\text{truncation\_sigmas}^2 / 2)`. The default global
     value is ``6``; set ``mpt.set_default(truncation_sigmas=math.inf)``
-    for no truncation, or another ``k`` to change the hard-truncation
-    distance at :math:`k\,s`.
+    for no effective truncation (it resolves to the accuracy floor, about
+    :math:`7.43\,s`), or another value to move the cutoff to that many
+    standard deviations.
 
     Parameters
     ----------

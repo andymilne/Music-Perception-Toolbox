@@ -76,7 +76,7 @@ function dens = ensureMaetExpensive(dens)
         exchArgs = {dens.exch};
     end
 
-    % Forward the per-attribute nesting spec (representation B) so a
+    % Forward the per-attribute nesting spec so a
     % nested attribute is not silently flattened when its expensive
     % fields are materialised.
     nestedArgs = {};

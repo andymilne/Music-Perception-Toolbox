@@ -642,9 +642,9 @@ H_vec = entropyMaet(densE, ...
 results{end+1,1} = 'entropyMaet MA: per-group bounds vector == scalar';
 results{end,2}   = abs(H_scalar - H_vec) < 1e-12;
 
-% -- differenceEvents: moved onto the (pAttr, w, specs) triple (3c-iv);
+% -- differenceEvents: moved onto the (pAttr, w, specs) triple;
 %    its tests live in tests/test_difference.m. The old groups/cell-order
-%    contract and the K=1-only restriction were removed with Commit 3c-iv.
+%    contract and the K=1-only restriction were removed.
 
 % -- nTupleEntropy: parity after refactor onto differenceEvents --
 % A second sanity check that the refactor preserves the n-tuple
@@ -654,9 +654,9 @@ H_whole = nTupleEntropy([0 2 4 6 8 10], 12, 2, 'method', 'shannon');
 results{end+1,1} = 'nTupleEntropy: whole-tone n=2 still = 0 after refactor';
 results{end,2}   = abs(H_whole) < 1e-12;
 
-% -- bindEvents: now emits nested specs (3c); its tests live in
+% -- bindEvents: now emits nested specs; its tests live in
 %    tests/test_bind.m. The old separate-attribute / groups contract
-%    was removed with Commit 3c. --
+%    was removed. --
 
 % -- weightEvents: per-event window factor (single-input API, target_attr,
 %    drop_input_attr, three-tuple return). Mirrors Python tests/test_maet.py
@@ -905,7 +905,7 @@ p_after_t = pm_after_t.pAttr;
 results{end+1,1} = 'weightEvents: T \circ W centre-shift commutation';
 results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 
-% translateAttributes moved onto the (pAttr, w, specs) triple (3c-iv-d);
+% translateAttributes moved onto the (pAttr, w, specs) triple;
 % its tests now live in tests/test_translate.m. The old groups / rel /
 % per / period positional contract has been removed.
 

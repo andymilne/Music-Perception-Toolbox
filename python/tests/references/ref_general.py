@@ -7,7 +7,7 @@ kernel sum
 
 for absolute-periodic (``Q = I``, r-cube lattice) and relative-periodic
 (``Q = I - (1/r) 1 1^T``, coset lattice ``Z^r / Z*1``). This kernel is
-the object called "full-image" or "(C)" in the handoff.
+the full-image wrapped Gaussian (``wrap="full-image"``).
 
 Weighted event-pair sums are provided:
 

@@ -46,9 +46,9 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %        empirical spectral peaks, e.g., from audioPeaks).
 %     4. Evaluate both as 1-D absolute expectation tensors (r = 1,
 %        rel = false) on a grid of spacing 'resolution': non-periodic,
-%        from k*sigma below the lowest partial to k*sigma above the
-%        highest (k the resolved 'truncationSigmas'); periodic, one
-%        period.
+%        from truncationSigmas * sigma below the lowest partial to
+%        truncationSigmas * sigma above the highest (about 7.43 * sigma
+%        when 'truncationSigmas' is Inf); periodic, one period.
 %     5. Cross-correlate the two density vectors (circularly when
 %        'per' is true).
 %     6. Normalize by the geometric mean of their energies (giving
@@ -96,8 +96,9 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %                       for this call. Passes through to the kernel
 %                       evaluator on the centres path; skips Gaussian
 %                       contributions whose centre-to-query distance
-%                       exceeds k*sigma, and sets the grid margin
-%                       k*sigma (see step 4). Default: the global
+%                       exceeds truncationSigmas * sigma, and sets
+%                       the grid margin truncationSigmas * sigma (see
+%                       step 4). Default: the global
 %                       mptDefaults('truncationSigmas').
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                       default. Override the toolbox-wide

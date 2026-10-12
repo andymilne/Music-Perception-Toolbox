@@ -1,13 +1,13 @@
-"""Tests for the triple-form bind_events (3c-ii / 3c-iv-c).
+"""Tests for the triple-form bind_events.
 
 bind_events nests sliding windows of consecutive events into a single nested
-attribute per input attribute (toolbox spec §6.1/§6.5): the bound events form
+attribute per input attribute: the bound events form
 an ordered outer level (exch_outer = 0 by default), each event's own multiset
 is the inner level. The inner level's geometry (r/rel/exch) is read from the
 incoming triple's specs (flat_specs defaults when specs=None). It returns
 (p_attr_bound, w_bound, specs) ready for build_maet(..., specs=...). L = 1
 is a flat passthrough. Outer r = L with rel = [rel_in, 0] reproduces the old
-separate-attribute tensor join (§6.5).
+separate-attribute tensor join.
 """
 
 import numpy as np
@@ -92,7 +92,7 @@ def test_reproduces_old_tensor_join():
     """Outer r=L, rel=[rel_in,0] equals the old separate-attribute join.
 
     Single-value events (K=1): the nested density equals the tensor join
-    of L single-value attributes (eval-identical), the §6.5 parity that
+    of L single-value attributes (eval-identical), the parity that
     n-gram entropy relies on.
     """
     diffs = np.array([[2.0, -1.0, 3.0, 0.0, -2.0, 1.0, 4.0]])

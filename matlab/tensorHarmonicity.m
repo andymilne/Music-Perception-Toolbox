@@ -106,9 +106,9 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %                   wide mptDefaults('truncationSigmas') setting for
 %                   this call. Passes through to the kernel evaluator
 %                   on the centres path; skips Gaussian contributions
-%                   whose centre-to-query distance exceeds k*sigma.
-%                   [] (default) means use the global default
-%                   (factory: Inf).
+%                   whose centre-to-query distance exceeds
+%                   truncationSigmas * sigma. [] (default) means use
+%                   the global default (factory: 6).
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                   default. Override the toolbox-wide
 %                   kernelPrecision setting for this call. 'single'

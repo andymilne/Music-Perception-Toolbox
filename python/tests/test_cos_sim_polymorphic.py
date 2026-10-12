@@ -4,7 +4,7 @@ Coverage:
 
 - Scalar - vs - scalar (the v2.0 case): output is a Python ``float``,
   numerically identical to pre-polymorphic behaviour.
-- Length-1 list collapses to scalar (per spec §3.4): same return shape
+- Length-1 list collapses to scalar: same return shape
   as the scalar case.
 - Empty list returns empty array of correct shape.
 - Scalar - vs - list / list - vs - scalar (broadcast) returns a 1-D

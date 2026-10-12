@@ -1,6 +1,6 @@
 %% test_dispatch_sm_eval.m — v3 single multiset method dispatch in evalMaet
 %
-%  Tests for the new method keyword introduced in v3 (Commit 6b).
+%  Tests for the new method keyword introduced in v3.
 %  Covers:
 %    - Orbit and centres paths agree to numerical tolerance on healthy
 %      regimes (r in {3, 4, 5}, abs and rel modes, periodic and

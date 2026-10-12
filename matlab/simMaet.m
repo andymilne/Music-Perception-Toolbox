@@ -232,8 +232,9 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %                 call. Applies on the centres path (Bulger's method
 %                 on the single multiset inner product); skips Gaussian
 %                 contributions whose centre-to-query distance exceeds
-%                 k*sigma (kernel floor exp(-k^2/2)). [] (default)
-%                 means use the global default (factory: Inf). No
+%                 truncationSigmas * sigma (kernel floor
+%                 exp(-truncationSigmas^2/2)). [] (default) means use
+%                 the global default (factory: 6). No
 %                 effect on Möbius-method calls.
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                 default. Forwarded through every input form (list,
@@ -852,7 +853,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute
-%   kernels (Section 2.7 of the MAET specification); no numerical
+%   kernels; no numerical
 %   integration is required for Bulger's method.
 %
 %   Dispatches between Bulger's method and a per-attribute Möbius

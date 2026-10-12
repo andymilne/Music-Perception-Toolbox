@@ -715,8 +715,7 @@ def _compute_Q_inner_blocks(D, r_inner, per, period, *, reduced):
     """Block-diagonal quadratic form for the inner ``[rel]`` co-transposition unit.
 
     The inner unit removes each source event's own all-ones, leaving the
-    within-event intervals tensor-joined across events (toolbox spec
-    §6.3). Concretely the metric is block-diagonal: ``D``'s rows are
+    within-event intervals tensor-joined across events. Concretely the metric is block-diagonal: ``D``'s rows are
     ``r_outer`` event-blocks and the form is the sum over blocks of the
     per-block flat relative quotient :func:`_compute_Q` (``rel=True``).
 

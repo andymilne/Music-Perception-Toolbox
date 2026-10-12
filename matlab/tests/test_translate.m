@@ -1,4 +1,4 @@
-%% test_translate.m — translateAttributes on the (pAttr, w, specs) triple (3c-iv-d)
+%% test_translate.m — translateAttributes on the (pAttr, w, specs) triple
 %
 %  translateAttributes shifts attribute positions by per-row offsets.
 %  Everything hangs off the position axis (the rows of the value matrix, length

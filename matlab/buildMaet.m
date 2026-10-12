@@ -590,7 +590,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
               'rVec must have length equal to the number of attributes.');
     end
 
-    % --- Nested attributes (representation B) ---------------------------
+    % --- Nested attributes ---------------------------
     % A nested attribute carries its level breakdown in nested{a} (a
     % struct with fields: tags (per-value source-event tag), r and exch
     % (per-level vectors, innermost-outward), and optional rel (the
@@ -1171,7 +1171,7 @@ function dens = localFillMAExpensive(dens, verbose)
             valid   = find(~isnan(valCol));
             K_na    = numel(valid);
 
-            % --- Nested attribute (representation B): tag-scoped two-level
+            % --- Nested attribute: tag-scoped two-level
             % enumeration. rVec(a) holds the total tuple dim D_a =
             % rInner * rOuter; the level breakdown and per-value source-
             % event tags live in nested{a}. Flat attributes (empty

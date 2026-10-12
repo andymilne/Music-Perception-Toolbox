@@ -1,7 +1,7 @@
 function [rVec, isRelVec, isExchVec, nestedList, names, specKernel] = ...
         normaliseSpecs(specs, A)
     %NORMALISESPECS  Unpack a per-attribute specs cell into geometry.
-    %   specs is the canonical home for level-structured geometry (§6.4):
+    %   specs is the canonical home for level-structured geometry:
     %   a cell of per-attribute structs. A flat attribute is a one-level
     %   spec struct('r',.,'rel',.,'exch',.,'name',.) (scalar r, bool
     %   rel/exch); a nested attribute carries a 'tags' field plus per-level

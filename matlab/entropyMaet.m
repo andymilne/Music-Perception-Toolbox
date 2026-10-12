@@ -193,8 +193,9 @@ function H = entropyMaet(varargin)
 %                         kernel evaluator on the centres path
 %                         ('shannon', 'normalized', 'differential');
 %                         skips Gaussian contributions whose
-%                         centre-to-query distance exceeds k*sigma
-%                         (kernel floor exp(-k^2/2)). For
+%                         centre-to-query distance exceeds
+%                         truncationSigmas * sigma (kernel floor
+%                         exp(-truncationSigmas^2/2)). For
 %                         method='differential' this also anchors the
 %                         convergence tolerance
 %                         max(exp(-truncationSigmas^2/2), 1e-12). On the

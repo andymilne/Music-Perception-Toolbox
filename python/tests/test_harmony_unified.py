@@ -394,7 +394,7 @@ class TestTemplateHarmonicityVerboseEstimate:
 
 
 class TestTensorHarmonicityVerboseEstimate:
-    """Bundle 1: tensor_harmonicity prints a time estimate via
+    """tensor_harmonicity prints a time estimate via
     estimate_comp_time when ``verbose=True`` (default), and is silent
     when ``verbose=False``.
 
@@ -456,7 +456,7 @@ class TestTensorHarmonicityVerboseEstimate:
 
 
 class TestVirtualPitchesVerboseEstimate:
-    """Bundle 1: virtual_pitches prints a time estimate via
+    """virtual_pitches prints a time estimate via
     estimate_comp_time when ``verbose=True`` (default), and is silent
     when ``verbose=False``.
     """
@@ -513,7 +513,7 @@ class TestVirtualPitchesVerboseEstimate:
 
 
 class TestSpectralEntropyBatchedAndVerbose:
-    """Bundle 2: spectral_entropy gains 2-D batched dispatch
+    """spectral_entropy gains 2-D batched dispatch
     (rows = chords) plus a ``verbose`` argument with empirical-
     calibration upfront estimate in batched mode and kernel-only
     estimate in scalar mode.
@@ -615,15 +615,15 @@ class TestSpectralEntropyBatchedAndVerbose:
 
 
 class TestEstimateCompTimePrintGating:
-    """Bundle 14: ``estimate_comp_time`` gains a ``min_print_sec``
+    """``estimate_comp_time`` gains a ``min_print_sec``
     parameter so callers in tight loops can suppress trivial estimates
     while still exposing them when work is genuinely expensive.
     """
 
     def test_default_min_print_sec_suppresses_tiny(self, capsys):
         # Default min_print_sec=0.5: 100-pair workload (sub-millisecond)
-        # is silently dropped. (Bundle 14: gating applied at the
-        # estimate_comp_time default rather than per-caller.)
+        # is silently dropped (gating applied at the
+        # estimate_comp_time default rather than per-caller).
         from mpt._utils import estimate_comp_time
         estimate_comp_time(100, 1, "tinywork", verbose=True)
         captured = capsys.readouterr()
@@ -668,7 +668,7 @@ class TestEstimateCompTimePrintGating:
 
 
 class TestMaybePrintBatchedEstimate:
-    """Bundle 14: ``maybe_print_batched_estimate`` (and its MATLAB
+    """``maybe_print_batched_estimate`` (and its MATLAB
     counterpart ``printBatchedEstimate``) gates the batched-mode
     upfront print on the same 10-s threshold as ``estimate_comp_time``.
     """

@@ -1,6 +1,6 @@
 """Tests for the per-attribute ``[exch]`` (symmetrisation) flag.
 
-Covers the predictions of the exch-flag specification §10:
+Covers the flag's predicted behaviour:
 
 * ``r = 1``: the flag is vacuous; ``[exch] = 0`` and ``[exch] = 1``
   coincide (single-multiset and multi-attribute paths).

@@ -1,8 +1,7 @@
-%% test_nested.m — nested binding (representation B) in the MAET build core
+%% test_nested.m — nested binding in the MAET build core
 %
-%  Mirror of the Python tests/test_nested.py. Covers the toolbox
-%  specification §6/§7.1/§8/§10 for the two-level nested attribute. The
-%  nested spec uses per-level vectors (innermost-outward):
+%  Mirror of the Python tests/test_nested.py. Covers the two-level
+%  nested attribute. The nested spec uses per-level vectors (innermost-outward):
 %  struct('tags',..., 'r',[ri ro], 'exch',[si so], 'rel',<...>), where rel
 %  is the co-transposition-unit selector (a per-level vector or the
 %  depth-proof strings 'innermost'/'outermost'; a bare scalar/bool is
@@ -116,7 +115,7 @@ results{end,2}   = (dV.dim == 3) ...
                    && isequal(sort(dV.Centres{1}, 2), sort(dOe.Centres{1}, 2));
 
 
-% --- §6.3 projection-rank dims 4/2/3/2 ---
+% --- Projection-rank dims 4/2/3/2 ---
 perA = [1 1 0 0]; perB = [0 0 1 1]; glob = [1 1 1 1];
 dims = [4, 4 - rank([perA; perB]), 4 - rank(glob), 4 - rank([perA; perB; glob])];
 results{end+1,1} = 'nested: [rel] projection dims 4/2/3/2';

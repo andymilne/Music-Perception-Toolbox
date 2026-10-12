@@ -11,7 +11,7 @@ function pm = bindEvents(varargin)
 %
 %   For each input attribute a, a sliding window of width L_a (bindOrders)
 %   is laid across the events and the L_a consecutive events are nested
-%   into a single output attribute (toolbox spec §6.1/§6.5): the bound
+%   into a single output attribute: the bound
 %   events form an ordered outer level (exchOuter = 0 by default, lossless),
 %   each event's own element multiset is the inner level.
 %
@@ -39,7 +39,7 @@ function pm = bindEvents(varargin)
 %   is not nested and its incoming spec passes through unchanged, but it is
 %   not a no-op on the events: it keeps N' events, aligned as below.
 %   With the defaults and rel = [relIn, 0], the outer r = L_a reading
-%   reproduces the old separate-attribute tensor join (§6.5). The genuinely
+%   reproduces the old separate-attribute tensor join. The genuinely
 %   new lever is relOuter = 1 on an absolute attribute, giving the
 %   global-transposition quotient rel = [0, 1].
 %

@@ -853,14 +853,14 @@ class TestMAET:
         np.testing.assert_allclose(H_scalar, H_vec, rtol=1e-12, atol=1e-12)
 
     # --- differenceEvents -------------------------------------------
-    # difference_events moved onto the (p_attr, w, specs) triple (3c-iv);
+    # difference_events moved onto the (p_attr, w, specs) triple;
     # its tests live in tests/test_difference.py. The old groups/dict
-    # contract and the K=1-only restriction were removed with Commit 3c-iv.
+    # contract and the K=1-only restriction were removed.
 
     # --- bind_events ----------------------------------------------------
-    # bind_events now emits nested specs (3c); its tests live in
+    # bind_events now emits nested specs; its tests live in
     # tests/test_bind.py. The old separate-attribute / groups contract
-    # was removed with Commit 3c.
+    # was removed.
 
     # --- weight_events --------------------------------------------------
 
@@ -1283,8 +1283,8 @@ class TestMAET:
         )
 
     # --- translate_attributes -------------------------------------------
-    # translate_attributes moved onto the (p_attr, w, specs) triple
-    # (3c-iv-d): per-attribute per-position offsets, rel read from specs,
+    # translate_attributes moved onto the (p_attr, w, specs) triple:
+    # per-attribute per-position offsets, rel read from specs,
     # groups/dict offset forms removed. Its tests live in
     # tests/test_translate.py.
 

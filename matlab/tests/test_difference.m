@@ -1,4 +1,4 @@
-%% test_difference.m — differenceEvents on the (pAttr, w, specs) triple (3c-iv-b)
+%% test_difference.m — differenceEvents on the (pAttr, w, specs) triple
 %
 %  differenceEvents applies the k-th finite difference across events,
 %  row by row. It is well-defined exactly when the positions have

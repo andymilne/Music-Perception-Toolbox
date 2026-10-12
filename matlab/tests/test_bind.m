@@ -1,14 +1,14 @@
-%% test_bind.m — triple-form bindEvents (3c-ii / 3c-iv-c)
+%% test_bind.m — triple-form bindEvents
 %
 %  bindEvents nests sliding windows of consecutive events into a single
-%  nested attribute per input attribute (toolbox spec §6.1/§6.5): the bound
+%  nested attribute per input attribute: the bound
 %  events form an ordered outer level (exchOuter = 0 by default), each
 %  event's own multiset is the inner level. The inner level's geometry
 %  (r/rel/exch) is read from the incoming triple's specs (flatSpecs defaults
 %  when specs is []). It returns {pAttrBound, wBound, specs} ready for
 %  buildMaet(..., 'specs', specs). L = 1 is a flat passthrough. Outer
 %  r = L with rel = [relIn, 0] reproduces the old separate-attribute tensor
-%  join (§6.5).
+%  join.
 
 if ~exist('results', 'var')
     results = {};
@@ -80,7 +80,7 @@ results{end,2}   = isequal(sS0{1}.exch, [true false]) ...
                    && isequal(sS1{1}.exch, [true true]);
 
 
-% --- Reproduces old tensor join (eval parity, §6.5) ---
+% --- Reproduces old tensor join (eval parity) ---
 diffs = [2 -1 3 0 -2 1 4];
 n = 3;
 [pb, wb, specs] = unpackPreMaet(bindEvents({diffs}, [], n, 'circular', true));

@@ -118,7 +118,7 @@ def renyi2(cell):
 # Quantity: eval_maet orbit-vs-centres consistency.
 # Compute density at a small batch of query points via auto routing
 # and via forced centres; demand FP-precision agreement. single-multiset only —
-# the v3 orbit eval covers single-multiset; an MA orbit eval is on the roadmap.
+# the v3 orbit eval covers single-multiset; there is no MA orbit eval yet.
 # -----------------------------------------------------------------
 
 _EVAL_N_Q = 16  # query batch size; small to keep centres path tractable

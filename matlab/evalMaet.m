@@ -200,8 +200,9 @@ function vals = evalMaet(varargin)
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                 wide mptDefaults('truncationSigmas') setting for this
 %                 call. Centres path only; skips Gaussian contributions
-%                 whose centre-to-query distance exceeds k*sigma
-%                 (kernel floor exp(-k^2/2)). [] (default) means use
+%                 whose centre-to-query distance exceeds
+%                 truncationSigmas * sigma (kernel floor
+%                 exp(-truncationSigmas^2/2)). [] (default) means use
 %                 the global default (factory: 6).
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                 default. Override the toolbox-wide kernelPrecision

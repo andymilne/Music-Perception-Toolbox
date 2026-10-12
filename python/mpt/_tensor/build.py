@@ -172,7 +172,7 @@ def _bcast_override(value, A, name):
 def _normalise_specs(specs, A):
     """Unpack a per-attribute ``specs`` list into the internal geometry.
 
-    ``specs`` is the canonical home for level-structured geometry (§6.4):
+    ``specs`` is the canonical home for level-structured geometry:
     each entry is a per-attribute dict. A **flat** attribute is a one-level
     spec ``{r, rel?, exch?, name?}`` (scalar ``r``, bool ``rel``/``exch``); a
     **nested** attribute carries ``tags`` plus per-level vectors
@@ -397,8 +397,7 @@ def build_maet(p, w=None, *args, specs=None, sigma=None,
         per-event list (one entry per event: a scalar for all its values,
         or a sequence with one weight per value), a flat list or 1-D
         array of length *N* (per-event) or *K_a* (per-value), or a 2-D
-        array of shape (1, N), (K_a, 1), or (K_a, N). See Section 2.8
-        of the MAET specification.
+        array of shape (1, N), (K_a, 1), or (K_a, N).
     sigma_vec : (A,) array-like of float
         Per-attribute Gaussian widths.
     r_vec : (A,) array-like of int
@@ -715,7 +714,7 @@ def _build_maet_ma(
             f"r_vec must have length {A} (n attributes), got {r_vec.size}."
         )
 
-    # --- Nested attributes (representation B) -------------------------
+    # --- Nested attributes -------------------------
     # A nested attribute carries its level breakdown in nested[a] (a dict
     # with keys: tags (per-value source-event tag), r and exch (per-level
     # vectors, innermost-outward), and rel (the co-transposition-unit
@@ -1092,7 +1091,7 @@ def _nested_feasible(vals, tags_mat, r_levels, level):
 
 
 def _nested_enum_indices(valid_values, tags_valid, r_levels, exch_levels):
-    """Tag-scoped nested r-tuple enumeration (representation B, L levels).
+    """Tag-scoped nested r-tuple enumeration (L levels).
 
     Generalises the two-level enumeration to arbitrary nesting depth by
     recursing outermost-inward through the grouping columns of the tag
@@ -1484,7 +1483,7 @@ def _ma_build_perm_arrays(
             valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
             K_na = int(valid.size)
 
-            # --- Nested attribute (representation B): tag-scoped two-level
+            # --- Nested attribute: tag-scoped two-level
             # enumeration. r_vec[a] holds the total tuple dim D_a =
             # r_inner * r_outer; the level breakdown and per-value source-
             # event tags live in nested[a]. Flat attributes (nested[a] is

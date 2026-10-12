@@ -76,8 +76,9 @@ function pm = weightEvents(varargin)
 %   sqrt(3))) are hard-zeroed. The threshold is the same one the IP /
 %   evaluation kernels use: at that distance a Gaussian window's value is
 %   exp(-truncationSigmas^2 / 2). The default global value is 6; set
-%   mptDefaults('truncationSigmas', Inf) for no truncation, or another k to
-%   change the hard-truncation distance at k * s.
+%   mptDefaults('truncationSigmas', Inf) for no effective truncation (it
+%   resolves to the accuracy floor, about 7.43 * s), or another value to
+%   move the cutoff to that many standard deviations.
 %
 %   Inputs:
 %     pm           Pre-MAET, in place of pAttr and wAttr. The

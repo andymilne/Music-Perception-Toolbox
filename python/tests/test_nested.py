@@ -1,7 +1,7 @@
-"""Tests for nested binding (representation B) in the MAET build core.
+"""Tests for nested binding in the MAET build core.
 
-Covers the toolbox specification §6/§7.1/§8/§10 for the two-level nested
-attribute. The nested spec uses per-level vectors (innermost-outward):
+Covers the two-level nested attribute. The nested spec uses per-level
+vectors (innermost-outward):
 ``{tags, r, exch, rel}``, where ``rel`` is the co-transposition-unit
 selector (a per-level vector or the depth-proof strings ``'innermost'`` /
 ``'outermost'``; a bare scalar/bool is rejected for a nested attribute).
@@ -14,7 +14,7 @@ selector (a per-level vector or the depth-proof strings ``'innermost'`` /
   sequence order (no cross-tag interleaving).
 * Pooled within-source reading (outer ``r < K``) sums per-event
   sub-tuples into one shared lower-dimensional space.
-* The §6.3 inner/outer ``[rel]`` projection-rank dims (4/2/3/2 for two
+* The inner/outer ``[rel]`` projection-rank dims (4/2/3/2 for two
   dyads). The **outer / whole-tuple** unit is implemented here: it is the
   flat ``rel`` reduction on the whole tuple (dim 4 -> 3) and is exactly
   global-transposition-invariant. (The inner unit is a later step.)
@@ -117,7 +117,7 @@ def test_rel_subsumption_warns_on_multiple():
 
 
 def test_inner_outer_rel_projection_dims():
-    """§6.3 prediction: inner/outer [rel] give dims 4/2/3/2 (two dyads)."""
+    """Inner/outer [rel] give dims 4/2/3/2 (two dyads)."""
     D = 4
     perA, perB, glob = [1, 1, 0, 0], [0, 0, 1, 1], [1, 1, 1, 1]
 
@@ -167,7 +167,7 @@ def test_inner_rel_dim_and_per_event_invariance():
 
 def test_inner_equals_tensor_join_of_is_rel_dyads():
     """For one outer combination, the inner unit equals the tensor join of
-    per-event rel dyad densities (§6.3: within-event intervals,
+    per-event rel dyad densities (within-event intervals,
     tensor-joined). Checked through both eval and cosine."""
     d_in = _nest([0.0, 4.0, 7.0, 11.0],
                  dict(tags=[0, 0, 1, 1], r=[2, 2], exch=[True, False],

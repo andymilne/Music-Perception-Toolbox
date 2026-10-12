@@ -1,6 +1,6 @@
 %% test_entropy_renyi2.m — v3 Rényi-2 entropy in entropyMaet
 %
-%  Tests for the new method='renyi2' kwarg added in v3 (Commit 6e).
+%  Tests for the new method='renyi2' kwarg added in v3.
 %  Covers:
 %    - method kwarg validation (bad string; v3 migration error on
 %      the removed normalize kwarg).

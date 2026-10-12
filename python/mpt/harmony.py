@@ -277,8 +277,9 @@ def spectral_entropy(
       ratio ``H / log_b(N)`` in ``[0, 1]``, on a grid of spacing
       ``resolution`` cents (default 1). With ``per=True`` the grid is one
       period, so N is the same for every chord. With ``per=False`` the
-      grid spans the spectrum plus ``k * sigma`` on either side (``k``
-      the resolved ``truncation_sigmas``), so N grows with the
+      grid extends ``truncation_sigmas * sigma`` below the lowest partial
+      and above the highest (about ``7.43 * sigma`` when
+      ``truncation_sigmas`` is ``math.inf``), so N grows with the
       spectrum's span and normalized values are not comparable across
       chords of different span; a warning says so.
     - ``method='shannon'``: raw discrete Shannon entropy
@@ -414,7 +415,8 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
 
     Grid methods ('shannon', 'normalized'): periodic, one period at
     spacing ``resolution``; non-periodic, from ``-k*sigma`` to
-    ``max(spec_p) + k*sigma`` (``k`` the resolved ``truncation_sigmas``),
+    ``max(spec_p) + k*sigma`` (``k`` the resolved ``truncation_sigmas``,
+    ``math.inf`` resolving to about 7.43),
     so that every partial's Gaussian lies whole on the grid.
     'differential' derives its span and grid adaptively; 'renyi2' is
     analytical and needs no grid.

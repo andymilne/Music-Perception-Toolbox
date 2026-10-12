@@ -1,6 +1,6 @@
 """Tests for v3 batched dispatch in circular measures.
 
-Bundle 3 (Tier 1): the DFT-equivariant family — ``dft_circular``,
+The DFT-equivariant family — ``dft_circular``,
 ``mean_offset``, ``edges``, ``proj_centroid``, ``circ_apm``. All five
 share the same canonical-form dedup pattern (sort modular pitches +
 matching weights), with permutation and period symmetries collapsed
@@ -123,7 +123,7 @@ class TestDftCircularBatched:
 
 
 # ---------------------------------------------------------------------
-# Bundle 3 remainder: mean_offset, edges, proj_centroid, circ_apm
+# mean_offset, edges, proj_centroid, circ_apm
 # ---------------------------------------------------------------------
 
 

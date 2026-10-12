@@ -113,8 +113,7 @@ class MaetDensity:
     form (first argument a list/tuple of attribute matrices). The
     single-multiset densities are MaetDensity at A = N = 1.
 
-    See the MAET specification (``multi_attribute_tensor_specification.md``)
-    §2 and §6, and :func:`build_maet` for argument semantics.
+    See :func:`build_maet` for argument semantics.
 
     Lazy materialisation
     --------------------
@@ -207,7 +206,7 @@ class MaetDensity:
         # specifying it.
         self.exch = (np.ones(n_attrs, dtype=bool) if exch is None
                        else np.asarray(exch, dtype=bool).ravel())
-        # Per-attribute nesting spec (representation B): None per attribute
+        # Per-attribute nesting spec: None per attribute
         # for flat attributes, or a dict {tags, r, exch, rel, ...} (per-level
         # r/exch vectors and the resolved [rel] projection) for a nested one.
         # Per-value tags are row-indexed, so event (column) pruning leaves

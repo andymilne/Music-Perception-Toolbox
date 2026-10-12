@@ -34,8 +34,9 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %       style ratio H / log_b(N) in [0, 1], on a grid of spacing
 %       'resolution' cents (default 1). With 'per' true the grid is
 %       one period, so N is the same for every chord. With 'per'
-%       false the grid spans the spectrum plus k*sigma on either side
-%       (k the resolved 'truncationSigmas'), so N grows with the
+%       false the grid extends truncationSigmas * sigma below the
+%       lowest partial and above the highest (about 7.43 * sigma
+%       when 'truncationSigmas' is Inf), so N grows with the
 %       spectrum's span and normalized values are not comparable
 %       across chords of different span; a warning says so
 %       (spectralEntropy:normalizedNonPeriodic).
@@ -93,12 +94,14 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                    wide mptDefaults('truncationSigmas') setting for
 %                    this call. Passes through to the entropyMaet
 %                    kernel evaluator; skips Gaussian contributions
-%                    whose centre-to-query distance exceeds k*sigma.
+%                    whose centre-to-query distance exceeds
+%                    truncationSigmas * sigma.
 %                    For method='differential' this also anchors the
 %                    convergence tolerance --- 'truncationSigmas', 3
 %                    is the recommended fast-path setting (see method
-%                    description above), and sets the margin k*sigma
-%                    of the non-periodic grid. Default: the global
+%                    description above), and sets the margin
+%                    truncationSigmas * sigma of the non-periodic
+%                    grid (about 7.43 * sigma for Inf). Default: the global
 %                    mptDefaults('truncationSigmas').
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                    default. Override the toolbox-wide
@@ -295,8 +298,9 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
 %LOCALSPECTRALENTROPYDELEGATE  Delegate to entropyMaet.
 %
 %   Grid methods ('shannon', 'normalized'): periodic, one period at
-%   spacing 'resolution'; non-periodic, from -k*sigma to
-%   max(spec_p) + k*sigma (k the resolved truncationSigmas), so that
+%   spacing 'resolution'; non-periodic, from -m to max(spec_p) + m,
+%   m = truncationSigmas * sigma (Inf resolved to the accuracy floor,
+%   about 7.43), so that
 %   every partial's Gaussian lies whole on the grid, its point count
 %   following the spectrum's span so that a wide spectrum is not
 %   sampled more coarsely than a narrow one. 'differential' derives

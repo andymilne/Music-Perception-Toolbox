@@ -608,8 +608,8 @@ def entropy_maet(
     mode combinations, multi-attribute self-IPs, adversarial pitch
     configurations, and harmonic spectra up to K=64). Within typical
     music-cognition usage the returned Rényi-2 entropy is therefore
-    treated as bit-exact. A sum-level cancellation diagnostic that
-    would close this residual gap is on the v2.3 roadmap.
+    treated as bit-exact. A sum-level cancellation diagnostic would
+    close this residual gap.
 
     For ``method='shannon'``, accuracy is set by the grid resolution
     ``n_points_per_dim`` and is independent of the Möbius method.

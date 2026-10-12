@@ -1,7 +1,7 @@
-"""Tests for the canonical ``specs=`` form of build_maet (3c-i).
+"""Tests for the canonical ``specs=`` form of build_maet.
 
-``specs`` is the single home for level-structured geometry (toolbox spec
-§6.4): a per-attribute list of dicts. A flat attribute is a one-level spec
+``specs`` is the single home for level-structured geometry:
+a per-attribute list of dicts. A flat attribute is a one-level spec
 ``{r, rel?, exch?, name?}`` (scalar r, bool rel/exch); a nested attribute
 carries ``tags`` plus per-level vectors ``{tags, r, exch, rel, name?,
 names?}``. Scalar geometry not structured by nesting (sigma, per,
@@ -124,7 +124,7 @@ def test_specs_rejected_for_single_attribute():
 
 
 # ===================================================================
-#  3c-iv-a: flat_specs constructor + partial hand-edit tolerance
+#  Flat_specs constructor + partial hand-edit tolerance
 # ===================================================================
 
 from mpt import flat_specs

@@ -1,7 +1,7 @@
-%% test_specs.m — canonical specs= form of buildMaet (3c-i)
+%% test_specs.m — canonical specs= form of buildMaet
 %
-%  specs is the single home for level-structured geometry (toolbox spec
-%  §6.4): a cell of per-attribute structs. A flat attribute is a one-level
+%  specs is the single home for level-structured geometry:
+%  a cell of per-attribute structs. A flat attribute is a one-level
 %  spec struct('r',.,'rel',.,'exch',.,'name',.) (scalar r, bool rel/exch); a
 %  nested attribute carries a 'tags' field plus per-level vectors. Scalar
 %  geometry not structured by nesting (sigma, per, period) stays outside
@@ -109,7 +109,7 @@ results{end,2}   = okG1 && okG2 && okG3 && okG4 && okG5;
 
 
 % ===================================================================
-%  3c-iv-a: flatSpecs constructor + partial hand-edit tolerance
+%  FlatSpecs constructor + partial hand-edit tolerance
 % ===================================================================
 
 % --- flatSpecs constructor matches positional ---

@@ -1,6 +1,6 @@
 %% test_dispatch_ma_cossim.m — v3 MA method dispatch in simMaet
 %
-%  Tests for the MA-side method dispatch added in v3 (Commit 6c).
+%  Tests for the MA-side method dispatch added in v3.
 %  Covers:
 %    - Method kwarg validation: bad string raises informative error.
 %    - Möbius and Bulger methods agree to numerical tolerance on healthy
@@ -217,8 +217,8 @@ results{end,2}   = isequal(s_autoS, s_pwiseS);
 
 % ---- r_max > _ORBIT_R_MAX_SHIPPED auto routes to Bulger ----
 % v3 verified this at r=7 by running simMaet end-to-end and
-% comparing auto vs forced Bulger. After Phase 5 extended shipped
-% tables to r=2..8, the natural boundary test would be r=9 — but
+% comparing auto vs forced Bulger. Now that the shipped
+% tables cover r=2..8, the natural boundary test would be r=9 — but
 % Bulger at r=9 builds a K!/(K-r)! ordered-tuple tensor that exceeds
 % feasible test memory for any K large enough to expose the dispatch
 % decision (K >= 9). The dispatcher decision itself is covered by the

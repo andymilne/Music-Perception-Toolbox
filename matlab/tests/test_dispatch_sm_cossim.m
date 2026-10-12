@@ -1,6 +1,6 @@
 %% test_dispatch_sm_cossim.m — v3 single multiset method dispatch in simMaet
 %
-%  Tests for the method keyword introduced in v3 (Commit 6a). Covers:
+%  Tests for the method keyword introduced in v3. Covers:
 %    - Möbius and Bulger methods agree to numerical tolerance on healthy
 %      regimes (r in {3, 4}, abs and rel modes, periodic and non-periodic).
 %    - Auto dispatch picks the expected path given r, n, mode.
@@ -172,7 +172,7 @@ results{end,2}   = abs(s_warn - s_mob_warn) < 1e-12;
 
 %% ---- Skinny dens flows through dispatch transparently ----
 
-% From Commit 5: dens default is skinny. The dispatcher should accept it
+% The density is built lazily by default. The dispatcher should accept it
 % and route correctly without forcing eager build for the Möbius method.
 p_x = [0; 4; 7; 11; 14];
 w_x = ones(5, 1);

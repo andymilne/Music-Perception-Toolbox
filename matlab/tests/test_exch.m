@@ -1,7 +1,7 @@
 %% test_exch.m — per-attribute [exch] (symmetrisation) flag
 %
-%  Mirror of the Python tests/test_exch.py. Covers the exch-flag
-%  specification §10:
+%  Mirror of the Python tests/test_exch.py. Covers the flag's
+%  predicted behaviour:
 %
 %   * r = 1: the flag is vacuous; exch true/false coincide (single-multiset + MA).
 %   * r = K: exch = false deposits the single ordered tuple; exch =

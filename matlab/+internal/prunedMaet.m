@@ -96,7 +96,7 @@ function dens = prunedMaet(dens)
             if isfield(dens, 'exch'); out.exch = dens.exch; end
             out.dim          = dens.dim;
             out.dimPerAttr   = dens.dimPerAttr;
-            % Per-value nesting spec (representation B): tags are
+            % Per-value nesting spec: tags are
             % row-indexed, so event (column) pruning leaves them intact.
             % Must be carried, or the rebuild flattens the attribute.
             if isfield(dens, 'nested'); out.nested = dens.nested; end

@@ -1,4 +1,4 @@
-"""Tests for difference_events on the (p_attr, w, specs) triple (3c-iv-b).
+"""Tests for difference_events on the (p_attr, w, specs) triple.
 
 difference_events applies the k-th finite difference across events,
 position by position. It is well-defined exactly when the positions have stable

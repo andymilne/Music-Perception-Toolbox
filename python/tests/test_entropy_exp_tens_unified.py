@@ -293,7 +293,7 @@ class TestCrossFormConsistency:
 
 
 class TestEntropyMaetVerboseEstimate:
-    """Bundle 2: entropy_maet prints a time estimate via empirical
+    """entropy_maet prints a time estimate via empirical
     calibration when ``verbose=True`` (default) in the single-attribute batched
     dispatch, and is silent when ``verbose=False``.
     """

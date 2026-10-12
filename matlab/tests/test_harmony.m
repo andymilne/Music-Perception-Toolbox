@@ -31,7 +31,7 @@ H_edo = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', fals
 results{end+1,1} = 'spectralEntropy: JI < EDO';
 results{end,2}   = H_ji < H_edo;
 
-% --- spectralEntropy 2-D batched dispatch (Bundle 2, v3+) ---
+% --- spectralEntropy 2-D batched dispatch ---
 P_se = [0, 386.31, 701.96; 0, 400, 700; 0, 100, 200];
 H_se_batch = spectralEntropy(P_se, [], 12, 'spectrum', spec, 'verbose', false);
 results{end+1,1} = 'spectralEntropy batched: returns column vector of length nRows';
@@ -84,7 +84,7 @@ outSEBatch = evalc('spectralEntropy(P_se, [], 12, ''spectrum'', spec, ''verbose'
 results{end+1,1} = 'spectralEntropy batched: verbose=true silent for fast call';
 results{end,2}   = isempty(strtrim(outSEBatch));
 
-% --- entropyMaet batched verbose (Bundle 2) ---
+% --- entropyMaet batched verbose ---
 P_ee = [0, 100, 200, 300; 0, 200, 400, 600; 0, 100, 200, 300];
 outEEBatch = evalc(['entropyMaet(P_ee, [], 12, 1, false, false, 1200, ' ...
     '''xMin'', 0, ''xMax'', 600, ''nPointsPerDim'', 1200, ''verbose'', true);']);

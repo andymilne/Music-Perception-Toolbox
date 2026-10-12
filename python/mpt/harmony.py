@@ -599,6 +599,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
             p_valid, w_valid,
             sigma=sigma, r=1, rel=True, per=bool(per),
             period=float(period) if per else 1200.0,
+            truncation_sigmas=truncation_sigmas,
         )
 
         if key in result_cache:
@@ -968,6 +969,7 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
             p_valid, w_valid,
             sigma=sigma, r=1, rel=True, per=per,
             period=float(period) if per else 1200.0,
+            truncation_sigmas=truncation_sigmas,
         )
         if key in result_cache:
             h_max_out[i], h_ent_out[i] = result_cache[key]
@@ -1259,6 +1261,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
             p_valid,
             W[i, mask] if use_w else None,
             sigma=sigma, r=n_p, rel=True, per=False, period=1200.0,
+            truncation_sigmas=truncation_sigmas,
         )
 
         row_n_p[i] = n_p
@@ -1638,6 +1641,7 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
         key, _, _ = _chord_canonical_key(
             p_valid, w_valid,
             sigma=sigma, r=1, rel=True, per=False, period=1200.0,
+            truncation_sigmas=truncation_sigmas,
         )
 
         if key in result_cache:

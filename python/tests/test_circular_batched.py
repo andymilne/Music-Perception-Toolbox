@@ -292,8 +292,12 @@ class TestCircApmBatched:
 class TestCanonicalKeyFloatingPointBug:
     """``_cyclic_canonical`` previously picked the wrong rotation for
     transposition-equivalent multisets when FP noise from mod-reduction
-    affected the lex comparison. The fix rounds shifted values to 9
-    decimal places before comparison."""
+    affected the lex comparison. The fix rounds shifted values before
+    comparison, to the places set by the accuracy floor
+    (``_key_round_digits``). The keys are taken at the factory accuracy
+    (truncation_sigmas = 6): the suite pins inf, whose 1e-12 floor needs
+    rounding as fine as the noise in these chains, so equivalent chains
+    may then keep separate keys (correctly, at that accuracy)."""
 
     def test_gen_chain_transposition_equivalents_share_key(self):
         from mpt.tensor import _chord_canonical_key
@@ -311,10 +315,12 @@ class TestCanonicalKeyFloatingPointBug:
             k_g, _, _  = _chord_canonical_key(
                 chain_g,  None, sigma=sigma, r=2,
                 rel=True, per=True, period=period,
+                truncation_sigmas=6,
             )
             k_pg, _, _ = _chord_canonical_key(
                 chain_pg, None, sigma=sigma, r=2,
                 rel=True, per=True, period=period,
+                truncation_sigmas=6,
             )
             assert k_g == k_pg, (
                 f"gen={g} and gen={period - g} should share canonical key "
@@ -336,6 +342,7 @@ class TestCanonicalKeyFloatingPointBug:
             k, _, _ = _chord_canonical_key(
                 chain, None, sigma=sigma, r=2,
                 rel=True, per=True, period=period,
+                truncation_sigmas=6,
             )
             keys.add(k)
         # Each gen and period-gen pair collapse to one key, except

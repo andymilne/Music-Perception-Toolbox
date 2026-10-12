@@ -121,9 +121,14 @@ function [s, densXOut, densYOut] = simMaet(varargin)
 %                   partials are added to each row's pitches before
 %                   computing similarity. Example: {'harmonic', 12,
 %                   'powerlaw', 1}. Default: not applied.
-%     'precision' — Round pitch and weight values to nDec decimal
-%                   places before deduplication, to absorb arithmetic
-%                   noise. Default: full floating-point precision.
+%     'precision' — Round canonical pitch and weight values to nDec
+%                   decimal places, to absorb arithmetic noise when
+%                   deduplicating. Pitches are rounded after
+%                   canonicalization (relative to the canonical shift),
+%                   never as raw values. Default: no rounding beyond
+%                   that applied to every canonical form, which is the
+%                   coarsest that keeps within the accuracy floor set
+%                   by truncationSigmas.
 %     'dedup'     — Logical (default true). Currently a no-op for
 %                   'dedup', true; 'dedup', false emits a warning since
 %                   the batched implementation always deduplicates.
@@ -1826,7 +1831,8 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
         if allSingle
             pairKeys = cell(1, n);
             for i = 1:n
-                pairKeys{i} = localDensityPairKey(a{i}, b{i});
+                pairKeys{i} = localDensityPairKey(a{i}, b{i}, ...
+                                                  truncationSigmas);
             end
             [~, firstIdx, mapIdx] = unique(pairKeys, 'stable');
             nUnique = numel(firstIdx);
@@ -1963,7 +1969,7 @@ function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
 end
 
 
-function key = localDensityPairKey(dx, dy)
+function key = localDensityPairKey(dx, dy, truncationSigmas)
 %LOCALDENSITYPAIRKEY  Canonical-form key for a single-multiset density pair.
 %
 %   Twin of the key the Python density-list dedup builds: the pair's
@@ -1978,8 +1984,10 @@ function key = localDensityPairKey(dx, dy)
     py = dy.pAttr{1}(:, 1).'; wy = dy.w{1}(:, 1).';
     isRel = logical(dx.rel(1)); isPer = logical(dx.per(1));
     period = double(dx.period(1));
+    roundDigits = internal.keyRoundDigits(double(dx.sigma(1)), ...
+        double(dx.r(1)), truncationSigmas);
     [pxc, wxc, pyc, wyc] = internal.pairCanonicalKey(px, wx, py, wy, ...
-                                                     isRel, isPer, period, []);
+        isRel, isPer, period, [], roundDigits);
     key = sprintf('%s|%s|%s|%s|%s|%s', ...
         sprintf('%.17g,', pxc), sprintf('%.17g,', wxc), ...
         sprintf('%.17g,', pyc), sprintf('%.17g,', wyc), ...
@@ -2095,10 +2103,18 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     useWeightsA = ~isempty(weightsA);
     useWeightsB = ~isempty(weightsB);
 
+    % Decimal places of every canonical form: the coarsest rounding that
+    % keeps within the accuracy floor truncationSigmas sets.
+    keyDigits = internal.keyRoundDigits(sigma, r, truncationSigmas);
+
     % === Apply precision rounding ===
+    % Pitches are rounded only in their canonical (transposed) form,
+    % inside internal.pairCanonicalKey. Rounding the raw values here
+    % would perturb each pitch independently, so the intervals of a
+    % transposed copy -- e.g. 22-EDO pitches, which are not whole
+    % numbers of cents -- could round differently and the copies would
+    % not share a key.
     if ~isempty(nDec)
-        pMatA = round(pMatA, nDec);
-        pMatB = round(pMatB, nDec);
         if useWeightsA
             weightsA = round(weightsA, nDec);
         end
@@ -2152,7 +2168,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         % Canonical form of the pair: the symmetry exploited depends on
         % the mode, and the values are re-rounded afterwards.
         [pAc, wAc, pBc, wBc] = internal.pairCanonicalKey( ...
-            pAv, wAv, pBv, wBv, isRel, isPer, period, nDec);
+            pAv, wAv, pBv, wBv, isRel, isPer, period, nDec, keyDigits);
 
         % Build NaN-padded keys
         keyA = NaN(1, keyWidthA);

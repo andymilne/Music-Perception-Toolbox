@@ -1,4 +1,4 @@
-function [pCan, wCan] = canonicalizeSet(p, w, rel, per, period)
+function [pCan, wCan] = canonicalizeSet(p, w, rel, per, period, roundDigits)
 %CANONICALIZESET Canonical form of a pitch/weight set under per/rel.
 %   [pCan, wCan] = internal.canonicalizeSet(p, w, rel, per, period)
 %
@@ -31,6 +31,9 @@ function [pCan, wCan] = canonicalizeSet(p, w, rel, per, period)
 %     wCan     : 1-by-n row vector of canonical weights, or [] if w
 %                was empty.
 
+    if nargin < 6
+        roundDigits = [];   % internal.cyclicCanonical's default (9)
+    end
     hasWeights = ~isempty(w);
 
     % Sort p-values and align weights.
@@ -54,24 +57,28 @@ function [pCan, wCan] = canonicalizeSet(p, w, rel, per, period)
             % Cyclic canonical form: the lexicographically smallest
             % rotation captures all transposition-modulo-period
             % equivalences.
-            [pCan, wCan, ~] = internal.cyclicCanonical(p, w, hasWeights, period);
+            [pCan, wCan, ~] = internal.cyclicCanonical(p, w, hasWeights, ...
+                period, roundDigits);
         else
-            % Non-periodic relative: subtract minimum (sort order
-            % preserved).
-            p = p - p(1);
+            % Non-periodic relative: subtract minimum, rounded as the
+            % cyclic form is.
+            [pCan, wCan] = internal.roundedSorted(p - p(1), w, [], ...
+                roundDigits);
+        end
+    else
+        % Absolute periodic: rounded, as the cyclic form is, to absorb
+        % the noise of the mod-reduction.
+        if per
+            [pCan, wCan] = internal.roundedSorted(p, w, period, roundDigits);
+        else
+            % No arithmetic has been done to an absolute non-periodic
+            % set, so it is kept exactly as given.
             pCan = p(:)';
             if hasWeights
                 wCan = w(:)';
             else
                 wCan = [];
             end
-        end
-    else
-        pCan = p(:)';
-        if hasWeights
-            wCan = w(:)';
-        else
-            wCan = [];
         end
     end
 end

@@ -515,7 +515,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
             haveRowWeights, pK);
 
         key = internal.chordCanonicalKey(pK(:), wK(:), sigma, ...
-            1, true, opts.per, opts.period);
+            1, true, opts.per, opts.period, truncationSigmas);
 
         if isKey(resultCache, key)
             cached = resultCache(key);

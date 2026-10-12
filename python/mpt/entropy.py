@@ -1251,6 +1251,7 @@ def _entropy_maet_density_list(
                 sigma=float(d.sigma[0]), r=int(d.r[0]),
                 rel=bool(d.rel[0]), per=bool(d.per[0]),
                 period=float(d.period[0]),
+                truncation_sigmas=truncation_sigmas,
             )
             if key not in result_cache:
                 result_cache[key] = _entropy_maet_scalar(
@@ -1402,7 +1403,7 @@ def _entropy_maet_raw_single_multiset_batch(
         key, p_canon, w_canon = _chord_canonical_key(
             p_valid, w_valid,
             sigma=sigma, r=r, rel=rel, per=per, period=period,
-            precision=precision,
+            precision=precision, truncation_sigmas=truncation_sigmas,
         )
         if key not in dens_cache:
             if spectrum is not None:

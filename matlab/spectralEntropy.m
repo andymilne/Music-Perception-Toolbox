@@ -470,7 +470,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
             haveRowWeights, pK);
 
         key = internal.chordCanonicalKey(pK(:), wK(:), sigma, ...
-            1, true, nvArgs.per, nvArgs.period);
+            1, true, nvArgs.per, nvArgs.period, nvArgs.truncationSigmas);
 
         if isKey(resultCache, key)
             H(k) = resultCache(key);

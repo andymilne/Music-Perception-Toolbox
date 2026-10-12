@@ -1075,6 +1075,7 @@ def _compute_pair_results_with_dedup(
             pa, wa, pb, wb,
             sigma=sig_a, r=r_a, rel=rel_a,
             per=per_a, period=period_a,
+            truncation_sigmas=truncation_sigmas,
         )
         pk = (
             key_a,
@@ -3456,11 +3457,12 @@ def _cos_sim_raw_single_multiset_batch(
     (*p* represents pitches or positions). Each row of *p_mat_a*
     and *p_mat_b* defines one pair.
 
-    Two-stage dedup: Phase 1 builds canonical-form keys per side and
-    constructs each unique density once (chord-level dedup); Phase 3
-    delegates pair-level dedup to the polymorphic
-    :func:`sim_maet` (in pairwise list-vs-list mode), which
-    in turn threads ``method`` through to the per-pair dispatcher.
+    Two-stage dedup: Phase 1 builds canonical-form keys per side from
+    the raw rows and constructs each unique density once (chord-level
+    dedup); Phase 3 deduplicates pairs on those keys and passes the
+    unique pairs to the polymorphic :func:`sim_maet` (in pairwise
+    list-vs-list mode, without its own dedup), which threads
+    ``method`` through to the per-pair dispatcher.
 
     Parameters
     ----------
@@ -3474,9 +3476,11 @@ def _cos_sim_raw_single_multiset_batch(
         Arguments for :func:`~mpt.spectra.add_spectra`.
     precision : int, optional
         Round canonical pitch and weight values to this many decimal
-        places, to absorb FP noise when deduplicating.
+        places, to absorb FP noise when deduplicating. Pitches are
+        rounded after canonicalisation (relative to the canonical
+        shift), never as raw values.
     dedup : bool, default True
-        Apply pair-level canonical-form dedup at Phase 3.
+        Apply pair-level dedup (on the Phase 1 keys) at Phase 3.
     method : {'auto', 'bulger', 'centres'}, default 'auto'
         Inner-product evaluation path; threaded through to the per-pair
         single-multiset core via the inner ``sim_maet`` call.
@@ -3529,9 +3533,13 @@ def _cos_sim_raw_single_multiset_batch(
         if weights_b.shape != p_mat_b.shape:
             raise ValueError("weights_b must be the same shape as p_mat_b.")
 
+    # Pitches are rounded only in their canonical (transposed) form,
+    # inside _pair_canonical_key. Rounding the raw values here would
+    # perturb each pitch independently, so the intervals of a
+    # transposed copy -- e.g. 22-EDO pitches, which are not whole
+    # numbers of cents -- could round differently and the copies
+    # would not share a key.
     if precision is not None:
-        p_mat_a = np.round(p_mat_a, precision)
-        p_mat_b = np.round(p_mat_b, precision)
         if use_wa:
             weights_a = np.round(weights_a, precision)
         if use_wb:
@@ -3564,7 +3572,7 @@ def _cos_sim_raw_single_multiset_batch(
         ka, kb, ca_p_arr, ca_w_arr, cb_p_arr, cb_w_arr = _pair_canonical_key(
             pa_valid, wa_valid, pb_valid, wb_valid,
             sigma=sigma, r=r, rel=rel, per=per, period=period,
-            precision=precision,
+            precision=precision, truncation_sigmas=truncation_sigmas,
         )
 
         key_a[i] = ka
@@ -3628,12 +3636,41 @@ def _cos_sim_raw_single_multiset_batch(
         return s
 
     valid_indices = [i for i in range(n_rows) if valid[i]]
-    list_a_dens = [dens_cache_a[key_a[i]] for i in valid_indices]
-    list_b_dens = [dens_cache_b[key_b[i]] for i in valid_indices]
+
+    # Pair-level dedup on the Phase 1 keys, which are already the
+    # canonical pair forms (joint co-transposition in an absolute mode,
+    # independent per side in a relative one) of the raw rows. The
+    # unique pairs are passed on with dedup=False: letting the
+    # density-list path deduplicate instead would recanonicalise every
+    # row from its built density, whose pitch set is the
+    # spectrally-expanded one (K * n_partials values per side) -- an
+    # O(n^2 log n) rotation search per row that dominated the run time
+    # whenever a spectrum was given -- and would find no more
+    # duplicates than these keys do. Parity with the MATLAB twin
+    # (localCosSimBatchedRaw), which deduplicates pairs on its Phase 1
+    # keys before computing.
+    if dedup:
+        pair_key_to_idx: dict[tuple, int] = {}
+        row_to_pair = []
+        for i in valid_indices:
+            pk = (key_a[i], key_b[i])
+            if pk not in pair_key_to_idx:
+                pair_key_to_idx[pk] = len(pair_key_to_idx)
+            row_to_pair.append(pair_key_to_idx[pk])
+        unique_pairs = list(pair_key_to_idx)
+    else:
+        unique_pairs = [(key_a[i], key_b[i]) for i in valid_indices]
+        row_to_pair = list(range(len(valid_indices)))
+
+    if verbose:
+        print(f"sim_maet: {len(unique_pairs)} unique pairs.")
+
+    list_a_dens = [dens_cache_a[ka] for ka, _ in unique_pairs]
+    list_b_dens = [dens_cache_b[kb] for _, kb in unique_pairs]
 
     cos_results = sim_maet(
         list_a_dens, list_b_dens,
-        mode="pairwise", dedup=dedup,
+        mode="pairwise", dedup=False,
         method=method,
         normalize=normalize,
         truncation_sigmas=truncation_sigmas,
@@ -3643,7 +3680,7 @@ def _cos_sim_raw_single_multiset_batch(
 
     # ── Phase 4: Map results back ────────────────────────────────────
     for k, idx in enumerate(valid_indices):
-        s[idx] = cos_results[k]
+        s[idx] = cos_results[row_to_pair[k]]
 
     if verbose:
         print("sim_maet: done.")

@@ -19,18 +19,18 @@
 %  It then writes the table out for the statistical analysis.
 %
 %  The data
-%    A simulated experiment: 60 participants rate how well a chord fits
-%    a preceding scale, on a 0-100 slider. The stimuli cross three
-%    scales with six chord types (five triads and a dominant seventh)
-%    at twelve roots, 216 in all. For each scale and chord type, each
-%    participant hears a random third of the roots, so 72 stimuli, and
-%    hears each of them twice, once in each of two blocks: 144 trials.
-%    Each participant also has a Gold-MSI general sophistication score.
-%    The table has 60 x 144 = 8640 rows. The ratings are generated from a known model (the local
-%    function simulateExperiment at the end of this file), so that
-%    anyone who fits the model can check that it recovers the
-%    parameters. With your own data, the call to simulateExperiment is
-%    replaced by T = readtable('myData.csv').
+%    A simulated experiment: 60 participants rate how well a chord fits a
+%    preceding scale, on a 0-100 slider. The stimuli cross three scales
+%    with six chord types (five triads and a dominant seventh) at twelve
+%    roots, 216 in all. For each scale and chord type, each participant
+%    hears a random third of the roots, so 72 stimuli, and hears each of
+%    them twice, once in each of two blocks: 144 trials. Each participant
+%    also has a Gold-MSI general sophistication score. The table has 60 x
+%    144 = 8640 rows. The ratings are generated from a known model (the
+%    local function simulateExperiment at the end of this file), so that
+%    anyone who fits the model can check that it recovers the parameters.
+%    With your own data, the call to simulateExperiment is replaced by T =
+%    readtable('myData.csv').
 %
 %  Repeated stimuli (section 2)
 %    Each stimulus occurs on 40 rows on average (twice for each of

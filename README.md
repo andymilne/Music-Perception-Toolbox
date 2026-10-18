@@ -16,7 +16,7 @@ The toolbox implements several original theoretical frameworks, among them expec
 
 ## What's new in v3
 
-Version 3.0.0 is a major release relative to the last public line (2.0.x); versions 2.1 and 2.2 were internal milestones that were never released, and their changes ship together here. There are two strands.
+Version 3.0.0 is a major release relative to the last public line (2.0.x). There are two strands.
 
 **Generalisation: multi-attribute expectation tensors and the pipeline around them.**
 

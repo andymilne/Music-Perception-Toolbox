@@ -42,7 +42,8 @@
 %    value per row.
 %
 %  Uses: simMaet, templateHarmonicity, and roughness (each batched, with
-%        spectral enrichment via its spectrum option), mptDefaults
+%        spectral enrichment via its spectrum option),
+%        transformAttributes, mptDefaults
 %  (from the Music Perception Toolbox).
 
 % The toolbox's one-time informational hints (which route a call took,
@@ -61,8 +62,9 @@ prm.per    = true;
 prm.period = 1200;
 prm.spec   = {'harmonic', 16, 'powerlaw', 1};
 
-% Reference pitch for roughness (Hz): pitch 0 cents is middle C.
-prm.f0 = 261.63;
+% Pitch 0 cents is middle C (MIDI 60), which is 6000 in the toolbox's
+% absolute cents (100 x MIDI); roughness needs absolute frequencies.
+prm.refCents = 6000;
 
 % Where the finished table is written.
 outFile = fullfile(tempdir, 'trialData.csv');
@@ -98,10 +100,10 @@ harm = templateHarmonicity(chordMat, [], prm.sigma, ...
                            'chordSpectrum', prm.spec, 'verbose', false);
 
 % Roughness takes frequencies in Hz, so the chord columns are converted
-% first (pitch 0 cents is middle C; NaN padding stays NaN). Roughness
+% first, from absolute cents (NaN padding stays NaN). Roughness
 % depends on absolute pitch, so only repeated chords are merged: the
 % call below computes 72 chords (6 types at 12 roots).
-chordHz = prm.f0 * 2 .^ (chordMat / 1200);
+chordHz = transformAttributes(chordMat + prm.refCents, [], {'cents', 'hz'});
 rough   = roughness(chordHz, [], 'spectrum', prm.spec);
 
 % Add the predictors to the table.
@@ -237,8 +239,9 @@ x = [simMaet(stim.scale, [], stim.chord, [], prm.sigma, prm.r, ...
              'verbose', false), ...
      templateHarmonicity(stim.chord, [], prm.sigma, ...
                          'chordSpectrum', prm.spec, 'verbose', false), ...
-     roughness(prm.f0 * 2 .^ (stim.chord / 1200), [], ...
-               'spectrum', prm.spec)];
+     roughness(transformAttributes(stim.chord + prm.refCents, [], ...
+                                   {'cents', 'hz'}), ...
+               [], 'spectrum', prm.spec)];
 z = (x - mean(x)) ./ std(x);
 
 % --- The participants ---

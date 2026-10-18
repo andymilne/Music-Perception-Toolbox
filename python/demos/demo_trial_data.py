@@ -42,7 +42,8 @@ Repeated stimuli (section 2)
   row.
 
 Uses: sim_maet, template_harmonicity, and roughness (each batched,
-      with spectral enrichment via its spectrum option), set_default.
+      with spectral enrichment via its spectrum option),
+      transform_attributes, set_default.
 
 Requires: pandas, matplotlib (pip install matplotlib)
 """
@@ -71,8 +72,9 @@ sigma = 10
 r, rel, per, period = 1, False, True, 1200
 spec = ['harmonic', 16, 'powerlaw', 1]
 
-# Reference pitch for roughness (Hz): pitch 0 cents is middle C.
-f0 = 261.63
+# Pitch 0 cents is middle C (MIDI 60), which is 6000 in the toolbox's
+# absolute cents (100 x MIDI); roughness needs absolute frequencies.
+ref_cents = 6000
 
 # Where the finished table is written.
 out_file = Path(tempfile.gettempdir()) / 'trialData.csv'
@@ -132,7 +134,8 @@ def simulate_experiment(n_participants=60, seed=1):
                      per, period, spectrum=spec, verbose=False),
         mpt.template_harmonicity(chord_mat, None, sigma,
                                  chord_spectrum=spec, verbose=False)[0],
-        mpt.roughness(f0 * 2.0 ** (chord_mat / 1200.0), spectrum=spec)])
+        mpt.roughness(mpt.transform_attributes(
+            chord_mat + ref_cents, None, ('cents', 'hz')), spectrum=spec)])
     z = (x - x.mean(0)) / x.std(0, ddof=1)
 
     # --- The participants -------------------------------------------
@@ -211,10 +214,11 @@ harm, _ = mpt.template_harmonicity(chord_mat, None, sigma,
                                    chord_spectrum=spec, verbose=False)
 
 # Roughness takes frequencies in Hz, so the chord columns are converted
-# first (pitch 0 cents is middle C; NaN padding stays NaN). Roughness
+# first, from absolute cents (NaN padding stays NaN). Roughness
 # depends on absolute pitch, so only repeated chords are merged: the
 # call below computes 72 chords (6 types at 12 roots).
-chord_hz = f0 * 2.0 ** (chord_mat / 1200.0)
+chord_hz = mpt.transform_attributes(chord_mat + ref_cents, None,
+                                    ('cents', 'hz'))
 rough = mpt.roughness(chord_hz, spectrum=spec)
 
 # Add the predictors to the table.

@@ -58,7 +58,9 @@ plot_measures = [
 step = 10
 max_int = 2400
 
-f0 = 261.63
+# Lowest note of each triad, for roughness, in the toolbox's absolute
+# cents (100 x MIDI): 6000 is middle C (C4, MIDI 60).
+ref_cents = 6000
 
 sigma_tmpl = 10
 sigma_tens = 10
@@ -153,8 +155,6 @@ if do_spec_ent:
 if do_rough:
     rough_grid = np.full((n_ints, n_ints), np.nan)
 
-ref_cents = mpt.transform_attributes(f0, None, ('hz', 'cents'))
-
 if do_tensor:
     dup = dup_tens if dup_tens > 0 else 3
     print(f"Tensor harmonicity template setup (r=3, dup={dup})...")
@@ -166,14 +166,13 @@ if do_tensor:
 # ===================================================================
 # Each unique triad {0, ints[i], ints[j]} (j >= i) is computed once and
 # mirrored into the symmetric (n_ints, n_ints) result grids, since every
-# feature is invariant to swapping interval1 and interval2. For roughness,
-# which has no batched mode and no internal deduplication, and for tensor
+# feature is invariant to swapping interval1 and interval2. For tensor
 # harmonicity, queried directly through eval_maet (see below), this halves
-# the actual work. For template harmonicity and spectral entropy it is a
-# code-organization choice only: their batched modes deduplicate rows by
-# canonical form, so passing the full (n_ints**2) grid of chord rows would
-# collapse (i, j) and (j, i) onto a single cached result and do the same
-# internal work.
+# the actual work. For template harmonicity, spectral entropy, and
+# roughness it is a code-organization choice only: their batched modes
+# merge rows that hold the same pitches in a different order, so passing
+# the full (n_ints**2) grid of chord rows would collapse (i, j) and (j, i)
+# onto a single result and do the same internal work.
 
 n_upper = n_ints * (n_ints + 1) // 2
 
@@ -286,32 +285,18 @@ if do_spec_ent:
     spec_ent_grid[j_lin, i_lin] = spec_ent_lin
     spec_ent_grid[i_lin, j_lin] = spec_ent_lin
 
-# --- Roughness (no batched mode; explicit loop) ---
+# --- Roughness ---
+# One roughness call on a stacked chord matrix. Roughness takes
+# frequencies in Hz, so each triad is placed on ref_cents and converted;
+# spectrum makes each pitch a complex tone with those partials.
 if do_rough:
-    rough_lin = np.full(n_upper, np.nan)
-
-    print(f"  Roughness: looping over {n_upper} triads...")
+    chord_hz_r = mpt.transform_attributes(
+        ref_cents + np.column_stack([np.zeros(n_upper), int1_lin, int2_lin]),
+        None, ('cents', 'hz'))
     t0 = time.time()
-    n_done = 0
-    for k in range(n_upper):
-        int1k = int1_lin[k]
-        int2k = int2_lin[k]
-
-        chord_cents = np.array(
-            [ref_cents, ref_cents + int1k, ref_cents + int2k]
-        )
-        ep, ew = mpt.add_spectra(chord_cents, None, *spec_rough)
-        f_hz = mpt.transform_attributes(ep, None, ('cents', 'hz'))
-        rough_lin[k] = mpt.roughness(f_hz, ew)
-
-        n_done += 1
-        if n_done % 500 == 0 or n_done == n_upper:
-            elapsed = time.time() - t0
-            rate    = n_done / elapsed if elapsed > 0 else 0
-            remain  = (n_upper - n_done) / rate if rate > 0 else 0
-            print(f"    {n_done} / {n_upper} triads "
-                  f"({elapsed:.1f} s elapsed, ~{remain:.0f} s remaining)")
-    print(f"  Roughness:            {time.time() - t0:.2f} s")
+    rough_lin = mpt.roughness(chord_hz_r, spectrum=spec_rough)
+    print(f"  Roughness:            {time.time() - t0:.2f} s "
+          f"({n_upper} triads, batched)")
 
     rough_grid[j_lin, i_lin] = rough_lin
     rough_grid[i_lin, j_lin] = rough_lin
@@ -343,7 +328,8 @@ if do_spec_ent:
     all_titles.append(f'−Spectral Rényi-2 entropy\n{spec_label(spec_ent)}, σ={sigma_ent}')
 if do_rough:
     all_data.append(-rough_grid)
-    all_titles.append(f'−Roughness\n{spec_label(spec_rough)}, f₀={f0:.1f} Hz')
+    f0 = mpt.transform_attributes(ref_cents, None, ('cents', 'hz'))
+    all_titles.append(f'−Roughness\n{spec_label(spec_rough)}, f₀={float(f0):.1f} Hz')
 
 n_plots = len(all_data)
 

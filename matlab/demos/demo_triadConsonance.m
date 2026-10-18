@@ -54,8 +54,9 @@ plotMeasures = {
 step    = 10;       % grid spacing in cents (smaller = finer but slower)
 maxInt  = 2400;     % maximum interval in cents (1200 = one octave)
 
-% Reference pitch for roughness calculation (Hz)
-f0 = 261.63;        % middle C (C4)
+% Lowest note of each triad, for roughness, in the toolbox's absolute
+% cents (100 x MIDI): 6000 is middle C (C4, MIDI 60).
+refCents = 6000;
 
 % Smoothing widths (one per measure that uses sigma)
 sigma_tmpl  = 10;   % templateHarmonicity
@@ -114,9 +115,6 @@ if doTensor,  tensHarm    = NaN(nInts, nInts); end
 if doSpecEnt, specEnt     = NaN(nInts, nInts); end
 if doRough,   rough       = NaN(nInts, nInts); end
 
-% Reference pitch in absolute cents (for roughness Hz conversion)
-refCents = transformAttributes(f0, [], {'hz', 'cents'});
-
 %% === Precompute tensor harmonicity template (if selected) ===
 
 if doTensor
@@ -141,14 +139,13 @@ end
 %% === Compute features ===
 % Each unique triad {0, ints(i), ints(j)} (j >= i) is computed once and
 % mirrored into the symmetric (nInts x nInts) result grids, since every
-% feature is invariant to swapping interval1 and interval2. For roughness,
-% which has no batched mode and no internal deduplication, and for tensor
+% feature is invariant to swapping interval1 and interval2. For tensor
 % harmonicity, queried directly through evalMaet (see below), this halves
-% the actual work. For template harmonicity and spectral entropy it is a
-% code-organization choice only: their batched modes deduplicate rows by
-% canonical form, so passing the full (nInts^2) grid of chord rows would
-% collapse (i, j) and (j, i) onto a single cached result and do the same
-% internal work.
+% the actual work. For template harmonicity, spectral entropy, and
+% roughness it is a code-organization choice only: their batched modes
+% merge rows that hold the same pitches in a different order, so passing
+% the full (nInts^2) grid of chord rows would collapse (i, j) and (j, i)
+% onto a single result and do the same internal work.
 
 nUpper = nInts * (nInts + 1) / 2;
 
@@ -265,32 +262,17 @@ if doSpecEnt
     specEnt(linIdxLower) = specEntLin;
 end
 
-% --- Roughness (no batched mode; explicit loop) ---
+% --- Roughness ---
+% One roughness call on a stacked chord matrix. Roughness takes
+% frequencies in Hz, so each triad is placed on refCents and converted;
+% 'spectrum' makes each pitch a complex tone with those partials.
 if doRough
-    roughLin = NaN(nUpper, 1);
-
-    fprintf('  Roughness: looping over %d triads...\n', nUpper);
+    chordHzR = transformAttributes( ...
+        refCents + [zeros(nUpper, 1), int1Lin, int2Lin], [], {'cents', 'hz'});
     t0 = tic;
-    nDone = 0;
-    for k = 1:nUpper
-        int1k = int1Lin(k);
-        int2k = int2Lin(k);
-
-        chordCents = [refCents, refCents + int1k, refCents + int2k];
-        [ep, ew] = addSpectra(chordCents(:), [], spec_rough{:});
-        fHz = transformAttributes(ep, [], {'cents', 'hz'});
-        roughLin(k) = roughness(fHz, ew);
-
-        nDone = nDone + 1;
-        if mod(nDone, 500) == 0 || nDone == nUpper
-            elapsed = toc(t0);
-            rate    = nDone / elapsed;
-            remain  = (nUpper - nDone) / rate;
-            fprintf('    %d / %d triads (%.1f s elapsed, ~%.0f s remaining)\n', ...
-                nDone, nUpper, elapsed, remain);
-        end
-    end
-    fprintf('  Roughness:            %.2f s\n', toc(t0));
+    roughLin = roughness(chordHzR, [], 'spectrum', spec_rough);
+    fprintf('  Roughness:            %.2f s (%d triads, batched)\n', ...
+        toc(t0), nUpper);
 
     rough(linIdxUpper) = roughLin;
     rough(linIdxLower) = roughLin;
@@ -326,7 +308,8 @@ end
 if doRough
     allData{end+1}   = -rough;
     allTitles{end+1} = sprintf('-Roughness (Sethares 1993)\n%s, f_0=%.1f Hz', ...
-        strjoin(cellfun(@num2str, spec_rough, 'UniformOutput', false), ', '), f0);
+        strjoin(cellfun(@num2str, spec_rough, 'UniformOutput', false), ', '), ...
+        transformAttributes(refCents, [], {'cents', 'hz'}));
 end
 
 nPlots = numel(allData);

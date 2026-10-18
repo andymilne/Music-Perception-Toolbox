@@ -1,5 +1,7 @@
 # Music Perception Toolbox
 
+> **v3.0.0 beta.** A pre-release of version 3.0.0, which adds multi-attribute expectation tensors (MAETs), is available at tag [`v3.0.0-beta.1`](https://github.com/andymilne/Music-Perception-Toolbox/tree/v3.0.0-beta.1) (development branch [`v3-beta`](https://github.com/andymilne/Music-Perception-Toolbox/tree/v3-beta)). It is not yet an official release; the current release is v2.0.4, described below.
+
 An open-source package — available in **MATLAB** and **Python** — for computing perceptually and cognitively motivated measures of pitch similarity, consonance, and scale and rhythmic structure. It accepts inputs from symbolic pitch data or from spectral peaks extracted from audio recordings.
 
 The toolbox implements several original theoretical frameworks grounded in probability theory, Riemannian geometry, and the discrete Fourier transform. Its measures have been validated as predictors of tonal fit, consonance, affect, and rhythmic complexity across diverse empirical studies, including experiments with microtonal and non-Western tuning systems. See the [User Guide](USER_GUIDE.md) for a full description of the theoretical foundations, function reference, and worked examples.

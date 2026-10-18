@@ -377,6 +377,91 @@ class TestHarmony:
         assert len(vp_p) == len(vp_w)
         assert len(vp_p) > 0
 
+    def test_spectral_entropy_single_tone_closed_form(self):
+        # Unnormalized, on a 1-cent grid, the entropy of one Gaussian
+        # equals its differential entropy in bits: the grid covers the
+        # whole Gaussian (6 sigma either side).
+        for s in (6.0, 12.0, 50.0):
+            H = mpt.spectral_entropy([0], None, s, normalize=False)
+            exact = 0.5 * np.log2(2 * np.pi * np.e * s ** 2)
+            assert H == pytest.approx(exact, abs=1e-6)
+
+    def test_spectral_entropy_unnormalized_independent_of_grid_extent(self):
+        # Points beyond the tails carry no probability, so a wider
+        # spectrum span does not change the unnormalized entropy of
+        # the same partial structure (an octave doubling adds the
+        # same structure 1200 cents higher, here compared with itself
+        # transposed).
+        spec = ["harmonic", 12, "powerlaw", 1]
+        H1 = mpt.spectral_entropy([0, 400, 700], None, 12,
+                                  spectrum=spec, normalize=False)
+        H2 = mpt.spectral_entropy([500, 900, 1200], None, 12,
+                                  spectrum=spec, normalize=False)
+        assert H1 == pytest.approx(H2, abs=1e-12)
+
+    def test_spectral_entropy_per_matches_milne_2017(self):
+        # Pitch class, normalized by log(1200): 1 + H1/ln(1200), H1 the
+        # differential entropy (nats, pitch in octaves) computed by the
+        # code of Milne, Bulger, and Herff (2017), 12 harmonics with
+        # rolloff 0.6, sigma = 6 cents.
+        spec = ["harmonic", 12, "powerlaw", 0.6]
+        expected = {(0, 400, 700): 0.771367, (0, 300, 700): 0.774322,
+                    (0, 700): 0.712143}
+        for chord, val in expected.items():
+            H = mpt.spectral_entropy(list(chord), None, 6, spectrum=spec,
+                                     per=True)
+            assert H == pytest.approx(val, abs=1e-6)
+
+    def test_spectral_entropy_per_octave_invariant(self):
+        spec = ["harmonic", 12, "powerlaw", 1]
+        H1 = mpt.spectral_entropy([0, 400, 700], None, 12, spectrum=spec,
+                                  per=True)
+        H2 = mpt.spectral_entropy([0, 1600, 700], None, 12, spectrum=spec,
+                                  per=True)
+        assert H1 == pytest.approx(H2, abs=1e-12)
+
+    def test_per_resolution_must_divide_period(self):
+        with pytest.raises(ValueError):
+            mpt.spectral_entropy([0, 400], None, 12, per=True, resolution=7)
+        with pytest.raises(ValueError):
+            mpt.virtual_pitches([0, 400], None, 12, per=True, resolution=7)
+
+    def test_template_harmonicity_per_single_tone(self):
+        # A complex tone matching the template scores h_max = 1 in
+        # either mode.
+        spec = ["harmonic", 36, "powerlaw", 1]
+        for per in (False, True):
+            h_max, _ = mpt.template_harmonicity([0], None, 12,
+                                                chord_spectrum=spec, per=per)
+            assert h_max == pytest.approx(1.0, abs=1e-9)
+
+    def test_virtual_pitches_per(self):
+        spec = ["harmonic", 12, "powerlaw", 1]
+        vp_p, vp_w = mpt.virtual_pitches([300, 700, 1000], None, 12,
+                                         chord_spectrum=spec, per=True)
+        assert len(vp_p) == 1200
+        assert np.all(np.diff(vp_p) > 0)
+        assert vp_p[0] == 0 and vp_p[-1] == 1199
+        # Major triad on 300 cents: the strongest virtual pitch class is
+        # its root (within a cent or two, the equal-tempered third and
+        # fifth pulling the best fit slightly off it).
+        assert abs(vp_p[np.argmax(vp_w)] - 300.0) <= 2.0
+
+    def test_virtual_pitches_per_max_equals_h_max(self):
+        spec = ["harmonic", 12, "powerlaw", 1]
+        h_max, _ = mpt.template_harmonicity([0, 400, 700], None, 12,
+                                            chord_spectrum=spec, per=True)
+        _, vp_w = mpt.virtual_pitches([0, 400, 700], None, 12,
+                                      chord_spectrum=spec, per=True)
+        assert np.max(vp_w) == pytest.approx(h_max, abs=1e-12)
+
+    def test_virtual_pitches_profile_decays_at_ends(self):
+        spec = ["harmonic", 12, "powerlaw", 1]
+        _, vp_w = mpt.virtual_pitches([0, 400, 700], None, 12,
+                                      chord_spectrum=spec)
+        assert vp_w[0] < 1e-12 * vp_w.max()
+        assert vp_w[-1] < 1e-12 * vp_w.max()
+
 
 # ===================================================================
 #  Input validation

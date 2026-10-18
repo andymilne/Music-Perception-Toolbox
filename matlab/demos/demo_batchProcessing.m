@@ -155,12 +155,16 @@ for ui = 1:nUnique
     p = uniqueChords(ui, :);
     p = p(~isnan(p));  % strip NaN padding (if any)
 
-    % Spectral entropy (uses 'spectrum' parameter internally)
-    uSpecEnt(ui) = spectralEntropy(p(:), [], sigma, 'spectrum', spec);
+    % Spectral entropy (uses 'spectrum' parameter internally). Entropies
+    % are unnormalized here and below: the chords span different ranges,
+    % and a normalized entropy is relative to the span of each chord's
+    % spectrum.
+    uSpecEnt(ui) = spectralEntropy(p(:), [], sigma, 'spectrum', spec, ...
+        'normalize', false);
 
     % Template harmonicity (uses 'chordSpectrum' parameter)
     [uHMax(ui), uHEnt(ui)] = templateHarmonicity(p(:), [], sigma, ...
-        'chordSpectrum', spec);
+        'chordSpectrum', spec, 'normalize', false);
 
     % Tensor harmonicity (uses 'spectrum' parameter for the template)
     uTensHarm(ui) = tensorHarmonicity(p(:), [], sigma, 'spectrum', spec);

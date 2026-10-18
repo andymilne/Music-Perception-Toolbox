@@ -483,15 +483,15 @@ Output weights are the product of each pitch's original weight and the spectral 
 
 These functions take pitches in cents as absolute pitches (not pitch classes). The functions transpose internally so the lowest pitch is 0.
 
-**spectralEntropy(p, w, sigma, ...)** — Entropy of the composite spectrum (lower entropy = greater consonance). Pitches must be in cents; when using empirical spectral peaks from `audioPeaks` (which returns Hz), convert via `convertPitch(f, 'hz', 'cents')` first. Can apply spectral enrichment via `'spectrum'`, but this is unnecessary when using empirical peaks since they already represent the full spectrum.
+**spectralEntropy(p, w, sigma, ...)** — Entropy of the composite spectrum (lower entropy = greater consonance). Pitches must be in cents; when using empirical spectral peaks from `audioPeaks` (which returns Hz), convert via `convertPitch(f, 'hz', 'cents')` first. Can apply spectral enrichment via `'spectrum'`, but this is unnecessary when using empirical peaks since they already represent the full spectrum. With `'per', true` the entropy is over pitch class (period `'period'`, default 1200), as in Milne, Bulger, and Herff (2017). With `'normalize'` true (the default) and `'per'` false, the entropy is divided by the log of the number of grid points across the span of the chord's spectrum, so it is relative to that span; for values that do not depend on the span, set `'normalize'` to false or `'per'` to true.
 
-**templateHarmonicity(p, w, sigma, ...)** — Cross-correlates the chord's spectrum with a harmonic template. Returns hMax (maximum cosine similarity; Milne, 2013) and hEntropy (entropy of the cross-correlation; Harrison, 2020). Separate `'spectrum'` (for the template) and `'chordSpectrum'` (for the chord) parameters. See the comparison with `tensorHarmonicity` below.
+**templateHarmonicity(p, w, sigma, ...)** — Cross-correlates the chord's spectrum with a harmonic template. Returns hMax (maximum cosine similarity; Milne, 2013) and hEntropy (entropy of the cross-correlation; Harrison, 2020). Separate `'spectrum'` (for the template) and `'chordSpectrum'` (for the chord) parameters. With `'per', true` the cross-correlation is circular, over pitch class. As for `spectralEntropy`, a normalized hEntropy with `'per'` false is relative to the span of the chord's spectrum. See the comparison with `tensorHarmonicity` below.
 
 **tensorHarmonicity(p, w, sigma, ...)** — Evaluates the relative r-ad expectation tensor of a harmonic series at the chord's intervals (measured from the lowest pitch to each of the remaining pitches). See the comparison with `templateHarmonicity` below.
 
 **roughness(f, w, ...)** — Frequencies must be in Hz (use `convertPitch` if needed). Optional name-value pairs: `'pNorm'` (default: 1), `'average'` (default: false).
 
-**virtualPitches(p, w, sigma, ...)** — Returns the full cross-correlation profile (pitch-indexed weights) from which `templateHarmonicity` extracts summary statistics. Peaks in vp_w indicate strong virtual pitches (candidate fundamentals).
+**virtualPitches(p, w, sigma, ...)** — Returns the full cross-correlation profile (pitch-indexed weights) from which `templateHarmonicity` extracts summary statistics. Peaks in vp_w indicate strong virtual pitches (candidate fundamentals). With `'per', true` the profile is over pitch class, one value per grid point of the period.
 
 #### templateHarmonicity vs tensorHarmonicity in detail
 
@@ -794,7 +794,7 @@ However, if one were to use a psychoacoustic pitch scale with non-constant spaci
 
 ### Grid discretization for entropy
 
-The differential entropy of a Gaussian mixture density has no known closed-form analytical solution, because the logarithm of a sum of Gaussians does not simplify. This is why `entropyExpTens` and `spectralEntropy` discretize the continuous density onto a finite grid and compute Shannon entropy of the resulting probability mass function — unlike the cosine similarity, which *can* be computed analytically. The accuracy of this discretization depends on the ratio of σ to the grid spacing. Users can verify accuracy by comparing results at different resolutions (via `'nPointsPerDim'` or `'resolution'`). When the normalized entropy option is used (the default), the result is independent of the arbitrary grid resolution to the extent that the grid is fine enough to capture the density's shape.
+The differential entropy of a Gaussian mixture density has no known closed-form analytical solution, because the logarithm of a sum of Gaussians does not simplify. This is why `entropyExpTens` and `spectralEntropy` discretize the continuous density onto a finite grid and compute Shannon entropy of the resulting probability mass function — unlike the cosine similarity, which *can* be computed analytically. The accuracy of this discretization depends on the ratio of σ to the grid spacing. Users can verify accuracy by comparing results at different resolutions (via `'nPointsPerDim'` or `'resolution'`). Unnormalized, the entropy on a grid of spacing Δ that covers the whole density differs from the differential entropy by −log Δ, so values are comparable across analyses at the same resolution. The normalized option (the default) divides by log N, N the number of grid points, so it depends on the grid's extent as well as its resolution; for `spectralEntropy` and `templateHarmonicity` with `'per'` false, that extent is the span of each chord's spectrum.
 
 ---
 

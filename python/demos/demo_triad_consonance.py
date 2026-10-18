@@ -152,11 +152,14 @@ for i in range(n_ints):
             tens_harm[j, i] = h[0]
             tens_harm[i, j] = h[0]
 
-        # Template harmonicity
+        # Template harmonicity. Unnormalized entropies throughout: the
+        # triads span different ranges, and a normalized entropy is
+        # relative to the span of each chord's spectrum.
         if do_tmpl:
             h_max, h_ent = mpt.template_harmonicity(
                 [0, int1, int2], None, sigma_tmpl,
-                spectrum=spec_tmpl, chord_spectrum=spec_tmpl
+                spectrum=spec_tmpl, chord_spectrum=spec_tmpl,
+                normalize=False,
             )
             if do_tmpl_max:
                 tmpl_harm_max[j, i] = h_max
@@ -168,7 +171,7 @@ for i in range(n_ints):
         # Spectral entropy
         if do_spec_ent:
             H = mpt.spectral_entropy([0, int1, int2], None, sigma_ent,
-                                      spectrum=spec_ent)
+                                      spectrum=spec_ent, normalize=False)
             spec_ent_grid[j, i] = H
             spec_ent_grid[i, j] = H
 

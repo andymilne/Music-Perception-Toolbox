@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.0.4] — 2026-10-18
+
+### Fixed
+
+- `spectralEntropy`, `templateHarmonicity`, `virtualPitches`: the evaluation
+  grid now extends 6σ below the lowest partial and 6σ above the highest.
+  Previously it began at the lowest partial and ended 4σ above the highest,
+  cutting off part of the outermost Gaussians. Values change slightly.
+- Python: `mpt.__version__` reported 2.0.0; it now matches the release.
+
+### Added
+
+- `'per'` / `per` option on `spectralEntropy`, `templateHarmonicity`, and
+  `virtualPitches` (default false): computation on pitch class with period
+  `'period'` (default 1200), as in v1's `pSetSpectralEntropy` and Milne,
+  Bulger, and Herff (2017). With `'per'` true, `virtualPitches` returns a
+  profile over pitch class, one value per grid point of the period.
+
+### Changed
+
+- `demo_triadConsonance`, `demo_batchProcessing`, and `demo_audioAnalysis`
+  (both languages) now use unnormalized spectral entropy and hEntropy, since
+  each compares chords or sounds whose spectra span different ranges (see the
+  note below).
+
+### Notes
+
+- With `'normalize'` true (the default) and `'per'` false, the entropy is
+  divided by the log of the number of grid points across the span of the
+  chord's spectrum, so it is an entropy relative to that span. For values
+  that do not depend on the span, set `'normalize'` to false, or `'per'` to
+  true.
+
+---
+
 ## [2.0.3] — 2026-08-09
 
 Packaging and documentation, following reviewer feedback on the accompanying

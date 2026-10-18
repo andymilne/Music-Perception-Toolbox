@@ -159,12 +159,16 @@ for ui in range(n_unique):
     p = unique_chords[ui]
     p = p[~np.isnan(p)]  # strip NaN padding (if any)
 
-    # Spectral entropy (uses spectrum parameter internally)
-    u_spec_ent[ui] = mpt.spectral_entropy(p, None, sigma, spectrum=spec)
+    # Spectral entropy (uses spectrum parameter internally). Entropies
+    # are unnormalized here and below: the chords span different ranges,
+    # and a normalized entropy is relative to the span of each chord's
+    # spectrum.
+    u_spec_ent[ui] = mpt.spectral_entropy(p, None, sigma, spectrum=spec,
+                                          normalize=False)
 
     # Template harmonicity (uses chord_spectrum parameter)
     u_h_max[ui], u_h_ent[ui] = mpt.template_harmonicity(
-        p, None, sigma, chord_spectrum=spec)
+        p, None, sigma, chord_spectrum=spec, normalize=False)
 
     # Tensor harmonicity (uses spectrum parameter for the template)
     u_tens_harm[ui] = mpt.tensor_harmonicity(p, None, sigma, spectrum=spec)

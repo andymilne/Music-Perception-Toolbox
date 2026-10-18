@@ -291,6 +291,69 @@ results{end,2}   = numel(vp_p) > 0;
 results{end+1,1} = 'virtualPitches: lengths match';
 results{end,2}   = numel(vp_p) == numel(vp_w);
 
+% Unnormalized, on a 1-cent grid, the entropy of one Gaussian equals its
+% differential entropy in bits: the grid covers the whole Gaussian.
+for s = [6, 12, 50]
+    H = spectralEntropy(0, [], s, 'normalize', false);
+    results{end+1,1} = sprintf('spectralEntropy: single tone closed form (sigma %g)', s); %#ok<SAGROW>
+    results{end,2}   = abs(H - 0.5 * log2(2*pi*exp(1)*s^2)) < 1e-6;
+end
+
+spec = {'harmonic', 12, 'powerlaw', 1};
+H1 = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec, 'normalize', false);
+H2 = spectralEntropy([500, 900, 1200], [], 12, 'spectrum', spec, 'normalize', false);
+results{end+1,1} = 'spectralEntropy: unnormalized independent of grid extent';
+results{end,2}   = abs(H1 - H2) < 1e-12;
+
+% Pitch class, normalized by log(1200): 1 + H1/ln(1200), H1 computed by
+% the code of Milne, Bulger, and Herff (2017), 12 harmonics, rolloff 0.6,
+% sigma = 6 cents.
+spec = {'harmonic', 12, 'powerlaw', 0.6};
+chords = {[0, 400, 700], [0, 300, 700], [0, 700]};
+expected = [0.771367, 0.774322, 0.712143];
+for k = 1:numel(chords)
+    H = spectralEntropy(chords{k}, [], 6, 'spectrum', spec, 'per', true);
+    results{end+1,1} = sprintf('spectralEntropy: per matches Milne 2017 (%d)', k); %#ok<SAGROW>
+    results{end,2}   = abs(H - expected(k)) < 1e-6;
+end
+
+spec = {'harmonic', 12, 'powerlaw', 1};
+H1 = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec, 'per', true);
+H2 = spectralEntropy([0, 1600, 700], [], 12, 'spectrum', spec, 'per', true);
+results{end+1,1} = 'spectralEntropy: per octave invariant';
+results{end,2}   = abs(H1 - H2) < 1e-12;
+
+results{end+1,1} = 'spectralEntropy: per resolution must divide period';
+results{end,2}   = throwsError(@() spectralEntropy([0, 400], [], 12, 'per', true, 'resolution', 7));
+results{end+1,1} = 'virtualPitches: per resolution must divide period';
+results{end,2}   = throwsError(@() virtualPitches([0, 400], [], 12, 'per', true, 'resolution', 7));
+
+spec = {'harmonic', 36, 'powerlaw', 1};
+hMax0 = templateHarmonicity(0, [], 12, 'chordSpectrum', spec);
+hMax1 = templateHarmonicity(0, [], 12, 'chordSpectrum', spec, 'per', true);
+results{end+1,1} = 'templateHarmonicity: single tone hMax = 1';
+results{end,2}   = abs(hMax0 - 1) < 1e-9;
+results{end+1,1} = 'templateHarmonicity: per single tone hMax = 1';
+results{end,2}   = abs(hMax1 - 1) < 1e-9;
+
+spec = {'harmonic', 12, 'powerlaw', 1};
+[vp_p, vp_w] = virtualPitches([300, 700, 1000], [], 12, 'chordSpectrum', spec, 'per', true);
+[~, iMax] = max(vp_w);
+results{end+1,1} = 'virtualPitches: per profile over one period, ascending';
+results{end,2}   = numel(vp_p) == 1200 && all(diff(vp_p) > 0) ...
+                   && vp_p(1) == 0 && vp_p(end) == 1199;
+results{end+1,1} = 'virtualPitches: per peak at root of major triad';
+results{end,2}   = abs(vp_p(iMax) - 300) <= 2;
+
+[~, vp_w] = virtualPitches([0, 400, 700], [], 12, 'chordSpectrum', spec);
+results{end+1,1} = 'virtualPitches: profile decays at both ends';
+results{end,2}   = vp_w(1) < 1e-12 * max(vp_w) && vp_w(end) < 1e-12 * max(vp_w);
+
+[hMaxT, ~] = templateHarmonicity([0, 400, 700], [], 12, 'chordSpectrum', spec, 'per', true);
+[~, vp_w] = virtualPitches([0, 400, 700], [], 12, 'chordSpectrum', spec, 'per', true);
+results{end+1,1} = 'virtualPitches: per max equals templateHarmonicity hMax';
+results{end,2}   = abs(max(vp_w) - hMaxT) < 1e-12;
+
 %% ---- estimateCompTime ----
 
 est = estimateCompTime(1000, 2, 'test');

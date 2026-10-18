@@ -30,11 +30,16 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %        use the chord's pitches and weights as given (suitable for
 %        empirical spectral peaks, e.g., from audioPeaks).
 %     4. Evaluate both as 1-D absolute expectation tensors (r = 1,
-%        isRel = false) on a fine grid.
-%     5. Cross-correlate the two density vectors.
+%        isRel = false) on a fine grid: with 'per' false (the
+%        default), each from 6 sigma below its lowest partial to 6
+%        sigma above its highest; with 'per' true, over one period.
+%     5. Cross-correlate the two density vectors (circularly, over
+%        pitch class, when 'per' is true).
 %     6. Normalize by the geometric mean of their energies (giving
 %        cosine similarity at each lag).
-%     7. Map each lag to a pitch value in the input coordinate system.
+%     7. Map each lag to a pitch value in the input coordinate system
+%        (with 'per' true, a pitch class in [0, period), the profile
+%        sorted by pitch class).
 %
 %   Inputs:
 %     p     — Pitch values in cents (vector). These are absolute
@@ -68,11 +73,19 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %     'resolution'    — Grid spacing in cents (default: 1). Finer
 %                       resolution improves pitch accuracy but
 %                       increases computation time and output length.
+%                       With 'per' true it must divide 'period'.
+%     'per'           — Logical (default: false). If true, chord and
+%                       template are folded into one period and the
+%                       cross-correlation is circular, giving a profile
+%                       over pitch class.
+%     'period'        — Period in cents when 'per' is true (default:
+%                       1200).
 %
 %   Outputs:
 %     vp_p — Pitch values in cents (column vector), in the same
-%            absolute coordinate system as the input p. Each value is
-%            the candidate fundamental pitch for the corresponding
+%            absolute coordinate system as the input p (with 'per'
+%            true, pitch classes in [0, period), ascending). Each value
+%            is the candidate fundamental pitch for the corresponding
 %            element of vp_w.
 %     vp_w — Virtual pitch weights (column vector, same length as
 %            vp_p). These are the normalized cross-correlation values
@@ -127,6 +140,8 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         nvArgs.spectrum = {'harmonic', 36, 'powerlaw', 1}
         nvArgs.chordSpectrum = {}
         nvArgs.resolution (1,1) {mustBePositive} = 1
+        nvArgs.per (1,1) logical = false
+        nvArgs.period (1,1) {mustBePositive} = 1200
     end
 
     specArgs      = nvArgs.spectrum;
@@ -180,52 +195,82 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         [chord_p, chord_w] = addSpectra(p, w, chordSpecArgs{:});
     end
 
-    % === Build expectation tensors ===
+    % === Cross-correlate chord and template ===
     % r = 1, isRel = false: these are intrinsic to the virtual pitch
-    % definition (1-D absolute density of spectral components).
+    % definition (1-D absolute density of spectral components). Each
+    % lag is mapped to the pitch at which it places the template's
+    % fundamental, pOffset converting back to the input's coordinate
+    % system.
 
-    r     = 1;
-    isRel = false;
-    isPer = false;
-    period = 1200;  % not used for wrapping; required by buildExpTens
+    isPer = nvArgs.per;
+    if isPer
+        period = nvArgs.period;
+    else
+        period = 1200;  % not used for wrapping; required by buildExpTens
+    end
 
-    tmpl_dens  = buildExpTens(tmpl_p, tmpl_w, sigma, r, isRel, ...
+    [vp_w, vp_p] = localTemplateXcorr(chord_p, chord_w, tmpl_p, tmpl_w, ...
+                                      sigma, step, isPer, period, pOffset);
+
+end
+
+function [xcorrNorm, vpP] = localTemplateXcorr(chord_p, chord_w, ...
+        tmpl_p, tmpl_w, sigma, step, isPer, period, pOffset)
+%LOCALTEMPLATEXCORR Normalised cross-correlation of a chord's spectrum
+%   with a harmonic template, and the pitch at which each transposition
+%   places the template's fundamental. Non-periodic: a full linear
+%   cross-correlation over both grids. Periodic: a circular
+%   cross-correlation over one period, sorted by pitch class.
+    tmpl_dens  = buildExpTens(tmpl_p, tmpl_w, sigma, 1, false, ...
                               isPer, period, 'verbose', false);
-    chord_dens = buildExpTens(chord_p, chord_w, sigma, r, isRel, ...
+    chord_dens = buildExpTens(chord_p, chord_w, sigma, 1, false, ...
                               isPer, period, 'verbose', false);
 
-    % === Evaluate on grids ===
-    % Both grids start at 0 with the same spacing. The margin captures
-    % Gaussian tails beyond the outermost partials.
+    x_tmpl  = localGrid(max(tmpl_p), sigma, step, isPer, period);
+    x_chord = localGrid(max(chord_p), sigma, step, isPer, period);
 
-    margin = 4 * sigma;
+    tmpl_vals  = reshape(evalExpTens(tmpl_dens, x_tmpl, 'verbose', false), [], 1);
+    chord_vals = reshape(evalExpTens(chord_dens, x_chord, 'verbose', false), [], 1);
 
-    x_tmpl  = 0:step:(max(tmpl_p) + margin);
-    x_chord = 0:step:(max(chord_p) + margin);
+    if isPer
+        % xcorr(l+1) = sum_i chord(i + l) * tmpl(i): the template shifted
+        % up by l steps, its fundamental at l * step.
+        xc = real(ifft(fft(chord_vals) .* conj(fft(tmpl_vals))));
+        xc = max(xc, 0);   % remove FFT round-off below 0
+        vpP = mod((0:numel(xc) - 1)' * step + pOffset, period);
+        [vpP, order] = sort(vpP);
+        xc = xc(order);
+    else
+        % Both grids start at -6*sigma, so lag index k (0-based) of the
+        % full correlation places the template's fundamental
+        % (k - (N_tmpl - 1)) * step above the chord's lowest pitch.
+        xc = conv(chord_vals, flipud(tmpl_vals), 'full');
+        nTmpl = numel(tmpl_vals);
+        vpP = ((0:numel(xc) - 1)' - (nTmpl - 1)) * step + pOffset;
+    end
 
-    tmpl_vals  = evalExpTens(tmpl_dens, x_tmpl, 'verbose', false);
-    chord_vals = evalExpTens(chord_dens, x_chord, 'verbose', false);
+    normFactor = sqrt(sum(chord_vals.^2) * sum(tmpl_vals.^2));
+    xcorrNorm = xc / normFactor;
+end
 
-    % === Cross-correlation ===
 
-    xcorr_vals = conv(chord_vals, fliplr(tmpl_vals), 'full');
-
-    % === Normalize (cosine similarity at each lag) ===
-
-    norm_factor = sqrt(sum(chord_vals.^2) * sum(tmpl_vals.^2));
-    xcorr_norm = xcorr_vals / norm_factor;
-
-    % === Map lag indices to pitch values ===
-    % The 'full' convolution output has length N_chord + N_tmpl - 1.
-    % At lag index k (0-based), the template's root (pitch 0) aligns
-    % with chord-grid position (k - N_tmpl + 1) * step. Adding back
-    % pOffset converts to the input's absolute pitch coordinate system.
-
-    N_tmpl  = numel(tmpl_vals);
-    N_xcorr = numel(xcorr_norm);
-
-    lag_indices = (0:N_xcorr - 1)' - (N_tmpl - 1);
-    vp_p = lag_indices * step + pOffset;
-    vp_w = xcorr_norm(:);
-
+function x = localGrid(specMax, sigma, step, isPer, period)
+%LOCALGRID Evaluation grid for a spectrum whose lowest partial is at 0.
+%   Periodic: one period, 0:step:(period - step), step dividing period.
+%   Non-periodic: from -m to specMax + m (to within one step),
+%   m = 6 * sigma, so that every partial's Gaussian lies whole on the
+%   grid (the omitted tail of each is below 1e-8 of its peak).
+    if isPer
+        n = round(period / step);
+        if n < 2 || abs(n * step - period) > 1e-9 * period
+            error('virtualPitches:badResolution', ...
+                  ['''resolution'' (%g) must divide the period (%g) ' ...
+                   'when ''per'' is true.'], step, period);
+        end
+        x = (0:n - 1) * step;
+    else
+        m = 6 * sigma;
+        n = floor((specMax + 2 * m) / step + 1e-9) + 1;
+        x = -m + (0:n - 1) * step;
+    end
 end

@@ -10,7 +10,7 @@ and ``markov_s`` functions.
 
 from __future__ import annotations
 
-__version__ = "2.0.0"
+__version__ = "2.0.4"
 
 # --- Pitch/frequency conversion ---
 from .convert import convert_pitch

@@ -123,8 +123,10 @@ print('-' * 72)
 for res in smooth_results:
     f, w, p = res['f'], res['w'], res['p']
 
-    H = mpt.spectral_entropy(p, w, sigma)
-    hMax, hEnt = mpt.template_harmonicity(p, w, sigma)
+    # Unnormalized entropies: the sounds' spectra span different ranges,
+    # and a normalized entropy is relative to that span.
+    H = mpt.spectral_entropy(p, w, sigma, normalize=False)
+    hMax, hEnt = mpt.template_harmonicity(p, w, sigma, normalize=False)
     r = mpt.roughness(f, w)
 
     res['spec_ent'] = H

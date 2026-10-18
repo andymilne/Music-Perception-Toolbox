@@ -16,6 +16,123 @@ from .tensor import build_exp_tens, eval_exp_tens
 
 
 # ===================================================================
+#  Shared grid and cross-correlation helpers
+# ===================================================================
+
+#: Grid margin, in multiples of sigma, beyond the lowest and the highest
+#: partial when ``per`` is False. At 6 sigma the omitted tail of each
+#: Gaussian is below 1e-8 of its peak.
+_MARGIN_SIGMAS = 6.0
+
+
+def _periodic_count(period: float, step: float) -> int:
+    """Number of grid points in one period, checking that ``step``
+    divides ``period``."""
+    if not (period > 0):
+        raise ValueError("period must be positive.")
+    n = int(round(period / step))
+    if n < 2 or abs(n * step - period) > 1e-9 * period:
+        raise ValueError(
+            f"resolution ({step}) must divide the period ({period}) "
+            "when per is True."
+        )
+    return n
+
+
+def _grid(spec_max: float, sigma: float, step: float,
+          per: bool, period: float) -> np.ndarray:
+    """Evaluation grid for a spectrum whose lowest partial is at 0.
+
+    Periodic: one period, ``0, step, ..., period - step``. Non-periodic:
+    from ``-m`` to ``spec_max + m`` (to within one step), ``m`` being
+    ``_MARGIN_SIGMAS * sigma``, so that every partial's Gaussian lies
+    whole on the grid.
+    """
+    if not (step > 0):
+        raise ValueError("resolution must be positive.")
+    if per:
+        return np.arange(_periodic_count(period, step)) * step
+    m = _MARGIN_SIGMAS * sigma
+    n = int(np.floor((spec_max + 2 * m) / step + 1e-9)) + 1
+    return -m + np.arange(n) * step
+
+
+def _template_xcorr(p, w, sigma, spectrum, chord_spectrum, step,
+                    per, period):
+    """Normalized cross-correlation of a chord's spectrum with a
+    harmonic template.
+
+    Returns ``(xcorr_norm, vp_p)``: the cosine similarity of the two
+    smoothed spectra at each transposition of the template, and the
+    pitch (or, if ``per``, pitch class) at which each transposition
+    places the template's fundamental. Non-periodic: a full linear
+    cross-correlation over both grids. Periodic: a circular
+    cross-correlation over one period, with ``vp_p`` sorted.
+    """
+    p = np.asarray(p, dtype=np.float64).ravel()
+    w = validate_weights(w, len(p))
+    p_offset = float(np.min(p))
+    p = p - p_offset
+
+    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]),
+                                 *spectrum)
+    if chord_spectrum is not None:
+        chord_p, chord_w = add_spectra(p, w, *chord_spectrum)
+    else:
+        chord_p, chord_w = p.copy(), w.copy()
+
+    per = bool(per)
+    period = float(period) if per else 1200.0
+    tmpl_dens = build_exp_tens(tmpl_p, tmpl_w, sigma, 1, False, per,
+                               period, verbose=False)
+    chord_dens = build_exp_tens(chord_p, chord_w, sigma, 1, False, per,
+                                period, verbose=False)
+
+    x_tmpl = _grid(float(np.max(tmpl_p)), sigma, step, per, period)
+    x_chord = _grid(float(np.max(chord_p)), sigma, step, per, period)
+    tmpl_vals = np.ravel(eval_exp_tens(tmpl_dens, x_tmpl, verbose=False))
+    chord_vals = np.ravel(eval_exp_tens(chord_dens, x_chord, verbose=False))
+
+    if per:
+        # xcorr[l] = sum_i chord[i + l] * tmpl[i]: the template shifted
+        # up by l steps, its fundamental at l * step.
+        xcorr = np.real(np.fft.ifft(np.fft.fft(chord_vals)
+                                    * np.conj(np.fft.fft(tmpl_vals))))
+        xcorr = np.maximum(xcorr, 0.0)   # remove FFT round-off below 0
+        vp_p = np.mod(np.arange(len(xcorr)) * step + p_offset, period)
+        order = np.argsort(vp_p, kind="stable")
+        vp_p = vp_p[order]
+        xcorr = xcorr[order]
+    else:
+        # Both grids start at -m, so lag k of the full correlation
+        # places the template's fundamental (k - (n_tmpl - 1)) * step
+        # above the chord's lowest pitch.
+        xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
+        n_tmpl = len(tmpl_vals)
+        vp_p = (np.arange(len(xcorr)) - (n_tmpl - 1)) * step + p_offset
+
+    norm_factor = np.sqrt(np.sum(chord_vals ** 2) * np.sum(tmpl_vals ** 2))
+    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
+    return xcorr_norm, vp_p
+
+
+def _entropy(values, normalize, base):
+    """Shannon entropy of non-negative values treated as a distribution,
+    optionally divided by log_base(N), N the number of values."""
+    q = np.asarray(values, dtype=np.float64).ravel()
+    N = len(q)
+    total = np.sum(q)
+    if total == 0:
+        return 0.0
+    q = q / total
+    q = q[q > 0]
+    H = float(-np.sum(q * np.log(q)) / np.log(base))
+    if normalize:
+        H /= np.log(N) / np.log(base)
+    return H
+
+
+# ===================================================================
 #  Spectral entropy
 # ===================================================================
 
@@ -29,25 +146,42 @@ def spectral_entropy(
     normalize: bool = True,
     base: float = 2.0,
     resolution: float = 1.0,
+    per: bool = False,
+    period: float = 1200.0,
 ) -> float:
     """Spectral entropy of a weighted pitch multiset.
 
     Computes the Shannon entropy of the smoothed composite spectrum
     of a weighted pitch multiset. The spectrum is constructed by
     adding harmonics to each pitch via :func:`~mpt.spectra.add_spectra`,
-    evaluating the resulting 1-D absolute non-periodic expectation
-    tensor on a fine grid, normalising to a probability distribution,
-    and computing the entropy.
+    evaluating the resulting 1-D absolute expectation tensor on a fine
+    grid, normalising to a probability distribution, and computing the
+    entropy.
 
     Spectral entropy aggregates the spectral pitch similarities of
     all pairs of sounds in the multiset: the greater the overlap
     of partials (after Gaussian smoothing), the lower the entropy.
     Lower entropy therefore indicates greater consonance.
 
+    With ``per=False`` (the default) the spectrum is over pitch, and
+    the grid runs from 6 sigma below the lowest partial to 6 sigma
+    above the highest. With ``per=True`` it is over pitch class: every
+    partial is folded into one ``period``, the Gaussian smoothing wraps
+    around it, and the grid covers that period. This is the form used
+    by Milne, Bulger, and Herff (2017).
+
+    With ``normalize=True`` the entropy is divided by log(N), N the
+    number of grid points. With ``per=False`` the grid spans the
+    chord's spectrum, so the normalized value is an entropy relative
+    to that span. For values that do not depend on the span, set
+    ``normalize=False`` (the entropy on the grid, which is independent
+    of its extent) or ``per=True`` (where N is fixed by the period).
+
     Parameters
     ----------
     p : array-like
-        Pitch values in cents (absolute, not pitch classes).
+        Pitch values in cents (absolute pitches; with ``per=True``,
+        pitches or pitch classes).
     w : array-like or None
         Weights (``None`` for uniform).
     sigma : float
@@ -55,11 +189,17 @@ def spectral_entropy(
     spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra`.
     normalize : bool
-        If True (default), divide by log₂(N) to give [0, 1].
+        If True (default), divide by log(N) to give [0, 1]
+        (see above).
     base : float
         Logarithm base (default 2 = bits).
     resolution : float
-        Grid spacing in cents (default 1).
+        Grid spacing in cents (default 1). With ``per=True`` it must
+        divide ``period``.
+    per : bool
+        If True, compute over pitch class (default False).
+    period : float
+        Period in cents when ``per=True`` (default 1200).
 
     Returns
     -------
@@ -81,24 +221,13 @@ def spectral_entropy(
     else:
         spec_p, spec_w = p.copy(), w.copy()
 
-    T = build_exp_tens(spec_p, spec_w, sigma, 1, False, False, 1200, verbose=False)
-
-    margin = 4 * sigma
-    x = np.arange(0, np.max(spec_p) + margin + resolution, resolution)
+    per = bool(per)
+    period = float(period) if per else 1200.0
+    T = build_exp_tens(spec_p, spec_w, sigma, 1, False, per, period,
+                       verbose=False)
+    x = _grid(float(np.max(spec_p)), sigma, resolution, per, period)
     t = eval_exp_tens(T, x, verbose=False)
-
-    total = np.sum(t)
-    if total == 0:
-        return 0.0
-
-    q = t / total
-    N = len(q)
-    q = q[q > 0]
-
-    H = float(-np.sum(q * np.log(q) / np.log(base)))
-    if normalize:
-        H /= np.log(N) / np.log(base)
-    return H
+    return _entropy(t, normalize, base)
 
 
 # ===================================================================
@@ -116,6 +245,8 @@ def template_harmonicity(
     normalize: bool = True,
     base: float = 2.0,
     resolution: float = 1.0,
+    per: bool = False,
+    period: float = 1200.0,
 ) -> tuple[float, float]:
     """Harmonicity via template cross-correlation.
 
@@ -127,6 +258,19 @@ def template_harmonicity(
       Cosine similarity at the best-matching transposition.
     - *h_entropy*: Shannon entropy of the cross-correlation treated
       as a probability distribution (Harrison & Pearce, 2020).
+
+    With ``per=False`` (the default) the cross-correlation runs over
+    pitch, each spectrum evaluated from 6 sigma below its lowest
+    partial to 6 sigma above its highest. With ``per=True`` chord and
+    template are folded into one ``period`` and the cross-correlation
+    is circular, over pitch class.
+
+    With ``normalize=True`` *h_entropy* is divided by log(N), N the
+    number of transpositions in the cross-correlation. With
+    ``per=False`` N grows with the span of the chord's spectrum, so
+    the normalized value is an entropy relative to that span. For
+    values that do not depend on the span, set ``normalize=False`` or
+    ``per=True`` (where N is fixed by the period).
 
     Parameters
     ----------
@@ -143,11 +287,17 @@ def template_harmonicity(
         Arguments for :func:`~mpt.spectra.add_spectra` for the
         chord. ``None`` = use pitches as given.
     normalize : bool
-        If True (default), normalise entropy to [0, 1].
+        If True (default), divide the entropy by log(N) to give [0, 1]
+        (see above).
     base : float
         Logarithm base (default 2).
     resolution : float
-        Grid spacing in cents (default 1).
+        Grid spacing in cents (default 1). With ``per=True`` it must
+        divide ``period``.
+    per : bool
+        If True, compute over pitch class (default False).
+    period : float
+        Period in cents when ``per=True`` (default 1200).
 
     Returns
     -------
@@ -168,50 +318,11 @@ def template_harmonicity(
     if spectrum is None:
         spectrum = ["harmonic", 36, "powerlaw", 1]
 
-    p = np.asarray(p, dtype=np.float64).ravel()
-    w = validate_weights(w, len(p))
-    p = p - np.min(p)
-
-    # Build template
-    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
-
-    # Build chord spectrum
-    if chord_spectrum is not None:
-        chord_p, chord_w = add_spectra(p, w, *chord_spectrum)
-    else:
-        chord_p, chord_w = p.copy(), w.copy()
-
-    # Build densities
-    tmpl_dens = build_exp_tens(tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False)
-    chord_dens = build_exp_tens(chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False)
-
-    margin = 4 * sigma
-    x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
-    x_chord = np.arange(0, np.max(chord_p) + margin + resolution, resolution)
-
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
-    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False)
-
-    # Cross-correlation
-    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-
-    # Normalize (cosine similarity at each lag)
-    norm_factor = np.sqrt(np.sum(chord_vals**2) * np.sum(tmpl_vals**2))
-    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
-
+    xcorr_norm, _ = _template_xcorr(p, w, sigma, spectrum,
+                                    chord_spectrum, resolution, per,
+                                    period)
     h_max = float(np.max(xcorr_norm))
-
-    # Entropy
-    q = xcorr_norm.copy()
-    N = len(q)
-    total = np.sum(q)
-    if total > 0:
-        q = q / total
-    q = q[q > 0]
-    h_entropy = float(-np.sum(q * np.log(q) / np.log(base)))
-    if normalize:
-        h_entropy /= np.log(N) / np.log(base)
-
+    h_entropy = _entropy(xcorr_norm, normalize, base)
     return h_max, h_entropy
 
 
@@ -307,6 +418,8 @@ def virtual_pitches(
     spectrum: list | None = None,
     chord_spectrum: list | None = None,
     resolution: float = 1.0,
+    per: bool = False,
+    period: float = 1200.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Virtual pitch salience profile via template cross-correlation.
 
@@ -315,6 +428,13 @@ def virtual_pitches(
     expectation tensor with a harmonic template. Peaks indicate
     strong virtual pitches — candidate fundamentals well-supported
     by the input spectrum.
+
+    With ``per=False`` (the default) the profile runs over pitch, each
+    spectrum evaluated from 6 sigma below its lowest partial to 6 sigma
+    above its highest. With ``per=True`` chord and template are folded
+    into one ``period``, the cross-correlation is circular, and the
+    profile is over pitch class, one value per grid point of the
+    period, sorted by pitch class.
 
     Parameters
     ----------
@@ -331,12 +451,18 @@ def virtual_pitches(
         Arguments for :func:`~mpt.spectra.add_spectra` for the
         chord. ``None`` = use pitches as given.
     resolution : float
-        Grid spacing in cents (default 1).
+        Grid spacing in cents (default 1). With ``per=True`` it must
+        divide ``period``.
+    per : bool
+        If True, compute over pitch class (default False).
+    period : float
+        Period in cents when ``per=True`` (default 1200).
 
     Returns
     -------
     vp_p : np.ndarray
-        Candidate pitch values in cents.
+        Candidate pitch values in cents (pitch classes in
+        ``[0, period)`` when ``per=True``).
     vp_w : np.ndarray
         Virtual pitch weights (normalised cross-correlation).
 
@@ -348,40 +474,8 @@ def virtual_pitches(
     if spectrum is None:
         spectrum = ["harmonic", 36, "powerlaw", 1]
 
-    p = np.asarray(p, dtype=np.float64).ravel()
-    w = validate_weights(w, len(p))
-
-    p_offset = float(np.min(p))
-    p = p - p_offset
-
-    tmpl_p, tmpl_w = add_spectra(np.array([0.0]), np.array([1.0]), *spectrum)
-
-    if chord_spectrum is not None:
-        chord_p, chord_w = add_spectra(p, w, *chord_spectrum)
-    else:
-        chord_p, chord_w = p.copy(), w.copy()
-
-    tmpl_dens = build_exp_tens(tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False)
-    chord_dens = build_exp_tens(chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False)
-
-    margin = 4 * sigma
-    step = resolution
-    x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
-    x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
-
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
-    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False)
-
-    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-    norm_factor = np.sqrt(np.sum(chord_vals**2) * np.sum(tmpl_vals**2))
-    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
-
-    n_tmpl = len(tmpl_vals)
-    n_xcorr = len(xcorr_norm)
-    lag_indices = np.arange(n_xcorr) - (n_tmpl - 1)
-    vp_p = lag_indices * step + p_offset
-    vp_w = xcorr_norm
-
+    vp_w, vp_p = _template_xcorr(p, w, sigma, spectrum, chord_spectrum,
+                                 resolution, per, period)
     return vp_p, vp_w
 
 

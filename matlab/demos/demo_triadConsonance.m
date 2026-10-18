@@ -150,10 +150,13 @@ for i = 1:nInts
         end
 
         % --- Template harmonicity (computes both outputs in one call) ---
+        % Unnormalized entropies throughout: the triads span different
+        % ranges, and a normalized entropy is relative to the span of
+        % each chord's spectrum.
         if doTmpl
             [hMax, hEnt] = templateHarmonicity([0, int1, int2], [], ...
                 sigma_tmpl, 'spectrum', spec_tmpl, ...
-                'chordSpectrum', spec_tmpl);
+                'chordSpectrum', spec_tmpl, 'normalize', false);
             if doTmplMax
                 tmplHarmMax(j, i) = hMax;
                 tmplHarmMax(i, j) = hMax;
@@ -167,7 +170,7 @@ for i = 1:nInts
         % --- Spectral entropy ---
         if doSpecEnt
             specEnt(j, i) = spectralEntropy([0, int1, int2], [], ...
-                sigma_ent, 'spectrum', spec_ent);
+                sigma_ent, 'spectrum', spec_ent, 'normalize', false);
             specEnt(i, j) = specEnt(j, i);
         end
 

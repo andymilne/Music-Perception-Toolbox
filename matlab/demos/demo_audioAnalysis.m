@@ -120,8 +120,10 @@ for i = 1:nResults
     w = results(i).w;
     p = results(i).p;
 
-    H = spectralEntropy(p, w, sigma);
-    [hMax, hEnt] = templateHarmonicity(p, w, sigma);
+    % Unnormalized entropies: the sounds' spectra span different ranges,
+    % and a normalized entropy is relative to that span.
+    H = spectralEntropy(p, w, sigma, 'normalize', false);
+    [hMax, hEnt] = templateHarmonicity(p, w, sigma, 'normalize', false);
     r = roughness(f, w);
 
     results(i).specEnt = H;

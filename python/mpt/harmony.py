@@ -1679,12 +1679,13 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
 
 
 def roughness(
-    f: np.ndarray,
-    w: np.ndarray | None = None,
+    f,
+    w=None,
     *,
+    spectrum: list | None = None,
     p_norm: float = 1.0,
     average: bool = False,
-) -> float:
+) -> float | np.ndarray:
     """Sensory roughness of a weighted multiset of partials.
 
     Computes the total sensory roughness by summing the pairwise
@@ -1695,12 +1696,31 @@ def roughness(
     Frequencies must be in Hz. Use :func:`~mpt.transform_attributes`
     to convert from other scales.
 
+    Accepts two input forms, dispatched on ``f``'s shape:
+
+    - 1-D ``f``: one multiset, returns a Python float.
+    - 2-D ``F`` (shape ``(M, K)``): a batch, one multiset per row,
+      returns an ``(M,)`` ndarray. NaN-padded rows are accepted; rows
+      with no valid frequency return ``np.nan``. Rows holding the same
+      frequencies and weights, in any order, are computed once.
+      Roughness depends on absolute frequency, so transpositions are
+      not merged.
+
     Parameters
     ----------
     f : array-like
-        Frequencies in Hz (positive).
+        Frequencies in Hz (positive); 1-D for one multiset, 2-D for a
+        batch whose rows are multisets.
     w : array-like or None
-        Amplitudes/weights (``None`` for all ones).
+        Amplitudes/weights (``None`` for all ones). If ``f`` is 2-D,
+        ``w`` may be ``None``, the same shape as ``F``, or a
+        length-``K`` vector broadcast across rows.
+    spectrum : list or None
+        Arguments for :func:`~mpt.spectra.add_spectra` (for example
+        ``['harmonic', 16, 'powerlaw', 1]``). Each frequency is then
+        the fundamental of a complex tone with these partials, and the
+        roughness is that of all the partials together. ``None``
+        (default): the frequencies are the partials themselves.
     p_norm : float
         Norm exponent for combining pairwise roughnesses (default 1).
     average : bool
@@ -1708,20 +1728,46 @@ def roughness(
 
     Returns
     -------
-    float
-        Total (or average) roughness (non-negative).
+    float or np.ndarray
+        Total (or average) roughness (non-negative). Scalar for 1-D
+        input, ``(M,)`` ndarray for 2-D input.
 
     References
     ----------
     Sethares, W. A. (1993). Local consonance and the relationship
     between timbre and scale. *JASA*, 94(3), 1218–1228.
     """
-    f = np.asarray(f, dtype=np.float64).ravel()
-    K = len(f)
-    w = validate_weights(w, K)
+    f_arr = np.asarray(f, dtype=np.float64)
+    if f_arr.ndim == 2:
+        return _roughness_batched(f_arr, w, spectrum, p_norm, average)
+    if f_arr.ndim > 2:
+        raise ValueError(
+            f"f must be 1-D (one multiset) or 2-D (batched, rows are "
+            f"multisets); got shape {f_arr.shape}."
+        )
+    f_arr = f_arr.ravel()
+    w_arr = validate_weights(w, f_arr.size)
 
-    if np.any(f <= 0):
+    if np.any(f_arr <= 0):
         raise ValueError("Frequencies must be positive.")
+
+    if spectrum is not None:
+        f_arr, w_arr = _spectral_partials_hz(f_arr, w_arr, spectrum)
+    return _roughness_core(f_arr, w_arr, p_norm, average)
+
+
+def _spectral_partials_hz(f, w, spectrum):
+    """Partials of complex tones on fundamentals ``f`` (Hz), via
+    :func:`add_spectra` applied in cents; returned in Hz."""
+    cents = 1200.0 * np.log2(f)
+    p_spec, w_spec = add_spectra(cents, w, *spectrum)
+    return (2.0 ** (np.asarray(p_spec, dtype=np.float64).ravel() / 1200.0),
+            np.asarray(w_spec, dtype=np.float64).ravel())
+
+
+def _roughness_core(f, w, p_norm, average):
+    """Roughness of one multiset of partials (Hz) with weights ``w``."""
+    K = len(f)
 
     # Sethares (1993) parameters
     Dstar = 0.24
@@ -1751,3 +1797,58 @@ def roughness(
         r /= comb(K, 2)
 
     return r
+
+
+def _roughness_batched(F, W, spectrum, p_norm, average):
+    """Batched dispatch over the rows of a 2-D frequency matrix.
+
+    Returns ``(M,)``. Rows are keyed by their sorted (frequency,
+    weight) pairs, so repeated rows -- in any order -- share one
+    computation. NaN-padded rows are accepted; rows with no valid
+    frequency contribute ``np.nan``.
+    """
+    M, K = F.shape
+
+    if W is None:
+        W_full = W_broadcast = None
+    else:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast, W_full = W_arr, None
+        elif W_arr.shape == F.shape:
+            W_broadcast, W_full = None, W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as F, or "
+                "a length-K vector broadcast across rows."
+            )
+
+    out = np.full(M, np.nan)
+    cache: dict = {}
+    for i in range(M):
+        mask = ~np.isnan(F[i])
+        f_row = F[i, mask]
+        if f_row.size == 0:
+            continue
+        if np.any(f_row <= 0):
+            raise ValueError(
+                f"Frequencies must be positive; row {i} is not."
+            )
+        if W_full is not None:
+            w_row = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_row = W_broadcast[mask]
+        else:
+            w_row = np.ones(f_row.size)
+
+        order = np.lexsort((w_row, f_row))
+        f_row, w_row = f_row[order], w_row[order]
+        key = (tuple(f_row.tolist()), tuple(w_row.tolist()))
+        if key not in cache:
+            if spectrum is not None:
+                f_use, w_use = _spectral_partials_hz(f_row, w_row, spectrum)
+            else:
+                f_use, w_use = f_row, w_row
+            cache[key] = _roughness_core(f_use, w_use, p_norm, average)
+        out[i] = cache[key]
+    return out

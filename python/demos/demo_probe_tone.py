@@ -29,8 +29,6 @@ spectral enrichment via its spectrum keyword), pack_pre_maet,
 weight_events, unpack_pre_maet, continuity, set_default.
 
 Requires: matplotlib (pip install matplotlib)
-
-The MATLAB mirror is demo_probeTone.m.
 """
 
 import numpy as np

@@ -81,8 +81,6 @@
 % See also SHOWPREMAET, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
 % WEIGHTEVENTS, SELECTPREMAET, BINDATTRIBUTES, SEPARATEATTRIBUTES,
 % TRANSFORMATTRIBUTES, SWEPTSIMILARITY, SWEPTENTROPY, SWEEPSIMMAET.
-%
-% The Python mirror is demo_preprocessing.py.
 
 clear; clc;
 
@@ -578,8 +576,6 @@ assert(abs(sim_diffed_dens - sim_diffed) < 1e-12, ...
 %   entry 2:  sim(orig, T), which matches 9c.
 %   entry 3:  sim(orig, W), the same values under the cadence window of
 %             Section 5, so only the weights differ.
-% demo_batchProcessing takes the list forms further, on a table of
-% trials.
 sim_list = simMaet({dens_orig, dens_T, dens_W}, dens_orig, ...
                    'verbose', false);
 fprintf('  simMaet({dens_orig, dens_T, dens_W}, dens_orig)\n');

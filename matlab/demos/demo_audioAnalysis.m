@@ -24,8 +24,6 @@
 %  Uses: audioPeaks, transformAttributes, spectralEntropy, templateHarmonicity,
 %        roughness, virtualPitches, simMaet, mptDefaults
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_audio_analysis.py.
 
 % The toolbox's informational hints (which route a call took, and the
 % like) are switched off for a tidy printout, and restored at the end.

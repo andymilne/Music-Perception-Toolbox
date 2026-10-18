@@ -10,6 +10,14 @@ function r = roughness(f, w, nvArgs)
 %   r = roughness(f, w, Name, Value) specifies additional options using
 %   one or more name-value arguments.
 %
+%   R = roughness(F, W, ...) with F a matrix (more than one row and more
+%   than one column) is the batched form: each row of F is one multiset,
+%   NaN-padded where the multisets differ in size, and R is a column
+%   with one roughness per row (NaN for a row with no valid frequency).
+%   Rows holding the same frequencies and weights, in any order, are
+%   computed once. Roughness depends on absolute frequency, so
+%   transpositions are not merged.
+%
 %   The pairwise roughness between two partials at frequencies f1 < f2
 %   with amplitudes a1, a2 is:
 %     d = min(a1,a2) * (C1*exp(A1*s*(f2-f1)) + C2*exp(A2*s*(f2-f1)))
@@ -23,13 +31,22 @@ function r = roughness(f, w, nvArgs)
 %     r = roughness(f_hz, w);
 %
 %   Inputs:
-%     f — Frequencies in Hz (vector of length K). Must be positive.
+%     f — Frequencies in Hz (vector of length K). Must be positive. In
+%         the batched form, a matrix whose rows are multisets.
 %     w — Amplitudes/weights (vector of length K, or empty for
 %         uniform). The minimum of each pair's weights scales the
 %         pairwise roughness, so these are typically linear amplitudes
-%         (not dB).
+%         (not dB). In the batched form, empty, a matrix the same size
+%         as F, or a vector with one entry per column of F, shared by
+%         every row.
 %
 %   Name-Value Arguments:
+%     'spectrum' — Cell of addSpectra arguments (for example
+%                 {'harmonic', 16, 'powerlaw', 1}). Each frequency is
+%                 then the fundamental of a complex tone with these
+%                 partials, and the roughness is that of all the
+%                 partials together. {} (default): the frequencies are
+%                 the partials themselves.
 %     'pNorm'   — Norm exponent for combining pairwise roughnesses
 %                 (default: 1). With pNorm = 1, the total roughness is
 %                 a simple sum. Higher values give greater weight to the
@@ -40,7 +57,8 @@ function r = roughness(f, w, nvArgs)
 %                 a randomly chosen partial pair.
 %
 %   Output:
-%     r — Total (or average) roughness (scalar, non-negative).
+%     r — Total (or average) roughness (scalar, non-negative); in the
+%         batched form, a column with one value per row of F.
 %
 %   Examples:
 %     % Roughness of a dyad at 300 and 330 Hz (equal amplitude)
@@ -58,6 +76,14 @@ function r = roughness(f, w, nvArgs)
 %     f = transformAttributes([60 64 67], [], {'midi', 'hz'});  % C major triad
 %     r = roughness(f, [1 1 1]);
 %
+%     % The same triad as three harmonic complex tones
+%     r = roughness(f, [], 'spectrum', {'harmonic', 16, 'powerlaw', 1});
+%
+%     % A batch: one chord per row, NaN-padded
+%     F = transformAttributes([60 64 67 NaN; 60 63 67 NaN; 60 64 67 70], ...
+%                             [], {'midi', 'hz'});
+%     R = roughness(F, [], 'spectrum', {'harmonic', 16, 'powerlaw', 1});
+%
 %   References:
 %     Plomp, R. & Levelt, W. J. M. (1965). Tonal consonance and
 %       critical bandwidth. Journal of the Acoustical Society of
@@ -69,13 +95,32 @@ function r = roughness(f, w, nvArgs)
 %   See also ADDSPECTRA, CONVERTPITCH.
 
     arguments
-        f (:,1) {mustBeNumeric, mustBePositive}
-        w (:,1) {mustBeNumeric} = []
+        f {mustBeNumeric}
+        w {mustBeNumeric} = []
+        nvArgs.spectrum = {}
         nvArgs.pNorm (1,1) {mustBePositive} = 1
         nvArgs.average (1,1) logical = false
     end
 
-    % === Weight defaults ===
+    spec = nvArgs.spectrum;
+    if ~iscell(spec)
+        error('roughness:badSpectrum', ...
+              'spectrum must be a cell of addSpectra arguments, or {}.');
+    end
+
+    % === Batched form: a matrix, one multiset per row ===
+    if size(f, 1) > 1 && size(f, 2) > 1
+        r = localBatchedRoughness(f, w, spec, nvArgs.pNorm, ...
+                                  nvArgs.average);
+        return;
+    end
+
+    % === Single multiset ===
+    f = f(:);
+    w = w(:);
+    if any(~(f > 0))
+        error('roughness:nonPositive', 'Frequencies must be positive.');
+    end
 
     K = numel(f);
 
@@ -92,6 +137,28 @@ function r = roughness(f, w, nvArgs)
     if numel(w) ~= K
         error('w must have the same number of entries as f (or be empty).');
     end
+
+    if ~isempty(spec)
+        [f, w] = localSpectralPartials(f, w, spec);
+    end
+    r = localRoughnessCore(f, w, nvArgs.pNorm, nvArgs.average);
+
+end
+
+
+function [f, w] = localSpectralPartials(f, w, spec)
+%LOCALSPECTRALPARTIALS Partials of complex tones on fundamentals f (Hz),
+%   via addSpectra applied in cents; returned in Hz.
+    [c, w] = addSpectra(1200 * log2(f(:)), w(:), spec{:});
+    f = 2 .^ (c(:) / 1200);
+    w = w(:);
+end
+
+
+function r = localRoughnessCore(f, w, pNorm, average)
+%LOCALROUGHNESSCORE Roughness of one multiset of partials (Hz, columns).
+
+    K = numel(f);
 
     % === Sethares (1993) parameters ===
 
@@ -130,12 +197,71 @@ function r = roughness(f, w, nvArgs)
 
     % === Combine via p-norm ===
 
-    p = nvArgs.pNorm;
-    r = sum(pairRough .^ p) ^ (1 / p);
+    r = sum(pairRough .^ pNorm) ^ (1 / pNorm);
 
-    if nvArgs.average
+    if average
         nPairs = nchoosek(K, 2);
         r = r / nPairs;
     end
 
+end
+
+
+function r = localBatchedRoughness(F, W, spec, pNorm, average)
+%LOCALBATCHEDROUGHNESS One roughness per row of a frequency matrix.
+%
+%   Rows are keyed by their sorted (frequency, weight) pairs, so
+%   repeated rows -- in any order -- share one computation. NaN-padded
+%   rows are accepted; a row with no valid frequency gives NaN.
+
+    nRows = size(F, 1);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(F));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(F, 2)
+            wBroadcast = W(:).';
+        else
+            error('roughness:weightShape', ...
+                  ['In the batched form, w must be empty, a matrix the ' ...
+                   'same size as f, or a vector with one entry per ' ...
+                   'column of f.']);
+        end
+    end
+
+    r = NaN(nRows, 1);
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    for k = 1:nRows
+        fRow  = F(k, :);
+        valid = ~isnan(fRow);
+        fK    = fRow(valid);
+        if isempty(fK)
+            continue;
+        end
+        if any(fK <= 0)
+            error('roughness:nonPositive', ...
+                  'Frequencies must be positive; row %d is not.', k);
+        end
+        if haveRowWeights
+            wK = W(k, valid);
+        elseif ~isempty(W)
+            wK = wBroadcast(valid);
+        else
+            wK = ones(size(fK));
+        end
+
+        fw  = sortrows([fK(:), wK(:)]);
+        key = [sprintf('%.17g,', fw(:, 1)), ';', sprintf('%.17g,', fw(:, 2))];
+        if isKey(cache, key)
+            r(k) = cache(key);
+            continue;
+        end
+
+        fC = fw(:, 1);
+        wC = fw(:, 2);
+        if ~isempty(spec)
+            [fC, wC] = localSpectralPartials(fC, wC, spec);
+        end
+        r(k) = localRoughnessCore(fC, wC, pNorm, average);
+        cache(key) = r(k);
+    end
 end

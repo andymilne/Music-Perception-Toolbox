@@ -31,8 +31,6 @@ Sections:
   4. Figure: similarity against sigma_f for the three, with the limits.
 
 Uses: pack_pre_maet, flat_specs, sim_maet, kernel_cov, set_default.
-
-The MATLAB mirror is demo_softeningEquivalences.m.
 """
 import time
 

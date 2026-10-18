@@ -20,8 +20,6 @@ Sections:
 Uses: sim_maet, build_maet, plot_maet, entropy_maet, flat_specs,
       pack_pre_maet, difference_events, bind_events, n_tuple_entropy,
       set_default.
-
-The MATLAB mirror is demo_rhythmTensors.m.
 """
 
 import numpy as np

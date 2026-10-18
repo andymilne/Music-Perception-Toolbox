@@ -39,13 +39,11 @@ frames the result.
 Each parameter block below states the choice made and what the
 alternatives do.
 
-The MATLAB mirror draws 'density' at three dimensions as well, which
-rests on texture-mapped surfaces that matplotlib has no counterpart
-for; 'points' stands in for it here.
+'density' is not drawn at three dimensions, which would need
+texture-mapped surfaces that matplotlib has no counterpart for;
+'points' stands in for it there.
 
 Uses: build_maet, plot_maet.
-
-The MATLAB mirror is demo_maetPlots.m.
 """
 
 import sys
@@ -159,8 +157,8 @@ ALPHA_FLOOR_2D = 0.0
 #               two this demo draws 'density' in its place.
 #   'density' - the density itself: a line at one dimension and a
 #               translucent image at two. Not available at three,
-#               where MATLAB's mirror draws a stack of textured planes
-#               and matplotlib has no counterpart.
+#               which would need a stack of textured planes, and
+#               matplotlib has no counterpart.
 #
 # 'density' is the default here because the demo is about what the four
 # parameters do to the density, and the kernels are a step behind that.
@@ -185,8 +183,7 @@ RELIEF_2D = False
 NODES_2D_RELIEF = 240
 
 # Collect the figures as tabs of one window rather than opening a
-# window each, as the MATLAB mirror's docked figures do, so that one
-# close ends the run. It needs a Qt binding (pip install PyQt5, or
+# window each, so that one close ends the run. It needs a Qt binding (pip install PyQt5, or
 # PySide6); without one the figures open separately and a note says so.
 TAB_FIGURES = True
 
@@ -383,8 +380,7 @@ def grid_args(dim, lims, relief=False):
 # ===================================================================
 
 def main():
-    # Anything left over from a previous run, as the MATLAB mirror's
-    # close all does.
+    # Anything left over from a previous run.
     plt.close('all')
 
     labels = {True: ('relative', 'Interval'), False: ('absolute', 'Pitch')}

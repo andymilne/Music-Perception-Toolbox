@@ -36,8 +36,6 @@
 %  Uses: templateHarmonicity, spectralEntropy, roughness, addSpectra,
 %        evalMaet, transformAttributes
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_triad_consonance.py.
 
 %% === User-adjustable parameters ===
 

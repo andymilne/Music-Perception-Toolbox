@@ -31,8 +31,6 @@
 %       8. A pre-MAET from a score, which supplies what a score determines.
 %
 % See also SHOWPREMAET, READPREMAET, WRITEPREMAET, BUILDMAET.
-%
-% The Python mirror is demo_pre_maet_io.py.
 
 clear; clc;
 outDir = tempname; mkdir(outDir);

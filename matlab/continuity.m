@@ -6,16 +6,32 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
 %   [count, magnitude] = continuity(seq, x, sigma)
 %   [count, magnitude] = continuity(..., Name, Value)
 %
+%   [count, magnitude] = continuity(SEQ, X, sigma, ...) with SEQ a
+%   matrix (more than one row and more than one column) is the batched
+%   form: each row of SEQ is one sequence, NaN-padded where the
+%   sequences differ in length (NaN entries are dropped). X is either a
+%   matrix with one row per sequence (a column for one query per
+%   sequence), or a scalar or row vector of Q queries shared by every
+%   sequence. count and magnitude are nRows x Q; a NaN query, or a row
+%   with no valid entry, gives NaN. The results depend only on the
+%   sequence's intervals and each query's interval from the sequence's
+%   last value, so rows that are transpositions of one another, with
+%   their queries transposed with them, are computed once.
+%
 %   Inputs:
-%     seq   — 1-D ordered sequence of pitches or positions (length N).
-%     x     — Query points (scalar or vector of length M).
+%     seq   — 1-D ordered sequence of pitches or positions (length N);
+%             in the batched form, a matrix whose rows are sequences.
+%     x     — Query points (scalar or vector of length M); in the
+%             batched form, also a matrix with one row per sequence.
 %     sigma — Gaussian pitch uncertainty. Use 0 for the discrete limit.
 %
 %   Name-Value arguments:
 %     'w'     — Per-event salience weights. [] (default) broadcasts
 %               weight 1 to every event. A scalar broadcasts to a
 %               length-N uniform vector. A length-N vector provides
-%               per-event salience. All weights must be non-negative.
+%               per-event salience (in the batched form, shared by
+%               every row; a matrix the same size as SEQ gives each
+%               row its own). All weights must be non-negative.
 %               The salience of difference event k — the interval
 %               from seq(k) to seq(k+1) — is the product
 %               w(k)·w(k+1) (rolling product of width 2, matching
@@ -30,9 +46,10 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
 %     'theta' — Explicit break threshold in [−1, +1]; overrides mode.
 %
 %   Outputs:
-%     count     — Length-M non-negative vector: expected run length.
+%     count     — Length-M non-negative vector: expected run length
+%                 (nRows x Q in the batched form).
 %     magnitude — Length-M signed vector: weighted sum of counted
-%                 intervals. Positive for ascending trends, negative
+%                 intervals (nRows x Q in the batched form). Positive for ascending trends, negative
 %                 for descending. The ratio magnitude/count gives a
 %                 trend-slope measure.
 %
@@ -82,7 +99,7 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
 %   See also DIFFERENCEEVENTS, SEQWEIGHTS.
 
     arguments
-        seq (:,1) {mustBeNumeric}
+        seq {mustBeNumeric}
         x {mustBeNumeric}
         sigma (1,1) {mustBeNonnegative}
         nvArgs.w = []
@@ -90,8 +107,6 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
             {mustBeMember(nvArgs.mode, ["strict", "lenient"])} = "strict"
         nvArgs.theta = []
     end
-
-    x = x(:);
 
     if isempty(nvArgs.theta)
         if nvArgs.mode == "strict"
@@ -107,6 +122,21 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
         end
     end
 
+    if size(seq, 1) > 1 && size(seq, 2) > 1
+        [count, magnitude] = localBatchedContinuity(seq, x, sigma, ...
+                                                    nvArgs.w, theta);
+        return;
+    end
+
+    [count, magnitude] = localContinuity(seq(:), x(:), sigma, ...
+                                         nvArgs.w, theta);
+end
+
+
+function [count, magnitude] = localContinuity(seq, x, sigma, w, theta)
+%LOCALCONTINUITY continuity for one sequence (column) and a column of
+%   queries.
+
     N = numel(seq);
     M = numel(x);
     count = zeros(M, 1);
@@ -116,7 +146,7 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
     end
 
     % --- Normalise weights to [] or a length-N column vector ---
-    wVec = localNormaliseWeights(nvArgs.w, N);
+    wVec = localNormaliseWeights(w, N);
 
     % --- Compute difference events and their weights via
     %     differenceEvents, so the per-event-salience reading and
@@ -154,6 +184,93 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
         end
         count(i) = c;
         magnitude(i) = mg;
+    end
+end
+
+
+function [count, magnitude] = localBatchedContinuity(S, x, sigma, w, theta)
+%LOCALBATCHEDCONTINUITY continuity for each row of a sequence matrix.
+%
+%   Rows are keyed by their intervals, their weights, and their
+%   queries' intervals from the last value (rounded to 9 decimal places
+%   to absorb the noise of the subtraction), so transposed copies,
+%   queries included, share one computation.
+
+    [nRows, N] = size(S);
+
+    if size(x, 1) == nRows
+        X = x;
+        perRow = true;
+    elseif size(x, 1) == 1
+        X = x;
+        perRow = false;
+    else
+        error('continuity:queryShape', ...
+              ['In the batched form, x must be a scalar, a row vector ' ...
+               'of queries shared by every sequence, or a matrix with ' ...
+               'one row per sequence (%d).'], nRows);
+    end
+    Q = size(X, 2);
+
+    W = w;
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(S));
+    if ~isempty(W) && ~haveRowWeights
+        if isscalar(W)
+            wBroadcast = repmat(double(W), 1, N);
+        elseif isvector(W) && numel(W) == N
+            wBroadcast = double(W(:).');
+        else
+            error('continuity:badWeightLength', ...
+                  ['In the batched form, w must be empty, a scalar, a ' ...
+                   'vector of length N = %d shared by every row, or a ' ...
+                   'matrix the same size as seq.'], N);
+        end
+    end
+
+    count = NaN(nRows, Q);
+    magnitude = NaN(nRows, Q);
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+    for k = 1:nRows
+        sRow  = S(k, :);
+        valid = ~isnan(sRow);
+        sK    = sRow(valid);
+        if isempty(sK)
+            continue;
+        end
+        if haveRowWeights
+            wK = W(k, valid);
+        elseif ~isempty(W)
+            wK = wBroadcast(valid);
+        else
+            wK = [];
+        end
+        if perRow
+            xK = X(k, :);
+        else
+            xK = X;
+        end
+        ok  = ~isnan(xK);
+        ref = sK(end);
+
+        key = [sprintf('%.17g,', round(sK - ref, 9)), '|', ...
+               sprintf('%.17g,', wK), '|', ...
+               sprintf('%.17g,', round(xK - ref, 9))];
+        if isKey(cache, key)
+            stored = cache(key);
+        else
+            cK = NaN(1, Q);
+            mK = NaN(1, Q);
+            if any(ok)
+                [cOk, mOk] = localContinuity(sK(:), xK(ok).', sigma, ...
+                                             wK, theta);
+                cK(ok) = cOk;
+                mK(ok) = mOk;
+            end
+            stored = {cK, mK};
+            cache(key) = stored;
+        end
+        count(k, :) = stored{1};
+        magnitude(k, :) = stored{2};
     end
 end
 

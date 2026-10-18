@@ -7,6 +7,15 @@ function y = markovS(p, w, period, S)
 %
 %   y = markovS(p, w, period, S) uses an S-step context.
 %
+%   Y = markovS(P, W, period, ...) with P a matrix (more than one row and
+%   more than one column) is the batched form: each row of P is one
+%   multiset, NaN-padded where the multisets differ in size, and Y is
+%   nRows x period, one prediction per row (a row of NaN for a row with
+%   no valid position). The predictor is rotation-equivariant -- rotating
+%   a pattern rotates its prediction -- so rows that are rotations of one
+%   another are computed once. W is empty, a matrix the same size as P,
+%   or a vector with one entry per column of P, shared by every row.
+%
 %   For each position j in the cycle, the predictor finds all
 %   positions i whose S-step future context — the binary pattern of
 %   events and non-events over the next S positions — is identical
@@ -36,7 +45,8 @@ function y = markovS(p, w, period, S)
 %
 %   Output:
 %     y      — Predicted event weights (1 x period row vector). y(j)
-%              is the predicted weight at position j-1 (0-indexed).
+%              is the predicted weight at position j-1 (0-indexed). In
+%              the batched form, nRows x period.
 %
 %   Examples:
 %     % Markov predictor for a son clave pattern (16-step cycle)
@@ -64,12 +74,18 @@ function y = markovS(p, w, period, S)
 
 % === Input defaults ===
 
-K = numel(p);
-p = p(:).';
-
 if nargin < 4 || isempty(S)
     S = 3;
 end
+
+% === Batched form: a matrix, one multiset per row ===
+if size(p, 1) > 1 && size(p, 2) > 1
+    y = localBatchedMarkovS(p, w, period, S);
+    return;
+end
+
+K = numel(p);
+p = p(:).';
 
 if isempty(w)
     w = ones(1, K);
@@ -96,6 +112,16 @@ for i = 1:K
     wCycle(p(i) + 1) = wCycle(p(i) + 1) + w(i);
 end
 
+y = localMarkovFromCycle(wCycle, S);
+
+end
+
+
+function y = localMarkovFromCycle(wCycle, S)
+%LOCALMARKOVFROMCYCLE The S-step Markov prediction from a cycle's
+%   weighted indicator (1 x N).
+
+N = numel(wCycle);
 binCycle = (wCycle ~= 0);  % binary: event (1) or non-event (0)
 
 % === S-step Markov predictor ===
@@ -110,5 +136,71 @@ end
 
 % Predict: average the weighted indicator over matching positions.
 y = (wCycle * double(T)) ./ sum(T);
+
+end
+
+
+function Y = localBatchedMarkovS(P, W, period, S)
+%LOCALBATCHEDMARKOVS One prediction per row of a position matrix.
+%
+%   Each row's weighted indicator is brought to its lexicographically
+%   smallest rotation; rows sharing that canonical cycle share one
+%   prediction, rotated back into place.
+
+nRows = size(P, 1);
+N = period;
+
+haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+if ~isempty(W) && ~haveRowWeights
+    if isvector(W) && numel(W) == size(P, 2)
+        wBroadcast = W(:).';
+    else
+        error('markovS:weightShape', ...
+              ['In the batched form, w must be empty, a matrix the same ' ...
+               'size as p, or a vector with one entry per column of p.']);
+    end
+end
+
+% Row r+1 of a cycle's rotation matrix is the cycle rotated left by r:
+% rots(r+1, j+1) = c(mod(j + r, N) + 1).
+rotIdx = mod((0:N-1).' + (0:N-1), N) + 1;
+
+Y = NaN(nRows, N);
+cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+for k = 1:nRows
+    pRow  = P(k, :);
+    valid = ~isnan(pRow);
+    pK    = pRow(valid);
+    if isempty(pK)
+        continue;
+    end
+    if any(pK < 0) || any(pK >= period) || any(pK ~= round(pK))
+        error('markovS:badPositions', ...
+              ['All positions must be non-negative integers less than ' ...
+               'period; row %d is not.'], k);
+    end
+    if haveRowWeights
+        wK = W(k, valid);
+    elseif ~isempty(W)
+        wK = wBroadcast(valid);
+    else
+        wK = ones(size(pK));
+    end
+
+    wCycle = accumarray(pK(:) + 1, wK(:), [N 1]).';
+    rots = wCycle(rotIdx);
+    [~, order] = sortrows(round(rots, 12));
+    r = order(1) - 1;
+    canon = rots(order(1), :);
+    key = sprintf('%.17g,', round(canon, 12));
+    if isKey(cache, key)
+        yC = cache(key);
+    else
+        yC = localMarkovFromCycle(canon, S);
+        cache(key) = yC;
+    end
+    % wCycle is canon rotated right by r, and so is its prediction.
+    Y(k, :) = circshift(yC, r, 2);
+end
 
 end

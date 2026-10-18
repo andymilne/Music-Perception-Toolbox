@@ -20,8 +20,6 @@
 %        packPreMaet, differenceEvents, bindEvents, nTupleEntropy,
 %        mptDefaults
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_rhythm_tensors.py.
 
 clear; clc;
 

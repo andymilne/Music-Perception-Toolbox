@@ -97,8 +97,6 @@
 %  Two figures are drawn: the onset stream with the query and the six
 %  similarity profiles aligned beneath it, and the sdShift sweep
 %  converging to the rel limit.
-%
-%  The Python mirror is demo_tempo_invariance.py.
 
 clear; close all;
 

@@ -17,8 +17,6 @@ pitch peaks.
 Uses: virtual_pitches, transform_attributes.
 
 Requires: matplotlib (pip install matplotlib)
-
-The MATLAB mirror is demo_virtualPitches.m.
 """
 
 import numpy as np

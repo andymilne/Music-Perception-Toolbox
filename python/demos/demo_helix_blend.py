@@ -49,8 +49,6 @@ Each part produces three stacked panels:
 
 Uses: swept_similarity (event weighting of a pre-MAET),
 transform_attributes.
-
-The MATLAB mirror is demo_helixBlend.m.
 """
 
 import numpy as np

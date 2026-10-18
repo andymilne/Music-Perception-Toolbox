@@ -48,19 +48,38 @@ def continuity(
     same-direction run leading up to each query, under Gaussian pitch
     uncertainty, with optional per-event salience weights.
 
+    Accepts two input forms, dispatched on ``seq``'s shape:
+
+    - 1-D ``seq``: one sequence; ``x`` is a scalar or 1-D array of *M*
+      query points, and ``count`` and ``magnitude`` have length *M*.
+    - 2-D ``seq`` (shape ``(R, N)``): a batch, one sequence per row,
+      NaN-padded where the sequences differ in length (NaN entries are
+      dropped). ``x`` is either 2-D with one row per sequence (shape
+      ``(R, Q)``, so ``(R, 1)`` for one query per sequence), or a
+      scalar or 1-D array of *Q* queries shared by every sequence.
+      ``count`` and ``magnitude`` have shape ``(R, Q)``; a NaN query,
+      or a row with no valid entry, gives NaN. The results depend only
+      on the sequence's intervals and each query's interval from the
+      sequence's last value, so rows that are transpositions of one
+      another, with their queries transposed with them, are computed
+      once.
+
     Parameters
     ----------
     seq : array-like
-        1-D ordered sequence of pitches or positions (length *N*).
+        Ordered sequence of pitches or positions (length *N*); 2-D for a
+        batch whose rows are sequences.
     x : array-like
-        Query points. Scalar or 1-D array of length *M*.
+        Query points. Scalar or 1-D array of length *M*; in the batched
+        form, also a 2-D array with one row per sequence.
     sigma : float
         Gaussian pitch uncertainty. Use ``0`` for the discrete limit.
     w : None, scalar, or array-like, optional
         Per-event salience weights. ``None`` (default) or an empty
         array broadcasts weight 1 to every event. A scalar broadcasts
         to a length-*N* uniform vector. A length-*N* vector provides
-        per-event salience. All weights must be non-negative. The
+        per-event salience (in the batched form, shared by every row;
+        an ``(R, N)`` array gives each row its own). All weights must be non-negative. The
         salience of difference event *k* — the interval from
         ``seq[k]`` to ``seq[k+1]`` — is the product ``w[k] * w[k+1]``
         (rolling product of width 2, matching
@@ -79,7 +98,7 @@ def continuity(
     Returns
     -------
     count, magnitude : ndarray, ndarray
-        Each of length *M*. ``count`` is non-negative; ``magnitude``
+        Each of length *M*, or of shape ``(R, Q)`` in the batched form. ``count`` is non-negative; ``magnitude``
         is signed (positive ascending, negative descending). The ratio
         ``magnitude / count`` gives a trend-slope measure.
 
@@ -110,9 +129,6 @@ def continuity(
     --------
     difference_events, weight_events
     """
-    seq = np.asarray(seq, dtype=np.float64).ravel()
-    x_arr = np.atleast_1d(np.asarray(x, dtype=np.float64)).ravel()
-
     if mode not in ("strict", "lenient"):
         raise ValueError(
             f"mode must be 'strict' or 'lenient' (got {mode!r})."
@@ -124,6 +140,16 @@ def continuity(
         if theta < -1.0 - 1e-12 or theta > 1.0 + 1e-12:
             raise ValueError(f"theta must be in [-1, +1] (got {theta}).")
 
+    seq_arr = np.asarray(seq, dtype=np.float64)
+    if seq_arr.ndim == 2:
+        return _continuity_batched(seq_arr, x, sigma, w, theta)
+    seq_arr = seq_arr.ravel()
+    x_arr = np.atleast_1d(np.asarray(x, dtype=np.float64)).ravel()
+    return _continuity_single(seq_arr, x_arr, sigma, w, theta)
+
+
+def _continuity_single(seq, x_arr, sigma, w, theta):
+    """``continuity`` for one 1-D sequence and a 1-D array of queries."""
     N = seq.size
     M = x_arr.size
     count = np.zeros(M, dtype=np.float64)
@@ -174,6 +200,90 @@ def continuity(
             m += contrib * ctx_intervals[k]
         count[i] = c
         magnitude[i] = m
+
+    return count, magnitude
+
+
+# Decimal places to which a batched row's intervals are rounded in its
+# key, absorbing the floating-point noise of the subtraction, so that
+# transposed copies share a key.
+_CONTINUITY_KEY_DIGITS = 9
+
+
+def _continuity_batched(S, x, sigma, w, theta):
+    """Batched dispatch over the rows of a 2-D sequence matrix.
+
+    Returns ``(count, magnitude)``, each ``(R, Q)``. Rows are keyed by
+    their intervals, their weights, and their queries' intervals from
+    the last value, so transposed copies (queries included) share one
+    computation.
+    """
+    R, N = S.shape
+
+    X = np.asarray(x, dtype=np.float64)
+    if X.ndim == 2:
+        if X.shape[0] != R:
+            raise ValueError(
+                f"In the batched form, a 2-D x must have one row per "
+                f"sequence ({R}); got shape {X.shape}."
+            )
+        per_row = True
+    elif X.ndim <= 1:
+        X = np.atleast_1d(X).reshape(1, -1)
+        per_row = False
+    else:
+        raise ValueError(f"x must be at most 2-D; got shape {X.shape}.")
+    Q = X.shape[1]
+
+    W_full = W_broadcast = None
+    if w is not None and np.size(w) > 0:
+        wa = np.asarray(w, dtype=np.float64)
+        if wa.ndim == 0 or wa.size == 1:
+            W_broadcast = np.full(N, float(wa.reshape(-1)[0]))
+        elif wa.ndim == 1 and wa.size == N:
+            W_broadcast = wa
+        elif wa.shape == S.shape:
+            W_full = wa
+        else:
+            raise ValueError(
+                "In the batched form, w must be None, a scalar, a "
+                "length-N vector shared by every row, or an array the "
+                "same shape as seq."
+            )
+
+    count = np.full((R, Q), np.nan)
+    magnitude = np.full((R, Q), np.nan)
+    cache: dict = {}
+    for i in range(R):
+        mask = ~np.isnan(S[i])
+        s_row = S[i, mask]
+        if s_row.size == 0:
+            continue
+        if W_full is not None:
+            w_row = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_row = W_broadcast[mask]
+        else:
+            w_row = None
+        x_row = X[i] if per_row else X[0]
+        ok = ~np.isnan(x_row)
+
+        ref = s_row[-1]
+        key = (
+            tuple(np.round(s_row - ref, _CONTINUITY_KEY_DIGITS).tolist()),
+            None if w_row is None else tuple(w_row.tolist()),
+            # NaN queries keyed as inf, which compares equal to itself.
+            tuple(np.where(ok, np.round(x_row - ref, _CONTINUITY_KEY_DIGITS),
+                           np.inf).tolist()),
+        )
+        if key not in cache:
+            c_row = np.full(Q, np.nan)
+            m_row = np.full(Q, np.nan)
+            if ok.any():
+                c_row[ok], m_row[ok] = _continuity_single(
+                    s_row, x_row[ok], sigma, w_row, theta)
+            cache[key] = (c_row, m_row)
+        count[i], magnitude[i] = cache[key]
 
     return count, magnitude
 

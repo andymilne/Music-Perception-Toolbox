@@ -40,8 +40,6 @@
 %  alternatives do.
 %
 %  Uses: buildMaet, plotMaet (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_maet_plots.py.
 
 %% === User-editable parameters ===
 close all

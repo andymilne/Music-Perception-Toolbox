@@ -7,8 +7,7 @@ where to begin, how the demos fit together, and which demos cover
 each topic. Each demo opens with a header saying what it shows, and
 most end their sections with pointers to the demos that go further.
 The User Guide (USER_GUIDE.md, section 13) describes every demo in
-more detail. Every Python demo has a MATLAB twin in matlab/demos/,
-with the same computations and the same printed numbers.
+more detail.
 
 ===================================================================
 WHERE TO BEGIN
@@ -24,7 +23,7 @@ WHERE TO BEGIN
      audio recordings                 demo_audio_analysis
      chords, scales, or tunings       demo_probe_tone, demo_edo_approx
      rhythms                          demo_rhythm_tensors
-     a table of experimental trials   demo_batch_processing
+     a table of experimental trials   demo_trial_data
 
 3. demo_preprocessing
      The operations that shape a pre-MAET before its density is
@@ -87,7 +86,7 @@ not use them at all.
 
 demo_overview walks the MAET path once and tours the other
 measures. demo_score_workflow follows the path from a score file to
-a result; demo_batch_processing starts from a table of trials. The
+a result; demo_trial_data starts from a table of trials. The
 other demos each go deeper into one stage or one measure.
 
 ===================================================================
@@ -133,7 +132,6 @@ Searching a piece: swept similarity and entropy
   demo_swept_similarity      swept_similarity in depth
   demo_helix_blend           a time-windowed sweep of a motif
   demo_tempo_invariance      a sweep under a tempo-invariant kernel
-  demo_batch_processing      sweep_sim_maet against translated copies
   JMM 1.1, 1.3, 2.3, 3.1, 3.2, 3.3
 
 Pitch collections, scales, and tunings
@@ -173,8 +171,8 @@ Entropy and structure
   JMM 1.1, 3.1, 3.2
 
 Experimental data and performance
-  demo_batch_processing      features for a table of trials, computed with
-                             internal deduplication
+  demo_trial_data            predictors added to a table of trials, one
+                             row per observation
   demo_dispatch_and_kernel_controls
                              method dispatch, one-pass sweeps, kernel
                              truncation and precision, and the defaults
@@ -209,8 +207,6 @@ article or Online Supplement.
 The Coltrane demos (2.x) need a MIDI transcription of the solo, and
 4.1 needs the parse file from its authors' repository; neither is
 distributed. python/demos/jmm/README.md says where to place them.
-
-The MATLAB mirror is demo_0_startHere.m.
 """
 
 if __name__ == "__main__":

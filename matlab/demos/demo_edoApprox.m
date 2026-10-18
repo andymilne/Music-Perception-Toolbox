@@ -21,8 +21,6 @@
 %
 %  Uses: simMaet (batched-raw, broadcast form)
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_edo_approx.py.
 
 %% === User-adjustable parameters ===
 

@@ -62,8 +62,6 @@ grid_attr_table, pre_maet_from_attr_table, select_pre_maet, build_maet,
 sim_maet: it grids because the structural role of step 4 needs every
 event to hold the same voices, and it selects because the question is
 about two chords out of the 272.
-
-The MATLAB mirror is demo_scoreWorkflow.m.
 """
 
 import os

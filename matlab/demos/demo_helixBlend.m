@@ -51,8 +51,6 @@
 %
 %  Uses: sweptSimilarity (event weighting of a pre-MAET),
 %  transformAttributes.
-%
-%  The Python mirror is demo_helix_blend.py.
 
 clear; clc; close all;
 

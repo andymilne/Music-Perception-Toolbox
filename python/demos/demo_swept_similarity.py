@@ -40,8 +40,6 @@ mpt.sweep_sim_maet
 mpt.translate_attributes
 mpt.bind_events
 mpt.sim_maet
-
-The MATLAB mirror is demo_sweptSimilarity.m.
 """
 
 import time

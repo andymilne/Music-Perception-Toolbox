@@ -51,8 +51,6 @@ Sections:
 Exact invariances only (rel_outer flags); the graded counterparts (the
 sd_shift ridge of kernel_cov, tending to rel in the limit) are
 the subject of demo_tempo_invariance.
-
-The MATLAB mirror is demo_repetitionHandling.m.
 """
 
 import numpy as np

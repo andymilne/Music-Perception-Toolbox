@@ -12,8 +12,6 @@
 %    * projCentroid — accepts sigma and applies analytical kernel-
 %      smoothing damping (alpha_1 factor); no Monte Carlo needed for
 %      the projection because it is linear in F(0).
-%
-%  The Python mirror is demo_dft_circular_simulate.py.
 
 clear; close all;
 

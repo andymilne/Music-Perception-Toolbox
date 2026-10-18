@@ -31,8 +31,6 @@
 %
 %  Uses: packPreMaet, flatSpecs, simMaet, kernelCov, mptDefaults
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_softening_equivalences.py.
 
 clear; close all;
 

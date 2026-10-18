@@ -488,8 +488,8 @@ def _circ_apm_batched(P, W, period, decay):
 
 
 def markov_s(
-    p: np.ndarray,
-    w: np.ndarray | None,
+    p,
+    w,
     period: int,
     S: int = 3,
 ) -> np.ndarray:
@@ -501,12 +501,25 @@ def markov_s(
     positions whose S-step future context (the binary pattern of
     events and non-events) is identical, and averages their weights.
 
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: one multiset, returns a length-*period* array.
+    - 2-D ``P`` (shape ``(M, K)``): a batch, one multiset per row,
+      returns an ``(M, period)`` array. NaN-padded rows are accepted;
+      rows with no valid position return a row of NaN. The predictor
+      is rotation-equivariant -- rotating a pattern rotates its
+      prediction -- so rows that are rotations of one another are
+      computed once.
+
     Parameters
     ----------
     p : array-like of int
-        Pitch or position values. Non-negative integers < *period*.
+        Pitch or position values. Non-negative integers < *period*;
+        2-D for a batch whose rows are multisets.
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones). If ``p`` is 2-D, ``w`` may be
+        ``None``, the same shape as ``P``, or a length-``K`` vector
+        broadcast across rows.
     period : int
         Cycle length.
     S : int
@@ -515,7 +528,8 @@ def markov_s(
     Returns
     -------
     np.ndarray
-        Predicted event weights (length *period*).
+        Predicted event weights (length *period*, or ``(M, period)``
+        in the batched form).
 
     References
     ----------
@@ -523,19 +537,28 @@ def markov_s(
     rhythmic structure on tapping accuracy. *Attention, Perception,
     & Psychophysics*, 85, 2673–2699.
     """
+    period = int(period)
+    p_in = np.asarray(p)
+    if p_in.ndim == 2:
+        return _markov_s_batched(np.asarray(p_in, dtype=np.float64), w,
+                                 period, S)
+
     p = np.asarray(p, dtype=np.int64).ravel()
     K = len(p)
     w = validate_weights(w, K)
-    period = int(period)
 
     if np.any((p < 0) | (p >= period)):
         raise ValueError("Positions must be non-negative integers < period.")
 
-    N = period
-    w_cycle = np.zeros(N)
+    w_cycle = np.zeros(period)
     for i in range(K):
         w_cycle[p[i]] += w[i]
+    return _markov_from_cycle(w_cycle, S)
 
+
+def _markov_from_cycle(w_cycle, S):
+    """The S-step Markov prediction from a cycle's weighted indicator."""
+    N = len(w_cycle)
     bin_cycle = (w_cycle != 0)
 
     # E[i,j] = 1 iff positions i and j have the same binary status
@@ -544,5 +567,63 @@ def markov_s(
     for k in range(1, S + 1):
         T &= np.roll(np.roll(E, k, axis=1), k, axis=0)
 
-    y = (w_cycle @ T.astype(np.float64)) / np.sum(T, axis=0)
-    return y
+    return (w_cycle @ T.astype(np.float64)) / np.sum(T, axis=0)
+
+
+def _markov_s_batched(P, W, period, S):
+    """Batched dispatch for ``markov_s``.
+
+    Each row's weighted indicator is brought to its lexicographically
+    smallest rotation; rows sharing that canonical cycle share one
+    prediction, rotated back into place.
+    """
+    M, K = P.shape
+
+    if W is None:
+        W_full = W_broadcast = None
+    else:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast, W_full = W_arr, None
+        elif W_arr.shape == P.shape:
+            W_broadcast, W_full = None, W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+
+    out = np.full((M, period), np.nan)
+    # rots[r] is the cycle rotated left by r: rots[r][j] = c[(j + r) % N].
+    rot_idx = (np.arange(period)[:, None] + np.arange(period)[None, :]) \
+        % period
+    cache: dict = {}
+    for i in range(M):
+        mask = ~np.isnan(P[i])
+        p_row = P[i, mask]
+        if p_row.size == 0:
+            continue
+        if (np.any(p_row != np.round(p_row)) or np.any(p_row < 0)
+                or np.any(p_row >= period)):
+            raise ValueError(
+                f"Positions must be non-negative integers < period; "
+                f"row {i} is not."
+            )
+        if W_full is not None:
+            w_row = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_row = W_broadcast[mask]
+        else:
+            w_row = np.ones(p_row.size)
+
+        w_cycle = np.zeros(period)
+        np.add.at(w_cycle, p_row.astype(np.int64), w_row)
+        rots = w_cycle[rot_idx]
+        r = int(np.lexsort(np.round(rots, 12).T[::-1])[0])
+        canon = rots[r]
+        key = tuple(np.round(canon, 12).tolist())
+        if key not in cache:
+            cache[key] = _markov_from_cycle(canon, S)
+        # w_cycle is canon rotated right by r, and so is its prediction.
+        out[i] = np.roll(cache[key], r)
+    return out

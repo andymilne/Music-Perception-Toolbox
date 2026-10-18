@@ -77,8 +77,6 @@ See also: show_pre_maet, difference_events, bind_events,
 translate_attributes, weight_events, select_pre_maet, bind_attributes,
 separate_attributes, transform_attributes, swept_similarity,
 swept_entropy, sweep_sim_maet.
-
-The MATLAB mirror is demo_preprocessing.m.
 """
 import numpy as np
 
@@ -600,8 +598,6 @@ assert delta_d < 1e-12, "Section 10d: sim_maet pre-MAET and density forms disagr
 #   entry 1:  sim(orig, T), which matches 9c.
 #   entry 2:  sim(orig, W), the same values under the cadence window of
 #             Section 5, so only the weights differ.
-# demo_batch_processing.py takes the list forms further, on a table of
-# trials.
 sim_list = mpt.sim_maet([dens_orig, dens_T, dens_W], dens_orig,
                         verbose=False)
 sim_list_vals = [float(v) for v in sim_list]

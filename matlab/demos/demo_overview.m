@@ -21,8 +21,6 @@
 %        evennessCircular, dftCircular, coherence, sameness,
 %        nTupleEntropy, meanOffset, edges, markovS, circApm, mptDefaults
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_overview.py.
 
 clear; clc;
 
@@ -214,7 +212,7 @@ fprintf('  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.\n');
 %   demo_triadSpcsGrid        SPCS of every triad containing a fifth
 %   demo_edoApprox            how well each n-EDO approximates a JI chord
 %   demo_genChainPcs          the same, over generator-chain tunings
-%   demo_batchProcessing      a feature for every trial of an experiment
+%   demo_trialData            a feature for every trial of an experiment
 %   demo_dispatchAndKernelControls
 %                             speed controls, and Renyi-2 entropy
 
@@ -469,7 +467,7 @@ fprintf('  C major triad (8 harmonics): roughness = %.4f\n', r);
 %   demo_virtualPitches       the salience profiles behind template
 %                             harmonicity
 %   demo_audioAnalysis        the same measures from recorded sounds
-%   demo_batchProcessing      the same measures for a table of trials
+%   demo_trialData            the same measures for a table of trials
 
 %% === 4. Balance and evenness (User Guide §9.2) ===
 

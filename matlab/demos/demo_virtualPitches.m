@@ -15,8 +15,6 @@
 %
 %  Uses: virtualPitches, transformAttributes
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_virtual_pitches.py.
 
 %% === User-adjustable parameters ===
 

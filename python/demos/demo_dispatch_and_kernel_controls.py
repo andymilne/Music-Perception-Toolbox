@@ -27,8 +27,6 @@ The dispatcher and a kernel truncation at 6 sigma are on by default
 (`truncation_sigmas=6` drops contributions below exp(-18), about 1.5e-8
 of a kernel's peak); `kernel_precision` defaults to double. Every
 control can be set per call or toolbox-wide.
-
-The MATLAB mirror is demo_dispatchAndKernelControls.m.
 """
 
 # ---- user-adjustable parameters ----
@@ -69,11 +67,11 @@ dens_x = mpt.build_maet(p_x, w_x, SIGMA, R, False, False, 1200.0, verbose=False)
 dens_y = mpt.build_maet(p_y, w_y, SIGMA, R, False, False, 1200.0, verbose=False)
 
 
-# A larger source set for the centres-path sections (4-6). MATLAB's
-# BLAS is so fast at modest scales that the kernel matmul is in the
-# tens of ms range, where the fixed-cost overhead of truncation's
-# spatial index and the float32 cast can be comparable to the
-# variable-cost savings they produce. N=50 (with 1000 query points
+# A larger source set for the centres-path sections (4-6). A fast
+# BLAS puts the kernel matmul at modest scales in the tens of ms
+# range, where the fixed-cost overhead of truncation's spatial index
+# and the float32 cast can be comparable to the variable-cost savings
+# they produce. N=50 (with 1000 query points
 # below) pushes the kernel matmul into the hundreds-of-ms range, so
 # the savings dominate and the features show clearly. Section 1
 # stays at N=20 because that is already enough to make Bulger's
@@ -178,6 +176,15 @@ print(mpt.explain_dispatch(dens_nx, dens_ny))
 # offsets through the level-by-level contraction. 'auto' picks. The
 # same routes serve swept_similarity wherever the context is the
 # same at every translation (see demo_swept_similarity).
+#
+# The translated copies can also be passed to sim_maet as one list of
+# pre-MAETs, which goes wherever a list of densities goes. That
+# shortens the calling code -- one call, one value per entry -- but
+# not the work: each entry is built and compared in turn, as in the
+# loop. A list is the form for items that differ in more than an
+# offset (in their event counts or contents), where there is no shared
+# geometry to exploit; items that differ only by a translation are a
+# sweep.
 
 print(f"\n=== 3. Sweeps (41 translations of the query) ===\n")
 
@@ -216,10 +223,15 @@ def per_offset_nested():
 
 
 t_nloop, s_nloop = time_call(per_offset_nested)
+copies = [mpt.translate_attributes(pm_ny, [mu]) for mu in mus]
+t_nlist, s_nlist = time_call(lambda: np.asarray(
+    mpt.sim_maet(dens_nx, copies, verbose=False), dtype=float).ravel())
 t_nsw, s_nsw = time_call(lambda: mpt.sweep_sim_maet(
     dens_nx, dens_ny, mus[None, :], verbose=False))
 print(f"  nested (Section 2):")
 print(f"    one offset at a time  : {t_nloop*1000:7.1f} ms")
+print(f"    a list of copies      : {t_nlist*1000:7.1f} ms   "
+      f"max |diff| = {np.max(np.abs(s_nlist - s_nloop)):.1e}   (one call, same work)")
 print(f"    sweep, 'auto'         : {t_nsw*1000:7.1f} ms   "
       f"max |diff| = {np.max(np.abs(s_nsw - s_nloop)):.1e}   (the contraction route)")
 

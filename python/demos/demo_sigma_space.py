@@ -23,8 +23,6 @@ distinction matter.
 
 Uses: sameness, coherence, n_tuple_entropy, position_variance (a helper
 in mpt._utils), set_default.
-
-The MATLAB mirror is demo_sigmaSpace.m.
 """
 import mpt
 from mpt import coherence, n_tuple_entropy, sameness

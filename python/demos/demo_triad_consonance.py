@@ -31,8 +31,6 @@ Uses: template_harmonicity, spectral_entropy, roughness, add_spectra,
       eval_maet, transform_attributes.
 
 Requires: matplotlib (pip install matplotlib)
-
-The MATLAB mirror is demo_triadConsonance.m.
 """
 
 import time
@@ -210,8 +208,7 @@ t0_total = time.time()
 # because its batched mode first reduces every row to a canonical-form
 # key to deduplicate structurally identical chords, and this grid has
 # none: every upper-triangle triad is already canonically distinct, so
-# the reduction is overhead (slight in Python, about 2.5x the eval
-# itself in MATLAB). The two routes agree exactly and take the same
+# the reduction is overhead. The two routes agree exactly and take the same
 # route through the dispatcher.
 if do_tensor:
     int_mat = np.vstack([int1_lin, int2_lin])    # (2, n_upper)

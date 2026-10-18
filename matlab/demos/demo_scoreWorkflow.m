@@ -64,8 +64,6 @@
 %  the 272.
 %
 %  See also READSCORE, GRIDATTRTABLE, PREMAETFROMATTRTABLE, SELECTPREMAET.
-%
-%  The Python mirror is demo_score_workflow.py.
 
 % The chorale ships with the demos, and is located from the toolbox root.
 mptRoot = which('buildMaet');

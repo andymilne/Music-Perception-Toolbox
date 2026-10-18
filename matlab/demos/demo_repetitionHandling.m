@@ -55,8 +55,6 @@
 %  Exact invariances only ('relOuter' flags); the graded counterparts
 %  (the sdShift ridge of kernelCov, tending to rel in the
 %  limit) are the subject of demo_tempoInvariance.
-%
-%  The Python mirror is demo_repetition_handling.py.
 
 clear; close all;
 

@@ -34,8 +34,6 @@
 %
 % See also SWEPTSIMILARITY, SWEEPSIMMAET, TRANSLATEATTRIBUTES,
 % BINDEVENTS, SIMMAET.
-%
-% The Python mirror is demo_swept_similarity.py.
 
 clear; close all;
 

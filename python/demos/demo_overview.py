@@ -21,8 +21,6 @@ Uses: transform_attributes, add_spectra, sim_maet, entropy_maet,
       template_harmonicity, tensor_harmonicity, spectral_entropy, roughness, balance, evenness,
       dft_circular, coherence, sameness, n_tuple_entropy, mean_offset,
       edges, markov_s, circ_apm, set_default.
-
-The MATLAB mirror is demo_overview.m.
 """
 
 import numpy as np
@@ -218,7 +216,7 @@ print("  Drawn: r = 1 and 2 absolute, r = 2 and 3 relative.")
 #   demo_triad_spcs_grid     SPCS of every triad containing a fifth
 #   demo_edo_approx          how well each n-EDO approximates a JI chord
 #   demo_gen_chain_pcs       the same, over generator-chain tunings
-#   demo_batch_processing    a feature for every trial of an experiment
+#   demo_trial_data          a feature for every trial of an experiment
 #   demo_dispatch_and_kernel_controls
 #                            speed controls, and Renyi-2 entropy
 
@@ -477,7 +475,7 @@ print(f"  C major triad (8 harmonics): roughness = {r:.4f}")
 #   demo_virtual_pitches     the salience profiles behind template
 #                            harmonicity
 #   demo_audio_analysis      the same measures from recorded sounds
-#   demo_batch_processing    the same measures for a table of trials
+#   demo_trial_data          the same measures for a table of trials
 
 # ===================================================================
 #  4. Balance and evenness  (User Guide §9.2)

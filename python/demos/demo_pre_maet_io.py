@@ -30,8 +30,6 @@ Sections
     8. A pre-MAET from a score, which supplies what a score determines.
 
 See also: show_pre_maet, read_pre_maet, write_pre_maet, build_maet.
-
-The MATLAB mirror is demo_preMaetIo.m.
 """
 import os
 import tempfile

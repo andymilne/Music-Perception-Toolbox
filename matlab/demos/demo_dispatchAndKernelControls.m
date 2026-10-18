@@ -28,8 +28,6 @@
 %  ('truncationSigmas', 6 drops contributions below exp(-18), about
 %  1.5e-8 of a kernel's peak); 'kernelPrecision' defaults to double.
 %  Every control can be set per call or toolbox-wide.
-%
-%  The Python mirror is demo_dispatch_and_kernel_controls.py.
 
 %% User-adjustable parameters
 N_EVENTS = 20;          % source events per density
@@ -130,6 +128,15 @@ explainDispatch(densNx, densNy);
 %  offsets through the level-by-level contraction. 'auto' picks. The
 %  same routes serve sweptSimilarity wherever the context is the
 %  same at every translation (see demo_sweptSimilarity).
+%
+%  The translated copies can also be passed to simMaet as one cell of
+%  pre-MAETs, which goes wherever a cell of densities goes. That
+%  shortens the calling code -- one call, one value per entry -- but
+%  not the work: each entry is built and compared in turn, as in the
+%  loop. A cell is the form for items that differ in more than an
+%  offset (in their event counts or contents), where there is no shared
+%  geometry to exploit; items that differ only by a translation are a
+%  sweep.
 
 fprintf('\n=== 3. Sweeps (41 translations of the query) ===\n\n');
 
@@ -149,9 +156,14 @@ fprintf('     [C(%d, %d) %d!]^2 of them here, so it is the slowest at\n', N_EVEN
 fprintf('     this size; ''auto'' prices the routes and avoids it.)\n');
 
 [t_nloop, s_nloop] = timeCall(@() localPerOffsetNested(densNx, pmNy, mus));
+copies = arrayfun(@(mu) translateAttributes(pmNy, {mu}), mus, ...
+                  'UniformOutput', false);
+[t_ncell, s_ncell] = timeCall(@() cell2mat(simMaet(densNx, copies, 'verbose', false)));
 [t_nsw,   s_nsw]   = timeCall(@() sweepSimMaet(densNx, densNy, mus, 'verbose', false));
 fprintf('  nested (Section 2):\n');
 fprintf('    one offset at a time  : %7.1f ms\n', 1000*t_nloop);
+fprintf('    a cell of copies      : %7.1f ms   max |diff| = %.1e   (one call, same work)\n', ...
+        1000*t_ncell, max(abs(s_ncell(:) - s_nloop(:))));
 fprintf('    sweep, ''auto''         : %7.1f ms   max |diff| = %.1e   (the contraction route)\n', ...
         1000*t_nsw, max(abs(s_nsw(:) - s_nloop(:))));
 

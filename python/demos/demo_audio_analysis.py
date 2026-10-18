@@ -27,8 +27,6 @@ Uses: audio_peaks, transform_attributes, spectral_entropy,
       set_default.
 
 Requires: soundfile (pip install soundfile)
-
-The MATLAB mirror is demo_audioAnalysis.m.
 """
 
 import sys

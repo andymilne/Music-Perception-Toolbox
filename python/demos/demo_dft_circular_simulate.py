@@ -12,8 +12,6 @@ Features demonstrated:
   * proj_centroid — accepts `sigma` and applies analytical kernel-
     smoothing damping (alpha_1 factor); no Monte Carlo needed for the
     projection because it is linear in F(0).
-
-The MATLAB mirror is demo_dftCircularSimulate.m.
 """
 import numpy as np
 

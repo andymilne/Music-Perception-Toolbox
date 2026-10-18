@@ -36,8 +36,6 @@ modular reduction, so ``precision=9`` rounds the key to 9 decimal
 places, far below any perceptual scale.
 
 Requires: matplotlib (pip install matplotlib)
-
-The MATLAB mirror is demo_genChainPcs.m.
 """
 
 import numpy as np

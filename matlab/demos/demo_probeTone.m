@@ -29,8 +29,6 @@
 %  spectral enrichment via its 'spectrum' option), packPreMaet,
 %  weightEvents, unpackPreMaet, continuity, mptDefaults
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_probe_tone.py.
 
 prevDefaults = mptDefaults('showHints', false);
 

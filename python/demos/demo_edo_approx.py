@@ -23,8 +23,6 @@ density over intervals (dim = 1).
 Uses: sim_maet (batched-raw, broadcast form).
 
 Requires: matplotlib (pip install matplotlib)
-
-The MATLAB mirror is demo_edoApprox.m.
 """
 
 import numpy as np

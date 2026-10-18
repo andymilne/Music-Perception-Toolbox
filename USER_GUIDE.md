@@ -154,7 +154,7 @@ Material enters the toolbox in one of four ways.
 
 `transformAttributes` converts between pitch and frequency scales (Hz, MIDI, cents, octaves, mel, Bark, ERB-rate, Greenwood) and applies logarithmic, power, affine, and user-supplied transforms, at any of these entry points.
 
-**Demos.** `demo_scoreWorkflow` / `demo_score_workflow.py` (a score); `demo_audioAnalysis` / `demo_audio_analysis.py` (audio); `demo_probeTone` / `demo_probe_tone.py` (chords and scales made by hand); `demo_rhythmTensors` / `demo_rhythm_tensors.py` (rhythms); `demo_batchProcessing` / `demo_batch_processing.py` (a table of experimental trials).
+**Demos.** `demo_scoreWorkflow` / `demo_score_workflow.py` (a score); `demo_audioAnalysis` / `demo_audio_analysis.py` (audio); `demo_probeTone` / `demo_probe_tone.py` (chords and scales made by hand); `demo_rhythmTensors` / `demo_rhythm_tensors.py` (rhythms); `demo_trialData` / `demo_trial_data.py` (a table of experimental trials).
 
 ### 3.4 The MAET functions
 
@@ -311,7 +311,7 @@ s = mpt.sim_maet(dens_ref, mpt.build_maet(cp, cw, 10, 1, False, True, 1200))
 
 The batched form and its broadcasting are described in §10.6, the deduplication in §10.7, and the choice between densities and raw values in §10.5.
 
-**Demos.** `demo_batchProcessing` / `demo_batch_processing.py` (a table of trials in one batched call); `demo_edoApprox` / `demo_edo_approx.py` (every EDO against a JI chord); `demo_genChainPcs` / `demo_gen_chain_pcs.py` (a generator swept through its range).
+**Demos.** `demo_trialData` / `demo_trial_data.py` (predictors for every row of a table of trials); `demo_edoApprox` / `demo_edo_approx.py` (every EDO against a JI chord); `demo_genChainPcs` / `demo_gen_chain_pcs.py` (a generator swept through its range).
 
 ### Plotting a chord's density
 
@@ -558,7 +558,7 @@ A theoretical question usually starts from a vector: a chord or scale in cents o
 
 A set of chords, scales, or rhythms is the rows of a matrix, padded with `NaN` where they differ in size, and the batched forms return one value per row (§10.6). The stimuli of an experiment, one row per trial, go straight in, and rows that are equivalent under the measure's symmetries, such as transpositions or reorderings, are computed once (§10.7).
 
-**Demos.** `demo_probeTone` / `demo_probe_tone.py`; `demo_edoApprox` / `demo_edo_approx.py`; `demo_genChainPcs` / `demo_gen_chain_pcs.py`; `demo_rhythmTensors` / `demo_rhythm_tensors.py`; `demo_batchProcessing` / `demo_batch_processing.py` (a table of trials, and a cell of pre-MAETs).
+**Demos.** `demo_probeTone` / `demo_probe_tone.py`; `demo_edoApprox` / `demo_edo_approx.py`; `demo_genChainPcs` / `demo_gen_chain_pcs.py`; `demo_rhythmTensors` / `demo_rhythm_tensors.py`; `demo_trialData` / `demo_trial_data.py` (a table of trials).
 
 ---
 
@@ -609,7 +609,7 @@ for s in [0.25, 0.5, 1.0]:
 
 `sweptSimilarity`, `sweptEntropy`, and `sweptMass` take pre-MAETs on the same terms, with the same overrides. In these functions, the two pre-MAETs of a comparison must agree on `r`, `[rel]`, `[exch]`, and nesting; they may differ in `sigma`, `per`, and `period`, which are taken from the context. They may differ in the number of values per event, so a two-note query can be compared with a seven-note context.
 
-**Demos.** `demo_preMaetIo` / `demo_pre_maet_io.py`; `demo_batchProcessing` / `demo_batch_processing.py` (Workflow 3, a cell of pre-MAETs).
+**Demos.** `demo_preMaetIo` / `demo_pre_maet_io.py`; `demo_dispatchAndKernelControls` / `demo_dispatch_and_kernel_controls.py` (part 3: a cell of translated pre-MAETs in one call).
 
 ### 6.2 Viewing a pre-MAET
 
@@ -1133,7 +1133,7 @@ S = mpt.sweep_sim_maet(melody, query, offsets)
 
 Like `sweptSimilarity`, it computes every offset in one pass, not one comparison per offset. Only an absolute attribute can be swept, a relative one being unchanged by translation. `'method'` chooses how (§11.1): `'mixture'`, a Gaussian mixture in the offset; `'orbit'`, which scales better to large tuple sizes and also covers a swept periodic attribute; `'contract'`, for densities with a nested attribute; or `'auto'` (the default), which chooses among them.
 
-**Demos.** `demo_sweptSimilarity` / `demo_swept_similarity.py` (every alignment, on one melody holding four statements related to a query); `demo_overview` / `demo_overview.py` (part 2d: a window over time, with each triad's share of the notes in it); `demo_helixBlend` / `demo_helix_blend.py`; `demo_tempoInvariance` / `demo_tempo_invariance.py` (part 3: a sweep under a tempo-tolerant kernel); `demo_batchProcessing` / `demo_batch_processing.py` (`sweepSimMaet` against translated copies); `demo_dispatchAndKernelControls` / `demo_dispatch_and_kernel_controls.py` (part 3: sweeps in one pass); `demo_jmm_1_1_entropy` (JMM); `demo_jmm_1_3_cadence_nesting` (JMM); `demo_jmm_2_3_spectral` (JMM); `demo_jmm_3_1_texture` (JMM); `demo_jmm_3_2_diff` (JMM); `demo_jmm_3_3_xcorr` (JMM).
+**Demos.** `demo_sweptSimilarity` / `demo_swept_similarity.py` (every alignment, on one melody holding four statements related to a query); `demo_overview` / `demo_overview.py` (part 2d: a window over time, with each triad's share of the notes in it); `demo_helixBlend` / `demo_helix_blend.py`; `demo_tempoInvariance` / `demo_tempo_invariance.py` (part 3: a sweep under a tempo-tolerant kernel); `demo_dispatchAndKernelControls` / `demo_dispatch_and_kernel_controls.py` (part 3: sweeps in one pass, against a loop and a cell of translated copies); `demo_jmm_1_1_entropy` (JMM); `demo_jmm_1_3_cadence_nesting` (JMM); `demo_jmm_2_3_spectral` (JMM); `demo_jmm_3_1_texture` (JMM); `demo_jmm_3_2_diff` (JMM); `demo_jmm_3_3_xcorr` (JMM).
 
 ---
 
@@ -1255,13 +1255,13 @@ Most functions take a matrix of multisets as well as a single one:
 - **NaN-padding** allows rows of different sizes: a row's trailing `NaN` entries are dropped before it is processed.
 - **Weights**, when given, have the same shape as the values; `[]` / `None` gives uniform weights.
 
-These functions take the batched form: `simMaet` (one pair per row, a single row broadcasting against the others), `evalMaet`, `entropyMaet`, `tensorHarmonicity`, `templateHarmonicity`, `virtualPitches`, `spectralEntropy`, `dftCircular`, `meanOffset`, `edges`, `projCentroid`, `circApm`, `coherence`, `sameness`, `nTupleEntropy`, `balanceCircular`, and `evennessCircular`.
+These functions take the batched form: `simMaet` (one pair per row, a single row broadcasting against the others), `evalMaet`, `entropyMaet`, `tensorHarmonicity`, `templateHarmonicity`, `virtualPitches`, `spectralEntropy`, `roughness` (one multiset of frequencies per row), `dftCircular`, `meanOffset`, `edges`, `projCentroid`, `circApm`, `markovS`, `coherence`, `sameness`, `nTupleEntropy`, `balanceCircular`, `evennessCircular`, and `continuity` (one sequence per row, with its queries either one row per sequence or a single row shared by all).
 
 MATLAB reads a matrix with more than one row and column as a batch, and any vector as one multiset; Python reads any 2-D array as a batch, so a `(K, 1)` array is K one-element rows. A batch of one-element multisets is written the same way in both by padding to two columns with `NaN`: `[p(:), nan(K, 1)]` / `np.column_stack([p, np.full(K, np.nan)])`.
 
 A pre-MAET or other multi-attribute item has no rows to collapse, so a cell / list of them is computed entry by entry instead (§6.1).
 
-**Demos.** `demo_batchProcessing` / `demo_batch_processing.py`; `demo_edoApprox` / `demo_edo_approx.py`.
+**Demos.** `demo_trialData` / `demo_trial_data.py`; `demo_edoApprox` / `demo_edo_approx.py`.
 
 ### 10.7 Canonical-form deduplication
 
@@ -1269,11 +1269,13 @@ A batched call finds the rows that are equivalent under the function's symmetrie
 
 - **Invariant to transposition** (`coherence`, `sameness`, the `H` of `nTupleEntropy`, `simMaet` with `rel = true`): every transposition of a multiset is one class.
 - **Equivariant under transposition** (`dftCircular`, `edges`, `projCentroid`, `circApm`): only reorderings and period-equivalents are merged.
-- **Invariant to reordering** (every batched function): reorderings of the elements, and on a periodic attribute values a period apart, are merged.
+- **Equivariant under rotation** (`markovS`): rotations of a pattern are one class, the result rotated with it.
+- **Invariant to joint transposition** (`continuity`): a sequence and its queries transposed together are one class. A sequence is ordered, so its reorderings are not merged.
+- **Invariant to reordering** (every other batched function): reorderings of the elements, and on a periodic attribute values a period apart, are merged. For `roughness`, which depends on absolute frequency, these are the only rows merged.
 
 `'precision'` sets the number of decimal places to which values are rounded when classes are found, so that values differing only by floating-point noise are merged: `'precision', 4` suffices for a 12-EDO grid, and 6 for fractional cents from just ratios. On an irrational grid, such as an EDO whose step in cents does not terminate, rounding cannot merge every transposition; express the pitches in EDO steps instead, scaling σ and the period to match.
 
-**Demos.** `demo_batchProcessing` / `demo_batch_processing.py`.
+**Demos.** `demo_trialData` / `demo_trial_data.py`.
 
 ### 10.8 Return values
 
@@ -1432,7 +1434,7 @@ These take absolute pitches in cents, except `roughness`, which takes Hz, and tr
 - **spectralEntropy(p, w, sigma, ...)** – The entropy of the smoothed composite spectrum; lower is more consonant. `'method'` defaults to `'differential'`; the grid methods (`'shannon'`, `'normalized'`) use a grid of `'resolution'` cents (default 1), part of the measure's definition. `'per'` (default false) works on pitch class, every partial folded into one `'period'` (default 1200), as Milne et al. (2017) computed it; there the grid is one period. On pitch, `'normalized'` warns, since its N grows with the spectrum's span.
 - **templateHarmonicity(p, w, sigma, ...)** – Cross-correlates the chord's spectrum with a harmonic template, returning hMax, the greatest cosine similarity (Milne, 2013), and hEntropy, the entropy of the cross-correlation (Harrison & Pearce, 2020). `'spectrum'` sets the template's partials and `'chordSpectrum'` the chord's (§9.1). `'method'` sets hEntropy's form: `'differential'` (default), `'shannon'`, or `'normalized'` ($H/\log_2 N$, which warns on pitch, since N grows with the chord's span). `'per'` and `'period'` as for `spectralEntropy`.
 - **tensorHarmonicity(p, w, sigma, ...)** – The density of a harmonic series' relative tensor at the chord's intervals above its lowest pitch (§9.1).
-- **roughness(f, w, ...)** – Sensory roughness from frequencies in Hz (Plomp & Levelt, 1965; Sethares, 1993). Options: `'pNorm'` (default 1) and `'average'` (default false).
+- **roughness(f, w, ...)** – Sensory roughness from frequencies in Hz (Plomp & Levelt, 1965; Sethares, 1993). `'spectrum'` makes each frequency the fundamental of a complex tone with those partials; without it, the frequencies are the partials themselves. Options: `'pNorm'` (default 1) and `'average'` (default false).
 - **virtualPitches(p, w, sigma, ...)** – The whole template cross-correlation profile, whose peaks are candidate fundamentals. With `'per'` true, one value per pitch class, `0 : resolution : period − resolution`.
 
 ### 12.6 Balance and evenness
@@ -1455,11 +1457,11 @@ At `sigma = 0`, `coherence`, `sameness`, and `nTupleEntropy` take integer positi
 - **edges(p, w, period [, x])** – Edges: the points convolved with the derivative of a von Mises kernel, whose width `'kappa'` sets, giving absolute and signed edge weights.
 - **projCentroid(p, w, period [, x] [, sigma])** – The projection of the circular centroid onto each position, with the centroid's magnitude and phase. With `sigma > 0`, the expected projection under jitter, in closed form: the deterministic value scaled by $\exp(-2\pi^2\sigma^2/P^2)$. Its magnitude is that of the mean centroid, where `balanceCircular` averages the centroid's magnitude.
 - **meanOffset(p, w, period [, x])** – At each position, the weighted balance of upward over downward arcs to every point, normalized by the period: average pitch height (Huron, 2008) made a function of position, and related to mode height (Hearne, 2020; Tymoczko, 2023).
-- **markovS(p, w, period [, S])** – An optimal S-step Markov predictor (default S = 3), after David Bulger: at each position, the average weight of the positions that share its next S steps.
+- **markovS(p, w, period [, S])** – An optimal S-step Markov predictor (default S = 3), after David Bulger: at each position, the average weight of the positions that share its next S steps. A matrix of patterns gives one row of predictions per pattern.
 
 ### 12.8 Sequences
 
-- **continuity(seq, x, sigma [, 'w', w] [, 'mode', m] [, 'theta', θ])** – The expected length and signed magnitude of the same-direction run leading up to each query point under Gaussian pitch uncertainty; their ratio is a trend slope. `'mode'`, `'strict'` (θ = 0) or `'lenient'` (θ = −1), sets when a run breaks. Weights scale each interval's contribution by the product of its two events' weights.
+- **continuity(seq, x, sigma [, 'w', w] [, 'mode', m] [, 'theta', θ])** – The expected length and signed magnitude of the same-direction run leading up to each query point under Gaussian pitch uncertainty; their ratio is a trend slope. `'mode'`, `'strict'` (θ = 0) or `'lenient'` (θ = −1), sets when a run breaks. Weights scale each interval's contribution by the product of its two events' weights. A matrix of sequences, one per row, gives one row of results per sequence, its queries either one row per sequence (a column for one query each) or a single row shared by all.
 
 ### 12.9 Diagnostics, defaults, and estimates
 
@@ -1478,7 +1480,7 @@ The demos are in `matlab/demos/` and `python/demos/`, with adjustable parameters
 | `demo_0_startHere` | `demo_0_start_here.py` | A printed guide to the demos | – |
 | `demo_overview` | `demo_overview.py` | A tour of every major function family: SPCS, entropy, total mass, r and the three flags plotted, a multi-attribute motif search, a moving window's share of each of two triads, and the consonance and structural measures | – |
 | `demo_audioAnalysis` | `demo_audio_analysis.py` | Peaks from audio in two passes, then similarity, harmonicity, roughness, and virtual pitches | – |
-| `demo_batchProcessing` | `demo_batch_processing.py` | Features of a table of experimental trials in batched calls, contrasted with a list of pre-MAETs and a translation sweep | – |
+| `demo_trialData` | `demo_trial_data.py` | Perceptual predictors added to a long-format table of experimental trials by batched calls, each computing a repeated stimulus once | – |
 | `demo_edoApprox` | `demo_edo_approx.py` | PCS of n-EDOs against a JI chord | Milne et al. (2011), Ex. 6.3 / Fig. 4 |
 | `demo_genChainPcs` | `demo_gen_chain_pcs.py` | PCS of generator-chain tunings as the generator is swept | Milne et al. (2011), Ex. 6.4–6.5 / Figs. 5–7 |
 | `demo_triadSpcsGrid` | `demo_triad_spcs_grid.py` | SPCS of every 12-EDO triad with a fifth | Milne et al. (2011), Fig. 3 |

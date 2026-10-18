@@ -7,8 +7,6 @@
 %  sixteenth step, the default weighting -- and points here.
 %
 %  See also GRIDATTRTABLE, READSCORE, PREMAETFROMATTRTABLE.
-%
-%  The Python mirror is demo_score_grid.py.
 
 % The chorale ships with the demos, and is located from the toolbox root.
 mptRoot = which('buildMaet');

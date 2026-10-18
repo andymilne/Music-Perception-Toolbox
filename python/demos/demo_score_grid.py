@@ -5,8 +5,6 @@ works through the three choices it takes: the step, what a slice takes
 from a note that overlaps it, and what to do with a slice where nothing
 sounds. demo_score_workflow.py makes one of each in passing -- a
 sixteenth step, the default weighting -- and points here.
-
-The MATLAB mirror is demo_scoreGrid.m.
 """
 
 import os

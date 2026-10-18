@@ -23,8 +23,6 @@
 %  Uses: sameness, coherence, nTupleEntropy, internal.positionVariance,
 %        mptDefaults
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_sigma_space.py.
 
 clear; close all;
 

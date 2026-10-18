@@ -23,8 +23,6 @@ vertical step of the same size.
 Uses: sim_maet (batched-raw, broadcast form, with spectrum).
 
 Requires: matplotlib (pip install matplotlib)
-
-The MATLAB mirror is demo_triadSpcsGrid.m.
 """
 
 import numpy as np

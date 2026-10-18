@@ -34,8 +34,6 @@
 %
 %  Uses: simMaet (from the Music Perception Toolbox); islocalmax (base
 %  MATLAB, R2017b or later).
-%
-%  The Python mirror is demo_gen_chain_pcs.py.
 
 %% === User-adjustable parameters ===
 

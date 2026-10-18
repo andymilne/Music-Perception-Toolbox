@@ -21,8 +21,6 @@
 %
 %  Uses: simMaet (batched-raw, broadcast form, with 'spectrum')
 %  (from the Music Perception Toolbox).
-%
-%  The Python mirror is demo_triad_spcs_grid.py.
 
 %% === User-adjustable parameters ===
 

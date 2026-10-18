@@ -6,8 +6,6 @@ they are related. Voice is the example, but the same three carry any
 category an attribute table holds -- instrument, articulation, an
 experimental condition, a cluster label. demo_score_workflow.py makes
 one of these choices in passing and points here.
-
-The MATLAB mirror is demo_scoreCategoricals.m.
 """
 
 import os

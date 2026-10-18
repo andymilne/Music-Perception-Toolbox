@@ -8,8 +8,6 @@
 %  of these choices in passing and points here.
 %
 %  See also PREMAETFROMATTRTABLE, SELECTPREMAET, GRIDATTRTABLE.
-%
-%  The Python mirror is demo_score_categoricals.py.
 
 % The chorale ships with the demos, and is located from the toolbox root.
 mptRoot = which('buildMaet');

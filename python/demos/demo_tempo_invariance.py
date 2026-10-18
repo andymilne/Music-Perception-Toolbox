@@ -99,8 +99,6 @@ query and the six similarity profiles aligned beneath it
 rel limit (demo_tempo_invariance_limit.png).
 
 Requires: numpy, matplotlib, mpt.
-
-The MATLAB mirror is demo_tempoInvariance.m.
 """
 import os
 
